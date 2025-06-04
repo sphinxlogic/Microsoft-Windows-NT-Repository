@@ -1,0 +1,98 @@
+	.title	sys_memsize
+	.ident	/X1-003/
+
+;+
+; Version:	X1-003
+;
+; Facility:	General system routines.
+;
+; Abstract:	Returns the number of physical pages of memory.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	27-Sep-1990, DBS, Version X1-001
+; 001 -	Original version.
+;	21-Aug-1992, DBS; Version X1-002
+; 002 -	Added an optional parameter to receive the answer.
+;	19-Jan-1996, DBS; Version X1-003
+; 003 -	Added code for alpha - on alpha always returns 0.
+;-
+
+;++
+; Functional Description:
+;	Returns the count of physical pages of memory on the system by reading
+;	the information fom the restart parameter block.
+;
+; Calling Sequence:
+;	page_count = sys_memsize ()
+;		-or-
+;	calls	#0, g^sys_memsize
+;	movl	r0, page_count
+;
+; Formal Argument(s):
+;	None
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	The number of physical memory pages.
+;
+; Side Effects:
+;	None
+;--
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+.if not_defined, alpha
+	.external exe$gl_rpb
+	$rpbdef
+.endc
+	$ssdef
+
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_code
+
+        .entry -
+sys_memsize ,^m<r8,r9,r10,r11>
+
+	clrl	r8			; that's the running total
+.if not_defined, alpha
+	movl	g^exe$gl_rpb, r9	; that's the restart parameter block
+	addl3	#<rpb$c_memdscsiz*rpb$c_nmemdsc>, -
+		r9, r10			; address of the last item (sort of)
+10$:	extzv	#rpb$v_pagcnt, -	; extract the size of
+		#rpb$s_pagcnt, -	;  this module
+		rpb$l_memdsc(r9), r11
+	addl2	r11, r8			; add it to the total
+	addl2	#rpb$c_memdscsiz, r9	; point to the next entry
+	cmpl	r9, r10			; see if we have finished
+	blssu	10$			; go again if not at the end
+.endc
+	movl	r8, r0			; return our total
+	cmpw	#1, (ap)		; see if we have an argument
+	bneq	90$			; no, so bye bye
+	tstl	4(ap)
+	beql	90$
+	movl	r0, @4(ap)		; yes, so return the result there
+	movl	#ss$_normal, r0
+
+90$:	ret
+
+	.end

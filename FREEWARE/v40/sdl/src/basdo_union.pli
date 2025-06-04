@@ -1,0 +1,163 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+     9-Apr-1987	|  jw	| X3.1-0  Changed typ_buf's length allocation from 15
+		|	|	  to 30 to make it consistent with declarations
+		|	|	  of typ_buf in other routines.
+________________!_______!______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* DO_UNION processes a union and its children			*/
+/*								*/
+/****************************************************************/
+
+
+do_union: proc( cur_node, level, dim );
+					    /********************/
+					    /*			*/
+					    /* DO_UNION		*/
+					    /*			*/
+					    /********************/
+%include 'sdl$library:sdlnodef.in';	    /* node structure definition    */
+%include 'sdl$library:sdltypdef.in';	    /* type defintiions		    */
+
+%replace union by '1'b;
+
+/* declare variables */
+declare
+    cur_node pointer,			    /* pointer to the current node  */
+    level fixed binary(31),		    /* level in aggregate	    */
+    dim char(*) var,			    /* dimension, if any	    */
+    v_tabs char(132) var initial(''),	    /* tabs buffer		    */
+    typ_buf char(30) var initial(''),	    /* record or group keyword	    */
+    buf char(1024) var initial('');	    /* output buffer		    */
+
+/* declare external routines */
+DCL OUTPUT_BUF ENTRY (
+	character(1024) VARYING );
+
+DCL ADD_COMMENTS ENTRY (
+	pointer,
+	character(1024) VARYING );
+
+DCL DO_CHILDREN ENTRY (
+	pointer,
+	fixed binary(31) );
+
+DCL TABS ENTRY (
+	pointer,
+	fixed binary(31),
+	bit(1) ) returns(char(132) var) ;
+
+DCL DO_TOP_LEVEL_DIM ENTRY (
+	pointer,
+	char(*) var,
+	bit(1) );
+
+DCL DO_GLOB_COM ENTRY (
+	pointer );
+
+DCL TRIM ENTRY (
+	fixed binary(31))
+	RETURNS (character(32) VARYING );
+
+
+/*
+ * put out the size constant .
+ *
+ */
+ 	if( level = 1 )
+	then do;
+	     buf = '   DECLARE LONG CONSTANT ' || cur_node->nod$t_prefix ;
+	     if substr(cur_node->nod$t_naked,1,1) < 'a' 
+	     then
+		    buf = buf || 'S_'; /* upper case tag */
+	     else
+		    buf = buf || 's_'; /* lower case tag */
+
+	     buf = buf || cur_node->nod$t_naked || ' = ' || trim(cur_node->nod$l_fldsiz);
+	     call output_buf(buf);
+	end;
+
+/*
+ * Output the structure
+ *
+ */
+
+	v_tabs = tabs(cur_node,level, '1'b);
+	if( level > 1 )
+	then do;
+	   buf = v_tabs || 'group ' || cur_node->nod$t_name || dim;
+	   typ_buf = 'group ';
+	end;
+	else do;
+	   buf = v_tabs || 'record ' || cur_node->nod$t_name;
+	   typ_buf = 'record ';
+	end;
+
+
+	call add_comments(cur_node, buf);
+	call output_buf(buf);
+
+	if( level = 1 & cur_node->nod$v_dimen )
+	then
+	   call do_top_level_dim(cur_node,dim,union);
+	else do;
+	   call output_buf( v_tabs || '   variant' );
+	   call do_children(cur_node, level+1);
+	   call output_buf( v_tabs || '   end variant' );
+	end;
+
+
+	buf = v_tabs || 'end ' || typ_buf || cur_node->nod$t_name ;
+	call output_buf(buf);
+
+
+	if( level = 1 )
+	then do;
+	   call output_buf(' ');
+	   if( cur_node->nod$v_global | cur_node->nod$v_common )
+	   then
+	   	call do_glob_com(cur_node);
+	end;
+
+end do_union;

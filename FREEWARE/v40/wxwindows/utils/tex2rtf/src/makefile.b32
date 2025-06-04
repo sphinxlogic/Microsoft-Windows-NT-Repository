@@ -1,0 +1,80 @@
+#
+# File:		makefile.b32
+# Author:	Patrick Halke
+# Created:	1995
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds 32bit wxhelp utility.
+
+# WXWIN and BCCDIR are set by parent make
+
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makeb32.env
+
+WXLIBDIR = $(WXDIR)\lib
+WXINC = $(WXDIR)\include\msw
+WXBASESRC = $(WXDIR)\src\base
+WXBASEINC = $(WXDIR)\include\base
+WXHELPINC = $(WXDIR)\utils\wxhelp\src
+WXLIB = $(WXLIBDIR)\wx32.lib
+LIBS=$(WXLIB) cw32 import32
+
+TARGET=tex2rtf
+
+# Default is to output RTF for WinHelp
+!ifndef WINHELP
+WINHELP=-winhelp
+!endif
+
+!if "$(FINAL)" == "0"
+LINKFLAGS=/v /Tpe /L$(WXLIBDIR);$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS= -v
+!else
+LINKFLAGS=/Tpe /L$(WXLIBDIR);$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS =
+!endif
+
+CPPFLAGS=$(DEBUG_FLAGS) $(OPT) -I$(WXHELPINC) @$(CFG)
+
+OBJECTS = tex2any.obj texutils.obj htmlutil.obj rtfutils.obj xlputils.obj\
+  tex2rtf.obj readshg.obj table.obj
+
+$(TARGET).exe:	$(OBJECTS) $(TARGET).def $(TARGET).res
+  tlink32 $(LINKFLAGS) @&&!
+c0w32.obj $(OBJECTS)
+$(TARGET)
+nul
+$(LIBS)
+$(TARGET).def
+!
+        brc32 -K $(TARGET).res
+
+.$(SRCSUFF).obj:
+	bcc32 $(CPPFLAGS) -c {$< }
+
+.c.obj:
+	bcc32 $(CPPFLAGS) -P- -c {$< }
+
+
+tex2any.obj: tex2any.$(SRCSUFF) tex2any.h
+texutils.obj: texutils.$(SRCSUFF) tex2any.h
+tex2rtf.obj: tex2rtf.$(SRCSUFF) bmputils.h tex2rtf.h tex2any.h
+rtfutils.obj: rtfutils.$(SRCSUFF) tex2rtf.h bmputils.h tex2any.h table.h
+xlputils.obj: xlputils.$(SRCSUFF) tex2rtf.h rtfutils.h tex2any.h
+htmlutil.obj: htmlutil.$(SRCSUFF) tex2rtf.h tex2any.h table.h
+readshg.obj: readshg.$(SRCSUFF) readshg.h
+table.obj: table.$(SRCSUFF) table.h
+
+
+$(TARGET).res :      $(TARGET).rc $(WXDIR)\include\msw\wx.rc
+    brc32 -r /i$(BCCDIR)\include /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa $(TARGET)
+
+clean:
+        -erase *.obj *.exe *.res *.map *.rws
+
+

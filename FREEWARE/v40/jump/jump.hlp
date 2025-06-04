@@ -1,0 +1,175 @@
+1 JUMP
+JUMP is a  program  which  allows  selected  users (Systems Programmers,
+Operators and specifically authorised users) to change elements of their
+process to those of another user, or to become *exactly* the target user
+in  a pseudo-terminal.  Limitations are placed on Operators: they cannot
+target users who have more than a certain set of privileges unless  they
+are specifically authorised to do so.
+
+All users except Systems  Programmers  are  validated against an  access
+list  file  to determine any specific access to be granted or denied  in
+addition to any default access (e.g.  for Operators).
+
+For non-exact jumps, items which are changed to those of the target user
+are:
+
+  Username (Systems Programmers only, using the SETUSER or ALL qualifier)
+
+  UIC, Default Directory, Default Disk, LNM$GROUP.
+
+Privileges and process rights are NOT changed.
+
+By default, all users can JUMP to themselves.
+
+
+The general syntax of the JUMP command is
+
+  $ JUMP [username] [qualifiers]
+
+2 Parameter
+JUMP takes a single optional parameter which is a username.  This is the
+username which will be  used  (after  validation)  as the target user to
+which  to  change.   Systems Programmers may set their username  to  one
+which is not in the UAF using the OVERRIDE_UAF qualifier.
+
+If no username is specified,  the  username  is defaulted to the current
+username  of  the  process.   If a non-exact jump  without  username  is
+specified, JUMP returns all values of items  to  those  of  the  current
+username.
+
+Only Systems Programmers and users specifically authorised in the access
+list file can jump in any manner to a user with  privileges in excess of
+those defined by the logical name JUMP_MINOR_PRIVS.
+
+2 Qualifiers
+/ALL
+ /[NO]ALL
+
+Use of /ALL is restricted to Systems Programmers. It causes all "normal"
+actions of a non-exact JUMP _and_ the action of the SETUSER qualifier.
+
+/AUDIT		(Default)
+ /[NO]AUDIT
+
+By default, use of JUMP is audited to a site-specific log file.  Systems
+Programmers may use /NOAUDIT to prevent auditing of successful jumps.
+
+/EXACT
+ /[NO]EXACT
+
+Use this qualifier to create a pseudo-terminal which is logged in exactly
+as the user.
+
+/LOG		(Default)
+ /[NO]LOG
+
+By default, successful changes are logged to SYS$OUTPUT.  Use  /NOLOG  to
+change "quietly"!
+
+/OVERRIDE_UAF
+ /[NO]OVERRIDE_UAF
+
+Systems Programmers may use this qualifier to set their username to one
+which is not in the UAF when performing non-exact jumps.
+
+/SETUSER
+ /[NO]SETUSER
+
+Systems Programmers may use this qualifier to change ONLY their username.
+
+2 User_Categories
+There are three categories of JUMP users:
+
+ Systems Programmers:  Users with SETPRV privilege or
+                       in an implicit system UIC group.
+
+ Operators: Users with OPER privilege.
+
+ All users who are not either Systems Programmers or Operators.
+
+2 Logical_Names
+There are a number of logical names  which the System Manager may define
+for  JUMP.   All  must be defined in the SYSTEM logical  name  table  in
+EXECUTIVE mode.
+
+3 JUMP_ACCESS_LIST
+The logical name JUMP_ACCESS_LIST is the  file specification of the list
+of  specifically  authorised users for JUMP and the target usernames  to
+which they are to be granted or denied access.   The  default  value  is
+"SYS_MANAGER:JUMP_ACCESS.DAT".  (See the example file for the details of
+the format of the file).
+
+3 JUMP_AUDIT_TRAIL
+The logical name JUMP_AUDIT_TRAIL is the file specification of the audit
+trail file for JUMP.  The default value is "SYS_MANAGER:JUMP_AUDIT.DAT".
+
+3 JUMP_DOUBLE_CHECK
+The logical name JUMP_DOUBLE_CHECK is a string, the only legal value for
+which is "TRUE" -  all  other  values  are  treated  as  not "TRUE".  If
+JUMP_DOUBLE_CHECK  is  "TRUE", JUMP will ensure that when a user who  is
+not a Systems Programmer or Operator attempts to use JUMP, the user must
+have the JUMP_ACCESS process rights identifier.  The  default  value  is
+"TRUE".
+
+3 JUMP_MINOR_PRIVS
+The logical name JUMP_MINOR_PRIVS is a string which is a space-separated
+list of privileges which is the  maximum  set of privileges which may be
+held by a username targeted by an Operator.  If any other privileges are
+held by the username, Operators cannot jump to the user without explicit
+access being granted through the access list file.  The default value is
+"NETMBX TMPMBX".
+
+3 JUMP_SELF
+The logical name JUMP_SELF is a  string,  the only legal value for which
+is "TRUE" - all other values are treated as not "TRUE".  If JUMP_SELF is
+"TRUE",  JUMP will allow a user to jump to the current username even  if
+the user is prevented from jumping (implicitly  or  explicitly)  to  all
+usernames.  The default value is "TRUE".
+
+2 Rights_ID
+To use the double check  feature  of  JUMP  to  increase the security of
+checks  on authorised users, the Rightslist identifier JUMP_ACCESS  must
+be created  and granted to ordinary users who are to  be given access to
+JUMP.  The value of the identifier is not relevant.
+
+2 Access_List
+The JUMP access list  file  contains  a  list of specifically authorised
+users  for JUMP and the target usernames to which they are to be granted
+or denied access.  An example file is included in the JUMP  distribution
+- it includes full details of the format of the file.
+
+2 Installation
+To install JUMP:
+
+  1. Re-link JUMP (NO Traceback) as directed in the build procedure.
+  2. Define EXECUTIVE mode SYSTEM table logical names as required (see help).
+  3. If required, create the JUMP_ACCESS rights ID.
+  4. If required, grant the JUMP_ACCESS rights ID to authorised users.
+  5. If required, create/edit the user access list file (see example file).
+  6. INSTALL JUMP with privileges: CMEXEC, CMKRNL, DETACH, SYSNAM, SYSPRV
+  7. Define a foreign command: $ JUMP :== $device:[directory]JUMP
+  8. Boing!
+
+2 Author
+The author of JUMP is
+
+    Jonathan Ridler,
+    Information Technology Services,
+    The University of Melbourne,
+    Parkville, Victoria, AUSTRALIA, 3052.
+
+    Email: jonathan@unimelb.edu.au
+
+Note: Some ideas in JUMP have been drawn from Eric Wentz's program BECOME.
+      The code for pseudo-terminal creation is derived from Anthony
+      McCracken's GLOGIN program.  Thanks to Jeremy Begg for a minor code
+      fix and testing, and Bob Beckerhof for testing and helpful suggestions.
+
+JUMP is written entirely in DEC Pascal and has been built and tested on
+OpenVMS VAX v6.2 (DEC Pascal v5.4) and OpenVMS Alpha v6.2 and v7.1 (DEC
+Pascal v5.5).
+
+Suggestions, comments, criticisms, bug reports, bug fixes ... all welcome.
+
+2 Version
+The current version of JUMP is v3.0 (26-Jun-1998).

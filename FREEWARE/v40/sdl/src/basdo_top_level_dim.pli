@@ -1,0 +1,108 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* DO_TOP_LEVEL_DIM  handles top level dimensions on aggragates.*/
+/* Since dimensions are not allow on top level aggregates in	*/
+/* Basic, another subaggregate is introduced with a generated   */
+/* name and the dimension is put on this subaggragate.		*/
+/*								*/
+/****************************************************************/
+
+do_top_level_dim : proc(cur_node,dim,st_un);
+
+
+					    /********************/
+					    /*			*/
+					    /* DO_TOP_LEVEL_DIM	*/
+					    /*			*/
+					    /********************/
+%include 'sdl$library:sdlnodef.in';
+
+%replace struc by '0'b;
+%replace union by '1'b;
+
+/* declare variables */
+declare
+    cur_node pointer,			    /* pointer to the current node  */
+    dim char(*) var,			    /* dimensions of the aggregate  */
+    st_un bit(1),			    /* flag indicating structure or union */
+    v_tabs char(132) var;		    /* tabs			    */
+
+DCL OUTPUT_BUF ENTRY (
+	character(1024) VARYING );
+
+DCL DO_CHILDREN ENTRY (
+	pointer,
+	fixed binary(31) );
+
+DCL TABS ENTRY (
+	pointer,
+	fixed binary(31),
+	bit(1) ) returns(char(132) var) ;
+
+
+
+    v_tabs = tabs(cur_node,2,'0'b);
+/*
+ * output the subaggregate. Generate the name by appendin '_array' to
+ * the end of the structure name.
+ */
+    call output_buf( v_tabs || 'group fill_array' || dim );
+
+/* 
+ * if the aggragate is a union output the "variant" keyword
+ */
+    if( st_un = union )
+    then
+	call output_buf( v_tabs || '   variant' );
+
+    call do_children(cur_node,2); 
+
+    if( st_un = union )
+    then
+	call output_buf( v_tabs || '   end variant' );
+
+    call output_buf( v_tabs || 'end group fill_array' );
+
+end do_top_level_dim;

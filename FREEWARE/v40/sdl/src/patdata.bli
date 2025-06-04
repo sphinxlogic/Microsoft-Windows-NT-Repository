@@ -1,0 +1,381 @@
+!<BLF/REQUIRE'PATBLF_INI'>
+module PATDATA (ident = 'X2-001'
+	%require ('PATSWITCH_REQ')
+		) =
+begin
+!
+!			  COPYRIGHT (c) 1982 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:	PAT parser
+!
+! ABSTRACT:
+!
+!	PATDATA.BLI.  PAT/BLISS interface.  Definition of parse tables.
+!
+!	This file is generally language independent.  (See PATDATA.REQ.)
+!
+! ENVIRONMENT:
+!
+! AUTHOR:  C. Mitchell, CREATION DATE:  18-Feb-80
+!
+! MODIFIED BY:
+!
+! 	Charlie Mitchell, 03-Sep-81 : VERSION X1-001
+! 001 - Define the parse tables as an abstract data type.
+!--
+
+!
+! INCLUDE FILES:
+!
+
+require 'PATPROLOG_REQ';
+
+library 'PATDATA_LIB';
+
+!
+! TABLE OF CONTENTS FOR INTERNAL ROUTINES:
+!
+!	NONE
+!
+!<blf/page>
+
+!+
+! Define general macros
+!-
+
+macro
+    EXPAND_ARG_LIST (A) =
+	! Expand an argument list with comma separators
+	A
+
+	%if not %null (%remaining)
+	%then
+	    , expand_WORKER (%remaining)
+	%fi
+
+    %;
+
+macro
+    expand_WORKER [ARG] =
+	ARG %;
+!+
+! Define macros in PAT_REQUIRE_FILE that must be defined for
+! correct compilation but that aren't needed here.
+!-
+
+macro
+    PAT_INTERNAL_DEFINITIONS (A) =
+    %,						! null
+    PAT_INTRNLDEF (NAME, VALUE) =
+    %;
+
+!+
+! Define macros for definition of symbol text table
+!-
+!<blf/nomacro>
+
+macro
+    PAT_SYMBOL_DEFINITIONS (A) =
+
+	!+
+	!
+	! Define PAT$DATA_SYMBOL_TEXT_TABLE as a vector of string
+	! descriptors (not pointers to string descriptors) for the
+	! text of the terminal (and non-terminal if debugging) symbols.
+	!
+	!-
+
+	global bind
+	    PAT$DATA_SYMBOL_TEXT_TABLE = uplit (
+		EXPAND_ARG_LIST(A, %remaining) 
+	    ) : vector;		! vector of string descriptors
+
+    %;
+
+macro
+    PAT_DECTRMDEF (SYMBOL_NAME, EXT_NAME, VALUE) =
+	SD_VAL (SYMBOL_NAME) %;
+
+macro
+    PAT_UNDTRMDEF (SYMBOL_NAME, VALUE) =
+
+	%if PATBLSEXT_DEBUGGING
+	%then
+	    SD_VAL ('**UNDEFINED')
+	%else
+	    SD_NULL_STRING
+	%fi
+
+    %;
+
+macro
+    PAT_NONTRMDEF (NAME, VALUE) =
+
+	%if PATBLSEXT_DEBUGGING
+	%then
+	    SD_VAL (NAME)
+	%else
+	    SD_NULL_STRING
+	%fi
+    %;
+
+macro
+    PAT_UNUSEDNUM (NUM) =
+	    SD_NULL_STRING
+    %;
+
+!+
+! Define macros for definition of semantics action text table.
+!-
+
+%if PATBLSEXT_DEBUGGING
+%then
+
+macro
+    PAT_SEMACT_DEFINITIONS (A) =
+
+
+	!+
+	!
+	! If debugging, define PAT$DATA_SEMACT_TEXT_TABLE as a vector of 
+	! string descriptors (not pointers to string descriptors) for the
+	! text of the semantic action symbols.
+	!
+	!-
+
+	global bind
+	    PAT$DATA_SEMACT_TEXT_TABLE = uplit (
+		EXPAND_ARG_LIST(A, %remaining) 
+	    ) : vector;		! vector of string descriptors
+
+    %;
+
+macro
+    PAT_SEMACTDEF (NAME, VALUE) =
+	SD_VAL (NAME) %;
+
+%else
+
+macro
+    PAT_SEMACT_DEFINITIONS (A) =
+    %,						! null
+    PAT_SEMACTDEF (NAME, VALUE) =
+    %;
+
+%fi
+
+!+
+! Define literals and macros for parse tables.
+!-
+
+literal
+    PAT_CONT_CODE = PAT$DATA_CONT_CODE,
+    PAT_ELSE_CODE = PAT$DATA_ELSE_CODE,
+    PAT_SCAN_CODE = PAT$DATA_SCAN_CODE,
+    PAT_ERROR_CODE = PAT$DATA_ERROR_CODE;
+
+macro
+    PAT_STATE_SYMBOL_TABLE (A) =
+
+	!+
+	!
+	! Define PAT$DATA_STATE_SYMBOL_TABLE.
+	!
+	!-
+
+
+	global bind
+	    PAT$DATA_STATE_SYMBOL_TABLE = uplit PAT_STATE_SYMBOL_TABLE_ALLOC (
+		EXPAND_ARG_LIST(A, %remaining)
+	    ) : vector [, PAT_STATE_SYMBOL_TABLE_ALLOC];
+
+    %;
+
+macro
+    PAT_STATE_ACTION_TABLE (A) =
+	!+
+	!
+	! Define PAT$DATA_STATE_ACTION_TABLE.
+	!
+	!-
+
+	global bind
+	    PAT$DATA_STATE_ACTION_TABLE = uplit PAT_STATE_ACTION_TABLE_ALLOC (
+		EXPAND_ARG_LIST(A, %remaining)
+	    ) : vector [, PAT_STATE_ACTION_TABLE_ALLOC, signed];
+
+    %;
+
+macro
+    PAT_RHS_COUNT_TABLE (A) =
+	!+
+	!
+	! Define PAT$DATA_RHS_COUNT_TABLE.
+	!
+	!-
+
+	global bind
+	    PAT$DATA_RHS_COUNT_TABLE = uplit PAT_RHS_COUNT_TABLE_ALLOC (
+		EXPAND_ARG_LIST(A, %remaining)
+	    ) : vector [, PAT_RHS_COUNT_TABLE_ALLOC];
+
+    %;
+
+macro
+    PAT_LHS_TABLE (A) =
+	!+
+	!
+	! Define PAT$DATA_LHS_TABLE.
+	!
+	!-
+
+	global bind
+	    PAT$DATA_LHS_TABLE = uplit PAT_LHS_TABLE_ALLOC (
+		EXPAND_ARG_LIST(A, %remaining)
+	    ) : vector [, PAT_LHS_TABLE_ALLOC];
+
+    %;
+
+macro
+    PAT_SEMACT_TABLE (A) =
+	!+
+	!
+	! Define PAT$DATA_SEMACT_TABLE.
+	!
+	!-
+
+	global bind
+	    PAT$DATA_SEMACT_TABLE = uplit PAT_SEMACT_TABLE_ALLOC (
+		EXPAND_ARG_LIST(A, %remaining)
+	    ) : vector [, PAT_SEMACT_TABLE_ALLOC];
+
+    %;
+
+!<blf/macro>
+
+macro
+    PAT_DECTRMREF (EXT_NAME) =
+	! Declared terminal reference
+	%name (EXT_NAME) %;
+
+macro
+    PAT_UNDTRMREF (EXT_NAME) =
+	! Undeclared terminal reference
+	%name (EXT_NAME) %;
+
+macro
+    PAT_NONTRMREF (NAME) =
+	! Non-terminal reference
+	%name ('NT_', NAME) %;
+
+macro
+    PAT_SEMACTREF (NAME) =
+	! Semantics action reference
+	%name (NAME) %;
+
+macro
+    PAT_INTRNLREF (NAME) =
+	! Reference to an internal name
+	%name (NAME) %;
+
+!+
+! Now require PAT_REQUIRE_FILE to actually define the tables.
+!-
+
+psect
+    plit = PAT$PLIT(				!
+    %bliss32 (					!
+    noshare, 					!
+    nopic, 					!
+    align (2), 					!
+    addressing_mode (long_relative) %quote , 	!
+    )						!
+    read, 					!
+    nowrite, 					!
+    noexecute, 					!
+    concatenate, 				!
+    local 					!
+    );
+
+literal
+    PAT_DFS = 1,				! Declare so process definitions
+    PAT_TABLES = 1;				! Declare so define parsing tables
+
+require 'PAT_REQUIRE_FILE';
+
+undeclare
+    PAT_DFS,
+    PAT_TABLES;
+
+
+global routine PAT$DATA_NEXT_TRANSITION (STATE, ONLY_TERMINALS, REF_LAST_TRANSITION, REF_ACTION_CODE,
+	REF_SYMBOL) : novalue =
+    begin
+
+    bind
+	STATE_INDEX = .REF_LAST_TRANSITION,
+	ACTION_CODE = .REF_ACTION_CODE,
+	SYMBOL = .REF_SYMBOL;
+
+    if .STATE_INDEX eql PAT$DATA_FIND_FIRST_TRANSITION
+    then
+	STATE_INDEX = .STATE
+    else
+	STATE_INDEX = .STATE_INDEX + 1;
+
+    while TRUE do
+
+	selectone .PAT$DATA_STATE_SYMBOL_TABLE [.STATE_INDEX] of
+	    set
+
+	    [PAT_CONT_CODE] : 			! Continue elsewhere in table
+		STATE_INDEX = .PAT$DATA_STATE_ACTION_TABLE [.STATE_INDEX];
+
+	    [PAT_ELSE_CODE] : 			! No more transitions to try
+		begin
+		ACTION_CODE = .PAT$DATA_STATE_ACTION_TABLE [.STATE_INDEX];
+		SYMBOL = PAT$DATA_NO_MORE_TRANSITIONS;
+		return
+		end;
+
+	    [PAT$DATA_FIRST_TERM to PAT$DATA_LAST_TERM] : 	! It's a terminal
+		begin
+		SYMBOL = .PAT$DATA_STATE_SYMBOL_TABLE [.STATE_INDEX];
+		return
+		end;
+
+	    [otherwise] : 			! It's not a terminal
+
+		if .ONLY_TERMINALS
+		then
+		    STATE_INDEX = .STATE_INDEX + 1
+		else
+		    begin
+		    SYMBOL = .PAT$DATA_STATE_SYMBOL_TABLE [.STATE_INDEX];
+		    return
+		    end;
+
+	    tes;
+
+    end;					! Of routine PAT$DATA_NEXT_TRANSITION
+
+end						!End of module
+
+eludom

@@ -1,0 +1,185 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980, 1988	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+    01-Feb-1988	|  jg	| X3.2-0  User defined types
+________________!_______!______________________________________________________
+    08-Nov-1988	|  jgw	| V3.2-1  Changed "FILL (1)" to the name "ITEM" in the
+		|	|	  single component of the record generated for
+		|	|	  an ITEM with the TYPEDEF attribute.  This will
+		|	|	  allow users to directly access the data in the
+		|	|	  record.
+________________!_______!______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* DO_ITEM processes item nodes					*/
+/*								*/
+/****************************************************************/
+
+do_item: proc(cur_node, level);
+
+					    /********************/
+					    /*			*/
+					    /* DO_ITEM		*/
+					    /*			*/
+					    /********************/
+%include 'sdl$library:sdltypdef.in';
+%include 'sdl$library:sdlnodef.in';
+%replace max_typ_chars by 30;
+
+
+/* declare variables */
+declare
+    cur_node pointer,			    /* pointer to the current node  */
+    level fixed binary,			    /* level in the aggregate	    */
+    typ_buf char(30) var initial(''),	    /* buffer for the item type	    */
+    struc_ref bit(1) initial('0'b),	    /* flag			    */
+    str_len char(10) var initial(''),	    /* length of a character string */
+    buf char(1024) var initial(''),	    /* buffer for output	    */
+    dim char(15) var initial(''),	    /* dimension, if any	    */
+    dec char(15) var initial('');	    /* for declare statements	    */
+
+
+/* declare external routines */
+DCL OUTPUT_BUF ENTRY (
+	character(1024) VARYING );
+
+DCL ADD_COMMENTS ENTRY (
+	pointer,
+	character(1024) VARYING );
+
+DCL DO_CHILDREN ENTRY (
+	pointer,
+	fixed binary(31) );
+
+DCL GET_TYPE ENTRY (
+	pointer,
+	char(*) var );
+
+DCL DO_UNION ENTRY (
+	pointer,
+	fixed binary(31),
+	char(*) var );
+
+DCL DO_STRUCTURE ENTRY (
+	pointer,
+	fixed binary(31),
+	char(*) var );
+
+DCL TABS ENTRY (
+	pointer,
+	fixed binary(31),
+	bit(1) ) returns(char(132) var) ;
+
+DCL SPECIAL_CHECKS ENTRY (
+	pointer,
+	fixed binary(31),
+	char(*) var,
+	char(*) var,
+	char(*) var,
+	bit(1) );
+
+DCL DO_VAR_STRING ENTRY (
+	pointer,
+	fixed binary(31),
+	char(*) var,
+	char(*) var,
+	char(*) var );
+
+DCL DO_BITFIELDS ENTRY (
+	pointer,
+	fixed binary(31) );
+
+
+    if cur_node->nod$v_declared then return;	/* ignore declared item */
+
+    call special_checks(cur_node,level,dim,dec,str_len,struc_ref);
+
+    if( cur_node->nod$a_parent->nod$w_datatype = typ$k_union )
+    then do;
+	buf = tabs(cur_node,level,'0'b) || 'case';
+	call output_buf(buf);
+    end;
+
+    if( cur_node->nod$w_datatype = typ$k_structure & ^struc_ref )
+    then
+	call do_structure(cur_node,level,dim);
+    else
+    if( cur_node->nod$w_datatype = typ$k_union & ^struc_ref )
+    then
+	call do_union(cur_node,level,dim);
+    else
+    if( cur_node->nod$w_datatype = typ$k_vield )
+    then
+	call do_bitfields(cur_node,level); /* this is a special case  */
+    else
+    if( cur_node->nod$v_varying )
+    then
+	call do_var_string(cur_node,level,dec,dim,str_len);
+    else
+    if( cur_node->nod$v_typedef) then do;	/* TYPEDEF ITEM record */
+			/* sorry - no time to create a separate module */
+	buf = '   record ' || cur_node->nod$t_name;
+	call output_buf (buf);
+	call get_type(cur_node,typ_buf);
+	buf = '      ' || typ_buf || ' ITEM';
+	call output_buf (buf);
+	buf = '   end record ' || cur_node->nod$t_name;
+	call output_buf (buf);
+	call output_buf (' ');
+	end;
+
+    else do;
+
+     /* if we get here then its a simple item,      */
+     /* either a declaration or an aggregate member */
+
+	call get_type(cur_node,typ_buf);
+	buf = tabs(cur_node,level,'1'b) || dec || typ_buf || 
+	      ' ' || cur_node->nod$t_name || dim || str_len;
+	call add_comments(cur_node,buf);
+	call output_buf(buf);
+
+    end;
+
+
+
+end do_item;

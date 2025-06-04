@@ -1,0 +1,172 @@
+%title 'Nmail job liberator'
+module nm$release(
+    	         ident='03',
+    	         addressing_mode(external=general)
+                 ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1987, 1988, 1989, 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	2-Sep-1987
+!
+! Revision history:
+!
+!   01	24-Feb-1989
+!	Ensure we deallocate dynamic strings on unwind
+!
+!   02	4-Jul-1992
+!	Add some VOLATILE attributes to keep Bliss quiet
+!
+!   03	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!--
+
+
+!
+! Library calls
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+%sbttl 'release queue entry'
+global routine nm$release_entry (
+			        entry_num : alias, 
+			        flags     : block[,byte],
+			        user      : ref descrip
+			        ) =
+
+!++
+! Functional description:
+!
+! Routine which releases a single Nmail queue entry. The
+! entry may have been held as a result of /HOLD, or waiting
+! for a due time as a result of /AFTER. In either case, it's
+! now free to run.
+!
+! Formal parameters:
+!
+! entry_num.rl.v = entry number to be released
+! flags.rl.v     = option flags
+!		     rel$v_user = user name owning job
+!		     otherwise, job is owned by self
+!		     rel$v_log  = be chatty
+! user.rt.dx1    = user name for entry, if rel$v_user set
+!
+! Routine value:
+!
+! status.wlc.v = true if it worked
+!		 false otherwise
+!
+!--
+
+    begin
+
+    !
+    ! Assorted scratch locations
+    !
+    local
+	status,
+	job_status : block[%upval,byte],
+	queue_list : descrip initial($dynamic) volatile;
+
+    !
+    ! Itemlist for operation to release job
+    ! 
+    local
+        rel_job : $itemlist(
+  			sjc$_queue,         0,      0,         0,
+			sjc$_entry_number,  %upval, entry_num, 0,
+			sjc$_no_after_time, 0,      0,         0,
+			sjc$_no_hold,       0,      0,         0
+			);
+
+    !
+    ! Ensure we deallocate dynamic strings on unwinds
+    !
+    enable nm$freestr(queue_list);
+
+    !
+    ! Locate the indicated entry in the queues, loading the
+    ! queue name directly into the 'rel_job' item list
+    !
+    status = nm$find_entry(
+		          queue_list, .entry_num, 
+			  (if .flags[rel$v_user] then .user else 0),
+			  rel_job, job_status
+			  );
+    if not .status 
+    then 
+	begin
+    	signal(nm$_nonxjob);
+	str$free1_dx(queue_list);
+	return nm$_nonxjob;
+	end; 
+
+    !
+    ! Check job is not executing or otherwise being munged around
+    ! by the job controller
+    !
+    if .job_status[qui$v_job_executing] or
+       .job_status[qui$v_job_starting] or
+       .job_status[qui$v_job_aborting]
+    then
+	begin
+	signal(nm$_jobact);
+	str$free1_dx(queue_list);
+	return nm$_jobact;
+	end; 
+
+    !
+    ! Be picky and check whether job really needs to be released
+    !
+    if not (.job_status[qui$v_job_holding] or
+	    .job_status[qui$v_job_retained] or
+	    .job_status[qui$v_job_timed_release])
+    then
+	begin
+	signal(nm$_jobfree);
+	str$free1_dx(queue_list);
+	return nm$_jobfree;
+	end;
+
+    !
+    ! Discard job controller context, we've finished looking 
+    !
+    status = nm$getqui(qui$_cancel_operation, %ref(0));
+    if not .status then signal_stop(nm$_jbc, 0, .status);
+
+    !
+    ! Instruct job control to release job
+    !
+    status = nm$sndjbc(sjc$_alter_job, rel_job);
+    if not .status then signal_stop(nm$_jbc, 0, .status);
+    if .flags[can$v_log] then signal(nm$_releas, 1, .entry_num);
+
+    !
+    ! If we get to here, then it all worked (more-or-less!)
+    !
+    str$free1_dx(queue_list);
+    ss$_normal
+
+    end;
+
+end
+eludom

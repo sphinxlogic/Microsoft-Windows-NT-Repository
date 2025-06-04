@@ -1,0 +1,103 @@
+!++
+! MGBOOK.R32
+!
+! Description:
+!
+!	This file contains macro and literal definitions used throughout
+!	MGBOOK.
+!
+! Written by:
+!	Darrell Burkhead
+!	Copyright © 1995, MadGoat Software. ALL RIGHTS RESERVED.
+!
+! Modifications:
+!
+!	 2-DEC-1994 10:07	Darrell Burkhead
+!		Creation.
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';
+LIBRARY 'FIELDS';
+REQUIRE	'MGBOOK_MSG';
+
+BUILTIN
+	INSQUE,
+	REMQUE;
+
+_DEF(que)
+    que_l_head		= _LONG,
+    que_l_tail		= _LONG
+_ENDDEF(que);
+
+MACRO
+    g_hat(rtn)[] =
+	rtn : BLISS ADDRESSING_MODE(GENERAL)
+	%IF NOT %NULL(%REMAINING) %THEN , g_hat(%REMAINING) %FI%,
+    init_queue(que)[] =
+	BEGIN
+	BIND _que = que : QUEDEF;
+
+	_que[QUE_L_HEAD] = _que[QUE_L_TAIL] = _que;
+	END;					!End of bind block
+	%IF NOT %NULL(%REMAINING) %THEN init_queue(%REMAINING) %FI%,
+    append_queue(src_que, dst_que)=
+	BEGIN
+	BIND
+	    _src_que = src_que : QUEDEF,
+	    _dst_que = dst_que : QUEDEF;
+	LOCAL
+	    temp_ent : REF $BBLOCK;
+	
+	WHILE NOT REMQUE(._src_que[QUE_L_HEAD], temp_ent)
+	DO INSQUE(.temp_ent, ._dst_que[QUE_L_TAIL]);
+	END%,					!End of macro append_queue
+    length_asciz(str, max)=
+	BEGIN
+	BIND _str = str : VECTOR[,BYTE];
+	REGISTER temp;
+
+	temp = (INCR i FROM 0 TO max
+		DO IF ._str[.i] EQL 0 THEN EXITLOOP .i);
+	IF .temp EQL -1
+	THEN max
+	ELSE .temp
+	END%;					!End of macro length_asciz
+
+LITERAL
+	shelf_read	= 1,			!Shelf file open modes
+	shelf_write	= 2,
+	shelf_append	= 3,
+!
+	sfile_title	= 1,			!Used to identify shelf file
+	sfile_shelf	= 2,			!...lines
+	sfile_book	= 3,
+	sfile_min	= 1,
+	sfile_max	= 3;
+
+_DEF(sinfo)					!Scrolling information
+    sinfo_l_disp	= _LONG,
+    sinfo_l_flags	= _LONG,
+    _OVERLAY(sinfo_l_flags)
+	sinfo_v_usepos	= _BIT,
+	sinfo_v_center	= _BIT,
+	sinfo_v_upflag	= _BIT,
+	sinfo_v_downflag= _BIT,
+    _ENDOVERLAY
+    sinfo_l_updisp	= _LONG,
+    sinfo_l_downdisp	= _LONG,
+    sinfo_l_row		= _LONG,
+    sinfo_l_col		= _LONG,
+    sinfo_l_len		= _LONG,
+    sinfo_l_wid		= _LONG,
+    sinfo_l_viewlen	= _LONG,
+    sinfo_l_viewwid	= _LONG,
+    sinfo_l_top		= _LONG
+_ENDDEF(sinfo);
+
+_DEF(dflgs)
+    dflgs_l_flags	= _LONG,
+    _OVERLAY(dflgs_l_flags)
+	dflgs_v_highwide= _BIT,
+	dflgs_v_symbol	= _BIT,
+	dflgs_v_bold	= _BIT
+    _ENDOVERLAY
+_ENDDEF(dflgs);

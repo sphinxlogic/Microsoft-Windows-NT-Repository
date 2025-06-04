@@ -1,0 +1,364 @@
+$!***************************************************************************
+$!*                                                                         *
+$!*  DCL_DIET.COM                                                           *
+$!*                                                                         *
+$!*  Copyright (c) Compaq Computrer Corporation, 1998.                      *
+$!*                                                                         *
+$!*  All Rights Reserved.                                                   *
+$!*  Unpublished rights reserved under the copyright laws  of  the  United  *
+$!*  States.                                                                *
+$!*                                                                         *
+$!*  The software contained on this media is proprietary to  and  embodies  *
+$!*  the   confidential   technology   of   Compaq  Computer  Corporation.  *
+$!*  Possession, use, duplication or dissemination  of  the  software  and  *
+$!*  media  is  authorized  only  pursuant to a valid written license from  *
+$!*  Compaq Computer Corporation.                                           *
+$!*                                                                         *
+$!*  RESTRICTED RIGHTS LEGEND Use, duplication, or disclosure by the  U.S.  *
+$!*  Government  is  subject  to restrictions as set forth in Subparagraph  *
+$!*  (c)(1)(ii) of DFARS 252.227-7013, or in FAR 52.227-19, as applicable.  *
+$!*                                                                         *
+$!***************************************************************************
+$!                     
+$!  Abstract:   "DIET" a DCL .COM proceudre by removing all comments
+$!              and reducing all spaces to a single space
+$!             
+$!    Author:   Charlie Hammond
+$!                           
+$!   Created:   15-Sep-1998
+$!                                        
+$!    Inputs:   P1 -- The file to be "dieted"
+$!
+$!   Outputs:   P2 -- The "dieted" file
+$!
+$!
+$!
+$! ---------------------------------------------------------------------------
+$   goto start
+$!  This $DECK remains after DCLDIET is run to give a hint...
+$DECK
+    **************************************************************
+
+    This procedure "DIETs" a command procedure file -- compressing
+    it by removing comments and unnecessary space. This saves file
+    space and improves execution time.
+
+    To run this procedure, enter command 
+
+        $@DCL_DIET <input> <output>
+    
+        where   <input> is the input command procedure
+               <output> is the "DIETed" out put file
+
+    If you use DCL_DIET frequently, you may wish to assign a symbol in
+    your LOGIN.COM file to execute DCL_DIET.  For example, if the
+    DCL_DIET.COM is in you LOGIN default directory, you might put the
+    following in your LOGIN.COM:
+
+        $ DCL_DIET :== "@SYS$LOGIN:DCL_DIET"
+
+    Alternatively, if you put DCL_DIET.COM in SYS$SYSTEM, you might put
+    the following in your SYS$SYLOGIN (which is normally
+    SYS$MANAGER:SYLOGIN.COM):
+
+        $ DCL_DIET :== "@SYS$SYSTEM:DCL_DIET"
+ 
+    **************************************************************
+$EOD
+$start:
+$!
+$!  Make sure DCL verbs aren't unexpected symbols.
+$!
+$   set = "set"
+$   set symbol /scope=(nolocal,noglobal)
+$!
+$!  Set up to handle CTRL_Y and errors.
+$!
+$   sav_status = 1      ! Default to success
+$!
+$   on control_y then goto y_exit
+$   on warning then goto err_exit
+$!
+$   say = "write sys$output"
+$   in$deck = 0                 ! indicate not in a $DECK/$EOD
+$   continuation$line = 0       ! indicate not a continuation line
+$!
+$!  Create a symbol for the single quote character (')
+$   s_quote[0,8]=39
+$!
+$!  And, everybody's favorite, a symbol for "''F$FA"
+$   s2_fao = s_quote + s_quote + "F$FA"
+$   s2_upr = s_quote + s_quote + "F$"
+$   s2_lwr = s_quote + s_quote + "f$"
+$!
+$   lines_in = 0
+$   lines_out = 0
+$!
+$   line_disply_increment = 500
+$   line_to_display = line_disply_increment - 1
+$!
+$!  ------------------------------------------------------------------
+$!
+$   dcl_dt_vers = "V1.0"
+$   say ""
+$   say -
+    "-*- Charlie Hammond's unsupported DCL DIETer (Version ''dcl_dt_vers') -*-"
+$   say ""
+$!
+$!
+$!  If p1 is not presnt, prompt for it.
+$!
+$get_p1:
+$!
+$   if p1 .eqs. ""
+$   then
+$       read /error=get_p1 sys$output p1 -
+            /prompt="Enter name of file to be Dieted: "
+$       goto get_p1
+$   endif
+$!
+$!  Verify that the input file exists.
+$!
+$   if f$search(p1) .eqs. ""
+$   then
+$       say "Cannot find ""''p1'"""
+$       p1 = ""
+$       goto get_p1
+$   endif 
+$!
+$   diet$input = f$parse(p1)
+$!  
+$!  If p2 is not present, prompt for it.  Use "''p1'_dieted" as the default.
+$!
+$get_p2:
+$!
+$   if p2 .eqs. ""
+$   then
+$       say "The default for the ""dieted"" output file is"
+$       say """''diet$input'_DIET""" - ";"
+$       read /error=get_p2 sys$output p2 -
+            /prompt="Enter name of file for output: "
+$       if p2 .eqs. "" then p2 = "''diet$input'_DIET" - ";"
+$   endif
+$!
+$   diet$output = f$parse(p2,diet$input)
+$!
+$   say " Input file is: " + diet$input
+$   say "Output file is: " + diet$output
+$   say "Starting -- ''f$time()'"
+$!
+$!
+$!  Open the output file
+$!
+$!  CREATE it and APPEND to it to get proper file attributes
+$!
+$   create 'diet$output'
+$!  Close it first, just in case
+$   close /error=open_output diet$output
+$open_output:
+$   open /append diet$output 'diet$output'
+$!
+$   write diet$output "$! File created by DCL_DIET at ''f$time()' from"
+$   write diet$output "$! ''diet$input'"
+$!
+$!
+$!  Open the input file
+$!
+$!  Close it first, just in case
+$   close /error=open_input diet$input
+$open_input:
+$   open /read diet$input 'diet$input'
+$!
+$!  
+$!   Read the input file
+$!
+$read_input:
+$!
+$   read /end=common_exit diet$input record_in 
+$   lines_in = lines_in + 1
+$!
+$   if lines_in .gt. line_to_display
+$   then
+$       say f$fao("...processing line number !UL...",lines_in)
+$       line_to_display = line_to_display + line_disply_increment
+$   endif
+$!
+$!
+$!  temporarily compres the line
+$   temp = f$edit(record_in,"TRIM,COMPRESS,UPCASE")
+$!
+$!  Skip comment only lines
+$   if ( ( f$extract(0,2,temp) .eqs. "$!" ) -
+    .or. ( f$extract(0,3,temp) .eqs. "$ !" ) ) -
+    then goto read_input
+$!
+$!  Get the first two tokens on the line 
+$   t0 = f$element(0," ",temp)
+$   t1 = f$element(2," ",temp)
+$!
+$!  Check if in a $DECK/$EOD.
+$!
+$   if in$deck
+$   then
+$       if (t0 .eqs. "$EOD") .or. ( (t0 .eqs. "$") .and. (t1 .eqs. "EOD") )
+$       then
+$           in$deck = 0
+$           write diet$output "$EOD"
+$           lines_out = lines_out + 1
+$           continuation$line = 0       ! indicate not a continuation line
+$           goto read_input
+$       endif
+$   else ! not in$deck
+$       if (t0 .eqs. "$DECK") .or. ( (t0 .eqs. "$") .and. (t1 .eqs. "DECK") )
+$       then
+$           in$deck = 1
+$           write diet$output "$DECK"
+$           lines_out = lines_out + 1
+$           continuation$line = 0       ! indicate not a continuation line
+$           goto read_input
+$       endif
+$   endif
+$!
+$!  If in a $DECK do not diet the line.
+$!
+$   if in$deck 
+$   then 
+$       write diet$output record_in
+$       lines_out = lines_out + 1
+$       continuation$line = 0       ! indicate not a continuation line
+$       goto read_input
+$   endif
+$!
+$!  Do not diet lines that do not start with "$" and are NOT continuation lines
+$!
+$   if ( ( f$extract(0,1,temp) .nes. "$" ) .and. ( .not. continuation$line ) )
+$   then 
+$       write diet$output record_in
+$       lines_out = lines_out + 1
+$       continuation$line = 0       ! indicate not a continuation line
+$       goto read_input
+$   endif
+$!
+$!  Anything that gets here is NOT in a $DECK, and either starts with "$"
+$!      or is a continuation line.
+$!
+$!
+$!  We want to TRIM, COMPRESS and UNCOMMENT the dcl record,
+$!  But first we must deal with a problem that F$EDIT has with
+$!  exclaimation marks used for formating directives in F$FAO control strings.
+$!  This only occurs when the F$FAO is preceded by two single quotes
+$!  indicating symbol substitution within a quoted string.   e.g.
+$!
+$!      $ write sys$output "Value is: ''f$fao("!4UL",value)'"
+$!
+$!  (This may not be good coding practice, but it IS used.)
+$!
+$!  We could write a lot of clumsy code to handle this, but since it is
+$!  an unusual occurance, we just skip dieting anly lines that line contain
+$!  the string "''F$FA".
+$!
+$   x = f$locate(s2_lwr,Record_in)
+$   if f$edit(f$extract(x,6,Record_in),"UPCASE") .eqs. s2_fao -
+        then goto do_fao
+$!
+$   x = f$locate(s2_upr,Record_in)
+$   if f$edit(f$extract(x,6,Record_in),"UPCASE") .eqs. s2_fao -
+        then goto do_fao
+$   goto after_fao
+$!
+$do_fao:
+$!  Don't uncomment it
+$   record_out = f$edit(record_in,"TRIM,COMPRESS")
+$   if f$extract(0,2,record_out) .eqs. "$ " then -
+        record_out = "$" + record_out - "$ "
+$   write diet$output record_out
+$   lines_out = lines_out + 1
+$!  This next line could cause us NOT to diet a continuation line, but...
+$   continuation$line = 0           ! indicate not a continuation line
+$   goto read_input
+$!
+$after_fao:
+$!
+$!
+$!  Now we can diet whatever is left.
+$!
+$   record_out = f$edit(record_in,"TRIM,COMPRESS,UNCOMMENT")
+$!  Skip coment only lines
+$   continuation$line = 0           ! indicate not a continuation line
+$   if record_out .eqs. "$" then goto read_input
+$   if f$extract(0,2,record_out) .eqs. "$ " then -
+        record_out = "$" + record_out - "$ "
+$   write diet$output record_out
+$   lines_out = lines_out + 1
+$   if f$extract(f$length(record_out)-1,1,record_out) .eqs. "-" -
+        then continuation$line = 1  ! indicate a continuation line
+$   goto read_input
+$!
+$!
+$!  ------------------------------------------------------------
+$!  Exit routines
+$!
+$y_exit:        ! Ctrl_y exit routine
+$!
+$!  Display Ctrl_y message
+$!
+$   write sys$output "Exiting due to Ctrl_y entry"
+$!
+$   goto 1_exit
+$!
+$!
+$err_exit:      ! error/warning exit routine
+$!
+$   sav_status = $status
+$err_exit_w_status:
+$   write sys$output f$message(sav_status)
+$!  Add %x10000000 to set the bit that suppresses display of the message.
+$!  This prevents re-displaying the message when we EXIT SAV_STATUS.
+$   if sav_status .lt. %x10000000 then sav_status = sav_status + %x10000000
+$   goto common_exit
+$!
+$1_exit:        ! Go here to force exit with status 1 = success
+$!                %SYSTEM-S-NORMAL, normal successful completion
+$!
+$!  Display success message, if desired
+$!
+$   write sys$output f$message(sav_status)
+$!
+$!  Note: success messages aren't displayed by EXIT SAV_STATUS.
+$!  Don't need to use %x10000001.
+$   sav_status = 1
+$   goto common_exit
+$!
+$common_exit:   ! common exit
+$!
+$!  Disable control_y and error handling
+$   on control_y then continue
+$   on warning then continue
+$!
+$!  Cleanup code
+$!
+$!  Close any file left open...
+$!
+$   close /error=exit_output diet$output
+$exit_output:
+$   close /error=exit_input diet$input
+$exit_input:
+$!
+$!  Deassign logicals
+$!
+$!  Delete temporary files
+$!
+$!
+$!  ...
+$!
+$!  Any other cleanup required...
+$!
+$   say "Finished -- ''f$time()'"
+$   say ""
+$   say f$fao("!7UL lines read",lines_in)
+$   say f$fao("!7UL lines written",lines_out)
+$   say ""
+$!
+$!  Exit with status
+$!
+$   exit sav_status

@@ -1,0 +1,79 @@
+#
+# File:		makefile.bcc
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds Hypertext hytext.lib library for MS Windows, BC++ 16-bit
+
+!if "$(BCCDIR)" == ""
+!error You must define the BCCDIR variable in autoexec.bat, e.g. BCCDIR=d:\bc4
+!endif
+
+!if "$(WXWIN)" == ""
+!error You must define the WXWIN variable in autoexec.bat, e.g. WXWIN=c:\wx
+!endif
+
+# Change WXDIR to wherever wxWindows is found
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makebcc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+WXINC = $(WXDIR)\include
+CFG=$(WXWIN)\src\wxwin.cfg
+
+HYPDIR = $(WXDIR)\utils\hytext
+HYPINC = $(HYPDIR)\src
+HYPLIB = $(HYPDIR)\lib\hytext.lib
+
+DOCDIR = $(WXHELPDIR)\docs
+DOCUTILSDIR = $(WXDIR)\utils\tex2rtf\src
+THISDIR = $(WXDIR)\utils\hytext\src
+
+INC=/I$(WXDIR)\include\base /I$(WXDIR)\include\msw
+
+LIBS=$(WXLIB) mathwl cwl import
+
+# Default is to output RTF for WinHelp
+!ifndef WINHELP
+WINHELP=-winhelp
+!endif
+
+!if "$(FINAL)" == "0"
+LINKFLAGS=/v/Vt /Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS= -v
+!else
+LINKFLAGS=/Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+OPT = -O2
+DEBUG_FLAGS=
+!endif
+CFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+CPPFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+
+SOURCES = hytext.$(SRCSUFF)
+HEADERS = hytext.h
+OBJECTS = hytext.obj
+
+all:    $(HYPLIB)
+
+.$(SRCSUFF).obj:
+	bcc $(CPPFLAGS) -I$(HYPINC) -c {$< }
+
+$(HYPLIB):      $(OBJECTS)
+        erase $(HYPLIB)
+        tlib /P128 @&&!
+$(HYPLIB) &
++$(OBJECTS:.obj =.obj +)
+!
+
+$(OBJECTS):     $(HYPINC)\hytext.h
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.lib
+        -erase ..\lib\*.lib

@@ -1,0 +1,785 @@
+<!-- VDE_GUIDE_007.HTML continuation of VDED$:[VDE.VDEDOC.DOC]VDE_GUIDE.HTML -->
+<html>
+<head>
+<title>VDE</title>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">VDE<br>Guide to Using<br> VDE</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_006.html#bottom_006">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+
+<hr>
+<p>
+<a name="index_x_222"></a>
+Use the SHOW REPLACEMENT command (see <a href="vde_guide_004.html#disp_repl">Section 2.9</a>) to display the 
+status of a replacement being reviewed. For each replacement, this 
+command can list the reviewers and whether each reviewer has accepted, 
+rejected, or not reviewed the replacement.
+
+<p>
+<hr size=5>
+<font color=maroon>
+<a name="proj_oper"><h1>Chapter 5<br>Project Leader Operations</h1></a>
+</font>
+
+<p>
+This chapter explains how to perform those source control operations 
+normally performed by release project leaders and by maintainers of the 
+various VDE libraries. These operations include performing 
+queued replacements, inserting generations into development streams, 
+removing generations from streams, deleting generations, specifying 
+reviewers for streams and modules, and creating build streams.
+
+<p>
+These operations are typically not performed by most developers. All 
+commands here require VSC privileges. <em>Many of the 
+commands documented in this section can have serious adverse effects on 
+a VDE library.</em>
+
+<a name="perf_que_repl"><h1><font color=maroon>5.1 Performing Queued Replacements</font></h1></a>
+
+<p>
+If you are the project leader for a given development stream, you are 
+responsible for performing all replacements queued for that stream. To 
+see what replacements are queued for your stream, use the SHOW 
+REPLACEMENT command (see <a href="vde_guide_004.html#disp_repl">Section 2.9</a>) with the /STREAM qualifier. The 
+/STREAM qualifier selects those replacements that are for your stream. 
+You might also want to use the /FULL qualifier to display the list of 
+reviewers for each replacement and their votes to accept or reject it. 
+However, even the brief SHOW REPLACEMENT output summarizes the review 
+status of a replacement. You should also use the REVIEW REPLACEMENT 
+command to read the queuing user's information file since that file 
+might have information meant for you.
+<a name="index_x_223"></a>
+<a name="index_x_224"></a>
+<a name="index_x_225"></a>
+
+<p>
+Based on the advice of the reviewers and your own judgement, you must 
+decide whether to perform each such replacement. Once you have decided 
+to perform a given replacement, you do so by entering the PERFORM 
+REPLACEMENT command. For example:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ PERFORM REPLACEMENT SMITH-1 /STREAM=BIRCH
+</pre>
+</font>
+</table>
+
+This command performs the queued replacement specified by the 
+replacement name parameter (SMITH--1). This replacement must belong to 
+stream BIRCH. All modules included in the replacement are copied from 
+the source control system's staging area to the appropriate CMS 
+libraries. The new module generations are inserted into the development 
+stream for which the replacement was queued and all successor streams 
+reachable through change propagation. The queued replacement and the 
+associated module reservations are then deleted from the database.
+
+<p>
+The PERFORM REPLACEMENT command accepts a list of replacement names 
+separated by commas, and you can use the asterisk (*) and percent sign 
+(%) wildcard characters in the names. The command performs all queued 
+replacements that match the wildcard patterns and belong to the 
+specified stream or streams.
+
+<p>
+The /STREAM qualifier specifies that replacement should be performed 
+only if they belong to a specified stream. The stream name can contain 
+wildcard characters, in which case VSC performs all 
+replacements that match both the specified replacement names and the 
+specified stream name. If you omit the /STREAM qualifier, VSC 
+performs only those specified replacements that belong to your default 
+stream.
+
+<p>
+Since the PERFORM REPLACEMENT command can be time-consuming, you might 
+want to include it in a DCL command file that you run as a batch job.
+
+<p>
+The log messages that the command prints indicate that each module has 
+been replaced into the appropriate streams. If a module is replaced 
+into multiple streams due to change propagation, you will see one 
+message per stream. Other messages tell you if VSC created 
+fold records. VSC also prints an informational message for 
+each replacement that matches the specified replacement names but is 
+not performed because it does not belong to a requested stream.
+
+<p>
+In some unusual circumstances, you might also see a message that tells 
+you that a module generation did not get the same generation expression 
+(such as 5A1) as VSC expected when the module was reserved. 
+In this case, you should notify the developer since he or she might 
+have used the expected generation expression as an audit trail 
+identifier in code comments.
+
+<p>
+VSC also includes all log messages in a mail message that it 
+sends to the developer who queued the reservation. The developer will 
+therefore see what happened during the replacement and will be aware of 
+any errors that arose. If errors occurred, you should work with the 
+developer to resolve the errors so that replacement can be performed 
+again.
+
+<p>
+The PERFORM REPLACEMENT requires the VSC privilege PERFREP.
+<a name="index_x_226"></a>
+
+<p>
+<a href="vde_guide_007.html#qualtbl_perfrep">Table 5-1</a> lists the qualifiers for the PERFORM REPLACEMENT command 
+and describes their functions. <p>
+<a name="index_x_227"></a>
+
+<table border=3>
+  <caption><a name="qualtbl_perfrep"><strong>Table 5-1 Qualifiers to the PERFORM REPLACEMENT command</strong></a></caption>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/CONFIRM</strong>
+      <br>
+      <strong>/NOCONFIRM</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       /CONFIRM asks you to confirm that you want each replacement performed. 
+       This qualifier is particularly useful if you use wildcard characters in 
+       the replacement name. /NOCONFIRM performs each replacement without 
+       asking for confirmation. /NOCONFIRM is the default.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/LOG</strong>
+      <br>
+      <strong>/NOLOG</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specify whether informational log messages are printed after the 
+       replacement is performed. /LOG causes such messages to be printed and 
+       /NOLOG suppresses them. /LOG is the default.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/STREAM=stream-name</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies that only those replacements that belong to certain streams 
+       be performed. The
+      <strong>stream-name</strong> parameter specifies a stream name, 
+      possibly containing the asterisk (*) and percent sign (%) wildcard 
+      characters. VSC performs a given replacement only if it 
+      belongs to a stream whose name matches the
+      <strong>stream-name</strong> parameter. If you omit this qualifier, 
+      VSC performs only those replacements that belong to your 
+      default stream.
+      <p>For each replacement that matches a replacement name parameter but 
+      does not belong to a stream matching the
+      <strong>stream-name</strong> parameter, VSC prints an 
+      informational message saying that the replacement was not performed.
+    </td>
+  </tr>
+</table>
+<p>
+<a name="perf_que_repl_examples"><strong>Examples</strong></a>
+<br>
+
+<p>
+This is an example of the output from the PERFORM REPLACEMENT command:
+<a name="index_x_228"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ SET STREAM PHONEIX
+VSC„ PERFORM REPLACEMENT SMITH-1
+%VDE-I-REPLACED, generation [FACIL]FOO.MAR;6(6) replaced into stream PHOENIX
+%VDE-I-REPLACED, generation [RMS]FUMBLE.B32;2(2) replaced into stream PHOENIX
+%VDE-I-REPPERF, replacement SMITH-1 performed
+%VDE-I-COMMIT, database transaction has successfully committed
+VSC„
+</pre>
+</font>
+</table>
+
+<a name="ins_gen"><h1><font color=maroon>5.2 Inserting Generations</font></h1></a>
+
+<p>
+In addition to providing automatic change propagation, the source 
+control system gives you a manual way to insert a change already made 
+to one development stream into another stream. The INSERT GENERATION 
+command makes an existing generation of a module into the latest 
+generation for a specified development stream. This command is mainly 
+used to take bug fixes and other changes that have already been 
+replaced into some development stream and insert them into a base level 
+or variant stream that needs those changes to build correctly. This 
+command requires the VSC privilege PERFREP. The following 
+example shows how to use the INSERT GENERATION command:
+<a name="index_x_229"></a>
+<a name="index_x_230"></a>
+<a name="index_x_231"></a>
+<a name="index_x_232"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ INSERT GENERATION [FACIL]MOD.TYP/STREAM=PHOENIX P-BUILD "remark"
+</pre>
+</font>
+</table>
+
+This example inserts the latest generation of module [FACIL]MOD.TYP in 
+stream PHOENIX into stream P--BUILD. PHOENIX is thus the source stream 
+and P--BUILD is the destination stream for the generation. The command 
+also inserts that generation into the corresponding CMS class if the 
+destination stream maintains a CMS class. The quoted remark string is 
+optional; if specified, it should explain the reason for inserting the 
+generation into the stream.
+
+<p>
+You can specify a generation number for the source stream if you want 
+to select a generation other than the latest one. Zero and negative 
+generation numbers are allowed; they specify generation numbers 
+relative to the latest generation for the source stream. You can also 
+use the qualifier /GENERATION=<em>gen-expr</em> to identify the 
+generation by its CMS generation expression.
+
+<p>
+If you omit both the /STREAM qualifier and the /GENERATION qualifier, 
+VSC prompts you for the source stream.
+
+<p>
+The inserted generation's position in the source stream is not affected 
+by this command. In the previous example, the selected generation thus 
+winds up being the latest generation for both stream PHOENIX and stream 
+P--BUILD.
+
+<p>
+<a href="vde_guide_007.html#qualtbl_insgen">Table 5-2</a> lists the qualifiers for the INSERT GENERATION command 
+and describes their functions. <p>
+<a name="index_x_233"></a>
+
+<table border=3>
+  <caption><a name="qualtbl_insgen"><strong>Table 5-2 Qualifiers to the INSERT GENERATION command</strong></a></caption>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/CONFIRM</strong>
+      <br>
+      <strong>/NOCONFIRM</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       /CONFIRM asks you to confirm that you want each generation inserted 
+       into the specified destination stream. This qualifier is particularly 
+       useful if you use wildcard characters in the module name. /NOCONFIRM 
+       inserts each generation without asking for confirmation. /NOCONFIRM is 
+       the default.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/GENERATION=gen-expr</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies that the module generation that has the CMS generation 
+       expression given by the
+      <strong>gen-expr</strong> parameter be inserted into the specified 
+      destination stream. If this qualifier is omitted, the command selects 
+      for insertion the generation given by the generation number on the 
+      module-name parameter. If both this qualifier and the generation number 
+      are omitted, the command selects the latest generation of the module in 
+      the stream you specified with the /STREAM qualifier.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/LOG</strong>
+      <br>
+      <strong>/NOLOG</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specify whether informational log messages are printed after the 
+       generations are inserted. /LOG causes such messages to be printed and 
+       /NOLOG suppresses them. /LOG is the default.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/STREAM=stream-name</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies that the generation should be selected from the source stream 
+       given by the
+      <strong>stream-name</strong> parameter. This qualifier thus determines 
+      the interpretation of the generation number on the module-name 
+      parameter. This qualifier is ignored if you use the /GENERATION 
+      qualifier to select the module generation. If you omit both the /STREAM 
+      qualifier and the /GENERATION qualifier, VSC prompts you for 
+      the source stream.
+    </td>
+  </tr>
+</table>
+
+<a name="rem_gen"><h1><font color=maroon>5.3 Removing Generations</font></h1></a>
+
+<p>
+Sometimes it is necessary to remove a generation from a given 
+development stream so that the module no longer has a latest generation 
+in that stream. For example, sometimes one needs to undo an INSERT 
+GENERATION command directed to the wrong stream. After you have removed 
+a module generation from a stream, the module no longer 
+&quot;belongs&quot; to that stream and can no longer be fetched, 
+reserved, or built for the stream. The REMOVE GENERATION command 
+removes a generation from a stream. For example:
+<a name="index_x_234"></a>
+<a name="index_x_235"></a>
+<a name="index_x_236"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ REMOVE GENERATION [FACIL]MOD.TYP/STREAM=FOO
+</pre>
+</font>
+</table>
+
+This example removes the latest generation of module MOD.TYP in 
+facility FACIL from stream FOO. Afterwards, no generation of MOD.TYP is 
+the latest generation of the module for stream FOO; the module is no 
+longer represented in that stream.
+
+<p>
+The removed generation remains in the VDE library, and it can 
+still be the latest generation of the module for some other stream. The 
+REMOVE GENERATION command thus breaks the association between the 
+module generation and the specified stream but does not delete the 
+generation.
+
+<p>
+The REMOVE GENERATION command accepts a list of module names separated 
+by commas, and you can use the asterisk (*) and percent sign (%) 
+wildcard characters in the module names. The latest generations of 
+those modules that match the wildcard patterns are removed from the 
+specified stream.
+
+<p>
+Keep in mind that the REMOVE GENERATION command may not be the command 
+you actually want to use. It is not very common that you want a module 
+to not belong to a given stream at all; it is much more common that you 
+want some other generation of the module to be the latest generation 
+for the stream. Before you use the REMOVE GENERATION command, you 
+should thus make sure that INSERT GENERATION or DELETE GENERATION is 
+not the appropriate command.
+
+<p>
+The REMOVE GENERATION command requires the VSC privilege 
+PERFREP.
+<a name="index_x_237"></a>
+
+<p>
+<a href="vde_guide_007.html#qualtbl_remgen">Table 5-3</a> lists the qualifiers for the REMOVE GENERATION command 
+and describes their functions. <p>
+<a name="index_x_238"></a>
+
+<table border=3>
+  <caption><a name="qualtbl_remgen"><strong>Table 5-3 Qualifiers to the REMOVE GENERATION command</strong></a></caption>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/CONFIRM</strong>
+      <br>
+      <strong>/NOCONFIRM</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       /CONFIRM asks you to confirm that you want each generation removed from 
+       the specified stream. This qualifier is particularly useful if you use 
+       wildcard characters in the module names. /NOCONFIRM removes each 
+       generation without asking for confirmation. /NOCONFIRM is the default.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/LOG</strong>
+      <br>
+      <strong>/NOLOG</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specify whether informational log messages are printed after the 
+       generations are removed. /LOG causes such messages to be printed and 
+       /NOLOG suppresses them. /LOG is the default.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/STREAM=stream-name</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies that the latest generations of the specified modules should 
+       be removed from the stream given by the
+      <strong>stream-name</strong> parameter. If this qualifier is omitted, 
+      VSC prompts you for the stream name.
+    </td>
+  </tr>
+</table>
+
+<a name="del_gen"><h1><font color=maroon>5.4 Deleting Generations</font></h1></a>
+
+<p>
+When it is necessary to undo a change to a module, you can delete the 
+latest generation of the module in a specified stream with the DELETE 
+GENERATION command. This command requires the VSC privilege 
+PERFREP. The following example shows how to use the DELETE GENERATION 
+command:
+<a name="index_x_239"></a>
+<a name="index_x_240"></a>
+<a name="index_x_241"></a>
+<a name="index_x_242"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ DELETE GENERATION [FACIL]MOD.TYP/STREAM=FOO
+</pre>
+</font>
+</table>
+
+This example deletes the most recent generation of module MOD.TYP in 
+facility FACIL from stream FOO. The previous generation then becomes 
+the latest generation for that stream. The command also inserts the 
+previous generation into the CMS class that corresponds to that stream. 
+The deleted generation remains in the CMS library until it has been 
+deleted from all streams that it belongs to.
+
+<p>
+The DELETE GENERATION command can only delete the latest generation in 
+a stream; it cannot delete generations in the middle of a stream's 
+generation chain. The purpose of the command is only to allow a recent 
+bad replacement to be undone when that is necessary. Usually, however, 
+developers should fix bad replacements by reserving the module, fixing 
+it, and replacing it again.
+
+<p>
+The DELETE GENERATION command accepts a list of module names separated 
+by commas, and you can use the asterisk (*) and percent sign (%) 
+wildcard characters in the module names. The latest generations of 
+those modules that match the wildcard patterns are deleted from the 
+VDE library.
+
+<p>
+<a href="vde_guide_007.html#qualtbl_delgen">Table 5-4</a> lists the qualifiers for the DELETE GENERATION command 
+and describes their functions. <p>
+<a name="index_x_243"></a>
+
+<table border=3>
+  <caption><a name="qualtbl_delgen"><strong>Table 5-4 Qualifiers to the DELETE GENERATION command</strong></a></caption>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/CONFIRM</strong>
+      <br>
+      <strong>/NOCONFIRM</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       /CONFIRM asks you to confirm that you want each generation deleted from 
+       the specified stream. This qualifier is particularly useful if you use 
+       wildcard characters in the module names. /NOCONFIRM deletes each 
+       generation without asking for confirmation. /NOCONFIRM is the default.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/LOG</strong>
+      <br>
+      <strong>/NOLOG</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specify whether informational log messages are printed after the 
+       generations are deleted. /LOG causes such messages to be printed and 
+       /NOLOG suppresses them. /LOG is the default.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/STREAM=stream-name</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies that the latest generations of the specified modules should 
+       be deleted from the stream given by the
+      <strong>stream-name</strong> parameter. If this qualifier is omitted, 
+      VSC prompts you for the stream name.
+    </td>
+  </tr>
+</table>
+
+<a name="obs_gen"><h1><font color=maroon>5.5 Marking Module Generations Obsolete</font></h1></a>
+
+<p>
+When a module has become obsolete, it can be marked as such in the 
+VSC database using the MODIFY GENERATION/OBSOLETE command. 
+This command will prevent further propogation of the specified module 
+into any successor streams. The following sequence shows the commands 
+typically used to mark a module generation as obsolete:
+<a name="index_x_244"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ MODIFY MODULE/NOLOG [TAPE]DEVDRV.MAR -
+_VSC„  /REMARK="Old tape device driver"
+VSC„ MODIFY GENERATION [TAPE]DEVDRV.MAR -
+_VSC„  /NOLOG /OBSOLETE
+</pre>
+</font>
+</table>
+
+<a name="review_notify"><h1><font color=maroon>5.6 Specifying Reviewer and Notification Lists</font></h1></a>
+
+<p>
+VSC allows you to specify that certain developers should 
+review or be notified of all changes to certain streams or modules. To 
+specify that a certain developer should review all changes replaced 
+into a certain stream, use the /REVIEWER qualifier with the MODIFY 
+STREAM command. For example:
+<a name="index_x_245"></a>
+<a name="index_x_246"></a>
+<a name="index_x_247"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ MODIFY STREAM BIRCH /REVIEWER=(SMITH,SNURD)
+</pre>
+</font>
+</table>
+
+This example causes VSC to record that developers SMITH and 
+SNURD should review all code changes replaced into stream BIRCH. 
+VSC appends these developers to the module's existing 
+reviewer list. Thereafter, the REPLACE command sends mail notification 
+to SMITH and SNURD each time a developer replaces modules into stream 
+BIRCH, and SMITH and SNURD are automatically recorded as reviewers for 
+each such replacement. They are thus able to accept or reject these 
+replacements with the ACCEPT and REJECT REPLACEMENT commands. The user 
+replacing modules into the stream can also specify additional reviewers 
+with the /REVIEWER qualifier to the REPLACE command, but he or she 
+cannot omit the automatic reviewers for the stream.
+
+<p>
+To remove reviewers from a stream's reviewer list, you should use the 
+/NOREVIEWER qualifier to the MODIFY STREAM command. For example:
+<a name="index_x_248"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ MODIFY STREAM BIRCH /NOREVIEWER=SNURD
+</pre>
+</font>
+</table>
+
+This example removes developer SNURD from the reviewer list for stream 
+BIRCH. If you specify the /NOREVIEWER qualifier without user name 
+parameters, VSC removes all reviewers for the stream.
+
+<p>
+VSC also allows you to specify that certain developers should 
+review all changes to a given module. The /REVIEWER qualifier to the 
+MODIFY MODULE command attaches reviewers to modules. For example:
+<a name="index_x_249"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ MODIFY MODULE [BAD]BADMAIN.B32 /REVIEWER=BROWN
+</pre>
+</font>
+</table>
+
+This example causes VSC to make developer BROWN an automatic 
+reviewer for all replacements of module BADMAIN.B32 in facility BAD, 
+regardless of stream. The /NOREVIEWER qualifier removes reviewers for a 
+module.
+
+<p>
+In addition to specifying reviewers for streams and modules, you can 
+specify that certain developers be notified of all replacements to a 
+certain stream or of a certain module. VSC automatically 
+notifies such developers of replacements for the stream or module, but 
+does not add them to the reviewer lists. They can therefore not accept 
+or reject the replacements. This example shows how to add user BROWN to 
+the list of users to notify of all changes to stream BIRCH:
+<a name="index_x_250"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ MODIFY STREAM BIRCH /NOTIFY=BROWN
+</pre>
+</font>
+</table>
+
+<p>
+Each parameter to the /NOTIFY qualifier can specify the user name of a 
+OpenVMS developer already recorded in the VSC database, 
+an OpenVMS mail address containing one or more node names (such 
+as NODE::SMITH), or a logical name bound to a list of users to notify. 
+If you specify a logical name, keep in mind that the logical name must 
+be defined both when you specify it and when it is later used to send 
+the notification messages. The logical should thus be a group or system 
+logical name, or a mail forwarding alias in the OpenVMS 
+VMSMAIL.DATA database.
+
+<p>
+Similarly, the following example shows how to specify that users SMITH 
+and SNURD be notified of all changes to module [BAD]BADMAIN.B32:
+<a name="index_x_251"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ MODIFY MODULE [BAD]BADMAIN.B32 /NOTIFY=(SMITH,SNURD)
+</pre>
+</font>
+</table>
+
+<p>
+To remove users from a stream's reviewer list, you should use the 
+/NONOTIFY qualifier to the MODIFY STREAM command. For example:
+<a name="index_x_252"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ MODIFY STREAM BIRCH /NONOTIFY=BROWN
+</pre>
+</font>
+</table>
+
+This example removes developer BROWN from the notification list for 
+stream BIRCH. If you specify the /NONOTIFY qualifier without 
+parameters, VSC deletes the entire notification list. This 
+qualifier is used the same way with the MODIFY MODULE command.
+
+<p>
+The MODIFY STREAM command requires the VSC privilege CRESTRM; 
+MODIFY MODULE requires CREMOD.
+<a name="index_x_253"></a>
+<a name="index_x_254"></a>
+
+<a name="bottom_007"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_006.html#bottom_006">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vde_guide_008.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+</body>
+</html>

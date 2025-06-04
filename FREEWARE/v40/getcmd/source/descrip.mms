@@ -1,0 +1,98 @@
+!
+!  MMS build file for GETCMD  -- Both OpenVMS VAX and AXP
+!
+!  Author:	Hunter Goatley
+!
+!  Date:	November 4, 1992
+!
+!  Description:
+!
+!	This MMS file will compile GETCMD using either the VAX BLISS-32
+!	compiler or the BLISS-32E cross compiler for Alpha.  To build
+!	for Alpha, define the symbol __ALPHA__:
+!
+!		$ MMS/MACRO=__ALPHA__
+!
+!
+.IFDEF __MATTS_MMS__
+.ELSE
+TYPE :
+	@ mac = ""
+	@ axp = f$getsyi("HW_MODEL").ge.1024
+	@ if axp then mac = "/MACRO=(__ALPHA__=1)"
+	@ if axp then write sys$output "Building GETCMD for AXP"
+	@ if .not.axp then write sys$output "Building GETCMD for VAX"
+	@ $(MMS)$(MMS$QUALIFIERS)'mac' GETCMD
+.ENDIF
+
+.IFDEF EXE
+.ELSE
+EXE = .EXE
+OBJ = .OBJ
+OLB = .OLB
+.ENDIF
+
+.IFDEF __MMK_V32__
+
+.IFDEF __AXP__
+ARCH = ALPHA
+L32 = .L32E
+.ELSE
+ARCH = VAX
+L32 = .L32
+.ENDIF
+
+BINDIR = SYS$DISK:[-.BIN-$(ARCH)]
+SRCDIR = SYS$DISK:[]
+
+.FIRST
+    @ IF F$PARSE("$(BINDIR)") .EQS. "" THEN CREATE/DIR $(BINDIR)
+    @ DEFINE/NOLOG BIN_DIR $(BINDIR)
+
+{}.C{$(BINDIR)}.OBJ :
+{}.MSG{$(BINDIR)}.OBJ :
+{}.CLD{$(BINDIR)}.OBJ :
+{}.MAR{$(BINDIR)}.OBJ :
+
+.ENDIF  ! not MMK V3.2 or later
+
+.IFDEF __ALPHA__
+OPT = .ALPHA_OPT
+SYSEXE = /SYSEXE
+.ELSE
+OPT = .OPT
+SYSEXE =
+.ENDIF
+
+.IFDEF __DEBUG__
+BFLAGS	  = $(BFLAGS)/DEBUG/NOOPTIMIZE
+LINKFLAGS = $(LINKFLAGS)/DEBUG
+.ELSE
+LINKFLAGS = $(LINKFLAGS)/NOTRACE
+.ENDIF
+
+GETCMD :	$(BINDIR)GETCMD$(EXE), $(SRCDIR)GETCMD.HLP
+	!GETCMD built
+
+OBJS	= GETCMD, GETCMD_MSG, GETCMD_CLD, HG_OUTPUT
+
+$(BINDIR)GETCMD$(EXE) :	$(BINDIR)GETCMD$(OLB)($(OBJS)), $(SRCDIR)GETCMD$(OPT)
+	$(LINK)$(LINKFLAGS)$(SYSEXE) $(BINDIR)GETCMD$(olb)/INCLUDE=GETCMD/LIBRARY,-
+		$(SRCDIR)GETCMD$(OPT)/OPTIONS
+
+$(BINDIR)GETCMD$(OBJ) :		$(SRCDIR)GETCMD.B32
+$(BINDIR)GETCMD_MSG$(OBJ) :	$(SRCDIR)GETCMD_MSG.MSG
+$(BINDIR)GETCMD_CLD$(OBJ) :	$(SRCDIR)GETCMD_CLD.CLD
+$(BINDIR)HG_OUTPUT$(OBJ) :	$(SRCDIR)HG_OUTPUT.B32
+
+$(SRCDIR)GETCMD.HLP :		$(SRCDIR)GETCMD.RNH
+	RUNOFF $(MMS$SOURCE)
+
+$(SRCDIR)GETCMD.RNH :		$(SRCDIR)GETCMD.HELP, $(SRCDIR)CVTHELP.TPU
+	EDIT/TPU/NOSECTION/NODISPLAY/COMMAND=$(SRCDIR)CVTHELP.TPU $(MMS$SOURCE)
+
+$(SRCDIR)CVTHELP.TPU :
+	@!
+
+CLEAN :
+	delete/nolog *.hlp;*,*.rnh;*,$(BINDIR)*.*obj;*,*.*olb;*,*.*exe;*

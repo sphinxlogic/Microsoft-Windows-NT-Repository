@@ -1,0 +1,112 @@
+	.title	sys_check_software_expiry1
+	.ident	"X1-001"
+
+;+
+; Version:	X1-001
+;
+; Facility:	General routines.
+;
+; Abstract:	Check the current system date against a predetermined expiry
+;		date and abort if we have exceeded that date.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	17-Jan-1992, DBS, Version X1-001
+; 001 -	Original version.
+;-
+
+;++
+; Functional Description:
+;	This routine uses a simple algorithm for checking a date against the
+;	current system date to determine if a piece of software has expired
+;	or not.  The numbers are generated as follows:
+;		expiry_date = ((year*12) + month)*32 + day
+;		check_number = not (expiry_date).
+;	Using these algorithms allows for easy implementation of restrictions
+;	that can be updated by simple patches to an image.
+;	Note that any attempts to call this routine with a short argument list
+;	or invalid check numbers will have the same result as if the software
+;	had expired.
+;
+; Calling Sequence:
+;	pushal	check_number
+;	pushal	expiry_date
+;	calls	#2, g^sys_check_software_level1
+;
+; Formal Argument(s):
+;	expiry_date.rl.r  Address of the longword containing the expiry date
+;			generated as described above.
+;	check_number.rl.r  Address of the longword containing the check number
+;			generated from the expiry date.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_normal if the date is ok, else this routine does a $exit.
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	$ssdef
+	$gblini	GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+time_buffer:				; this will contain the information
+year:	.word	0			;  returned by $numtim
+month:	.word	0
+day:	.word	0
+	.blkw	4			; that's for hh, mm, ss, cc
+
+	expiry_date = 4			; offsets to the arguments
+	check_number = 8
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+sys_check_software_expiry1, ^m<r2>
+
+	cmpw	(ap), #2		; do we have two arguments?
+	bneq	expired			; no, so we are expired
+	addl3	@expiry_date(ap), -
+		@check_number(ap), r0	; check the check number
+	cmpl	r0, #-1			; is it ok?
+	bneq	expired			; no good, so exit
+	$numtim_s -
+		timbuf=time_buffer	; get the current date and time
+	movzwl	year, r0
+	movzwl	month, r1
+	movzwl	day, r2
+	mull2	#12, r0			; turn years into months
+	addl2	r1, r0			; and add this many months
+	mull2	#32, r0			; turn months into days, sort of...
+	addl2	r2, r0			; and that's it
+	cmpl	r0, @expiry_date(ap)	; compare current to expiry
+	bgequ	expired			; bail out if we're passed it
+	movl	#ss$_normal, r0		; else we succeed
+
+	ret
+
+expired:
+	$exit_s	code=#ss$_exlicense
+
+	.end

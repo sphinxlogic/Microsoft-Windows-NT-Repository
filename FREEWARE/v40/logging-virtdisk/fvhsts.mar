@@ -1,0 +1,1300 @@
+	.TITLE	FVHST - VAX/VMS VIRT DISK DRIVER ASSIGN/DEASSIGN
+	.IDENT	'V03-001'
+;Copyright 1992 Glenn C. Everhart
+; All rights reserved
+;$$$xdt=1
+;
+; FACILITY:
+; 
+; ASSIGN/DEASSIGN VIRTUAL DISK TASK THAT WORKS WITH VDDRIVER
+;  ESTABLISHES CONNECTION (OR BREAKS IT) BETWEEN A LUN OF
+;  VD: AND A CONTIGUOUS FILE.
+;
+; Also this version will save the container file spec in the
+; UCB area ucb$vdcontfil as a null terminated string up to 79
+; bytes long. Also it has an option to report the assigned
+; file so associated. (/report)
+;
+; ALSO, this version will recognize a couple container file sizes.
+; Specifically: a file sized 500384 to 500400 blocks long will be
+; treated as an RM05, with 823 cylinders, 19 tracks/cylinder,
+; and 32 sectors per track. A file under 65530 blocks long will
+; get geomtery n cylinders, 1 sector/track, 1 track/cyl, and
+; a file of size 131680 to 131700 blocks long will be treated as
+; an RM03 with 823 cylinders, 5 tracks/cylinder, and 32 sectors
+; per track. This will facilitate use for some kinds of backups.
+; Other disk types can be wedged in as needed. Note the physical
+; structure for small disks thus generated is DIFFERENT from the
+; "standard" driver set. A /sec64 switch will allow this to be
+; overridden where we need compatibility.
+; Also added is RX50 recognition. The RX50 has an unusual physical
+; structure (1 cylinder, 80 trks/cyl and 10 sect/trk) considering
+; the actual layout. The geotbl entry reflects the structure as seen
+; by show device/full on VMS. Other structures are added by GEOTBL
+; macros in the table; most disk structures I could lay my hands
+; on are included. The /sec32 structure is provided to give
+; compatible handling with the Bear Systems virtual disk, which
+; uses 32 tracks/cyl and 32 sector/track for large unrecognized
+; disks. We used the Bear driver on our 750 and I needed to be
+; able to get at the virtual disks compatibly using vddriver.
+;
+;
+;With version 3 is added facility to use VD: with an arbitrary
+; section of disk. The /LBN=number/LEN=number switches will
+; allow one to force an LBN and length in blocks for a VD:
+; assignment even if the file assigned is NOT contiguous. (This
+; can happen where a file has only one extent, but was not created
+; as a contiguous file.)
+;  The motive for this is: I have noticed that my SYSDUMP.DMP file
+; (after backup/restore) exists as one contiguous area, even though
+; it is not marked contiguous. Addition of these commands to ASNVD
+; will allow use of such areas of disk for things like scratch
+; space, where the volatility of scratch area is not an issue.
+; This method will also allow entire physical disks to be assigned
+; through the VD: driver, or permit partitioning of physical disks
+; without the overhead of a Files-11 index structure on the disk.
+; (the code added will probably be moved to ASNVQ also, where such
+; disk assignment has other uses also.)
+;
+; Command format:
+; FVSET/switches FVn: file
+;  where a .CLD file is expected so that this can all be parsed by
+;  the CLI. The legal switches will just be /ASSIGN or /DEASSIGN
+;  to specify which operation is required. In the /DEASSIGN
+;  case no filename is needed of course; the virtual disk must
+;  however be dismounted before this utility will allow it to
+;  be deassigned. The ucb$w_refc field must be zero before the
+;  deassign is thus permitted.
+;  We must set the UCB$L_MAXBLOCK longword to the size of the file
+;  here also. This requires reading the statistics on the file to
+;  discover the size if contiguous; the statistics block will
+;  show zero if noncontig...
+;   Device geometry is needed by INIT and MOUNT, though vddriver
+; doesn't care. Therefore a "sensible" geometry is always generated,
+; and device size is always an integral number of cylinders. Vddriver
+; doesn't support physical I/O really, but init and mount use the
+; physical structure to figure where to put home blocks or look for
+; them.
+;
+; Note: define VMS$V5 to build for Version 5.x of VMS.
+VMS$V5=1
+;
+; 
+; AUTHOR:
+; 
+; G. EVERHART
+;
+; 04-Aug-1989	D. HITTNER	Cleaned up definitions, added messages
+; 29-Aug-1989   G. Everhart	Added more flexible device geometry selection
+;--
+	.PAGE
+	.SBTTL	EXTERNAL AND LOCAL DEFINITIONS
+
+	.LIBRARY /SYS$SHARE:LIB/
+; 
+; EXTERNAL SYMBOLS
+; 
+
+	$ADPDEF				;DEFINE ADAPTER CONTROL BLOCK
+	$ATRDEF
+	$CRBDEF				;DEFINE CHANNEL REQUEST BLOCK
+	$DCDEF				;DEFINE DEVICE CLASS
+	$DDBDEF				;DEFINE DEVICE DATA BLOCK
+	$DEVDEF				;DEFINE DEVICE CHARACTERISTICS
+	$DPTDEF				;DEFINE DRIVER PROLOGUE TABLE
+	$DVIDEF				;Symbols for $GETDVI service.
+	$EMBDEF				;DEFINE ERROR MESSAGE BUFFER
+	$FABDEF
+	$FATDEF
+	$FIBDEF				;Symbols for file information block.
+	$IDBDEF				;DEFINE INTERRUPT DATA BLOCK
+	$IODEF				;DEFINE I/O FUNCTION CODES
+	$IRPDEF				;DEFINE I/O REQUEST PACKET
+	$NAMDEF
+	$PRDEF				;DEFINE PROCESSOR REGISTERS
+	$RMSDEF
+	$SBDEF
+	$SCSDEF
+	$SSDEF				;DEFINE SYSTEM STATUS CODES
+	$STSDEF				;Symbols for returned status.
+	$TPADEF				;Symbols for LIB$TPARSE calls.
+	$UCBDEF				;DEFINE UNIT CONTROL BLOCK
+	$VECDEF				;DEFINE INTERRUPT VECTOR BLOCK
+	$XABDEF
+	$PCBDEF				;DEFINE PCB OFFSETS
+	$UCBDEF				;DEFINE UNIT CONTROL BLOCK
+	$VECDEF				;DEFINE INTERRUPT VECTOR BLOCK
+;	$ADPDEF				;DEFINE ADAPTER CONTROL BLOCK
+	$DYNDEF ;define dynamic data types
+	$DDTDEF				; DEFINE DISPATCH TBL...
+	$ptedef
+	$vadef
+	$irpedef
+	$ipldef
+	$PRDEF				;DEFINE PROCESSOR REGISTERS
+	$pcbdef
+	$jibdef
+	$acbdef
+	.IF	DF,VMS$V5	;VMS V5 + LATER ONLY
+	$cpudef		;thanks to Chris Ho for V5 fix
+	$SPLCODDEF
+	.ENDC
+
+; 
+
+
+; 
+; UCB OFFSETS WHICH FOLLOW THE STANDARD UCB FIELDS
+; DEFINE THESE SO WE KNOW WHERE IN THE UCB TO ACCESS. WE MUST
+; SET THE ONLINE BIT OR CLEAR IT, AND ALSO SET
+; UCB$HUCB (HOST UCB ADDRESS), UCB$HFSZ (HOST FILE SIZE),
+; AND UCB$HLBN (HOST LOGICAL BLOCK NUMBER OF FILE START)
+;
+; Note: These MUST match the definitions in VDDRIVER. Don't
+; change one without changing the other to match it!!!
+;	G. Everhart 9/5/1986
+; 
+; Since I/O postprocessing on virtual or paging I/O makes lots of
+; assumptions about location of window blocks, etc., which are
+; not true here (wrong UCB mainly), we'll bash the function code status
+; we send to the host driver to look like logical I/O is being
+; done and save the real status code here. Later when VD: does
+; I/O completion processing, we'll replace the original function
+; from here back in the IRP. This will be saved/restored along with
+; ucb$ppid (irp$l_pid field) and so synchronization will be detected
+; with ucb$ppid usage.
+
+; 
+; UCB OFFSETS WHICH FOLLOW THE STANDARD UCB FIELDS
+; 
+	$DEFINI	UCB			;START OF UCB DEFINITIONS
+
+;.=UCB$W_BCR+2				;BEGIN DEFINITIONS AT END OF UCB
+.=UCB$K_LCL_DISK_LENGTH	;v4 def end of ucb
+; USE THESE FIELDS TO HOLD OUR LOCAL DATA FOR VIRT DISK.
+; Add our stuff at the end to ensure we don't mess some fields up that some
+; areas of VMS may want.
+;The following must match the same-named data in the ACB extension
+	.blkl	2	;safety
+$DEF	UCB_L_UCB	.BLKL	1	;Save UCB address here
+$DEF	UCB_L_MEMBUF	.BLKL	1	;Address of buffer for this transfer
+$DEF	UCB_L_NSPTS	.BLKL	1	;Number of SPTs required for buffer
+$DEF	UCB_L_SVPN	.BLKL	1	;Starting system page number
+$DEF	UCB_L_ADRSPT	.BLKL	1	;Address of first SPT used
+$DEF	UCB_L_SVABUF	.BLKL	1	;System virtual address of user buffer
+;
+$DEF	UCB$HPID	.BLKL	1	;ADDRESS OF HOST UCB
+$DEF	UCB$HLBN	.BLKL	1	;LBN OF HOST FILE
+$DEF	UCB$HFSZ	.BLKL	1	;SIZE OF HOST FILE, BLKS
+$DEF	UCB$PPID	.BLKL	1	;PID OF ORIGINAL PROCESS FROM IRP BLK
+$def	ucb$irps	.BLKL	1	;IRP save area during host proc action
+$def	ucb$smbx	.BLKL	1	;mailbox UCB for work notices
+; Define save areas for UCB fields needed for I/O copies and used in
+; driver to process copies here.
+$def	ucb$lsvapte	.blkl 1    ;saves ucb$l_svapte
+$def	ucb$lsts	.blkl 1     ;saves ucb$l_sts
+$def	ucb$lsvpn	.blkl 1  ; similar
+$def	ucb$wboff	.blkl 1  ; similar
+$def	ucb$lmedia	.blkl	1
+$def	ucb$irplmedia	.blkl	1	;irp$l_media save
+$def	ucb$wdirseq	.blkl	1
+$def	ucb$lbcr	.blkl	1
+; NOTE: It is important to ENSURE that we never clobber IRP$L_PID twice!
+; therefore, adopt convention that UCB$PPID is cleared whenever we put
+; back the old PID value in the IRP. Only clobber the PID where
+; UCB$PPID is zero!!!
+$DEF	UCB$L_MEMBUF	.BLKL	1	; MEMORY AREA
+$DEF	UCB$L_MEMBF	.BLKL	1	; MEMORY BUFFER FOR CONTROL PROCESS
+$def	ucb$l_bufmod	.blkl	1	; operating mode; 0 => write every time, 1=> buffer
+$def	ucb$l_memorg	.blkl	1	; origin for next write into memory area
+$def	ucb$l_memlft	.blkl	1	; buffer size remaining
+$def	ucb$l_cmpdun	.blkl	1	; I/O completions done, countdown where
+					; vd: and fd: type completions must be both
+					; used so we do reqcom ONCE only
+$DEF	UCB$stats	.BLKL	1	;STATUS CODE SAVE AREA
+$def	ucb$jiggery	.blkl	1	;adjust to refcnt to fix up
+; Since I/O postprocessing on virtual or paging I/O makes lots of
+; assumptions about location of window blocks, etc., which are
+; not true here (wrong UCB mainly), we'll bash the function status
+; we send to the host driver to look like physical I/O is being
+; done and save the real function code here. Later when FV: does
+; I/O completion processing, we'll replace the original function
+; from here back in the IRP. This will be saved/restored along with
+; ucb$ppid (irp$l_pid field) and so synchronization will be detected
+; with ucb$ppid usage.
+;
+$def    ucb$l_blk	.blkl	1	;block i/o if nonzero
+$def	ucb$l_rwflg	.blkl	1	;r/w flag
+; Add our stuff at the end to ensure we don't mess some fields up that some
+; areas of VMS may want.
+$DEF	UCB$HUCB	.BLKL	1	;ADDRESS OF HOST UCB
+; NOTE: It is important to ENSURE that we never clobber IRP$L_PID twice!
+; therefore, adopt convention that UCB$PPID is cleared whenever we put
+; back the old PID value in the IRP. Only clobber the PID where
+; UCB$PPID is zero!!!
+$DEF	UCB$OBCT	.BLKL	1	;STORE FOR IRP$L_OBCNT too
+$def	ucb$owind	.blkl	1	; store irp$l_wind...
+$def	ucb$osegv	.blkl	1	; and irp$l_segvbn
+$def	ucb$l_vd_host_descr	.blkl	2	; char string descr
+$def	ucb$vdcontfil	.blkb	80	;storage for container file name
+					;(saved by asnvd)
+$DEF	UCB$K_FV_LEN	.BLKL	1	;LENGTH OF UCB
+;UCB$K_FV_LEN=.				;LENGTH OF UCB
+
+	$DEFEND	UCB			;END OF UCB DEFINITONS
+
+; TO SET ONLINE:
+;	BISW	#UCB$M_ONLINE,UCB$W_STS(R5)  ;SET UCB STATUS ONLINE
+
+; Macro to check return status of system calls.
+;
+	.MACRO	ON_ERR	THERE,?HERE
+	BLBS	R0,HERE
+	BRW	THERE
+HERE:	.ENDM	ON_ERR
+
+;
+;
+;
+	.PSECT	ADVDD_DATA,RD,WRT,NOEXE,LONG
+
+DEFAULT_DEVICE:
+	.ASCID	/SYS$DISK/
+
+	.ALIGN LONG
+DFAB_BLK: $FAB FNM=<VD0.DSK>,XAB=FNXAB,FAC=<GET,PUT>,DNM=<VDCONT.DSK>
+;
+FNXAB:	$XABFHC	; XAB STUFF TO GET LBN, SIZE
+	.BLKL	20 ;SAFETY
+IOSTATUS: .BLKQ 1
+DEV_BUF:			; Buffer to hold device name.
+	.BLKB	40
+DEV_BUF_SIZ = . - DEV_BUF
+
+DEV_BUF_DESC:			; Descriptor pointing to device name.
+	.LONG	 DEV_BUF_SIZ
+	.ADDRESS DEV_BUF
+
+PID:				; Owner of device (if any).
+	.BLKL	1
+
+DEV_ITEM_LIST:			; Device list for $GETDVI.
+	.WORD	 DEV_BUF_SIZ	; Make sure we a have a physical device name.
+	.WORD	 DVI$_DEVNAM
+	.ADDRESS DEV_BUF
+	.ADDRESS DEV_BUF_DESC
+	.WORD	 4		; See if someone has this device allocated.
+	.WORD	 DVI$_PID
+	.ADDRESS PID
+	.LONG	 0
+	.WORD	 4
+	.WORD	 DVI$_DEVCLASS	; Check for a terminal.
+	.ADDRESS DEV_CLASS
+	.LONG	 0
+	.LONG	 0		; End if item list.
+
+DEV_CLASS:
+	.LONG	1
+;**
+VDV_BUF:			; Buffer to hold VDVice name.
+	.BLKB	40
+VDV_BUF_SIZ = . - VDV_BUF
+
+VDV_BUF_DESC:			; Descriptor pointing to VDVice name.
+	.LONG	 VDV_BUF_SIZ
+	.ADDRESS VDV_BUF
+
+VPID:				; Owner of VDVice (if any).
+	.BLKL	1
+
+VDV_ITEM_LIST:			; VDVice list for $GETDVI.
+	.WORD	 VDV_BUF_SIZ	; Make sure we a have a physical device name.
+	.WORD	 DVI$_DEVNAM
+	.ADDRESS VDV_BUF
+	.ADDRESS VDV_BUF_DESC
+	.WORD	 4		; See if someone has this device allocated.
+	.WORD	 DVI$_PID
+	.ADDRESS VPID
+	.LONG	 0
+	.WORD	 4
+	.WORD	 DVI$_DEVCLASS	; Check for a terminal.
+	.ADDRESS VDV_CLASS
+	.LONG	 0
+	.LONG	 0		; End if item list.
+
+VDV_CLASS:
+	.LONG	1
+;**
+DEFNAM:
+
+WRK:	.BLKL	1	;SCRATCH INTEGER
+; DESCRIPTOR FOR VDn: "FILENAME"
+	.ALIGN LONG
+; note vdfnm is used for the file-writing routine. For generality anbd
+; ease of programming, this filespec is passed to the journalling
+; routine, which initially at least will be a Fortran routine which
+; can use the file spec given here to construct a file.journal
+; file.
+VDFNM:	.WORD	 255.	;LENGTH
+VDFTP:	.BYTE	DSC$K_DTYPE_T	;TEXT TYPE
+	.BYTE	1	; STATIC STRING
+	.ADDRESS	VDFNMD
+VDFNMD:	
+	.ascii	/sys$disk:foo.dsk/	;something initially...
+	.even
+	.BLKB	256.	; DATA AREA
+	.align long
+wrkstr:	.word	40	;length
+	.byte	dsc$k_dtype_t	;text
+	.byte	1	;static
+	.address	wrkdat
+wrkdat:	.blkb	40
+	.byte	0,0,0,0	;safety
+	.long	0,0,0,0	;safer still
+;
+; DESCRIPTOR FOR DVn:DSKFIL "FILENAME"
+	.ALIGN LONG
+DDFNM:	.WORD	 255.	;LENGTH
+DDFTP:	.BYTE	DSC$K_DTYPE_T	;TEXT TYPE
+	.BYTE	1	; STATIC STRING
+DDFNA:	.ADDRESS	DDFNMD
+DDFNMD:	.BLKB	256.	; DATA AREA
+DDCHN:	.LONG	0
+; DESCRIPTOR FOR journalling dataset
+	.ALIGN LONG
+jnm:	.long	0	;flag a name exists in jddfnmd
+jDDFNM:	.WORD	 255.	;LENGTH
+jDDFTP:	.BYTE	DSC$K_DTYPE_T	;TEXT TYPE
+	.BYTE	1	; STATIC STRING
+jDDFNA:	.ADDRESS	jDDFNMD
+jDDFNMD:	.BLKB	256.	; DATA AREA
+jDDCHN:	.LONG	0
+;
+VDCHN:	.LONG	0	;CHANNEL HOLDERS
+MBCHN:	.long	0	; channel for mailbox
+MBUCB:	.long	0	; UCB address for mailbox
+mbx_BUF:			; Buffer to hold mbxice name.
+	.BLKB	40
+mbx_BUF_SIZ = . - mbx_BUF
+
+mbx_BUF_DESC:			; Descriptor pointing to mbxice name.
+	.LONG	 mbx_BUF_SIZ
+	.ADDRESS mbx_BUF
+
+mPID:				; Owner of mbxice (if any).
+	.BLKL	1
+
+mbx_ITEM_LIST:			; mbxice list for $GETDVI.
+	.WORD	 mbx_BUF_SIZ	; Make sure we a have a physical device name.
+	.WORD	 DVI$_DEVNAM
+	.ADDRESS mbx_BUF
+	.ADDRESS mbx_BUF_DESC
+	.WORD	 4		; See if someone has this device allocated.
+	.WORD	 DVI$_PID
+	.ADDRESS mPID
+	.LONG	 0
+	.WORD	 4
+	.WORD	 DVI$_DEVCLASS	; Check for a terminal.
+	.ADDRESS mbx_CLASS
+	.LONG	 0
+	.LONG	 0		; End if item list.
+
+mbx_CLASS:
+	.LONG	1
+;
+; FOR initial use, don't bother allocating the file. Assume the
+; user can somehow allocate a contiguous file of the size he wants
+; for himself.
+;
+repdsc:	.ascid	/REPORT/	;report associated file
+repflg:	.long	0		;1 if reporting, 0 otherwise
+reptxt:	.word	80		;80 byte long
+	.byte dsc$k_dtype_t	;static, fixed length string of text
+	.byte 1
+	.address	repwrk	;data pointer is repwrk's address
+repwrk:	.blkb	80		;copy of filespec
+bufmod:	.long	0		;buffering mode, 0=none, 1=buffer
+opcnt:	.long	0
+bmdsc:	.ascid	/IMMED/		;/immed to set bufmod to 0, else 1
+s64dsc:	.ascid	/SEC64/		;flag this if 64 sectors/trk geometry needed
+s32dsc:	.ascid	/SEC32/		;md: type 32 sector forcer
+ASDSC:	.ASCID	/ASSIGN/
+DASDSC:	.ASCID	/DEASSIGN/
+P1DSC:	.ASCID	/UNIT/
+P2DSC:	.ASCID	/FNAM/
+p3dsc:	.ascid	/JNLFIL/
+LBNDSC:	.ASCID	/LBN/
+LENDSC:	.ASCID	/LENGTH/
+	.EVEN
+ASDAS:	.LONG	0	;DEFAULT DEASSIGN
+vSec64:	.long	0	;1 if using /sec64 geometry
+vsec32:	.long	0	;1 if using /sec32 geometry
+LBNn:	.long	0	;temp storage for /lbn=number
+LENn:	.long	0	;temp storage for /len=number
+;
+; ucb data area
+HSTUCB:	.LONG	0	;HOST UCB ADDRESS
+HSTLBN:	.LONG	0	;LBN OF 1ST BLK OF HOST FILE
+HSTFSZ:	.LONG	0	;LENGTH IN BLOCKS OF HOST FILE
+; Data area for "disk"
+;
+	.align long
+fd_cyl=5		;make it 5 cyls of 64 blocks each
+fd_blocks=fd_cyl*64	; blocks...
+fd_longs=fd_blocks*128	; longwords needed
+;fd_data::
+;	.BLKL fd_longs
+;	.blkl	128	;guard area for safety during debug...
+; ucb data area
+OURPID:	.LONG	0	;PID OF THIS PROCESS
+iosb:	.long	0,0,0,0	;iosb
+ioprog:	.long	0	; i/o in progress flag if nonzero
+; BUFFER FOR COPIES OF DRIVR DATA
+BUFHDR:	.LONG	0,0,0,0,0
+BUF:	.BLKL	8192.	; DATA AREA
+	.LONG	0,0	;SAFETY BUFFERS
+SETFD:	.LONG	0	;DECLARE PROCESS
+	.LONG	0	;PID
+HSTFZ:	.LONG	1	;DISK SIZE
+	.LONG	0,0,0,0	;EXTRA STUFF FOR OTHER CALLS
+SETFDL=.-SETFD
+	.LONG	0,0,0,0,0	;SAFETY
+; debug words
+vducb: .long 0
+vdsts:	.long 0
+vdsts2:	.long 0
+vdsts3:	.long 0
+vdcyl:	.long 0
+vdprog:	.long 0	;counts where we've been
+; geometry actually used
+xcyls:	.long	0
+xtrks:	.long	0
+xsecs:	.long	0
+xblks:	.long	0
+bfsz:	.long	0	;buffer size for subroutine
+S_ARG:
+	.LONG	4			;2 ARGS: HOST-DVC NAME, VD DVC NAME
+bfad:	.long	0	;buffer address to write
+	.ADDRESS	bfsz	;size of buffer in bytes to write
+	.address	jddfnm	; descriptor of journal filename
+	.address	jnm	;flag if nonzero that filename exists
+;
+;
+ERROR:	.LONG	2
+MESS:	.LONG	SS$_ABORT
+	.LONG	0
+
+; Device geometry
+; Use this table for "large" devices so that container files of
+; sizes matching known geometry devices are made to appear to
+; have exactly the known geometry. This will avoid a LOT of special
+; case testing and allow insertion of more device geometries as we
+; like
+	.macro	Geotbl losz,hisz,blks,cyl,trk,sect
+	.Long	losz	;low limit file size this geom
+	.Long	hisz	;high limit file size this geom
+	.long	blks	;Number of blks on device
+	.word	cyl	;number cylinders
+	.byte	trk	;number tracks/cyl
+	.byte	sect	;number sectors/track
+	.endm
+; Geoms MUST be in increasing order of size.
+Geoms:
+;		losiz	hisiz	blks	cyl	trk	sect	id
+	Geotbl  800,	805,	800,	1,	80,	10	;rx50
+	Geotbl	4800,	4810,	4800,	200,	2,	12	;RK05
+	Geotbl	10240,	10250,	10240,	256,	2,	40	;RL01 (sect=256 bytes)
+	Geotbl	20480,	20500,	20480,	512,	2,	40	;RL02 (Sect=256 bytes)
+	Geotbl	27126,	27150,	27126,	411,	3,	22	;RK06
+	GeoTbl	53790,	53830,	53790,	815,	3,	22	;RK07
+	GeoTbl	131680,	131700,	131680,	823,	5,	32	;RM03
+	GeoTbl	138672,	138690,	138672,	1024,	8,	17	;RD53
+	GeoTbl	171798,	171850,	171798,	411,	19,	22	;RP04
+	GeoTbl	242606,	242650,	242606,	559,	14,	31	;RM80 (or RB80)
+	GeoTbl	340670,	340720,	340670,	815,	19,	22	;RP06
+	GeoTbl	500384,	500420,	500384,	823,	19,	32	;RM05
+	GeoTbl	891072,	891110,	891072,	1248,	14,	51	;RA81
+	GeoTbl	1008000,1008500,1008000,630,	32,	50	;RP07
+	GeoTbl	1216665,1216700,1216665,1423,	15,	57	;RA82
+	.Long	0,0,0,0		;list terminator
+;
+;
+;
+
+	.PSECT	ADVDD_CODE,RD,WRT,EXE,LONG
+	.ENTRY	AVF,^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+	clrl	repflg		;say not reporting initially
+	movab	repwrk,r0	;clear work string initially
+	movl	#80,r1
+1$:	clrb	(r0)+
+	sobgtr	r1,1$		;zero the array out
+
+	MOVL	#1,ASDAS	;SET ASSIGN
+	PUSHAB	WRK		;PUSH LONGWORD ADDR FOR RETLENGTH
+	PUSHAB	VDFNM		;ADDRESS OF DESCRIPTOR TO RETURN
+	PUSHAB	P1DSC		; GET P1 (VDn: UNIT)
+	CALLS	#3,G^CLI$GET_VALUE	;GET VALUE OF NAME TO VDFNM
+	ON_ERR	ADVDD_EXIT
+	clrl	vsec64		;zero s64 flag
+	clrl	vsec32		;ditto s32 flag
+	pushab	s64dsc
+	calls	#1,g^cli$present	;see if /sec64 specified
+	cmpl	r0,#cli$_present
+	bneq	503$			;if neq not there
+	incl	vsec64
+503$:
+	pushab	s32dsc
+	calls	#1,g^cli$present	;see if /sec32 specified
+	cmpl	r0,#cli$_present
+	bneq	1503$			;if neq not there
+	incl	vsec32
+1503$:
+	movl	#1,bufmod		;set buffered mode first
+	pushab	bmdsc			;/immed spec'd?
+	calls	#1,g^cli$present	;see it?
+	cmpl	r0,#cli$present
+	bneq	4503$
+	clrl	bufmod			;set no bufering
+4503$:
+	pushab	repdsc
+	calls	#1,g^cli$present	;/report used?
+	cmpl	r0,#cli$_present
+	bneq	103$			;if not there, skip...
+	movl	#1,repflg
+	jmp	das1			;if there, no need for 2nd file either
+;
+; IF "DEASSIGN" WE DON'T NEED 2ND ARG... SEE...
+;
+103$:
+	PUSHAB	DASDSC			; 'DEASSIGN'
+	CALLS	#1,G^CLI$PRESENT	; IS /DEASSIGN USED?
+	CMPL	R0,#CLI$_PRESENT	; IF EQ YES
+	BEQL	DAS1
+
+	PUSHAB	WRK			; GET 2ND FILE (REAL FILE)
+	PUSHAB	DDFNM			; & ITS DESCRIPTOR
+	PUSHAB	P2DSC			; & PARAMETER NAME 'P2'
+	CALLS	#3,G^CLI$GET_VALUE	; GET FNM
+	ON_ERR	ADVDD_EXIT
+	BRB	DAS2
+DAS1:	CLRL	ASDAS			; FLAG /DEAS
+DAS2:
+
+	TSTL	ASDAS			; IF 0, DEASSIGNING SO NO CHNL FOR HOST
+					; FILE
+	BEQL	290$
+	tstl	repflg
+	bneq	290$			;/report doesn't need file either
+	$ASSIGN_S -			; Get a channel to the 
+		DEVNAM=DDFNM,-		; device for host file
+		CHAN=DDCHN
+	ON_ERR	ADVDD_EXIT
+; LET ERRORS BY FOR THIS SINCE WE GET OUR INFO VIA OPEN ANYWAY SO
+; CHANNEL REALLY DOESN'T HAVE TO BE THERE.
+; Get the physical device name, and see if this device has an owner.
+; (We must do this so we can get the host UCB address)
+	$GETDVI_S -
+		CHAN=ddchn,-		; Command line has device name.
+		ITMLST=DEV_ITEM_LIST
+	BLBS	R0,40$
+	BRW	advdd_EXIT
+40$:
+290$:
+; MUST HAVE ASSIGNMENT TO VD: UNIT IN ANY CASE.
+	$ASSIGN_S -
+		DEVNAM=VDFNM,-		; GET CHANNEL FOR VDn:
+		CHAN=VDCHN
+	ON_ERR	ADVDD_EXIT		; SKIP OUT IF ERROR
+	$GETDVI_S -
+		CHAN=vdchn,-		; Command line has device name.
+		ITMLST=VDV_ITEM_LIST
+	BLBS	R0,140$
+	BRW	advdd_EXIT
+140$:
+; get journal dataset name
+	clrl	jnm
+	PUSHAB	WRK			; GET 2ND FILE (REAL FILE)
+	PUSHAB	jDDFNM			; & ITS DESCRIPTOR
+	PUSHAB	P3DSC			; & PARAMETER NAME 'P2'
+	CALLS	#3,G^CLI$GET_VALUE	; GET FNM
+	blbc	r0,1431$		;if ok, so flag
+	incl	jnm			;got a name, so flag we did
+1431$:
+
+	clrl	lbnn
+	clrl	lenn		;zero lbn and length flags.
+	brb	1401$
+1400$:	brw	1501$
+1401$:
+	PUSHAB	LBNDSC			; 'lbn='
+	CALLS	#1,G^CLI$PRESENT	; IS /DEASSIGN USED?
+	CMPL	R0,#CLI$_PRESENT	; IF EQ YES
+	Bneq	1400$			; if neq no
+	pushab	lendsc			; /len=nnnn
+	calls	#1,g^cli$present	;see it too? (must have both)
+	cmpl	r0,#cli$_present
+	Bneq	1400$
+; have both /len and /lbn specified. Get values for them. If they
+; look OK, bypass file open and replace logic.
+	PUSHAB	WRK		;PUSH LONGWORD ADDR FOR RETLENGTH
+	pushab	wrkstr		;scratch string
+	PUSHAB	lbndsc		; GET lbn
+	CALLS	#3,G^CLI$GET_VALUE	;GET VALUE OF LBN
+	ON_ERR	ADVDD_EXIT
+; string in wrkdat
+	pushl	#17		;mask...ignore blanks
+	pushl	#4		;4 bytes
+	pushab	lbnn		;where to store
+	pushab	wrkstr		;string descriptor
+	calls	#4,g^ots$cvt_tu_l ;convert to binary
+	on_err advdd_exit
+; lbnn now is start logical blk
+	PUSHAB	WRK		;PUSH LONGWORD ADDR FOR RETLENGTH
+	pushab	wrkstr		;scratch string
+	PUSHAB	lendsc		; GET length
+	CALLS	#3,G^CLI$GET_VALUE	;GET VALUE OF Length
+	ON_ERR	ADVDD_EXIT
+; string in wrkdat
+	pushl	#17		;mask...ignore blanks
+	pushl	#4		;4 bytes
+	pushab	lenn		;where to store
+	pushab	wrkstr		;string descriptor
+	calls	#4,g^ots$cvt_tu_l ;convert to binary
+	on_err advdd_exit
+;len must be positive!
+	tstl	lenn		;so IS it positive?
+	blss	1501$		;if lss then no, it's negative so try and probably
+				; fail to open file.
+	movl	lbnn,hstlbn	;looks ok so save host LBN
+	movl	lenn,hstfsz	;and start blk
+	movl	lenn,hstfz
+	brw	1785$		;then merge common path in again.
+1501$:
+;
+; NOW LOCATE THE FILE AND VERIFY IT'S REALLY CONTIGUOUS, AND FIND
+; OUT HOW BIG IT IS. STORE RESULTS IN HSTLBN AND HSTFSZ AND
+; CALL KERNEL ROUTINE TO BASH THE VDn: UCB APPROPRIATELY.
+;
+; DON'T NEED TO DO THIS FOR DEASSIGN SO CHECK THAT FIRST...
+	TSTL	ASDAS			; IF ZERO WE DEASSIGN
+	BEQL	296$
+	tstl	repflg
+	bneq	296$			;forget file open if /report only
+; OPEN THE FILE, CHECK ITS INITIAL LBN
+; IF ERROR OR NOT CONTIG, EXIT...
+; DO VIA OPENING FILE AND READING ITS' STATBLOCK VIA
+; QIO...
+; SET UP FOR FILENAME WE REALLY FOUND IN FAB...
+	MOVL	DDFNA,DFAB_BLK+FAB$L_FNA	;SET UP FILENAME ADDR
+	MOVB	DDFNM,DFAB_BLK+FAB$B_FNS	;AND LENGTH
+	$OPEN	FAB=DFAB_BLK
+	BLBS	R0,3300$			; FAILURE IF FILE WON'T OPEN
+	brw	300$
+3300$:
+; FNXAB HAS INFO ON LBN, SIZE
+	MOVL	FNXAB+XAB$L_SBN,HSTLBN	; GET HOST'S LBN
+	BNEQ	3301$			;;;restriction for now
+	brw	301$
+3301$:
+					;;; IF ZERO, FILE NONCONTIG
+					;;; SO FORGET IT...
+	MOVL	FNXAB+XAB$L_HBK,HSTFSZ	; GET FILE SIZE. (CHECK THAT BELOW)
+1785$:
+	.if	df,phy$io
+;omit this if we have full geometry
+	tstl	vsec64
+	beql	784$
+	BICL2	#63,HSTFSZ		;;;MAKE A MULTIPLE OF 64 BLKS
+;;; As long as the driver doesn't do physical I/O we can omit this...
+;;; except INIT seems unhappy then
+	brb	785$
+784$:
+	cmpl	hstfsz,#65530		;big disk?
+	blss	785$			;if not leave size alone.
+;	bicl2	#31,hstfsz		;else make granular to 32 sectors anyhow
+785$:
+	.endc
+	movl	hstfsz,hstfz
+;;;HAS TO BE A MULTIPLE OF 64 BLKS DUE TO FAKED-OUT PHYSICAL DRIVE
+;;; STRUCTURE OF 64 SECTORS/TRACK, 1 TRACK/CYL, NNN CYLINDERS...
+	TSTL	HSTFSZ			; HOST SIZE POSITIVE
+	BLSS	301$			; IF <0 OR =0 THEN ILLEGAL; BUG OUT
+					; ELSE ISSUE THE REQUESTS TO GET THE
+					; DEVICES...
+296$:
+
+; Set up mailbox channel
+	$crembx_s prmflg=#0,chan=mbchn,maxmsg=#576,bufquo=#5760,-
+		promsk=#0
+	On_ERR	advdd_exit
+; need to get UCB address here somehow...
+	$GETDVI_S -
+		CHAN=mbchn,-	; Command line has device name.
+		ITMLST=mbx_item_list
+	BLBS	R0,176$
+161$:	BRW	advdd_EXIT
+176$:
+; Got now the actual device name of the mailbox
+; Let the kernel call perform the UCB lookup for us.
+;
+; FOUND A UNIT. NOW DECLARE EXIT HANDLER TO CLEAN UP
+; IF WE GET A $FORCEX TO TERMINATE THE HOST PROCESS.
+	PUSHAB	DESBLK		; ADDRESS OF DESBLK
+	CALLS	#1,G^SYS$DCLEXH	; DECLARE EXIT HANDLER
+; NOW GET OUR PID FOR USE LATER
+;
+162$:
+	$CMKRNL_S -
+		ROUTIN=BASHUCB,ARGLST=K_ARG
+	CMPL	R0,#SS$_NORMAL				;Any errors?
+	BEQL	300$					;No, skip error routine
+	MOVL	R0,MESS					;Move error to message
+;;;	BRW	300$
+301$:
+; ERROR RETURN ... CLOSE FAB & LEAVE
+	$PUTMSG_S	MSGVEC=ERROR			;Pump out error message
+	$CLOSE FAB=DFAB_BLK
+300$:
+; get driver "set geometry & connect" routine primed with
+; the geometry calculated now.
+	movl	xblks,hstfsz	; use size as we stored it
+	movl	xblks,hstfz
+	MOVL	OURPID,SETFD+4	;STORE PID (IPID!!!)
+	movl	HSTFSZ,setfd+8	;size of disk (preset also)
+	movl	mbucb,setfd+12		; Comm mailbox UCB address
+	CLRL	SETFD		; flag that this is the setup
+	movl	#setfdl,r4	; length of buffer
+	movl	xtrks,setfd+16	;let fddrv know our geometry
+	movl	xsecs,setfd+20	;trks,sects, cyls
+	movl	xcyls,setfd+24
+; This function sets mailbox ucb, host pid, and geom.
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+	ON_ERR	advdD_EXIT	; SKIP OUT IF ERROR
+	clrl	ioprog		; no i/o in progress yet
+; now we're ready to await work from the driver
+	clrl	opcnt
+	TSTL	ASDAS				; IF ZERO WE DEASSIGN
+	beql	540$				; if zero, no file chnl to deass
+	$DASSGN_S CHAN=DDCHN			;CLEAN UP I/O CHANNELS
+540$:	; skip deassign file chnl on advd/deassign
+	tstl	repflg
+	beql	1550$
+	brw	x550$
+1550$:
+;
+; Here is our main event loop.
+; We keep the channel to vdchn here (it's our path to the fv unit)
+; so here we begin getting work to do and dispatching data to
+; wherever it goes...
+	clrl	ioprog		; no i/o in progress yet
+; now we're ready to await work from the driver
+EVTLOOP:
+; When FDDRV has work, it sends the buffer header it has via a
+; mailbox message. Read that here to get our indication there
+; is something to do, and incidentally to get initial info on I/O
+; direction and size.
+;
+; Read the mailbox to get our data
+; Use QIOW$ to assure that we don't do anything until there is work.
+; (this also avoids having to use internal routines to control
+;  host execution.)
+	$qiow_s efn=#10,chan=mbchn,-
+	iosb=iosb,func=#io$_readlblk,p1=bufhdr,p2=#20
+	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+;SHOULD NOW HAVE HEADER...
+; Check call is not spurious. Driver sets 255 in buffer header when it
+; gets done an i/o for client, and puts 0 or 1 there for a real
+; transfer.
+	cmpl	bufhdr,#2
+	bgtru	evtloop		;if not really doing i/o, spurious ef
+				; set, just ignore
+	MOVL	#1,IOPROG	;FLAG AN I/O IN PROGRESS THAT NEEDS TO
+				;BE COMPLETED
+	CMPL	BUFHDR,#1	;1=WRITE, SOMETHING'S WAITING IN THE DRIVER
+	beql	writeop
+	jmp	readop
+;	BNEQ	READOP
+WRITEOP:
+; BUFHDR+8 CONTAINS BYTECOUNT FOR DATA PART OF TRANSFER
+; WE actually will get writes, but will not in this area
+; write to a random access file. Rather we call a subroutine
+; to handle the storage. The idea is that this subroutine should
+; be written preferably in a higher level language so that
+; the details of dealing with device full, net errors, and
+; so on can be handled more pleasantly and easily.
+	MOVL	#20,SETFD+8	;BUFFER HEADER size
+	ADDL2	BUFHDR+8,SETFD+8	;SO ADD HEADER SIZE
+	MOVL	#3,SETFD	;GET DATA
+	MOVL	#BUFHDR,SETFD+4	;BUFFER HDR ADDRESS
+	movl	#1,setfd+12	;success indicator
+	movl	#setfdl,r4
+; get data from the driver buffer first.
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+; LOADS DATA INTO LOCAL BUFFER FROM DRIVER
+; NOW HAVE TO MOVE IT INTO STORAGE HERE
+	MOVL	BUFHDR+4,R0	;GET BLOCK NUMBER
+	INCL	R0		;MAP TO VBN
+;	MOVL	R0,DRAB_BLK+RAB$L_BKT	;SET IT UP
+;	movw	#512.,drab_blk+rab$w_rsz ;512 byte blks
+; LOOP OVER BLKS IN REQUEST
+	movl	bufhdr+8,bfsz	;get bytecount to move
+	movab	buf,r7		;scratch buffer address
+	movl	r7,bfad		;get set to pass buffer address, size
+				;to called subroutine
+	callg	g^s_arg,g^logdata	;call "LOGDATA" routine. Args are
+				;buffer address, size in bytes.
+				; r0 returns error/success status
+				;(program it as a function!)
+	on_err	fdhostd_exit	;errors should be reported ONLY when fatal
+	JMP	COMMON
+READOP:
+; READING DATA TO CLIENT. MUST GET DATA, THEN SEND TO DRIVER.
+; never actually occurs with fvdriver
+; however leave skeleton stuff in.
+	MOVL	BUFHDR+4,R0	;GET BLOCK NUMBER
+	INCL	R0		;MAP TO VBN
+;	MOVL	R0,DRAB_BLK+RAB$L_BKT	;SET IT UP
+;	movw	#512.,drab_blk+rab$w_rsz ;512 byte blks
+; LOOP OVER BLKS IN REQUEST
+	movl	bufhdr+8,r6	;get bytecount to move
+	addl2	#511,r6		;round up
+	ashl	#-9,r6,r6		;convert to blks
+; r6 is not messed up by movc3...
+	movab	buf,r7		;scratch buffer address
+				;(8K + header)
+16$:
+;	$read	rab=drab_blk
+;	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+;	movab	recbuf,r9	;data from here
+;	movl	r7,r8		;data to here
+;	MOVC3	#512,(r9),(R8)	; STORE THE DATA IN OUR SPACE
+;	addl2	#512,r7		;pass this blk's data
+;	incl	drab_blk+rab$l_bkt ;pass this blk in file too
+	decl	r6		;count down blks to do
+	bgtr	16$		;copy all blks
+;	movab	buf,r2
+	ADDL3	#20,BUFHDR+8,SETFD+8	; GET LENGTH TO XFER
+	MOVL	#BUFHDR,SETFD+4	;BUFFER HDR ADDRESS
+	MOVL	#2,SETFD	;HOST TO DRIVER COPY
+	movl	#setfdl,r4
+	movl	#1,setfd+12	;success...
+	movl	bufhdr+8,setfd+16	;/length sent
+; send data to the driver
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+; NOW DATA IS IN DRIVER SPACE AS REQUIRED
+COMMON:
+; NOW TERMINATE THE I/O AND AWAIT MORE WORK.
+	MOVL	#1,SETFD	;TERMINATE I/O PACKET
+	MOVL	BUFHDR,SETFD+4	;SAVE TRANSFER DIRECTION
+	MOVL	BUFHDR+4,SETFD+8	; BLOCK #
+	MOVL	BUFHDR+8,SETFD+12	; NO. BYTES IN BUFFER
+	MOVZWL	#SS$_NORMAL,SETFD+16	; IOSB 1
+	CLRL	SETFD+20	; IOSB 2	; ALWAYS SUCCESS
+	movl	#setfdl,r4
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+	ON_ERR	FDHostD_EXIT	; SKIP OUT IF ERROR
+; NOW DONE TRANSFER
+	CLRL	IOPROG	; SAY NO I/O IN PROCESS IF WE ARE FORCED TO EXIT
+	JMP	EVTLOOP
+; BE SURE WE DON'T LEAVE THE CHANNELS ASSIGNED TO THE DEVICES
+; EITHER...
+	$DASSGN_S CHAN=VDCHN
+	; to avoid final error msg
+	ret
+
+x550$:
+; BE SURE WE DON'T LEAVE THE CHANNELS ASSIGNED TO THE DEVICES
+; EITHER...
+	$DASSGN_S CHAN=VDCHN
+; print out the filespec
+	tstb	repwrk				;got any file assigned?
+	beql	552$				;if not, don't emit name
+	pushab	reptxt				;text descr. of filename
+	calls	#1,g^lib$put_output		;emit same
+552$:
+	ret
+fdhostd_exit:
+advdd_exit:
+	tstl	ioprog				;see if we have an outstandingh I/O to kill
+						; to our journal
+	beql	1$
+	brw	iokil				;if so go kill it in exit handler
+1$:
+	RET
+;
+; KERNEL ARG LIST
+K_ARG:
+	.LONG	3			;2 ARGS: HOST-DVC NAME, VD DVC NAME
+	.ADDRESS	DEV_BUF_DESC
+	.ADDRESS	VDV_BUF_DESC
+	.address	mbx_buf_desc
+;	.ADDRESS	VDFNM
+
+; BASHUCB - AREA TO MESS UP UCB WITH OUR FILE DATA
+; BEWARE BEWARE BEWARE
+;  runs in KERNEL mode ... HAS to be right.
+
+	.ENTRY	BASHUCB,^M<R2,R3,R4,R5,R6,R7,R8>
+; TAKEN LOOSELY FROM ZERO.MAR
+	.if	ndf,vms$v5
+	MOVL	G^SCH$GL_CURPCB,R4	;;; NEED OUR PCB
+	.iff
+	MOVL	G^CTL$GL_PCB,R4		;;; NEED OUR PCB (VMS V5)
+	.endc
+;;; NEED IPID FOR DRIVER'S CALL TO SCH$POSTEF TO THIS HOST!!
+	MOVL	PCB$L_PID(R4),OURPID	;;;SAVE OUR PID IN INTERNAL FORM
+	.if	df,$$$xdt
+	jsb	g^ini$brk
+	.endc
+	JSB	G^SCH$IOLOCKW		;;; LOCK I/O DATABASE
+	CLRL	HSTUCB			;;; ZERO "HOST" UCB
+	movl	#1,vdprog		;;; got to start
+	tstl	repflg
+	bneq	90$			;;;no host lookup on /report
+	TSTL	ASDAS			;;; IF DEASSIGN, ZERO
+	BEQL	90$			;;; SO IF EQUAL SKIP LOCATE HOST UCB
+	movl	12(ap),r1		;;;get mailbox info first
+	jsb	g^ioc$searchdev
+	blbc	r0,59$			;;;on failure, give up
+	movl	r1,mbucb		;;;store away mailbox UCB
+	MOVL	4(AP),R1		;;; ADDRESS DVC NAME DESCRIPTORS
+	JSB	G^IOC$SEARCHDEV		;;; GET UCB ADDRESS INTO R1
+	BLBS	R0,60$
+59$:	BRW	BSH_XIT
+60$:
+;	TSTL	UCB$L_PID(R1)		;;; ENSURE DVC NOT ALLOCATED
+;	BEQL	80$
+;	MOVL	#SS$_DEVALLOC,R0
+;	BRW	BSH_XIT
+; ALLOCATED OK SINCE IT COULD JUST BE PRIVATE MOUNT...
+;
+80$:
+	MOVL	R1,HSTUCB		;;; SAVE HOST UCB ADDRESS
+	BEQL	167$			;;; ... BUT ZERO UCB ADDRESS LOOKS BAAAAD
+90$:
+	MOVL	8(AP),R1		;;; ADDRESS VDn NAME DESCRIPTORS
+	movl	#3,vdprog		;;; got vdn: descriptor
+	JSB	G^IOC$SEARCHDEV		;;; GET UCB ADDRESS INTO R1
+	BLBS	R0,160$
+	BRW	BSH_XIT
+160$:
+	movl	r1,vducb		;;; store vd ucb
+	movl	#4,vdprog		;;; got vd ucb
+	tstl	repflg
+	bneq	168$			;;;on /report don't mess ucb up
+	TSTL	UCB$L_PID(R1)		;;; ENSURE DVC NOT ALLOCATED
+	BEQL	180$
+165$:
+	MOVL	#SS$_DEVALLOC,R0
+167$:	BRW	BSH_XIT
+168$:	brw	455$
+180$:
+	movl	#5,vdprog		;;; not allocated yet
+; BUGGER THE UCB
+; ASSUMES FILE LBN AND SIZE ALREADY RECORDED
+; ALSO ASSUMES THAT ZERO LBN OR SIZE MEANS THIS ENTRY NEVER CALLED.
+; (REALLY ONLY WORRY ABOUT ZERO SIZE; IF WE OVERMAP A REAL DEVICE
+; THEN ZERO INITIAL LBN COULD BE OK.)
+;
+; CHECK REF COUNT FIRST... ONLY CAN GET AWAY WITH THIS ON DEVICE
+; NOBODY'S USING...
+; .. fake this since device may have count messed by advd somehow
+; but will be allocated if mounted.
+; ... for now ...
+554$:
+	movzwl  ucb$w_refc(r1),vdsts2	;;; save status for debug
+	CMPW	UCB$W_REFC(R1),#1	;;; CHECK COUNT VS 1 FOR THIS
+	BGTRU	165$
+;	TSTW	UCB$W_REFC(R1)		;;; IF MOUNTED DON'T TOUCH
+;	BNEQ	165$			;;; IF NEQ IT'S ACCESSED...
+	movl	#6,vdprog		;;; not mounted either
+	movl	bufmod,ucb$l_bufmod(r1)	;;;set buffering mode for output
+	MOVL	HSTUCB,UCB$HUCB(R1)	;;; SAVE HOST UCB OR 0
+	BNEQ	184$			;;; IF NE, OK NOW
+;;; ZERO -- DEASSIGNING. FLAG VOLUME INVALID
+	BICW	#UCB$M_ONLINE,UCB$W_STS(R1) ;;; FLAG OFFLINE
+	BICW	#UCB$M_VALID,UCB$W_STS(R1) ;;; AND INVALID
+	clrb	ucb$vdcontfil(r1)	;;;clr container file name
+	BRW	200$
+184$:	MOVL	HSTLBN,UCB$HLBN(R1)	;;; SAVE HOST'S LBN
+	MOVL	HSTFSZ,UCB$HFSZ(R1)	;;; AND FILE SIZE
+	MOVL	HSTFSZ,UCB$L_MAXBLOCK(R1) ;;; (SAVE SIZE TWICE, FOR RMS
+	clrl	ucb$ppid(r1)		;;;zero original PID
+	movl	r4,-(sp)
+	movl	hstucb,r4		;;;get host UCB
+	beql	189$			;;;forget it if none
+;;;must make maxbcnt and fipl match!!!
+	movb	ucb$b_fipl(r4),ucb$b_fipl(r1)	;;;ensure fork levels match
+fv_bufsz=4096
+	movl	ucb$l_maxbcnt(r4),ucb$l_maxbcnt(r1) ;;;store max bytes as a word
+	beql	1189$			;;; if zero use our size
+	cmpl	ucb$l_maxbcnt(r1),#fv_bufsz	;be sure not too long for fvdriver buf
+	blss	189$			;if lss then ok now
+1189$:	movl	#fv_bufsz,ucb$l_maxbcnt(r1)	;else set it to something we can use
+189$:
+	movl	(sp)+,r4
+	movl	#7,vdprog		;;; filled in stuff
+					;;; AND QIO CHECKS, AND OUR SAFETY
+					;;; ONES)
+	MOVL	HSTFSZ,R0		;;; GET HOST SIZE
+	ASHL	#-6,R0,R0		;;; GET # CYLINDERS IN SIZE NOW
+;Set default geometry as 1 track/cylinder, 64 sectors/track, and
+; as many cylinders as needed for device size. We use this if the
+; /SEC64 switch is given. Otherwise we check to see if the container
+; file is size same as some known disk and adopt its' geometry, or
+; if that fails use either a 1 sector/trk 1 trk/cyl n cylinder
+; geometry for small disks (under 65000 blocks), or a 32 sect/trk
+; 32 trk/cyl n cylinder geometry for large disks.
+;
+;  *** Where one gets over 2 billion blocks and sets the sign bit
+;  *** in the blocks count, this code will break due to not
+;  *** ensuring sign extension is avoided. Since this corresponds
+;  *** to a single disk of 1 terabyte, it seems unlikely to cause
+;  *** difficulties for a while. The 64 sector geometry breaks down
+;  *** at 64*65536 blocks (2 GB) and the 32*32*n geometry breaks
+;  *** down at 1024 * 65536 blocks. These seem high enough not to 
+;  *** worry about for now. If they become a problem, play with
+;  *** geometry!!!
+;
+	MOVW	R0,UCB$W_CYLINDERS(R1)	;;; SAVE IN UCB FOR REST OF VMS
+	movl	r0,vdcyl		;;; store cylinders for debug
+	movb	#64,ucb$b_sectors(r1)	;;;init sectors to 64 always
+	movb	#1,ucb$b_tracks(r1)	;number of tracks/cyl=1
+	tstl	vsec64		;;;did user say he needs 64 sector geometry?
+	beql	6843$			;;;if eql no, do tests
+	brw	6841$			;;;if neql leave geometry alone...
+6843$:
+	tstl	vsec32			;;;did he ask for 32 sect/32 trk geom?
+; get md: geometry if /sec32 spec'd.
+; was bneq 685$
+	bneq	687$			;;;if so (neq) skip geom table.
+	movl	r2,-(sp)		;;;Need a register to point to geoms
+	movab	geoms,r2		;;;so we can test sizes
+; Check for file sizes of known disks and set geometry of those
+; disks IF we match.
+686$:	tstl	(r2)			;;;end of table?
+	beql	687$			;;;if eql yes, skip out
+	cmpl	hstfsz,(r2)		;;;above min size this disk type?
+	blss	688$			;;;if too small, we're done so exit the loop
+	cmpl	hstfsz,4(r2)		;;;see if too big
+	bgtr	688$			;;;if too big, look at next
+; got a match. Now fill in geometry
+; (r2) = lo size (must be at LEAST as large as device)
+; 4(r4) = hi size lim
+; 8(r2) = # blks on device
+; 12(r2) = cyl
+; 14(r2) = trk
+; 15(r2) = cyl
+	movl	8(r2),ucb$l_maxblock(r1)	;Set up maximum block
+	movw	12(r2),ucb$w_cylinders(r1)	;number of cylinders
+	movb	14(r2),ucb$b_tracks(r1)		;number of tracks/cyl
+	movb	15(r2),ucb$b_sectors(r1)	;number sectors/track
+	movl	(sp)+,r2			;restore our register
+	brb	684$				;exit, we got our device
+; Notice we must pass the "small device" test since some devices have
+; less than 65000 blocks. We won't emulate device TYPE exactly, but will
+; emulate device GEOMETRY with this logic.
+688$:;	addl2	#16,r2				;pass to next entry of geoms table
+	cmpl	(r2)+,(r2)+
+	cmpl	(r2)+,(r2)+
+	brb	686$				;go check for next device or end
+687$:
+	movl	(sp)+,r2		;;;restore reg
+; test for small files
+	cmpl	hstfsz,#65530		;"small" disks?
+	bgtr	685$
+	movw	hstfsz,ucb$w_cylinders(r1)	;yep...save size in cyl
+	movb	#1,ucb$b_sectors(r1)		;and set 1 sector/trk
+	movb	#1,ucb$b_tracks(r1)		;and 1 track/cyl (should be ok already)
+	brw	684$				;done with geometry
+685$:
+; Add other checks here
+; Make geometry like mdan: disks, that is, 32 sectors and 32 tracks/cyl.
+; unless /sec64 switch was set. This facilitates random use as a switch
+; over from md: type disks. Note 32 * 32 = 1024
+	MOVL	HSTFSZ,R0		;;; GET HOST SIZE
+	ASHL	#-10,R0,R0		;;; GET # CYLINDERS IN SIZE NOW as #/1024
+	MOVW	R0,UCB$W_CYLINDERS(R1)	;;; SAVE IN UCB FOR REST OF VMS
+	bicl2	#1023,ucb$l_maxblock(r1)	;ensure even number of cylinders
+	movb	#32,ucb$b_sectors(r1)	;set 32 sectors/track
+	movb	#32,ucb$b_tracks(r1)	;and 32 tracks/cylinder
+	brb	684$				;This is the "large disk" default
+;						;unless /sec64 sets 64 sect geom.
+6841$:
+; If here, we are using the 64 sector/track geometry
+	bicl2	#63,ucb$l_maxblock(r1)		;make disk size a multiple of sect/trk
+684$:
+	movzwl	ucb$w_cylinders(r1),xcyls	;save geom
+	movzbl	ucb$b_tracks(r1),xtrks
+	movzbl	ucb$b_sectors(r1),xsecs
+	movl	ucb$l_maxblock(r1),xblks
+	movl	#8,vdprog
+	pushl	r0
+	pushl	r1
+	pushl	r2
+; Fill in filename as 1st 79 chars of what user sent us
+	movab	ddfnmd,r0		;data address
+	movl	#79,r2			;copy 79 bytes
+	addl	#ucb$vdcontfil,r1	;point at ucb offset
+457$:	movb	(r0)+,(r1)+
+	sobgtr	r2,457$			;copy the data
+	clrb	(r0)+			;null terminate
+	popl	r2
+	popl	r1
+	popl	r0
+; don't set online yet...let FDT entry from fd stuff do that.
+	BISW	#UCB$M_ONLINE,UCB$W_STS(R1) ;;; FLAG ONLINE NOW
+	BISW	#UCB$M_VALID,UCB$W_STS(R1) ;;; AND VOL VALID
+	movzwl	ucb$w_sts(r1),vdsts	;;; save VD status
+;;; THAT'S IT... SHOULD BE OK NOW.
+	brb	200$
+455$:
+; copy vd: stored name into prog area
+	pushl	r1
+	pushl	r2
+	movab	repwrk,r0		;;;get report area
+	movl	#80,r2			;;;80 bytes max
+	addl2	#ucb$vdcontfil,r1	;;;point at in area
+456$:	movb	(r1)+,(r0)+
+	beql	458$			;;;on null terminator stop copy
+					;;;(keeps old name junk from reappearing)
+	sobgtr	r2,456$			;;;copy the data
+458$:
+	popl	r2
+	popl	r1
+200$:
+	MOVL	#SS$_NORMAL,R0
+BSH_XIT:
+	PUSHL	R0
+	JSB	G^SCH$IOUNLOCK		;;; UNLOCK I/O DATABASE (DROP IPL)
+	POPL	R0			;;; REMEMBER R0
+	RET	;;; BACK TO USER MODE NOW
+;
+; sjucb - set single journal mode (ucb$l_bufmod=0)
+sjarg:
+	.LONG	2			;2 ARGS: HOST-DVC NAME, VD DVC NAME
+	.ADDRESS	DEV_BUF_DESC
+	.ADDRESS	VDV_BUF_DESC
+
+	.ENTRY	SJUCB,^M<R2,R3,R4,R5,R6,R7,R8>
+	pushl	r1
+	.if	ndf,vms$v5
+	MOVL	G^SCH$GL_CURPCB,R4	;;; NEED OUR PCB
+	.iff
+	MOVL	G^CTL$GL_PCB,R4		;;; NEED OUR PCB (VMS V5)
+	.endc
+;;; NEED IPID FOR DRIVER'S CALL TO SCH$POSTEF TO THIS HOST!!
+	JSB	G^SCH$IOLOCKW		;;; LOCK I/O DATABASE
+	MOVL	8(AP),R1		;;; ADDRESS VDn NAME DESCRIPTORS
+	JSB	G^IOC$SEARCHDEV		;;; GET UCB ADDRESS INTO R1
+	BLBS	R0,160$
+	BRW	JSH_XIT
+160$:
+	movl	#0,ucb$l_bufmod(r1)	;;;set buffering mode for single journalling mode
+;	movw	#1,ucb$w_refc(r1)	;;;ensure ref cnt bashes to 1
+	MOVL	#SS$_NORMAL,R0
+JSH_XIT:
+	PUSHL	R0
+	JSB	G^SCH$IOUNLOCK		;;; UNLOCK I/O DATABASE (DROP IPL)
+	POPL	R0			;;; REMEMBER R0
+	popl	r1
+	RET	;;; BACK TO USER MODE NOW
+;
+; EXIT HANDLER
+; CLEARS I/O ASSIGNMENT TO FD: UNIT
+;
+	.ENTRY	XITHDL,^M<R2,R3,R4,R5,R6,R7,R8>
+	TSTL	IOPROG
+	BEQL	x1$
+iokil:	MOVL	#1,SETFD	;TERMINATE I/O PACKET
+	MOVL	BUFHDR,SETFD+4	;SAVE TRANSFER DIRECTION
+	MOVL	BUFHDR+4,SETFD+8	; BLOCK #
+	MOVL	BUFHDR+8,SETFD+12	; NO. BYTES IN BUFFER
+	cmpl	setfd+12,#<fv_bufsz+fv_bufsz+200>
+	blss	12$
+; clamp size so we don't fail this on I/O size
+	movl	#<fv_bufsz+fv_bufsz+200>,setfd+12
+12$:
+	MOVZWL	#SS$_ACCVIO,SETFD+16	; IOSB 1
+	CLRL	SETFD+20	; IOSB 2	; FAILURE
+	movl	#setfdl,r4
+; terminate the I/O that was outstanding before any exit.
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+x1$:
+	clrl	ioprog
+; set the driver into single-journal mode
+	$CMKRNL_S -
+		ROUTIN=SJUCB,ARGLST=SJARG
+
+	CLRL	SETFD	;DECLARE/UNDECLARE
+	PUSHAB	DESBLK		; ADDRESS OF DESBLK
+	CALLS	#1,G^SYS$CANEXH	; CANCEL EXIT HANDLER
+; get data out of driver buffer one last time, so anything
+; left to journal gets flushed to output.
+	MOVL	#20,SETFD+8	;BUFFER HEADER size
+	ADDL2	BUFHDR+8,SETFD+8	;SO ADD HEADER SIZE
+	MOVL	#3,SETFD	;GET DATA function
+	MOVL	#BUFHDR,SETFD+4	;BUFFER HDR ADDRESS
+	movl	#1,setfd+12	;success indicator initially
+	movl	#setfdl,r4	;length of setfd buffer
+; get data from the driver buffer first.
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+	blbc	r0,20$
+	movl	iosb,r0
+	blbc	r0,20$		;error on I/O indicates no final write...
+; if we got anything, journal it.
+	movl	bufhdr+8,bfsz	;get bytecount to move
+	movab	buf,r7		;scratch buffer address
+	movl	r7,bfad		;get set to pass buffer address, size
+				;to called subroutine
+	callg	g^s_arg,g^logdata	;call "LOGDATA" routine. Args are
+				;buffer address, size in bytes.
+				; r0 returns error/success status
+				;(program it as a function!)
+	blbc	r0,22$		;if fatal error is flagged skip close call
+
+20$:
+; tell logdata to close the dataset
+	movl	#-1,bfsz	;flag writing negative count = close signal
+	callg	g^s_arg,g^logdata	;call routine
+; This ensures that the "logdata" routine is closed in orderly
+; fashion whether or not any runtime system jiggery-pokery exists
+; to do so, or whether or not any such even CAN be done. (Things like
+; writing EOFs on foreign tapes and the like are possible here...)
+22$:
+;
+	clrl	setfd
+	clrl	setfd+4	;FLAG NOBODY HOME NOW
+	clrl	setfd+8
+	clrl	setfd+12
+	movl	#setfdl,r4
+	$qiow_s efn=#1,chan=vdchn, -
+	iosb=iosb,func=#<io$_format+128>,p1=setfd,p2=R4
+; declare host no longer is home.
+	RET			; FINISH EXIT
+
+; Macro to check return status of system calls.
+	.PSECT	FDHostD_DATA2,RD,WRT,NOEXE,LONG
+
+dvl:	.long	0
+DESBLK:
+	.LONG	0
+	.ADDRESS	XITHDL		;EXIT HANDLER ADDRESS
+	.long	0
+	.address	dvl
+	.LONG	0,0			;REST OF EXIT HANDLER CONTROL BLK
+;
+
+; FOR initial use, don't bother allocating the file. Assume the
+; user can somehow allocate a contiguous file of the size he wants
+; for himself.
+;
+	.END

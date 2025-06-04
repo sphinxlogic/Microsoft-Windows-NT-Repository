@@ -1,0 +1,280 @@
+/******************************************************************************
+ *									     *
+ *  Copyright (c) 1983			                                     *
+ *  by Digital Equipment Corporation, Maynard, Mass.			     *
+ * 									     *
+ *  This software is furnished under a license and may be used and  copied   *
+ *  only  in  accordance  with  the  terms  of  such  license and with the   *
+ *  inclusion of the above copyright notice.  This software or  any  other   *
+ *  copies  thereof may not be provided or otherwise made available to any   *
+ *  other person.  No title to and ownership of  the  software  is  hereby   *
+ *  transferred.							     *
+ * 									     *
+ *  The information in this software is subject to change  without  notice   *
+ *  and  should  not  be  construed  as  a commitment by Digital Equipment   *
+ *  Corporation.							     *
+ * 									     *
+ *  Digital assumes no responsibility for the use or  reliability  of  its   *
+ *  software on equipment which is not supplied by Digital.		     *
+ *									     *
+ *****************************************************************************/
+/**
+*
+* FACILITY:	 
+*		SDL  (Structure Definition Language)
+*
+* ABSTRACT:	
+*
+*	This routine calls the LIB$FIND_IMAGE_SYMBOL routine to get image address of
+* the shearable image backend if it was found .  This image is then activated
+* dynamically.
+*
+*
+* ENVIRONMENT:	 
+*		VAX/VMS 
+*
+* AUTHOR:	 
+*		Kathleen Duthie
+*
+* CREATION DATE: 
+*		September 9, 1983
+**/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   15-Feb-1984	| kd	| new module for V2.0
+________________!_______!______________________________________________________
+    5-Nov-1984	| kd	| modify the dynamic activation mechanism to use the 
+		|	| lib$find_image_symbol routine.
+________________!_______!______________________________________________________
+    6-Nov-1984	| kd	| Add ident field (2-1)
+________________|_______|______________________________________________________
+   21-May-1985	| kd	| 2-2  Change image_name argument to find_image_symbol
+		|	|      to not contain '.exe' and a directory spec.  This
+		|	|      behavior changed with VMS 4.2.
+________________|_______|______________________________________________________
+   16-Jan-1986	| pc	| V3.0-2  Add the search for '>' . Thses are legal just
+		|	|	  like ']' for file specifications.
+________________|_______|______________________________________________________
+   13-Feb-1990	| WRV	| V3.0-VMS1 Modifiers are developers from VMS tools
+		| RHT	|	    group.  William Vales and Robert Thomson. 
+		|	|	    Modify to record file dependency data for 
+		|	|	    the VMS VDE system builder.
+________________|_______|______________________________________________________
+    8-Nov-1990  | DLM   | EV1-0  Use ALPHA_SDL as prefix for image names
+                |       | This is likely to be temporary
+________________|_______|______________________________________________________
+**/
+
+/**
+* FUNCTIONAL DESCRIPTION: SDLIMGACT
+* 	This routine is the image activator for the shareable backends.  The
+*  dynamic image activation is done using the routine LIB$FIND_IMAGE_SYMBOL
+*  which is a run time routine.  This routine searches for the shareable image
+*  in SDL$SHARE.  If no such logical name exists, then the routine will
+*  look for the image in SYS$SHARE.
+*
+*
+* FORMAL PARAMETERS:
+*		lang_image	-	The language backend shareable image 
+*					to be activated by this routine.
+*		
+*		out_filename	-	The output file name.
+*
+*		def_filename	-	The default output filename.
+*
+*		sdl$_shr_data	-	The data structure containing all
+*					the data that is shared between the
+*					seperate backend images and the SDL
+*					driver.
+*
+* IMPLICIT INPUTS:
+*
+*	none
+*
+*
+**/
+
+  /*PROCEDURE*/
+sdlimgact: procedure (lang_image, out_filename, def_filename, sdl$_shr_data) 
+	    options(ident('EV1-0')); 
+
+
+  /* INCLUDE FILES  */
+%include 'sdl$library:sdlshr.in'; 	/* declare the parameters to the 
+					   backend routines */
+%include 'sdl$library:sdlmsgdef.in';
+%include $stsdef;			/* get the status return values */
+
+
+  /* LOCALS */
+declare
+    out_filename char (128) var,	/* output file name to be opened by the
+					   backends after the extension is 
+					   added */
+    def_filename char(132) var,		/* the default file name for output */
+    lang_image char (39) var ,		/* the language backend to be 
+					   activated */
+    full_lang_image char (128) 
+		    var init (''),	/* the full file spec for image name */
+    result_desc char (128) init (''),	/* the result string desc from 
+					   lib$find_file*/
+    related_spec char(128) var init (''),/* the related file spec */
+    routine_name char(128) var
+       init ('SDL$OUTPUT'),		/* name of the routine to be entered */
+    context fixed bin (31)init (0),	/* lib$find_file context pointer */
+    max_filename_length fixed bin (31)
+	initial (255),			/* maximum length for a file name */
+    result_len fixed bin (15),		/* resulting length of logical name
+					   from sys$trnlog		*/
+    attflag bit (32) aligned,		/* attribute flag */
+    retadr entry (char(128) var, 
+	char(132) var,
+	any) variable,			/* return entry address from 
+					   lib$find_image_symbol */
+    i fixed bin,
+    image_name char(132) var,
+    default_spec char(63) init ('');	/* default file spec for sys$find_file*/
+
+  /* ROUTINES CALLED */	
+declare	LIB$FIND_FILE entry 	(
+				char(*) , 
+				char(*) , 
+				fixed bin (31), 
+		      		char(*) , 
+				char(*)
+				)  
+		      returns (fixed bin(31));
+				/* wild card scanning routine */
+
+declare LIB$FIND_IMAGE_SYMBOL entry 
+				(	    /* resolve image address */
+				char(*),
+				char(*),
+				entry (any) 
+				)
+			returns (fixed bin(31));
+
+/* Declare entry point for collecting dependency data for VDE system
+    builder. */
+declare LIB$REC_DEPENDENCY EXTERNAL entry
+				(
+				any,		/* Function type */
+				character(*),	/* File dependency spec */
+    				any		/* LIbrary index */
+				);
+
+/* CONSTANTS */
+%replace true by '1'b;			/* make true be 1 and */
+%replace false by '0'b;			/* false be 0 */
+
+
+/*  
+    Call the lib$find_file routine - 
+    If the language chosen was specified as /LANGUAGE=FORT,
+    lib$find_file utility will first search for SDLFORT.EXE in 
+    sys$share.  If SDLFORT is a logical name, LIB$FIND_FILE will 
+    return the translation and sdl will use the reassigned image.
+    If no image is found for SDLFORT, then sdl will search for
+    SDLFORT*.EXE and attempt to activate the first one it finds.
+*/
+
+/* construct the image string to be used to find the image */
+	full_lang_image = 'alpha_sdl'|| lang_image ;
+	related_spec = full_lang_image;
+	default_spec = 'sys$share:.exe';
+
+/* assign the file spec to the related_spec variable  */
+	sts$value = lib$find_file 
+		(
+		substr(full_lang_image,1), 
+		result_desc, 
+		context, 
+		default_spec,
+		substr(related_spec,1)
+		);
+
+	if ^sts$success then do;
+	/* add a wildcard and try again ...this will allow for abbreviated
+	   language names. */
+	    full_lang_image = full_lang_image || '*';
+
+	    sts$value = lib$find_file 
+		(
+		substr(full_lang_image,1), 
+		result_desc, 
+		context, 
+		default_spec,
+		substr(related_spec,1)
+		);
+	    if ^sts$success then do;
+	    /* if no shareable image was found this time, put out error */
+	       call errmsg (sdl$_shr_data,sdl$_invshrimg,,(lang_image));
+	       return;
+	    end;
+
+        end;
+
+	/* if a wildcard was needed to find the file, then the language
+	   specification on the command line was not an exact match and
+	   we will need to use the result_desc as the image name for 
+	   find_image_symbol */
+	if index (full_lang_image, '*') ^= 0
+	then do;
+	/* we must strip off the directory and the extension from the 
+		result_desc */
+	    image_name = result_desc;
+	    i = index(image_name, ']');
+	    if (i = 0)
+	    then
+		i = index(image_name, '>');
+
+	    do while (i > 0);
+		image_name = substr(image_name, i+1);
+		i = index(image_name, ']');
+		if (i = 0)
+		then
+		    i = index(image_name, '>');
+	    end;
+
+	    /* now strip off the .exe */
+	    i = index(image_name, '.');
+	    if i > 0
+	    then
+		image_name = substr(image_name, 0, i);
+	end;
+	else
+	    image_name = full_lang_image;
+
+/* now call the lib$find_image_symbol routine to get entry mask.  Let the 
+   system flag any errors here and abort the job since we wish to quit 
+   if we can't find the image or the routine name. */
+
+	sts$value = lib$find_image_symbol 
+		( 
+		substr(image_name,1),
+		substr(routine_name,1), 
+		retadr
+		);
+
+
+/* now call the shareable image */
+        call retadr (out_filename, def_filename, sdl$_shr_data);
+
+/* Record the file produced by the backend as an output file using the VDE
+   dependency-recording routine. The function code 7 is the literal
+   VDE$K_DEPEND_OUTPUT_FILE. The fully resolved file specification was written
+   into the variable vde_lang_file by the backend.
+*/
+
+        call lib$rec_dependency
+                        (
+                        7,
+                        substr( vde_lang_file, 1),
+                        0
+                        );
+
+return;
+end;

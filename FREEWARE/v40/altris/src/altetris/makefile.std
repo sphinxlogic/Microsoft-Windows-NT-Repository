@@ -1,0 +1,127 @@
+# GENERIC X-BASED TETRIS (altered)
+#
+#	Makefile.std
+#
+###
+#
+#  Copyright (c) 1993 - 95	David A. Bagley, bagleyd@perry.njit.edu
+#
+#  Taken from GENERIC X-BASED TETRIS
+#
+#  Copyright (c) 1992 - 95		Q. Alex Zhao, azhao@cc.gatech.edu
+#
+#                   All Rights Reserved
+#
+#  Permission to use, copy, modify, and distribute this software and
+#  its documentation for any purpose and without fee is hereby granted,
+#  provided that the above copyright notice appear in all copies and
+#  that both that copyright notice and this permission notice appear in
+#  supporting documentation, and that the name of the author not be
+#  used in advertising or publicity pertaining to distribution of the
+#  software without specific, written prior permission.
+#
+#  This program is distributed in the hope that it will be "playable",
+#  but WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#
+
+SCOREFILE	= ./tetris.scores
+POLYOMINOFILE	= ./polyomino.dat
+
+#	-DUP_REFLECT	if you want the Up Arrow key for reflection 
+#	-DUP_ROTATE	if you want the Up Arrow key for rotation (default)
+UP		= -DUP_ROTATE
+
+#	-DDOWN_ROTATE	if you want the Down Arrow key for rotation
+#	-DDOWN_DROP	if you want the Down Arrow key for dropping (default)
+DOWN		= -DDOWN_DROP
+
+# Set your C compiler
+#CC		= gcc
+CC		= cc
+
+LINT		= lint
+
+# Set your print command
+PRINT		= lpr
+#PRINT		= enscript -2r
+
+# X include files
+XINCLUDEPATH	= /usr/local/include
+#XINCLUDEPATH	= /usr/include/X11R4
+#XINCLUDEPATH	= /usr/include/X11R5
+#XINCLUDEPATH	= ${OPENWINHOME}/include
+#XINCLUDEPATH	= ${MOTIFHOME}/include
+
+# X libraries
+XLIBPATH	= /usr/local/lib
+#XLIBPATH	= /usr/lib/X11R4
+#XLIBPATH	= /usr/lib/X11R5
+#XLIBPATH	= ${OPENWINHOME}/lib
+#XLIBPATH	= ${MOTIFHOME}/lib
+
+INCLUDES	= -I. -I${XINCLUDEPATH}
+LIBRARIES	= -L${XLIBPATH}
+DEFINES		= -DSCOREFILE=\"${SCOREFILE}\"\
+	-DPOLYOMINOFILE=\"${POLYOMINOFILE}\" ${UP} ${DOWN}
+COPT		= -O
+CFLAGS		= ${COPT} ${DEFINES} ${INCLUDES}
+LIBS		= ${LIBRARIES} -lX11
+HDRS		= tetris.h
+SRCS		= rngs.c tetris.c playing.c utils.c
+OBJS		= rngs.o tetris.o playing.o utils.o
+PROGRAM		= tetris
+VER		= altetris
+
+all:	${OBJS}
+	${CC} -o ${PROGRAM} ${OBJS} ${LIBS}
+	./${PROGRAM}
+
+rngs.o:		rngs.c
+tetris.o:	tetris.c tetris.h
+playing.o:	playing.c tetris.h
+utils.o:	utils.c tetris.h
+
+debug:	all
+debug:=COPT=-g -DDEBUG -Wall
+
+lint:
+	${LINT} -ax -DLINT ${DEFINES} ${INCLUDES} ${SRCS}
+
+run:
+	./${PROGRAM}
+
+clean:
+	rm -f *.o ${PROGRAM} core *~ *% *.bak
+
+clean.all:	clean
+	rm -f Makefile ${PROGRAM}.scores
+
+tar:	clean.all
+	cd ..; tar cvf ${VER}.tar ${VER}/CHANGES ${VER}/Imakefile\
+		${VER}/Makefile.std ${VER}/README\
+		${VER}/polyomino.dat ${VER}/playing.c ${VER}/tetris.c\
+		${VER}/tetris.h ${VER}/tetris.man ${VER}/utils.c ${VER}/rngs.c\
+		${VER}/X11 ${VER}/bm-* ${VER}/ticon*.xbm ${VER}/Revisions
+
+compress:	tar
+	cd .. ; compress -f ${VER}.tar
+
+gzip:	tar
+	cd .. ; gzip -f ${VER}.tar
+
+tgz:	tar
+	cd .. ; gzip -c ${VER}.tar > `echo ${VER} | cut -c1-8`.tgz ;\
+		rm -f ${VER}.tar
+
+read:
+	more README
+
+man:
+	nroff -man ${PROGRAM}.man | more
+
+print:
+	${PRINT} ${HDRS} ${SRCS}
+
+install:	all
+	install ${PROGRAM} /usr/local/bin

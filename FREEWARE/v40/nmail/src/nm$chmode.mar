@@ -1,0 +1,135 @@
+	.title	nm$chmode - change mode code
+	.ident	/03/
+ 
+;++
+; Copyright (c) 1986, 1987, 1988, 1989, 1992, 1993
+; by Digital Equipment Corporation, Maynard, Mass.
+;
+; Facility:	Nmail
+;
+; Abstract:	Network mailer
+;
+; Environment:	VMS
+;
+; Author:	Dave Porter (Mu::Porter)
+;		Network and Communications
+;
+; Created:	10-Apr-1986
+;
+; Revision history
+;
+;   01	23-Feb-1989
+;	Change number of arguments to NM$SUBMIT_JOB
+;
+;   02	28-Jun-1992
+;	Remove argument validation and probe code to
+;	a separate module (NM$USS.B32).  The current
+;	module now contains only the VAX-specific parts:
+;	PLV, service entry points, and dispatcher.
+;
+;   03	20-Sep-1993
+;	. Remove signal-handling, it's no longer needed.
+;	. Add .TRANSFERs for NM_MAILSHR/NM_MAILSHRP split.
+;
+;--
+
+
+	.sbttl	definitions
+
+	.library /sys$library:lib/
+
+	$plvdef		; privileged library vector format
+	$ssdef		; system service status codes
+
+	cmin = 16910	; lowest Nmail change-mode code
+	cmax = 16913	; highest ditto
+
+
+	.sbttl	privileged library vector
+
+	.psect	_nmail$vec,nowrt,exe,shr,page,vec
+	
+	.long	plv$c_typ_cmod		; change-mode vector
+	.long	0			; not linked with sys.stb
+	.long	0			; no kernel dispatcher
+	.long	nm$execdsp-.		; exec dispatcher
+	.long	0			; no rundown code
+	.long	0			; reserved
+	.long	0			; no RMS dispatcher
+	.long	0			; no address check (pic)
+
+	.psect	_nmail$0000,nowrt,exe,shr,long
+
+	.sbttl	service routine entry points
+
+;
+; Transfer vector for exec-mode services.  
+;
+	.transfer nm$uss_create_ctl_file
+	.mask	  nm$uss_create_ctl_file
+	chme #cmin+0
+	ret
+	nop
+
+	.transfer nm$uss_close_ctl_file
+	.mask	  nm$uss_close_ctl_file
+	chme #cmin+1
+	ret
+	nop
+
+	.transfer nm$uss_submit_job
+	.mask     nm$uss_submit_job
+	chme #cmin+2
+	ret
+	nop
+
+	.transfer nm$unused
+	.entry	  nm$unused,0
+	chme #cmin+3
+	ret
+	nop
+
+;
+; Dispatch table - order must match the use of change-mode
+; codes in the above transfer vector.
+;
+disptb:	.long	nm$uss_create_ctl_file+2-.
+	.long	nm$uss_close_ctl_file+2-.
+	.long	nm$uss_submit_job+2-.
+	.long	illser-.
+
+	.sbttl	exec mode dispatcher
+
+;
+; Exec-mode dispatcher. This receives control from the system
+; when a change-mode-to-exec instruction has been executed.
+;
+; (SP) = return address if not our service
+;  R0  = change mode code
+;  R4  = current PCB address
+;  AP  = argument pointer for called service
+;  FP  = address of call frame for return to original mode
+;
+nm$execdsp::
+	cmpw	r0,#cmin		; this one for us?
+	blss	10$			; -no
+	cmpw	r0,#cmax		; maybe?
+	bgtr	10$			; -no
+
+	movzbl	(ap),r1			; get arg count
+	moval	@#4[r1],r1              ; hence arg list size
+        ifnord	r1,(ap),accvio		; error if can't read it
+
+	movab	-cmin(r0),r0		; normalise code
+	moval	disptb[r0],r0		; point to dispatch entry
+	jmp	@(r0)[r0]		; transfer to USS routine
+
+10$:	rsb				; request is not ours
+
+accvio:	movzwl	#ss$_accvio,r0		; argument list can't be read
+	ret				; ...
+
+illser:	movzwl	#ss$_illser,r0		; service not implemented
+	ret				; ...
+
+	.end

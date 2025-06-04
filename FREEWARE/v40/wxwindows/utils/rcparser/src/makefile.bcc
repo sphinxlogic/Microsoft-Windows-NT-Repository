@@ -1,0 +1,96 @@
+#
+# File:		makefile.bcc
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds RC-reading library and example (DOS).
+
+!if "$(BCCDIR)" == ""
+!error You must define the BCCDIR variable in autoexec.bat, e.g. BCCDIR=d:\bc4
+!endif
+
+!if "$(WXWIN)" == ""
+!error You must define the WXWIN variable in autoexec.bat, e.g. WXWIN=c:\wx
+!endif
+
+# Change WXDIR to wherever wxWindows is found
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makebcc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+WXINC = $(WXDIR)\include
+
+CFG=$(WXWIN)\src\wxwin.cfg
+
+RCDIR = $(WXDIR)\utils\rcparser
+RCLIB = $(RCDIR)\lib\rcparser.lib
+
+#CTL3DLIB = $(WXDIR)\contrib\ctl3d\ctl3dv2.lib
+#FAFALIB = $(WXDIR)\contrib\fafa\fafa.lib
+#ITSYLIB = $(WXDIR)\contrib\itsybits\itsy.lib
+
+# Default is to output RTF for WinHelp
+!ifndef WINHELP
+WINHELP=-winhelp
+!endif
+
+LIBS=$(WXLIB) $(RCLIB) mathwl cwl import $(CTL3DLIB) $(FAFALIB) $(ITSYLIB)
+
+INC=-I$(PROLOGINC) -I$(TOOLBARINC)
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+!if "$(FINAL)" == "0"
+LINKFLAGS=/v/Vt /Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS= -v
+!else
+LINKFLAGS=/Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+OPT = -O2
+DEBUG_FLAGS=
+!endif
+CPPFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+CFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+
+OBJECTS = rcparser.obj rcobject.obj curico.obj
+
+all:    $(RCLIB)
+
+.$(SRCSUFF).obj:
+	bcc $(CPPFLAGS) -c {$< }
+
+$(RCLIB): $(OBJECTS)
+	erase $(RCLIB)
+        tlib /P128 @&&!
+$(RCLIB) &
++$(OBJECTS:.obj =.obj +)
+!
+
+test.obj: test.$(SRCSUFF)
+
+test.res :      test.rc $(WXDIR)\include\msw\wx.rc
+    rc /i$(BCCDIR)\include /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -r test
+
+test.exe:      test.obj test.def test.res $(RCLIB)
+        tlink $(LINKFLAGS) @&&!
+c0wl.obj test.obj
+test
+nul
+$(LIBS)
+test.def
+!
+        rc -K test.res
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.res
+	-erase *.map
+
+

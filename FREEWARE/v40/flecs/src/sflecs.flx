@@ -1,0 +1,590 @@
+C
+C  FLECS subroutine support:
+C
+C  The subroutines below form the machine and I/O interface
+C  for the FLECS translator.  Please see the FLECS system
+C  modification guide for details.
+C
+C  The FLECS system modification guide may be obtained
+C  by writing to
+C                    Terry Beyer
+C                    Computing Center
+C                    University of Oregon
+c                    Eugene, Oregon 97403
+C
+C
+C---------------------------------------
+C
+C  Disclaimer
+C
+C     Neither the author nor the University of Oregon shall be
+C  libel for any direct or indirect, incidental, consequential,
+C  or specific damages of any kind or from any cause whatsoever
+C  arising out of or in any way connected with the use or
+C  performance of this program.
+C
+C---------------------------------------
+C
+C  Permission
+C
+C     This program is in the public domain and may be altered
+C  or reproduced without explicit permission of the author.
+C
+C----------------------------------------
+C Modified by William Tanenbaum 7-13-79
+C for Digital VAX 11/780 using CHARACTER data type
+C All subroutines except NEWNO have been extensively 
+C changed from original versions described in 
+C the FLEX modification guide.  Several subroutines
+C have even disappeared!
+C
+C-----------------------------------------
+C
+	SUBROUTINE OPENF(CALLNO,DONE,SVER)
+C
+C  OPENF IS THE FILE OPENING SUBROUTINE FOR THE FLECS TRANSLATOR.
+C  FOR A DESCRIPTION SEE THE FLECS SYSTEM MODIFICATION GUIDE,
+C  SECTION 6.1.
+C
+C
+	COMMON /FILES/ DOLIST, DOFORT, DEBUGG
+	COMMON /INCFIL/ LVERBOSE, DOINC, NOLIST, INCFLI, LINC
+	LOGICAL LVERBOSE,
+	1 DOFORT, DOLIST, DEBUGG, DOINC, INCFLI, LINC
+	INTEGER CALLNO,SVER,IX,INDEX,LONG,ISLEN,ISBEG,IY,IEND
+	LOGICAL DONE
+	DIMENSION SVER(1)
+c	clns - increase length of fortran and listing file spec max
+c	12 was too short for 9.3, even. 80 should be ok for 39.39
+	CHARACTER INPUT*72,FORTRAN*80,LISTING*80,STRING*80
+
+	DONE=.TRUE.
+	DEBUGG=.FALSE.
+	LVERBOSE=.FALSE.	!CLNS
+	DOLIST=.TRUE.
+	DOFORT=.TRUE.
+	DOINC = .TRUE.
+	INPUT=' '
+	LISTING=' '
+	FORTRAN=' '
+	IF (CALLNO.EQ.1)
+	ISTAT=LIB$GET_FOREIGN(STRING,,ISLEN)
+	IF (ISLEN.EQ.0)
+	TYPE 100
+100	FORMAT(' File(s): '$)
+	ACCEPT 110, ISLEN,STRING
+110	FORMAT(Q,A)
+	FIN
+	ISBEG=1
+	FIN
+	UNLESS (ISBEG.GT.ISLEN)
+	IX=INDEX(STRING(1:ISLEN),',')
+	IY=INDEX(STRING(1:ISLEN),'+')
+	WHEN (IX*IY.EQ.0) IEND=IX+IY
+	ELSE IEND=MIN0(IX,IY)
+	WHEN (IEND.EQ.0) IEND=ISLEN+1
+	ELSE STRING(IEND:IEND)=' '
+	LONG=IEND-ISBEG
+	INPUT(1:LONG)=STRING(ISBEG:IEND-1)
+	ISBEG=IEND+1
+	IX=INDEX(INPUT(1:LONG),'/')
+	IF (IX.NE.0)
+	PROCESS-SWITCHES
+	LONG=IX-1
+	FIN
+C
+C  MODIFIDED 9/17/81 TO ALLOW FLEXING OUTSIDE DEFAULT AREA
+C	updated 5/25/83 to allow just DEV:FILE.EXT;ver
+C
+	ICOLN=INDEX(INPUT(1:LONG),':')
+	IBRKT=INDEX(INPUT(1:LONG),']')
+	WHEN(IBRKT.EQ.0)				! NO ']'
+	WHEN(ICOLN.EQ.0)	ISTART=1
+	ELSE ISTART=ICOLN+1				!MAYBE JUST DEV:
+	FIN
+	ELSE						! FILE ELSEWHERE
+	ISTART=IBRKT+1
+	FIN
+	IX=INDEX(INPUT(ISTART:LONG),'.')		! NEW
+C
+C	IX=INDEX(INPUT(1:LONG),'.')			! OLD
+C
+	WHEN (IX.EQ.0) INPUT(LONG+1:LONG+4)='.FLX'
+	ELSE LONG=ISTART+IX-2				!clns
+C
+C THIS OPENS THE FOR AND FLI FILES IN THE CURRENT AREA
+C
+C	LISTING(1:LONG)=INPUT(1:LONG)        		! OLD
+C	LISTING(LONG+1:LONG+4)='.FLI'			! OLD
+C	FORTRAN(1:LONG)=INPUT(1:LONG)			! OLD
+C	FORTRAN(LONG+1:LONG+4)='.FOR'			! OLD
+C
+	NEWLONG=LONG-ISTART+1				! NEW
+	LISTING(1:NEWLONG)=INPUT(ISTART:LONG)		! NEW
+	LISTING(NEWLONG+1:NEWLONG+4)='.FLI'		! NEW
+	FORTRAN(1:NEWLONG)=INPUT(ISTART:LONG)		! NEW
+	FORTRAN(NEWLONG+1:NEWLONG+4)='.FOR'		! NEW
+C
+C END OF MODIDIFICATIONS - 9/17/81
+C
+clns	don't type file names unless /VERBOSE is set
+	IF (LVERBOSE)	TYPE 1000, INPUT(1:LONG+4)
+1000	FORMAT(1X,A)
+	OPEN(UNIT=1,FILE=INPUT(1:LONG+4),STATUS='OLD',READONLY,SHARED)
+	IF (DOLIST)
+	OPEN(UNIT=3,FILE=LISTING,STATUS='NEW',CARRIAGECONTROL='LIST')
+	IF (LVERBOSE)	TYPE 1000, LISTING
+	FIN
+	IF (DOFORT)
+	OPEN(UNIT=2,FILE=FORTRAN,STATUS='NEW',CARRIAGECONTROL='LIST')
+	IF (LVERBOSE)	TYPE 1000, FORTRAN
+	FIN
+	DONE=.FALSE.
+	FIN
+	RETURN
+	TO PROCESS-SWITCHES
+	IF (INDEX(INPUT(IX:LONG),'/D').NE.0) DEBUGG=.TRUE.
+	IF (INDEX(INPUT(IX:LONG),'/NOL').NE.0) DOLIST=.FALSE.
+	IF (INDEX(INPUT(IX:LONG),'/NOF').NE.0) DOFORT=.FALSE.
+	IF (INDEX(INPUT(IX:LONG),'/NOI').NE.0) DOINC = .FALSE.
+clns	add verbosity switch for echo of output file names
+	IF (INDEX(INPUT(IX:LONG),'/VER').NE.0) LVERBOSE = .TRUE.
+	INPUT(IX:LONG)=' '
+	FIN
+	END
+C
+C***************************************************************************
+C***************************************************************************
+	SUBROUTINE GET(LSTR,LINENO,STRING,ENDFIL)
+C
+C  GET IS THE INPUT SUBROUTINE FOR THE FLECS TRANSLATOR.
+C  FOR A DESCRIPTION SEE THE FLECS SYSTEM MODIFICATION GUIDE,
+C  SECTION 6.2.
+C
+	COMMON /INCFIL/ LVERBOSE, DOINC, NOLIST, INCFLI, LINC
+	LOGICAL LVERBOSE
+	LOGICAL ENDFIL, DOINC, LINC, INCFLI, NOVAX
+	CHARACTER*80 TEMP, STRING
+	CHARACTER*30 INKLUDE_FILE
+	CHARACTER*1 TAB, VT, FF, APOS,ITERM
+	INTEGER LINENO, LEN, LSTR, I, K, MOD, NSPACE
+	DATA TAB/9/, VT/11/, FF/12/, APOS/39/
+	DATA IIN/1/, LINC/.FALSE./
+10	FORMAT(Q,A)
+C
+	REPEAT UNTIL (K.GT.0)
+15	READ(IIN,10,END=20) LEN,TEMP
+	REMOVE-TAB-CHARACTERS
+	LINENO=LINENO+1
+	WHILE (STRING(K:K).EQ.' ') K=K-1
+	INX=INDEX(STRING(1:K),'!')
+	CONDITIONAL
+	(INX.EQ.0) CONTINUE
+	(INDEX(STRING(INX:K),'VAX').NE.0)
+	CONDITIONAL
+	(STRING(1:1).NE.'C') CONTINUE
+	(STRING(1:2).EQ.'CD') STRING(1:2)='D '
+	(OTHERWISE) STRING(1:1)=' '
+	FIN
+	FIN
+	(INDEX(STRING(INX:K),'PDP10').NE.0) STRING(1:1)='C'
+	FIN
+C
+C	Intercept the include's:
+C
+	IF (DOINC .AND. STRING(1:1).NE.'C')
+	INX = INDEX(STRING(1:K),'INCLUDE')	!look for the keyword
+C
+	IF (INX.GT.0)
+	SCAN-INCLUDE-FILE
+C
+	IF (.NOT.NOVAX)
+C	There were !vax and/or !pdp10 lines, so have FLECS 
+C	process the INCLUDE file:
+	INCFLI = (NOLIST.EQ.0)		!put INCLUDE file in the FLI file?
+	STRING(1:1) = 'C'
+	LINC = .TRUE.
+	IIN = 4
+	FIN
+C
+	FIN
+C
+	FIN
+C
+	IF (K.GT.80)
+	K = 80
+C
+	WHILE (STRING(K:K).EQ.' ') K = K - 1
+C
+	FIN
+C
+	FIN
+C
+	LSTR = K
+	RETURN
+C
+20	CONTINUE
+C
+	IF (LINC)
+	LINC = .FALSE.
+	CLOSE(UNIT=4)
+	IIN = 1
+	GO TO 15
+	FIN
+C
+	ENDFIL = .TRUE.
+	LINENO = 0
+	RETURN
+C
+C***************************************************************************
+C***************************************************************************
+C
+C
+C----------------------------------------------------------------------------
+C
+	TO REMOVE-TAB-CHARACTERS
+C
+	I = 0
+	K = 0
+C
+	WHILE (K.LT.80 .AND. I.LT.LEN)
+	I = I + 1
+C
+	SELECT (TEMP(I:I))
+C
+	(TAB)
+	NSPACE = 8 - MOD(K,8)
+C
+	DO (J=1,NSPACE)
+	K = K + 1
+	STRING(K:K) = ' '
+	FIN
+C
+	FIN
+C
+	(FF) CONTINUE
+C
+	(VT) CONTINUE
+C
+	(OTHERWISE)
+	K = K + 1
+	STRING(K:K) = TEMP(I:I)
+	FIN
+C
+	FIN
+C
+	FIN
+C
+	FIN
+C
+C---------------------------------------------------------------------------
+C
+	TO SCAN-INCLUDE-FILE
+C
+C	Added by Tom Gentile 4/1/82 to make FLECS process INCLUDE files.
+C-------
+C	Modified 5/12/83 by S.Ball to be compatible with DEC-10 formats:
+C	1. always include file if double quote sign seen
+C	2. never include file if apostrophe-parenthesis seen 
+C		(VMS text library module extraction done by FORTRAN)
+C	3. always include file if parenthesis seen alone (10 FLI)
+C	4. conditionally include file if apostrophe seen alone
+C		(previous VMS inclusion format)
+
+D	type *, 'scan-include-file'
+D	type *,'line="',string(1:k),'"'
+	NOVAX = .TRUE.
+C
+C	Pick off the file specification:
+	IST1 = INDEX(STRING(1:K),'"') + 1	!find 1st quote
+	IST2 = INDEX(STRING(1:K),'''(') + 1	! apostrophe parenthesis
+	IST3 = INDEX(STRING(1:K),'(') + 1	! Parenthesis
+	IST4 = INDEX(STRING(1:K),APOS) + 1	! apostrophe
+D	TYPE *,'IST1=',IST1,', IST2=',IST2,', IST3=',IST3,', IST4=',IST4
+	CONDITIONAL
+	(IST1.GT.1)
+C	A quote seen: always include the file
+	ITERM='"'
+	IST=IST1
+	FIN
+	(IST2.GT.1)
+C	Apostrophe parenthesis seen: never include the file
+	NOVAX=.TRUE.
+	GOTO 240
+	FIN
+	(IST3.GT.1)
+C	A parenthesis seen: always include file
+	ITERM=')'
+	IST=IST3
+	FIN
+	(IST4.GT.1)
+C	Apostrophe seen: maybe include file
+	ITERM=''''
+	IST=IST4
+	FIN
+	(OTHERWISE)
+C	No file spec seen
+	NOVAX=.TRUE.
+	GOTO 240
+	FIN
+	FIN
+	
+	IF (IST.GT.INX)
+C	Position of 1st quote must be > than position of INCLUDE
+C
+C	CLNS:
+C	Scan the interval between "INCLUDE" and the file spec:
+C	there should be only spaces or tabs there.
+C
+	IP=INX+6
+	IPBAD=0
+	REPEAT WHILE (IPBAD.EQ.0 .AND. IP.LT.IST-2)
+	IP=IP+1
+	IPBAD=INDEX(
+	1'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz'
+	1//'1234567890@#$%^&*);:|\}{?><,./`~+=-_',
+	2 string(IP:IP) )
+	FIN
+	IF (IPBAD.NE.0)
+D	TYPE *,' IPBAD=',IPBAD
+D	TYPE 1313,STRING(:IP-1),'/\',STRING(IP:)
+D1313	FORMAT(1X,3A)
+	NOVAX=.TRUE.
+	GOTO 240
+	FIN
+C
+	NOLIST = INDEX(STRING(1:K),'/NOL')	!check for a /NOLIST option
+	ISLASH = INDEX(STRING(1:K),'/')	  !clns: might be another qualifier
+C
+	WHEN (ISLASH.EQ.0)
+C	There wasn't a qualifier, so just find the next terminator:
+	IFN = INDEX(STRING(IST+1:K),iterm) - 1
+	IFN = INDEX(STRING(IST+1:K),iterm) - 1
+	FIN
+C
+	ELSE
+C	There was a qualifier, so the end of the file name is 
+C	just before the /:
+	IFN = ISLASH - IST - 1
+	FIN
+C
+	INKLUDE_FILE = STRING(IST:IST+IFN)	!get the file specification
+D	type *,' inklude_file=',inklude_file
+	OPEN(UNIT=4,FILE=INKLUDE_FILE,STATUS='OLD',
+     *	     READONLY,SHARED,ERR=220)
+C
+CLNS	if a quote (")  or parenthesis was seen,
+Clns	Always include the file - the user has specified it
+C
+	IF(IST.EQ.IST1 .OR. IST.EQ.IST3) NOVAX=.FALSE.	!CLNS
+C
+C	Now scan through the file and see if any lines have a "pdp10"
+C	or a "vax": at this point, NOVAX=.true. iff ITST4 .GT. 1
+C
+	WHILE (NOVAX)
+	READ(4,10,END=210) LEN, TEMP
+	INX = INDEX(TEMP(1:LEN),'VAX') + INDEX(TEMP(1:LEN),'PDP10')
+	IF(INX.NE.0) NOVAX = .FALSE.
+	FIN
+C
+210	IF(.NOT.NOVAX) REWIND 4
+	FIN
+C
+	GO TO 240		!jump over the OPEN error handler
+C
+220	CONTINUE
+	INKMXC=INDEX(INKLUDE_FILE,'    ')
+	TYPE 230, INKLUDE_FILE(1:INKMXC)
+230	FORMAT(' %FLECS-W-NOINCL - INCLUDE file ''', A, ''' not found.')
+240	FIN
+C
+	END
+C
+C******************************************************************************
+C
+	SUBROUTINE PUT(SLINE,STRING,IOCLAS)
+C
+C  PUT IS THE OUTPUT ROUTINE FOR THE FLECS TRANSLATOR.
+C  FOR A DESCRIPTION SEE THE FLECS SYSTEM MODIFICATION GUIDE,
+C  SECTION 6.3.
+C
+C  ASSUMPTIONS--
+C     -- FILE FORTOUT IS WRITTEN ON FORTRAN UNIT FOUT.
+C        (SEE DATA STATEMENT BELOW)
+C     -- FILE LISTOUT IS WRITTEN ON FORTRAN UNIT LOUT.
+C        (SEE DATA STATEMENT BELOW)
+C     -- THE LINE NUMBERS TO BE WRITTEN TO FORTOUT SHOULD APPEAR
+C        IN COLUMNS 76 THROUGH 80.
+C     -- OUTPUT CLASS ERR IS TO APPEAR ONLY ON THE LISTING.
+C
+C  NOTE TIMESHARING SYSTEMS SHOULD HAVE CODE ADDED WHICH SENDS ALL
+C  ERR CLASS OUTPUT TO THE USERS TERMINAL AS WELL AS TO THE LISTING.
+C
+	CHARACTER*(*) STRING
+	CHARACTER*80 BLANKS
+	CHARACTER*5 SLINE
+	CHARACTER*1 TAB
+	INTEGER ERR
+	INTEGER FOUT, LOUT
+	LOGICAL DOLIST, DOFORT, DEBUGG, DOINC, INCFLI, LINC
+C
+C
+C  OUTPUT CONTROL PARAMETERS
+	COMMON/FILES/DOLIST,DOFORT,DEBUGG
+	COMMON /INCFIL/ LVERBOSE, DOINC, NOLIST, INCFLI, LINC
+C
+C  MNEMONICS FOR IOCLASSES
+	DATA  LIST/2/, ERR/3/
+C
+C  FORTOUT AND LISTOUT UNIT NUMBERS
+	DATA FOUT/2/, LOUT/3/
+C
+C BLANKS WILL BE RIGHT FILLED WITH SPACES
+	DATA BLANKS(1:74)/' '/
+	DATA BLANKS(75:75)/'!'/
+	DATA TAB/9/
+C
+	LSTR = LEN(STRING)
+C
+	IF (DOLIST)
+C
+	WHEN (LINC)
+C	If we are processing an INCLUDE file, only write it out to the
+C	FLI file if it had !vax or !pdp10 lines and did not 
+C	have a /NOLIST option:
+C
+	IF (NOLIST.GT.0)
+	STRING(1:1) = ' '
+	NOLIST = 0
+	FIN
+C
+	IF (INCFLI .OR. NOLIST.EQ.0)
+	WRITE(LOUT,40) ' '//SLINE//' '//STRING(1:LSTR)
+	NOLIST = -1	!NOLIST = 0 forces the INCLUDE statement to be passed!!
+	FIN
+C
+	FIN
+C
+	ELSE
+	WRITE(LOUT,40) ' '//SLINE//' '//STRING(1:LSTR)
+	FIN
+C
+	FIN
+C
+	IF (IOCLAS.EQ.ERR) TYPE 40, ' '//SLINE//' '//STRING(1:LSTR)
+	RETURN
+C
+C--------------------------------------------------------------------------
+C
+	ENTRY PUTZ(STRING,IOCLAS)
+	LSTR=LEN(STRING)
+	IF (DOLIST)
+	WRITE(LOUT,40) BLANKS(1:7)//STRING(1:LSTR)
+	FIN
+	IF (IOCLAS.EQ.ERR) TYPE 40, BLANKS(1:7)//STRING(1:LSTR)
+	RETURN
+C
+C---------------------------------------------------------------------------
+C
+	ENTRY PUTF(SLINE,STRING)
+	IF (DOFORT)
+	LSTR=MIN0(LEN(STRING),74)
+	WRITE(FOUT,40) STRING(1:LSTR)//BLANKS(LSTR+1:75)//SLINE
+	FIN
+	RETURN
+40	FORMAT(A)
+	END
+C
+C******************************************************************************
+C
+	SUBROUTINE PUTN(SLINE,STRING,IOCLAS)
+	CHARACTER*(*) STRING
+	CHARACTER*5 SLINE
+	LOGICAL DOLIST,DOFORT,DEBUGG
+C
+C
+C  OUTPUT CONTROL PARAMETERS
+	COMMON/FILES/DOLIST,DOFORT,DEBUGG
+C
+C  MNEMONICS FOR IOCLASSES
+	DATA  LIST/2/, ERR/3/
+C
+C  FORTOUT AND LISTOUT UNIT NUMBERS
+	DATA FOUT/2/, LOUT/3/
+C  OUTPUT FORMAT USED TO INDICATE DELETED LINE.
+30	FORMAT('+-----')
+	CALL PUT(SLINE,STRING,IOCLAS)
+	IF (DOLIST) WRITE(LOUT,30)
+	RETURN
+	END
+C
+C*****************************************************************************
+C
+	SUBROUTINE CLOSEF(MINCNT,MAJCNT)
+	INTEGER MINCNT,MAJCNT
+	LOGICAL DOLIST,DOFORT,DEBUGG
+C
+C  OUTPUT PARAMETERS
+	COMMON/FILES/DOLIST,DOFORT,DEBUGG
+C
+C  CLOSEF IS THE FILE CLOSING SUBROUTINE FOR THE FLECS TRANSLATOR
+C  FOR A DESCRIPTION SEE THE FLECS SYSTEM MODIFICATION GUIDE,
+C  SECTION 6.4.
+C
+clns	no output message if no errors
+	IF (MINCNT+MAJCNT.GE.1)
+	TYPE 100, MINCNT,MAJCNT
+100	FORMAT(' There were',I4,' Minor and',I4,' Major errors.')
+	FIN
+	CLOSE(UNIT=1)
+	IF (DOFORT) CLOSE(UNIT=2)
+	IF (DOLIST) CLOSE(UNIT=3)
+	RETURN
+	END
+C
+C****************************************************************************
+C
+	INTEGER FUNCTION HASH(A,PRIME)
+C
+C  HASH COMPUTES AN INTEGER IN THE RANGE 0 TO PRIME-1 BY HASHING
+C  THE STRING A INCLUDING ITS LENGTH.
+C  FOR A DESCRIPTION SEE THE FLECS SYSTEM MODIFICATION GUIDE,
+C  SECTION 4.8.
+C
+	INTEGER PRIME,LEN,L,I,ICH
+C
+	CHARACTER*(*) A
+C
+	L=LEN(A)
+C
+C  HASH THE LENGTH AND ALL WORDS, REDUCING
+C  EACH MOD PRIME BEFORE SUMMING TO AVOID INTEGER OVERFLOW.
+	HASH=L
+	DO (I=1,L)
+	ICH=ICHAR(A(I:I))
+	HASH=HASH+ICH-(ICH/PRIME)*PRIME
+	FIN
+C
+C  COMPLETE HASHING
+	IF(HASH.LT.0) HASH=-HASH
+	HASH=HASH-(HASH/PRIME)*PRIME
+	RETURN
+	END
+	INTEGER FUNCTION NEWNO(N)
+C
+C  NEWNO IS A SEQUENTIAL NUMBER GENERATOR.
+C  FOR A DESCRIPTION SEE THE FLECS SYSTEM MODIFICATION GUIDE.
+C
+C  AUTHOR -- TERRY BEYER
+C  VERSION -- 2.1
+C  DATE -- AUGUST 12, 1974
+C
+C  THIS SUBPROGRAM IS MACHINE INDEPENDENT.
+C
+	INTEGER N,OLDNO
+        DATA OLDNO/0/
+	WHEN (N.NE.0) NEWNO=N
+	ELSE NEWNO=OLDNO-1
+	OLDNO = NEWNO
+	RETURN
+	END

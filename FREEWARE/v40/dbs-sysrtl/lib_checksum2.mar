@@ -1,0 +1,87 @@
+	.title	lib_checksum2
+	.ident	"X1-001"
+
+;+
+; Version:	X1-001
+;
+; Facility:	Library routines.
+;
+; Abstract:	Generate checksums the same as used in Files-11 home blocks
+;		and file headers.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	01-Jul-1991, DBS, Version X1-001
+; 001 -	Original version.
+;-
+
+;++
+; Functional Description:
+;	This routine will check the existing checksums in a buffer, and
+;	generate correct ones.  The returned value indicates whether the
+;	original was correct or not.
+;
+; Calling Sequence:
+;	status = lib_checksum2 (buffer_addr, %val(count))
+;		-or-
+;	pushl	count
+;	pushab	buffer
+;	calls	#2, g^lib_checksum2
+;
+; Formal Argument(s):
+;	buffer.ml.v	Address of the buffer to checksum
+;	count.rl.v	Count of bytes to checksum
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	The buffer is updated to reflect the correct checksums.
+;
+; Routine Value:
+;	0	Indicates that the existing checksum value was incorrect.
+;	1	Indicates that the existing checksum value was correct.
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	$gblini	GLOBAL
+
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	buffer	= 4			; offset to buffer address
+	count	= 8			; offset to byte count
+
+	set_psect _sys_code
+
+	.entry -
+lib_checksum2, ^m<r2,r3,r4>
+
+	clrl	r3			; clear the running total
+	divl3	#2, count(ap), r1	; convert byte count to words
+	mnegl	#1, r2			; set up our loop index
+	movl	buffer(ap), r4		; save the buffer address
+	brb	20$			; start processing the checksum
+
+10$:	addw2	(r4)[r2], r3		; generate the checksum
+20$:	aoblss	r1, r2, 10$		; see if we've done enough words
+
+	clrl	r0			; assume checksum failed
+	cmpw	r3, (r4)[r1]		; did it ?
+	bneq	30$			; yes, so update the checksum
+	incl	r0			; else indicate it was ok
+30$:	movw	r3, (r4)[r1]		; update the block with the checksum
+
+	ret
+
+	.end

@@ -1,0 +1,109 @@
+#
+# File:		makefile.nt
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxImage class library (MS VC++).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+WXIMAGEDIR = $(WXDIR)\utils\wximage
+THISDIR = $(WXDIR)\utils\wximage\win
+EXTRALIBS=$(WXIMAGEDIR)\lib\wxima.lib $(WXIMAGEDIR)\lib\winjpeg.lib $(WXIMAGEDIR)\lib\winpng.lib\
+ $(WXIMAGEDIR)\lib\zlib.lib
+
+!include $(WXDIR)\src\ntwxwin.mak
+
+PROGRAM=demo
+ 
+OBJECTS = dibutils.obj wbima.obj wxima.obj imagif.obj gifdecod.obj imabmp.obj imapng.obj imajpg.obj
+PROGOBJECTS = $(PROGRAM).obj
+LIBTARGET=$(WXIMAGEDIR)\lib\wxima.lib
+
+all:    $(LIBTARGET)
+
+$(PROGRAM):    $(PROGRAM).exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt FINAL=$(FINAL)
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt clean
+        cd $(THISDIR)
+
+$(LIBTARGET): $(OBJECTS)
+	-erase $(LIBTARGET)
+	$(implib) @<<
+-out:$(LIBTARGET)
+-machine:$(CPU)
+$(OBJECTS)
+<<
+
+$(PROGRAM).exe:      $(DUMMYOBJ) $(WXLIB) $(PROGOBJECTS) $(LIBTARGET) $(PROGRAM).res
+	$(link) @<<
+-out:$(PROGRAM).exe
+$(LINKFLAGS)
+$(DUMMYOBJ) $(PROGOBJECTS) $(PROGRAM).res
+$(LIBS)
+<<
+
+gifdecod.obj:	gifdecod.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+dibutils.obj:	dibutils.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+wbima.obj:	$(LINCS) wbima.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+wxima.obj:	$(LINCS) wxima.h wxima.$(SRCSUFF)  
+        cl @<<
+$(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+imapng.obj:	$(LINCS) imapng.$(SRCSUFF)
+        cl @<<
+-I..\zlib -I..\png $(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+imajpg.obj:	$(LINCS) imajpg.$(SRCSUFF)
+        cl @<<
+-I..\zlib -I..\jpeg $(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+imabmp.obj:	$(LINCS) imabmp.$(SRCSUFF)         
+        cl @<<
+$(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+imagif.obj:	$(LINCS) imagif.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+$(PROGRAM).obj:      $(PROGRAM).h $(PROGRAM).$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+$(PROGRAM).res :      $(PROGRAM).rc $(WXDIR)\include\msw\wx.rc
+    $(rc) -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -fo$@ $(PROGRAM).rc
+
+
+clean:
+        -erase *.sbr *.obj *.exe *.res *.map *.rws *.pdb $(LIBTARGET)

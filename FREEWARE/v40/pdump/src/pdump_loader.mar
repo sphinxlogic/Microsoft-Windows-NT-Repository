@@ -1,0 +1,52 @@
+	.TITLE	SYSPDUMP LOADER
+	.IDENT	/X-1/
+
+
+;++
+;
+; 	This routine will load the SYSPDUMP.EXE
+;
+;--
+
+	$LDRDEF				; System Code Loader defs
+
+
+	.PSECT	DATA,WRT,NOEXE,LONG
+
+E_ARGS:	.LONG	3
+	.ADDRESS	SYSPDUMP_NAME	; Loadable image name
+	.LONG		LDR$M_UNL	; Dyn. load flags - image unloadable
+	.ADDRESS	BASE_ADDR	; Address of BASE_ADDR
+
+BASE_ADDR:.BLKL	3			; Base address of SYSPDUMP_NAME
+
+;			 12345678901234567890123456789012
+SYSPDUMP_NAME:	.ASCID	/SYS$LOADABLE_IMAGES:SYSPDUMP.EXE/
+
+FMT:	.ASCID	"SYSPDUMP.EXE loaded at   !XL!/"-
+		"                         !XL!/"-
+		"                         !XL"                
+OUT:	.ASCID	"                                     "-
+		"                                     "-
+		"                                     "
+
+;*************************************************************************
+
+	.PSECT	$$CODE_RO,PIC,GBL,SHR,NOWRT,EXE,LONG
+
+	.ENTRY	SYMLOADER,^M<>
+
+	$CMEXEC_S	ROUTIN=G^LDR$LOAD_IMAGE,-	; Load SYSPDUMP
+			ARGLST=E_ARGS
+	BLBS	R0,10$					; Ok
+	RET
+
+10$:	$FAO_S	CTRSTR=FMT,OUTLEN=OUT,OUTBUF=OUT,-
+		P1=BASE_ADDR,P2=BASE_ADDR+4,P3=BASE_ADDR+8
+	BLBS	R0,20$
+	RET
+
+20$:	PUSHAB	OUT
+	CALLS	#1,G^LIB$PUT_OUTPUT
+	RET
+	.END	SYMLOADER

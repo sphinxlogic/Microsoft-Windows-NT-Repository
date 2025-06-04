@@ -1,0 +1,64 @@
+	.title	sdlhashf
+;
+;****************************************************************************
+;*									    *
+;*  Copyright (c) 1980, 1981		                                    *
+;*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+;* 									    *
+;*  This software is furnished under a license and may be used and  copied  *
+;*  only  in  accordance  with  the  terms  of  such  license and with the  *
+;*  inclusion of the above copyright notice.  This software or  any  other  *
+;*  copies  thereof may not be provided or otherwise made available to any  *
+;*  other person.  No title to and ownership of  the  software  is  hereby  *
+;*  transferred.							    *
+;* 									    *
+;*  The information in this software is subject to change  without  notice  *
+;*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment  *
+;*  Corporation.							    *
+;* 									    *
+;*  DIGITAL assumes no responsibility for the use or  reliability  of  its  *
+;*  software on equipment which is not supplied by DIGITAL.		    *
+;*									    *
+;****************************************************************************
+;++
+; facility:
+;
+;	SDL (Structure Definition Language)
+;
+; abstract:
+;
+;	a hash function that takes a PL/I varying character string
+;	and hashes it to an integer between 0 and a specified maximum
+;
+;	4(ap)	address of char var string
+;	8(ap)	address of max. integer value
+;
+; author:
+;	c.t. pacy
+; date:
+;	revised 22-DEC-1981	ctp
+;--
+
+
+constant=65537
+ 
+	.entry hashf ^m<r2,r3,r4,r5,r6,r7>
+ 
+	movl	4(ap),r2		; addr of char string arg
+	movzwl	(r2)+,r3		; byte count of string
+	clrl	r6			; accumulator
+	ashl	#-2,r3,r4		; get longword count
+	beql	20$			; if lt 1 lw, br
+10$:	xorl2	(r2)+,r6		; xor the string
+	rotl	#1,r6,r6		; rotate it
+	sobgtr	r4,10$
+20$:	extzv	#0,#2,r3,r4		; get leftover byte count
+	clrl	-(sp)			; make a temp
+	movc3	r4,(r2),(sp)		; and get the leftover bytes
+	xorl2	(sp)+,r6		; xor it in
+	mull2	#constant,r6		; now mult it
+	clrl	r7			; make it quad
+	ediv	@8(ap),r6,r1,r0		; get result mod max_value
+	ret
+ 
+	.end

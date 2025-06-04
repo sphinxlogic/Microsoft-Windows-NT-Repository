@@ -1,0 +1,1269 @@
+
+
+
+
+                        Kronos II.11
+
+                        6 October 1998
+
+
+
+
+
+
+                        Arthur E. Ragosta
+
+                        RAGOSTA@MERLIN.ARC.NASA.GOV
+                        MS 219-1
+                        NASA Ames Research Center
+                        Moffett Field, Ca.  94035-1000
+                        (650) 604-5558
+
+
+I. Overview
+
+Kronos is a scheduling and monitoring program.  Jobs can be scheduled to run at
+regular intervals, at specified times, during a range of times, or when certain
+system events occur.  Kronos is typically started at boot time.  Two logical
+names are defined: KRONOS_DIR points to the Kronos program directory and
+KRONOS_ROOT is the root directory for subsystems performing various classes of
+jobs (such as RESOURCES).  The Kronos system consists of a master program
+(called Kronos), a user-interface program (called Kron), several data files
+(KRONOS.DAT and CALENDAR.*), and sample job files.
+
+There are a number of public domain and commercial programs that perform
+functions similar to Kronos in some ways.  The philosophy in Kronos, however,
+is that maximum flexibility is attained by having the kernel program perform
+scheduling tasks only -- scheduled jobs or packages of jobs can then be
+developed in a modular fashion to perform various classes of functions (e.g.,
+security, accounting, resource monitoring).
+
+If you are upgrading from a previous version of Kronos, you can get an idea of
+new features by looking in Appendix E (Change History).
+
+"Kronos" is considered a trademark of the author and the U.S. Army
+Aeroflightdynamics Directorate.  It is not registered and no attempt is being
+made to maintain exclusivity.
+
+
+
+
+II. Installation
+
+- Create a directory for the Kronos programs and files.    IMPORTANT !!!
+PROTECT THIS DIRECTORY TO THE SAME LEVEL AS YOU DO SYSTEM ACCOUNTING
+INFORMATION.  IF AN UNAUTHORIZED USER CAN MODIFY THE DATA BASE, HE/SHE COULD
+HAVE KRONOS RUN THEIR JOBS IN SYSTEM CONTEXT !
+
+- Copy KRONOS.EXE, KRON.EXE, FIND_JOB.EXE, KRONOS.DAT, K_USERS.DAT, CALENDAR.*,
+and KRONOS.COM to this directory.
+
+- Edit KRONOS.COM to correct any system-specific definitions.
+
+- Modify the file K_USERS.DAT as follows: enter user names, one per line for
+the users to be notified first (primary users) when an error occurs within
+Kronos; enter a blank line; enter user names for users to be notified only if
+no primary users could be notified (secondary users).  It is not absolutely
+necessary to have any secondary users listed.  The maximum number of users that
+can be alerted is in the source code as a parameter "max_users"; by default it
+is set to 10.  Increase if necessary and rebuild.
+
+- The file KRONOS.DAT is a sample data base running most or all of the sample
+jobs.  Edit it to delete any unwanted jobs.
+
+- The file QUEUES.DAT contains the names of all batch queues to check each time
+Kronos awakens.  Modify it as necessary.  The number of queues that can be
+checked is in the source code as a parameter "max_queues"; by default it is set
+to 20.  Increase if necessary and rebuild.
+
+- The CALENDAR.DAT and CALENDAR.199x files are examples only, modify these files
+to meet your own purposes or delete them.
+
+- Add the line:       
+   @KRONOS_DEVICE:[KRONOS_DIRECTORY]KRONOS
+
+to your system-specific startup procedure.  To start Kronos immediately, enter
+the same line manually.
+
+- The HELP file and documentation should be made available to authorized users
+in some appropriate manner; we have a separate help library available only to
+system-level users.
+
+- If desired, create a command to execute the Kron program, for example:
+        KRON :== $KRONOS_DIR:KRON
+
+- Double check the protection on the files in the Kronos directories.  If in
+doubt, enter:
+        SET FILE/PROT=(G,W) KRONOS_DIR:*.*;*
+        SET FILE/PROT=(G,W) KRONOS_ROOT:[*...]*.*;*
+
+- Finally, determine which (if any) of the provided sample jobs are appropriate
+to the user's site; correct any site-specific information in the jobs; and copy
+the jobs to the KRONOS_ROOT subdirectories.  The examples provided come in
+subdirectories named ACCOUNTING, MISC, RESOURCES, and SECURITY.
+
+
+KRONOS.COM defines the two logical directory names KRONOS_DIR and KRONOS_ROOT.
+All further references in this document will use the logicals to reference
+Kronos directories.  Kronos should be started from the SYSTEM account or other
+suitably privileged context.  The last two commands in KRONOS.COM start the
+Kronos_Disaster job.  See Appendix A for explanation of the Kronos_Disaster
+job.  It is safer to use KRON to add new jobs than doing it in the editor.
+Note that the characteristic defined for Kronos is not strictly necessary, but
+is used in the Kronos_Disaster job to prevent any possibility of confusion over
+ownership of the job.
+
+The sample jobs included in the release and described below should be checked
+out for applicability; change any system-specific information and add them to
+your new data base using the KRON program, described below.
+
+
+
+
+
+III. Kronos Master Program
+
+Kronos is run as a detached process at system boot time.  If it must be
+restarted at any time, enter: "@KRONOS_DIR:KRONOS".  KRONOS.COM verifies that
+Kronos isn't already running, starts Kronos as a detached job, deletes the
+previous KRONOS_DISASTER job (if any), and then submits a new KRONOS_DISASTER
+(see Kronos_Check in Appendix A).  The user does not interact with Kronos
+directly, but instead uses the Kron program -- see section IV.
+
+By default, Kronos wakes up exactly on the hour.  This behavior can be changed
+by defining a wakeup interval while building Kronos.  This is done by removing
+the comment character in front of the line "INT = /DEFINE=(INTERVAL=15)" in the
+makefile (or the similar line in the MAKE.COM file).  This line will change the
+wakeup interval to 15 minutes.  Any number between 1 and 59 is permitted,
+although numbers that are not a factor of 60 minutes (e.g., 7 minutes) can
+result in uneven wakeups as Kronos tries to correct for hourly jobs.  Note
+that there is no time drift in the interval; i.e., Kronos calculates the next
+wakeup time to the nearest minute, not to the current time plus the wakeup
+interval. If a job is scheduled to run anytime during the next interval, it
+will be run now.  For example, with the interval set to 15 minutes, a job
+scheduled for 11:10 will run at 11:00.  When Kronos is started, no jobs will be
+submitted until the current interval is up.  For example, if the interval is 15
+minutes and Kronos is started at 10:32, the first jobs run will be those
+scheduled for 10:45 through 10:59.  Note that this is new behavior as of
+version II.4.
+
+Each time Kronos awakens, the file KRONOS_DIR:KRONOS.DAT is checked to see if
+it has been revised since the last time Kronos was awakened.  This is done by
+checking the revision date for the file, thus it is very efficient.  If the
+file has been changed, it will be read; the commands in the file are partially
+compiled at this time to improve runtime efficiency.  This file is maintained,
+primarily, by the KRON program described in the next section.  Besides the
+commands maintained by KRON, there is one additional command.  The Indirect
+Command allows multiple data bases to be maintained separately if desired.
+The form of the indirect command is "@filename"; for example:
+
+        @KRONOS_DIR:DESIGN_GROUP.DAT
+
+Kronos will not check these included files for revisions when it awakens.
+Because of this (or changes to the calendar file), it may be necessary to
+modify the revision date of the master data base to force Kronos to read the
+new files.  This is done with the TOUCH program included in the release.
+
+Each time it awakens, Kronos checks to see if all of the batch queues are
+running.  If any queues are not running, a message is sent to the primary users
+(as defined in K_USERS.DAT).
+
+If an error occurs during a Kronos run, Kronos will take one or more actions
+depending on the severity.  There are four levels of severity: 1 -
+informational; 2 - error creating a job; 3 - internal error but not
+catastrophic; 4 - Fatal.  All messages will be placed in a file named ERROR.LOG
+in KRONOS_DIR.  Level 2 and above messages will be logged to the error log and
+a message will be sent to the primary users' terminal(s).  For level 3 and
+above, if the primary users can not be contacted, the secondary users will be
+contacted.  If still no one can be contacted, a mail message will be sent to
+the primary users.  (See Installation, above). The mail message is created on
+device "SCRATCH:"; this may be a site-specific issue.  Finally, if Kronos
+aborts from an unrecoverable error, the operator/log will also be notified.
+
+The maximum number of jobs that Kronos can load is defined by the parameter
+MAX_JOBS in the file KRONOS.CMN.  The maximum amount of string storage is
+specified by the parameter MAXSTRING in the file STRINGS.CMN.  The default
+batch queue is specified by the defined variable QUEUE in the makefile.  These
+values may need to be changed at various sites.  Note that the choice for
+default batch queue should provide for adequate numbers of jobs, otherwise
+Kronos jobs might be queued on hold for unacceptable periods of time.  Kronos
+does provide the ability to boost the priority of scheduled jobs, but this will
+not help if the queue is full when the job is submitted.
+
+A simplistic failover mechanisms for clusters works by allocating a
+cluster-wide lock called "KRONOS_LOCK".  When initiated, the main Kronos
+program attempts to obtain exclusive control of this lock.  If it succeeds, it
+assumes that it is in charge and begins running.  Since the request for the
+lock is not asynchronous, if the lock is not obtained, the main program will
+simply hibernate until the lock is obtained (for example, by the current active
+copy dying).  Kronos always parses the master file after obtaining the lock. 
+In order to use this feature, add "/DEFINE=CLUSTER" to the FPP line for
+KRONOS.FOR in the makefile (or MAKE.COM) and rebuild Kronos.  Kronos does not
+attempt to reexecute itself if it dies.  Subsequently, a cluster-wide error
+that causes Kronos to die will rapidly result in all copies of Kronos dying.
+This capability has not been extensively tested.
+
+
+
+
+IV.  Kron Program
+
+Kron is a program which makes it easier to install a job in the Kronos data
+base.  Kron prompts for necessary information and does error checking to
+minimize any possibility of bad entries in the data base.
+
+After entering RUN KRONOS_DIR:KRON (or simply KRON, if you have defined the
+command) you will be prompted for an option.  If the KRON command has been
+defined, a parameter may be passed to KRON to indicate what file to maintain.
+If the file doesn't exist, and you try to write to it, you will be asked if you
+want to creaet the file. This option is useful for maintaining indirect command
+files. KRON options are:
+
+o Add - Add a job to the data base.  Jobs consist of .COM files only, as they
+   are run in batch mode.  If you wish to run a program, create a .COM file
+   with just the RUN command in it.  A job entry consists of three conditions
+   (IF, AT, ON) which all must be met in order for the job to run, a FOR clause
+   (defining a username for the job context), a .COM file name, a .LOG file
+   name (blank for no .LOG file), a batch queue name (blank to use the default
+   specified by the QUEUE preprocessor variable in the makefile), and from zero
+   to nine parameters.  At any prompt while adding a job, you may end a line
+   with a dash (-) to continue on a new line.
+
+   You will be prompted in turn for each portion of the job entry.  Kron will
+   do as much error checking as possible to verify that the information is
+   correct. If the .COM file does not exist yet (perhaps a spelling mistake),
+   Kron will ask for verification.  The prompts from Kron are mostly self
+   explanatory.  Note that if, for any reason, you put job entries directly
+   into KRONOS.DAT instead of using Kron, the order of the clauses must be IF
+   followed by AT followed by ON followed by FOR.  All clauses are optional.
+   The maximum number of jobs that can be loaded is specified by the parameter
+   MAX_JOBS in the KRONOS.CMN file; if you attempt to add to many jobs, KRON
+   will give an error message.  If you exceed the maximum number of jobs by
+   adding jobs to the data base with a text editor, KRONOS will refuse
+   to process the remaining jobs.
+
+   o IF - The IF clause is of the form "IF [NOT] (condition)".  The "condition"
+      consists of a value or comparison.  If "condition" consists solely of a
+      value (or variable), it is equivalent to saying "IF (value <> 0)".  If
+      "condition" consists solely of a value (or variable) and NOT was
+      specified, it is equivalent to saying "IF (value == 0)".  The
+      comparison operators are: = (or ==, equality), <> (inequality), < (less
+      than), <= (less than or equal), > (greater than), >= (greater than or
+      equal), and IN.  The IN operator checks to see if the first string is
+      contained in the second.  A value can consist of an integer constant, a
+      string constant, a logical name to be translated, or a function value
+      return (see section V).  String variables should not be compared to
+      nonstring variables.  IN does not work with integers.  Logical value
+      translation and function calls may return strings or integers, depending
+      on context.
+
+   o AT - The AT clause gives the time of day to execute.  If the AT clause is
+      missing, the job will run every hour (or the first possible interval in
+      the hour - if the specified wakeup interval is not equally divisible into
+      60 minutes).  The AT clause takes the form "AT hh:mm", "AT hh:mm-hh:mm 
+      [ALWAYS]", or "AT ALWAYS".  "AT ALWAYS" will cause the job to run
+      every time Kronos awakens, regardless of the wakeup interval.  The hours
+      are given in 24 hour clock; 00:00 is midnight.  If a range of times is
+      specified (e.g., AT 06:30-17:00) the job will run the first wakeup time
+      each hour in the range unless "ALWAYS" is specified; in this case the job
+      will be run every wakeup in the range.  The first time specified will be
+      interpreted the same as for a single entry; e.g., with 1 hour
+      granularity, the range 6:30-17:00 will initially execute at 06:00.  The
+      ending time may be less than the starting time in which case Kronos
+      assumes the range extends over midnight (i.e., starts in the evening and
+      finishes in the morning).
+
+      Please Note:  the behavior of ranges of times is slightly nonintuitive.
+      Specifically, an entry like "AT 8:15-8:45" will run at 8:00 only!  What
+      You probably meant to say was "AT 8:15-8:45 ALWAYS".
+
+      IMPORTANT !!!  The startup behavior of Kronos has changed effective with
+      version II.4.  When started, Kronos will initialize and then hibernate,
+      without running any jobs, until the next wakeup time.  This was to
+      prevent jobs from accidentally being run more than once.
+
+   o ON - The ON clause gives the day on which to execute.  The format of the
+      ON clause is "ON day [NOHOLIDAY|PUSHHOLIDAY]" where "day" can be 
+      EVERYDAY (same as being omitted -- ON EVERYDAY must be specified if you
+      also want to specify NOHOLIDAY), EVERYWEEKDAY, MONDAY, TUESDAY,
+      WEDNESDAY, THURSDAY, FRIDAY, SATURDAY, SUNDAY, DAY(num) (where "num" is
+      the day of the month), WEEKDAY(num) (where "num" is the number of
+      weekdays from the beginning of the month), LASTDAY(num) (where "num" is
+      the number of days from the end of the month, or LASTWEEKDAY(num) (where
+      "num" is the number of weekdays counting from the end of the month).  If
+      the word "NOHOLIDAY" appears immediately after the ON clause, the job
+      will not be run if the specified day is a holiday as specified in the
+      calendar file (see section VI).  If the word "PUSHHOLIDAY" appears
+      immediately after the ON clause, and today is a holiday, the job will be
+      submitted, but placed on hold until tomorrow (or Monday if tomorrow is a
+      Saturday or Sunday).  Note that weekends are not treated as holidays for
+      "NOHOLIDAY" or "PUSHHOLIDAY".
+
+   o FOR - the FOR clause specifies the username of the account under whose
+      context the job is to be run.  The job will run with the normal
+      privileges, account, directory, etc. of that user.  Example, FOR SMITH.
+
+   o job entry - the job entry is input on a single (but continuable) line.
+      The first field must be the name of the .COM file to execute.  This field
+      is required.  All remaining fields are optional.  Previous versions of
+      Kronos expected the .COM file name to be followed by a .LOG file name, a
+      queue name, and parameters.  Although Kronos currently still accepts
+      this format, a new format has been developed to add additional fields.
+      Kronos now accepts a .LOG file name, queue name, priority, notify flag, a
+      single characteristic number, a maximum CPU time limit, and up to 8
+      parameters in the same format as the submit command.  Example:
+
+          X.COM /queue=bat$long /cpu=5:00 /param=(user$disk,1000)
+
+      The slashes are required to differentiate between old style commands and
+      new style.  The qualifiers permitted (they may be abbreviated) are:
+      CHARACTERISTIC=, CPUTIME=, PRIORITY=, NOTIFY, LOGFILE[=], PARAMETER=,
+      and QUEUE=.  If no logfile name is specified, it will be the name of the
+      .COM file with .LOG for type.  Note that the default device, directory,
+      and file name for the .LOG file are the same as for the .COM file (unlike
+      the VMS SUBMIT command).
+
+      Note:  The name of the device, directory, and .COM file name is limited
+      to 127 characters.  The length of parameters is limited to 80 chracters.
+
+o Calendar add - same as ADD, except the entry is added to the CALENDAR.year
+   file or CALENDAR.DAT file.  You will be asked to specify which file and give
+   a date.  A prompt like:
+
+         Update file CALENDAR.
+
+   will be issued.  Just enter the file type and then return (typically either
+   "DAT" or a four digit year, such as "1995").  Hitting just return will
+   default to CALENDAR.DAT.  Next you will be asked for a date specification.
+   The date is specified as a two digit month (e.g., "10" for October), a
+   slash, and a two digit day or range of days separated by "-" (e.g.,
+   "21-28").  Finally, you enter either the keyword "HOLIDAY" or a complete job
+   entry as defined under "ADD", above.  Although KRON does not prohibit you
+   from entering an ON clause in a calendar entry, it is ignored by Kronos.
+   Note: modifying the calendar files does not cause Kronos to reload the data
+   base.  You may TOUCH KRONOS.DAT to force Kronos to reload the data base,
+   thus reading the new calendar files.
+
+o List - List, in a readable form, all jobs in the data base.  Pauses after each
+   job and asks for a carriage return.  Entering ^Z at this prompt exits the
+   listing and returns to the program prompt.  Entries that are as a result of
+   a calendar file will show an ON clause that looks like "ON mm/dd".
+
+o RList - List, in a readable form, all jobs in the data base which are
+   runnable.  In other words, all jobs that will run (ignoring changes to the
+   master file, logicals, etc.) the next time Kronos awakens.
+
+o Find - List, in a readable form, all jobs that contain a specified string
+   anywhere in the entry.  You will be prompted for the string.  Searches are
+   not case sensitive.
+
+o Show Schedule - Shows all jobs scheduled to run today or this week (you are
+   prompted for the period).
+
+o Quit - exit Kron.
+
+Note that Kron does not delete jobs from the data base, this is best done with
+a text editor.
+
+
+
+
+V.  Functions
+
+Functions are builtin procedures which return values based upon system
+parameters.  There are 5 function types: SYSTEM returns information from the
+GETSYI system service, PROCESS returns information from the GETJPI system
+service, QUEUE returns information form various sources (including the GETQUI
+system service), SECURITY returns information from various sources, and DEVICE
+returns information from the GETDVI system service.
+
+Functions are accessed by providing the function name, and one or two
+parameters.  The first parameter (if there are two parameters) specifies a
+target for the action (for example, a device name for the DEVICE function). The
+second parameter (or first if there is only one parameter) is a function code.
+The format and function codes are described in individual sections, below.
+
+As of this version of Kronos, the SECURITY and QUEUE functions aren't yet
+implemented.
+
+
+V.A.  DEVICE Function
+
+The DEVICE function accepts two parameters.  The first is the name of the
+device about which information is requested.  The second is the SYS$GETDVI
+system service item code with the prefix "DVI$_" removed.  For example:
+
+        DEVICE (DUA0:,FREEBLOCKS)
+
+returns the number of free blocks on disk device DUA0:.  The colon is optional.
+Please see the System Services Manual for all item codes and their meanings.
+
+V.B.  PROCESS Function
+
+The PROCESS function accepts two parameters.  The first is the name of the
+process or user about which information is requested.  The second is either
+"USER" or "PROCESS".  "USER" indicates that the first parameter is a username;
+the PROCESS function will return 1 if the user is logged on, 0 otherwise.
+"PROCESS" indicates that the first parameter is a process name; the PROCESS
+function returns 1 if a process with this name exists, 0 otherwise.  The
+process name search is case insensitive.  For example:
+
+        PROCESS (SMITH,USER)
+
+
+V.C.  SYSTEM Function
+
+The SYSTEM function accepts one parameter.  The parameter is the SYS$GETSYI
+system service item code with the prefix "SYI$_" removed.  Note that SYS$GETSYI
+also accepts all SYSGEN parameters as item codes.  For example:
+
+        SYSTEM (FREE_GBLPAGES)
+
+returns the number of Global Pages which are available.  Please see the System
+Services and SYSGEN Manuals for all item codes and their meanings.
+
+
+
+
+VI. The Calendar File
+
+The calendar file is a technique for specifying holidays, plant shutdowns, and
+long lead-time jobs.  The calendar file is a text file named CALENDAR.year
+where "year" is the current year (e.g., 1995).  Kronos WILL read the new
+calendar file (assuming it exists) the first time it awakens in a new year.
+Kronos will ALSO read a file CALENDAR.DAT (if it exists) for any jobs which
+don't change from year to year.  Note:  unlike modifications to the main data
+base, Kronos will not reload the calendar file when it is updated.  Therefore,
+if you modify this file, simply TOUCH KRONOS.DAT; the calendar file IS reloaded
+when the data base is reloaded.
+
+There are two purposes for the calendar file.  First, it specifies holidays,
+plant shutdowns, or other nonwork days.  This only affects those jobs in the
+data base marked NOHOLIDAY or PUSHHOLIDAY.  The format of this type of entry is:
+
+    mm/dd  HOLIDAY
+          or
+    mm/dd-dd HOLIDAY
+
+Where "mm" is the month number and "dd" the day.  The second entry is for
+one-time only jobs (such as setting the system clock for daylight savings
+time).  This entry has the form:
+
+    mm/dd command
+
+where "command" is a full command entry as created by the Kron program. Note
+that it is intentional that the latter entry does not have the "mm/dd-dd" form.
+Entries in the calendar file can be in any order.  If an exclamation point
+appears in the file and is not surrounded by quotes, all remaining text on that
+line will be treated as commentary (i.e., ignored).  
+
+The GEN_CALENDAR program (which may be run by KRONOS late in each year) creates
+a new CALENDAR.xxxx file based upon rules for holidays or your specific needs
+(e.g., THANKSGIVING is the fourth Thursday of November).  Although quite
+accurate, some Federal holidays MAY move to coincide with Monday or Friday.  It
+is not possible to accurately determine when this happens (E.G., in 1995,
+Memorial Day is moved up one day).  At any rate, GEN_CALENDAR will move
+holidays one day if they occur on a weekend; Saturday becomes Friday and Sunday
+becomes Monday.  Many religous holidays can not be accurately calculated.  The
+documentation is in the file CALENDAR.INPUT file, which normally resides in the
+KRONOS_ROOT:[MISC] directory.  It is highly recommended that you check out the
+output files for accuracy.  The GEN_CALENDAR program takes a single parameter
+which is the year for which you desire a calendar file.  If no parameter is
+given, the program calculates next year.
+
+
+
+
+
+VII.  TOUCH
+
+The TOUCH program is used to change the REVISION date of a file to the current
+time and date.  For efficiency sake, Kronos only reads and parses the master
+data file if it has changed since last wakeup.  Define a symbol TOUCH :==
+$TOUCH (for example).  Then TOUCH KRONOS_DIR:KRONOS.DAT to force Kronos to
+reload the data base.  TOUCH also comes in handy if you have a MAKE utility.
+
+
+
+
+
+VIII.  Miscellaneous notes
+
+I have not implemented an idle terminal killer job for Kronos.  Although
+straight forward, this task seems more appropriate to a dedicated program,
+especially if you are using 1 hour granularity in Kronos.
+
+It is easiest to maintain Kronos using the MAKE utility (public domain and
+available from many sources).  Alternatively, it can be build with MAKE.COM. Be
+alert to the fact that both Kronos and Kron access several of the modules and
+both must thus be rebuilt if they are modified. The FPP and TOUCH programs and
+MERLIB library are duplicated here although officially they are part of the
+"FORTRAN Programming Tools" package available separately.
+
+If you find that Kronos has to fight with too many other batch jobs, resulting
+in slipped execution times, I suggest you create a queue with high priority
+that is dedicated solely to Kronos jobs.  Remove world access to the queue to
+prevent the unwashed masses from using it.
+
+As of version II.6 of Kronos, development has switched to an alpha (AXP)
+machine.  As long as it is feasible without too much difficulty, we will
+continue to include VAX executables in the release.
+
+
+
+
+IX.   HEY !!!   Read this NOW !!!
+
+All jobs run by KRONOS without a FOR clause are run in SYSTEM context!  Never,
+ever, ever even think about letting users have write access to KRONOS.DAT.  If
+you add a job to KRONOS.DAT for a user, make darn sure it's not Trojan or
+foolish!  Note that is incredibly foolish to add a job to the data base that
+executes a program or a .COM file in a nonprivileged user's directory.  Testing
+to date has indicated that it IS safe to use the FOR clause.
+
+
+
+
+X.  Known Bugs
+
+- None at this time.
+
+- Note:  The Item Codes available to the SYSTEM, PROCESS, and DEVICE functions
+were not updated this release.  Next release will be version III.0 on VMS 7.1.
+The Item codes will be updated then.
+
+- VMS versions prior to 5.5 had a bug in the SYS$SNDJBCW system service that
+would cause Kronos tohang if search lists were used in the master file.
+
+- VAX FORTRAN version 5.7 had bugs that cause Kronos malfunctions.  Don't
+rebuild Kronos with that compiler.
+
+
+
+
+
+Appendix A. Sample Jobs
+
+This section presents information on sample jobs delivered with Kronos.
+These jobs perform specific functions which would otherwise have been performed
+manually.  The entries for these jobs is included in the sample KRONOS.DAT file
+delivered with Kronos.
+
+A. Check_Process - this job runs every hour and verifies that certain processes
+are running.  The list of processes to verify is in the file CHECK_PROCESS.FOR
+in the KRONOS_ROOT:[RESOURCES] directory.  If any of the listed processes are
+not running, a message is mailed to the System Manager.  If an entry ends in an
+asterisk (*), Check_Process will match any process starting with that name
+(e.g., SYMBIONT_* will match SYMBIONT_0001 or SYMBIONT_0002). CHECK_PROCESS has
+no way (at present) to verify that two processes with the same wildcard name
+are running (e.g., SYMBIONT_0001 AND SYMBIONT_0002).
+
+B. Kronos_Check - This job is run at 1:00 each afternoon and morning.  When
+run, this job submits the job KRONOS_DISASTER to be run at 2:00 (13 hours in
+the future).  After doing this it deletes the copy of KRONOS_DISASTER that was
+submitted previously.  In this manner, KRONOS_DISASTER is never actually run
+unless KRONOS_CHECK fails to run for some reason.  If KRONOS_DISASTER ever does
+run, it sends a mail message to the system users telling them to find out why
+Kronos isn't running.  Note that KRONOS_DISASTER must be submitted with
+characteristic 1 which is defined as "Kronos jobs".  Although Kronos has not
+been known to abort for any reason, if it is absolutely critical to your
+operation, you could increase the frequency of the KRONOS_CHECK job.  Note: the
+program FIND_JOB is used to search the batch queues for a pending
+KRONOS_DISASTER job; if found, the entry number is placed in the logical
+KDENTRY.
+
+C. KScrunch - Run Diskeeper on the major user disks.
+
+D. Account - Monthly accounting run.  Run the first day of each month.
+
+E. StartI - start image accounting (for IMAGE below).  Run three weekdays from
+the end of each month.
+
+F. Image - turn off image accounting and summarize statistics.  Run last
+weekday of each month.
+
+G. Check_Disk - run daily to make sure there is sufficient free space on each
+disk drive.
+
+H. Weekly_Security - creates a new operator's log and security audit log.
+Checks the old log for potential security problems.  Purges the security
+report and operator's logs.
+
+I. Check_Files - checksums the executables, .COM files, .OLB, and .STB files in
+SYS$SYSTEM, SYS$SHARE, etc. and compares the checksums with the previous weeks.
+If differences are found, a mail message is sent to the system users.  Multiple
+checksum techniques are used to ensure accuracy.
+
+J. Check_UAF - checks the system authorize files for additions, deletions, and
+changes to the privilege mask, login flags, and number of failed logins.  If
+changes are found, mails message to System Manager.  Run weekly.  Note: first
+time this job is run at a new site: create a dummy file called CHECK_UAF.DAT; a
+new version will be created (and a lot of messages generated).
+
+K. Spring_Forward - sets the system clock ahead one hour for the beginning of
+daylight savings time. Also changes the system startup procedure to maintain a
+logical variable, DAYLIGHT, which is set to 1.  Note:  this job is not very
+sophisticated.  It is submitted to run at a given time and it expects not to be
+delayed.  If there is the possibility that the job will be queued, a more
+careful approach will be necessary. Note that putting SPRING_FORWARD and
+FALL_BACK as the first entries in the calendar file will improve their chances
+of being run quickly.
+
+L. Fall_Back - sets the system clock back one hour for the return to standard
+time. Also changes the system startup procedure to maintain a logical variable,
+DAYLIGHT, which is set to 0. Note:  this job is not very sophisticated.  It is
+submitted to run at a given time and it expects not to be delayed.  If there is
+the possibility that the job will be queued, a more careful approach will be
+necessary. Note that putting SPRING_FORWARD and FALL_BACK as the first entries
+in the calendar file will improve their chances of being run quickly.
+
+M. Notify - this is a special-purpose job used to notify users about events.
+Notify takes three parameters: 1-Message, 2-Primary Users, 3-Secondary Users.
+In each case, the parameter may be either the actual text/list or an indirect
+file reference.  For example, if the text of the message is in a file named
+MESSAGE.ONE, then the NOTIFY job entry might look like:
+
+     IF (DEVICE(DUA0:,FREEBLOCKS)<20000) THEN -
+        KRONOS_ROOT:[MISC]NOTIFY "" "" @MY_DIR:MESSAGE.ONE SYSTEM,SMITH JONES
+
+The secondary users list is optional.  Notify will attempt to send the text of
+the message to the terminals of the primary users; if none of these users are
+logged on and accepting messages, it will send the text to the terminals of the
+secondary users (if any); if this fails also or no secondary users are
+specified, Notify mails the text of the message to the PRIMARY users.
+
+N. Check_Install - this job scans the installed image list.  It compares the
+images with a previous list to check for installed images that have been added,
+deleted, updated, or have privilege added or deleted.  Note that it ONLY checks
+to see that an image is privileged; it does not tell you if a previously
+privileged image has had additional privileges added.  
+
+O. Check_Net - this job just checks to make sure that key nodes are reachable. 
+Sends a message if they aren't.
+
+P. GEN_CALENDAR - a simple job to run the GEN_CALENDAR program to generate next
+year's CALENDAR.xxxx file.  See CALENDAR.INPUT for format.
+
+Q. REMINDER - a job submitted (by jobs created with GEN_CALENDAR) to send
+general purpose reminders.  You probably want to modify it if you are going to
+use it.  Note that the GEN_CALENDAR program submits REMINDER two days prior to
+the actual event you are targetting.
+
+
+
+
+Appendix B.  Notes, Tricks, Tips
+
+- Logical names in a file specification will be translated by Kron at the time
+the entry is added to the data base.  This causes undesirable side effects
+when a physical device is being hidden behind a logical name.  The solution to
+this problem is to ensure that the logical name is defined with the
+/TRANS=CONCEAL qualifier.
+
+- One feature not in Kronos that some other job schedulers have is a job
+dependencies capability.  I could not come up with sufficient justification to
+spend the time on it.  Job dependencies can be emulated using the logical name
+capability.  For example, if job B must wait until after job A has run, a
+logical name could be checked by B for an appropriate value; this value would be
+defined by job A.
+
+- One of the reasons the FOR clause was implemented in the current manner
+instead of allowing each user to schedule jobs for themselves was because I
+suspected that the system would soon become inundated with jobs similar to the
+following:
+
+     AT 09:15 ON EVERYWEEKDAY NOHOLIDAY THEN USER$DISK:[SMITH]BREAK_REMINDER
+
+Of course, being the system manager does have its privileges.  I assume there
+will be a lot of CALENDAR.DAT entries like:
+
+     04/13 AT 07:00 SYSTEM$DISK:[GURU]ELAINE_BIRTHDAY_REMINDER
+
+- I thought about several different schemes to implement ranges of days for a
+job.  I decided against it since there are alternatives.  Obviously, a job
+could be run on say Monday, Wednesday, and Friday by adding three otherwise
+identical entries to the data base.  If you wish to run a job on say the 10th
+through the 21st of every month, you could do this by entering the range in the
+calendar file (this would create 12 entries in the runtime queue) or you could
+set the job to run everyday if a logical variable was defined.  Then submit a
+job for the 10th to define the logical and the 22nd to undefine it.  The
+judicious use of logicals, IF clauses, and ON clauses can be used to perform
+complicated scheduling.
+
+- Logical names are searched in the context of the Kronos program, which is
+normally the SYSTEM account.  To communicate between jobs using logical names,
+they should normally be defined in the system table or a SYSTEM account group
+table.  Any logical names are translated before the change in context created
+by a FOR clause.  In other words, ALL logical names are translated in SYSTEM
+context.
+
+- Unlike most of my codes, keywords generally can not be abbreviated in KRONOS.
+This is intentional to minimize the restrictions on user-specified filenames.
+
+- The KRONOS_DISASTER job could be made to run more frequently if you are
+paranoid about your scheduled jobs.  Since the KRONOS process has been shown to
+be robust (in recent releases), this has not been determined to be necessary at
+the development site.
+
+- Feedback.  Send me EMail to the above address if you have neat jobs related
+to System Management, Operations, Security, etc. which you run via Kronos.  I
+will check them out and if they seem useful, I'll include them in future
+releases.  Similarly, please send bug reports.  I'm always willing to accept
+modification suggestions, but Kronos is maintained on an as-available basis.
+
+- Kronos was originally written in January 1988.  It wasn't released to DECUS
+until June 1989.  Any resemblance to any other program, living or dead, is
+purely coincidental.
+
+- Kronos... "Greek Mythology... A Titan who ruled the universe until dethroned
+by his son Zeus; identified with the Roman god Saturn".   American Heritage
+Dictionary of the English Language.
+
+
+
+
+Appendix C.  Programmer's Notes
+
+Kronos, Kron, and the included sample jobs all make use of routines in the
+MERLIB library.  The source code of MERLIB is in the MERLIB.TLB library.
+
+For efficiency sake, the order of evaluation of the phrases is ON, AT, then IF.
+This is because of the simplicity of evaluating the ON and AT phrases and
+because they will mostly be FALSE for an average job.
+
+On Codes -
+   0       - run everyday
+   1-7     - run on this day of the week (Monday=1, Sunday=7)
+   8       - run every week day
+   101-131 - after subtracting 100, run on this day of the month
+   201-222 - after subtracting 200, run on this weekday of the month (e.g.,
+               211 would be the 11th weekday)
+   301-331 - after subtracting 300, run on this number of days from the end of
+               the month; 301 is the last day of the month
+   401-422 - after subtracting 400, run on this number of weekdays from the end
+               of the month; 401 is the last weekday of the month
+   10000+  - after subtracting 10000, the first two digits will be the month
+               and the last two will be the day for one-time jobs
+
+At Codes -
+   -1     - run every time Kronos awakens.
+   -2     - run every hour.
+   0-1439 - run on this minute of the day.
+   10000+ - run for a range of minutes/hours.  The at_code MOD 10000 is the
+            start time (either hour or minute depending on granularity); the
+            at_code / 10000 is the stop time.
+
+If OpCodes -
+   0  - (value <> 0)
+   1  - less than
+   2  - greater than
+   3  - equal
+   4  - less or equal
+   5  - greater or equal
+   6  - not equal
+   7  - contains string
+   8  - does not contain string
+   9  - and          \
+  10  - not and       \    Not yet implemented
+  11  - or            /
+  12  - not or       /
+  13  - (value = 0)
+
+
+Variable type codes:
+   1 - Integer
+   2 - String
+   3 - System function
+   4 - Process function
+   5 - Queue function
+   6 - Security function
+   7 - Device function
+   8 - Logical name
+
+
+
+Entry table description:
+
+1. Entry number (implied)
+2. oncode (int)
+3. nohol (logical)
+4. atcode (int)
+5. ifcode (int)
+6. forptr (ptr/0)
+7. variable 1
+        type (int)
+        param1 (int/ptr)
+        param2 (int/ptr)
+        value  (int/ptr)
+8. variable 2
+        type (int)
+        param1 (int/ptr)
+        param2 (int/ptr)
+        value  (int/ptr)
+9. opcode (int)
+10. fptr (ptr)
+11. lptr (ptr/0)
+12. qptr (ptr/0)
+13. (9) par (ptr/0)
+14. character (int)
+15. cputime (int)
+16. priority (int)
+17. notify (log)
+
+
+
+
+Appendix D.  Data Base Language Specification
+
+The following definitions apply to this section.  "::=" means IS DEFINED AS.
+Words in double quotes (") are to be typed verbatim.  Words not in double
+quotes are to be replaced by an appropriate entry of the type specified; for
+example, FILENAME would be replaced by USER$DISK:[SMITH]JOB.COM.  Items in
+square brackets ([]) are optional.  A vertical bar (|) means OR.  An ellipsis
+(...) means the previous field or fields may be repeated.
+
+indirect_command ::= "@" filename
+
+command ::= ["IF" condition ] ["AT" time] ["ON" day] ["FOR" user] ["THEN"]
+                job_entry
+
+condition ::= [NOT] "(" variable [log_oper variable] ")"
+
+variable ::= system_function |
+             process_function |
+             device_function |
+             logical_name |
+             num |
+             """ string """
+
+log_oper ::= "<" | ">" | "=" | "==" | "<=" | ">=" | "<>" | "IN"
+
+system_function ::= "SYSTEM(" s_func ")"
+
+s_func ::= GETSYI item codes | SYSGEN variables
+
+process_function ::= "PROCESS(" user_name | proc_name "," p_func ")"
+
+p_func ::= "PROCESS" | "USER"
+
+device_function ::= "DEVICE(" device_name "," d_func ")"
+
+d_func ::= GETDVI item codes
+
+time ::=   hh:mm (24 hour clock) |
+           hh:mm "-" hh:mm |
+           hh:mm "-" hh:mm ALWAYS |
+           "ALWAYS"
+
+day ::= "EVERYDAY" |        (default)
+        "EVERYWEEKDAY" |
+        "DAY(" num ")" |
+        "WEEKDAY(" num ") |
+        "MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" |
+        "SATURDAY" | "SUNDAY" |
+        "LASTDAY(" num ")" |
+        "LASTWEEKDAY(" num ")"
+
+
+job_entry ::= file_spec log_file_spec batch_queue [p1 [p2 [...]]]
+
+
+
+General rules:
+
+To continue a line use "-" as the last nonblank, noncomment character.
+All text beginning with "!", through the end of the line is commentary.
+Blank lines are ignored.
+Not case sensitive.
+Commas are optional.
+If log_file_spec is omitted from job_entry or specified as "", there will be
+  no log file.
+If batch_queue is omitted from job_entry or specified as "", SYS$BATCH will be
+  used.
+
+
+Examples:
+
+IF (DEVICE(DUA0:,freespace)<10000) then KRONOS_DIR:warn_irene "" "" DUA0
+IF (DEVICE(DUA1:,freespace)<8000) then KRONOS_DIR:warn_irene "" "" DUA1
+AT 23:00 ON MONDAY THEN KRONOS_DIR:KSCRUNCH
+AT 23:00 ON WEDNESDAY THEN KRONOS_DIR:KSCRUNCH
+AT 23:00 ON FRIDAY THEN -   ! Continuation sample
+   KRONOS_DIR:KSCRUNCH
+AT 00:00 ON FRIDAY FOR SMITH THEN USER$DISK:[SMITH]NONPRIV
+KRONOS_DIR:HOURLY    ! Every hour of every day
+
+
+
+
+Appendix E.   Change History
+
+
+
+From II.9 to II.11:
+
+(Note:  A few people downloaded an interim release labelled II.10 from our web
+site.)
+
+1. Fixed GEN_CALENDAR job to correctly move holidays that fall on Saturday.
+
+2. Added version number and build date display to Kron.
+
+3. Compiled a number of versions with different wakeup intervals for the
+release so that users without a FORTRAN compiler have an option.
+
+4. Fixed a bug in the "AT nn:nn-nn:nn" option.  Previously, if the start time
+and end time were within the same hour, Kronos thought the range was overnight.
+
+5. Changed the Kron prompts slightly for clarity.  Added [ALWAYS] to the AT
+prompt.
+
+6. The internal limits were increased (for example, the maximum jobs in the
+master file was increased from 200 to 400) so that sites without a FORTRAN
+compiler wouldn't run into uncorrectable problems.
+
+7. The problem parsing parameters in the new format (i.e. /PARAM=("par 1",
+"par 2")) was fixed.
+
+8. Previously, typing either NOHOLIDAY or PUSHHOLIDAY at the "AT" prompt (i.e.,
+without a time) produced an error message.  This has been fixed.
+
+9. In some circumstances, the logfile names would default to type ".COM".  This
+has been fixed.
+
+10. Format problem fixed in the display of the string heap size in KRON.
+
+11. Fixed problem with parameters in calendar files (e.g., the "reminder"
+examples).
+
+12. The error reporting facility was fixed so that the identified primary users
+were notified via message if they were logged on and an error of severity 2 or
+above was detected.
+
+13. Maximum length of parameters was increased to 80 characters throughout.
+
+14. Kron now creates a master file (or indirect file) if it doesn't exist and
+you try to write to it.  You are prompted for verification.
+
+15. "Pushholiday" now works correctly.
+
+16. Fixed list display in Kron that could result in "list" and "find" not
+properly displaying day-of-month restrictions  (e.g. ON 8th DAY OF MONTH).
+
+
+
+From II.8 to II.9:
+
+1. Minor documentation fixes.
+
+2. Fixed a bug in evaluation of functions that returned strings.  Previously,
+the IF phrase would fail because Kronos incorrectly refused to compare
+permanent and temporary strings in the string heap.  The error message was
+"mixed integer and string operations are not allowed".
+
+3. Parameterized the number of queues and system users.
+
+4. Fixed a problem with Kron in which the file type (".COM") might not get
+added if the user didn't enter it.
+
+5. Added the NOSNOOZE FPP variable to subroutine SNOOZE to help make debugging
+easier.
+
+
+
+From II.6 to II.8:
+
+*** Note: There is no version II.7.  I have skipped a number because it has
+come to my attention that one of the freeware servers had incorrectly been
+releasing version II.6 as II.7.  So, to avoid confusion, I skipped II.7.
+
+1. Modified handling of level 2 errors (unable to submit jobs) so that EMail
+was sent if no primary users were successfully notified (e.g., for afterhours
+jobs).
+
+
+
+From II.5 to II.6:
+
+1. The HI_PRIORITY preprocessor flag was added to the makefile.  If defined, it
+pushes all Kronos jobs to priority 200, even if /PRIORITY isn't specified in
+the master data file.
+
+2. Changed Kron prompt format (again).
+
+3. Added Show Schedule option to Kron.
+
+4. Error messages were slightly improved in format and the infamous "output
+statement overflow" bug in the error routine was fixed.
+
+5. The qualifier /NOLOGFILE was added to Kron, even though it was the default,
+because some people like to specify it explicitely.
+
+6. A major bug was fixed in Kron where it would lose qualifiers when a job file
+name was expanded.
+
+7. A bug in the error handler was fixed.  Previously, jobs with .LOG files that
+could not be submitted produced the "Output statement overflows..." error.
+
+8. The error printout for jobs with parameters was modified to print all
+parameters instead of just the first.
+
+9. (II.6a) Fixed bug with unitialized pointers in job entry that resulted in
+bizarre failures such as nonsense "FOR clauses.
+
+
+
+From II.4 to II.5:
+
+1. The bit set/test procedure used for holidays was changed to prevent integer
+overflows and to remove word size dependencies.  
+
+2. Fixed a bug where holidays were carried over from the previous year.
+
+3. Kron was changed to add the device and directory to entries added to the
+data base.  Previously, jobs without device and directory defaulted to the
+KRONOS_DIR directory.
+
+4. Kronos could, previously, drift in its wakeup interval if the system were
+particularly busy or the system got hung.  This has been corrected.  Note that
+Kronos might still drift if the wakeup interval is set too short (1 minute).
+
+5. The GEN_CALENDAR program was added to automate calendar generation each
+year.
+
+6. A sample REMINDER.COM job was added.
+
+7. A bug was fixed in reporting the startup time in ERROR.LOG.
+
+8. The PURGE option of the makefile was added.  If defined, PURGE will cause
+the working set to be purged prior to Kronos hibernating each cycle.
+
+9. The RESTART option was added to KRONOS.COM to restart KRONOS.  Previously
+you had to find the process, kill it, and run KRONOS.COM.
+
+
+
+From II.3 to II.4:
+
+1. Cluster failover was added.  A new startup command file was added for
+clusters.  Note this stuff is not very well tested.  It also isn't really
+intended for an LAVC (but would work if the master file was maintained on all
+systems).
+
+2. The wakeup interval calculation was changed.  By default, Kronos awakens
+every hour.  The wakeup interval can be changed by adding the qualifier
+/DEFINE=(INTERVAL=mm), where "mm" is the number of minutes between waking up,
+to the makefile.  The AT clause has been changed; AT ALWAYS still means every
+time Kronos awakens, but a job without an AT clause will now execute every
+hour regardless of wakeup interval.
+
+3. Inconsistencies in the behavior of Kronos with wakeup intervals other than 1
+hour have been fixed.  For example, previously, jobs scheduled to be run every
+hour would in fact be run every wakeup interval; they are now run the first
+wakeup interval in the hour only.
+
+4. Kron was updated to accurately reflect the new wakeup interval behavior.
+
+5. The Runnable List command has been changed to display the jobs that will run
+next time Kronos awakens instead of those that would run at this moment.
+
+6. Minor improvements to CHECK_PROCESS job.
+
+7. At startup time, Kronos no longer submits jobs that would have been
+submitted if Kronos had been running at the beginning of the current wakeup
+interval. I.e., if there is a job scheduled to run at 11:05 and Kronos is
+started at 11:10 (with a 15 minute wakeup interval) the current version of
+Kronos will not submit that job; previous versions would have.
+
+8. The KRONOS_CHECK job was made more robust by submitting the follow-on job
+before deleting the pending job.  Additionally, in the examples, KRONOS_CHECK
+now runs twice a day instead of once.  DEL_JOB was deleted and replaced with
+FIND_JOB and a change to the KRONOS_CHECK.COM and KRONOS.COM files.
+
+9. The "AT hh:mm-hh:mm ALWAYS" option was added to allow a job to be run every
+wakeup interval within the range.
+
+10. The CHECK_UAF job was substantially improved.  It also now checks changes
+to login flags and number of failed logins.
+
+11. The CHECK_INSTALL job was added to the sample jobs.
+
+12. The CHECK_NET job was added to the sample jobs.
+
+13. The CHECK_DISK job was simplified.
+
+14. The SPRING_FORWARD and FALL_BACK jobs were modified to set a logical name
+declaring the status of daylight savings time.
+
+15. The PUSHHOLIDAY keyword was added to hold jobs until later if today is a
+holiday.
+
+
+From II.2 to II.3:
+
+1. The error handler was modified to send messages to a hierarchical
+list of system users stored in a file.  Who gets the messages is based on
+severity of the error.  A file, ERROR.LOG, is now created in KRONOS_DIR with
+all errors and messages; it is purged at startup.
+
+2. System-specific information was removed from the source code and placed in
+the preprocessor or stand-alone files.
+
+3. A bug was fixed in handling of exclamation points in job entries. 
+Previously, if an exclamation point appeared in a quoted parameter it was
+treated as a comment and the rest of the line was ignored.
+
+4. Changed the format of the job entry to be of the same format as the SUBMIT
+command.  Added the /CHARACTERISTIC, /NOTIFY, /CPUTIME, and /PRIORITY
+qualifiers as well as /LOG, /QUEUE, and /PARAM=().  (Old format still works.)
+
+5. A bug in Kron was fixed that gave incorrect listings for hourly scheduled
+jobs.
+
+6. Small bugs in CHECKSUM_FILES job fixed.
+
+7. Each time Kronos awakens, the batch queues are checked for stopped/paused
+queues.
+
+8. If Kronos is unable to open the master file, it now pauses 2 seconds and
+tries again.  This is to prevent the (unlikely) possibility that someone is
+updating the master file at the exact instant Kronos accesses it.  Note that
+Kron attempts to prevent this.
+
+9. The Kronos/Kron conflict prevention code in Kron was improved.
+
+10. An error in handling null strings ("") was fixed.
+
+11. The error checking for successfully submitted jobs was enhanced to catch
+errors in the job specification itself, as well as 'unable to submit' errors.
+
+
+
+From II.1a to II.2:
+
+1. The documentation has been updated.
+
+2. The NOTIFY job was added.
+
+3. A bug was fixed that could cause jobs submitted for midnight to execute
+every hour.  (This bug was apparently introduced in version II.1).
+
+4. The .LOG file now defaults to the same device, directory, and name as the
+.COM file.
+
+5. A parameter was added to the KRON command to enable maintenance on files
+other than the master file (e.g., indirect files).
+
+6. Added the Find option to Kron.
+
+7. The default process priority for Kronos has been increased to 8.
+
+8. A bug was fixed for continuation lines in the master file.
+
+9. The SET DEFAULT command in IMAGE.COM was changed to reflect the Kronos
+release directory structure.
+
+10. The CHECK_PRINT_QUEUE job was added to check the system for stalled/stopped
+print queues.
+
+11. The CHECK_PROCESS job was modified to include the processes to be checked
+in the source code instead of in a file.  Although less flexible, this is more
+efficient.
+
+12. The variant source code (e.g., the fifteen minute option) is now maintained
+automatically using the FPP program.
+
+13. The AT clause was modified to allow a range of times.
+
+14. A bug in Kron was fixed that would prevent you from recovering from an
+error.  For example, if you misspelled MONDAY in the ON clause, it would ask
+you to reenter the ON clause but would not accept a correct entry.
+
+
+From II.0 to II.1a:
+
+1. The documentation has been improved (hopefully).
+
+2. The startup procedure now verifies that a copy of Kronos isn't already
+running.  The logical name definitions have been moved into the startup
+procedure.
+
+3. The sample jobs have been cleaned up and generalized.  SPRING_FORWARD and
+FALL_BACK have been added.
+
+4. The calendar file capability has been added to specify one time only jobs
+and holidays.  The NOHOLIDAY qualifier of the ON clause has been added to
+support this capability.
+
+5. The FOR clause has been added allowing system users to run jobs in the
+context of other (nonprivileged) users.
+
+6. The IF NOT condition has been expanded to accept simple values as well as
+comparisons.
+
+7. The EVERYWEEKDAY keyword has been added to the ON clause.
+
+8. The Runnable list command has been added to Kron to list all currently
+runnable jobs.  The Calendar add command has been added to support maintenance
+of calendar files.
+
+9. The system has been made more robust, especially the parser.  The system's
+response to errors has been made more consistent.
+
+10. A small bug in DEL_JOB was fixed.
+
+11. A bug in parsing parameters with delimiters has been fixed (changed).  Now,
+all parts of the job entry are delimited by spaces only.  If, for example, you
+specify P1 as "X,Y,Z", P1 will have the value "X,Y,Z" and P2 will be blank.
+Previously, P1 would have been X, P2 would have been Y, and P3 would have been
+Z.  Also, previously, parameters were sometimes not passed to the submitted
+job.
+
+12. A bug in translating logical names has been fixed.  Previously, logical
+names were translated OK if they were defined, but were translated to the same
+as the input if they were not defined.  This resulted in incorrect behavior if
+you said "IF (log_name) THEN..." when log_name wasn't defined.
+
+
+
+
+Appendix F.  System Dependencies
+
+The following is a list of known system-specific code, documentation, etc.  As
+part of an installation at a site other than the development site, these areas
+should be checked and modified as required.
+
+- The file KRONOS.COM contains references to the physical location of the
+Kronos program and data files.  All other references should be by logical name
+only.
+
+- KRONOS.COM assigns characteristic 1 to Kronos jobs.  This may be changed, but
+also must be changed in FIND_JOB.FOR.
+
+- The files KRONOS_DISASTER.COM, KRONOS_CHECK.COM, and K_USERS.DAT include a
+list of system users who should be notified for internal Kronos failures.
+
+- The following sample jobs provided with the release contain lists of system
+users to be notified for various reasons:  CHECK_DISK.COM,
+CHECK_PRINT_QUEUE.COM, and CHECK_PROCESS.COM.
+
+- The file QUEUES.DAT contains a list of batch queues to check.  The checking
+is done in the Kronos main program since it would not make sense to submit a
+job to see if the batch queues are running.
+
+- The following file provided with the release contain references to system
+resources which may vary by site:  CHECK_DISK.COM, CHECK_PRINT_QUEUE.COM,
+CLEANUP.COM, CHECK_PROCESS.FOR, CHECK_UAF.FOR, CHECKSUM_FILES.COM,
+FIND_JOB.FOR, KSCRUNCH.COM, USERS.DAT (read by MONTHLY and YEARLY), MAKEFILE,
+and DMAKEFILE.
+
+
+
+
+Appendix G.  Credits
+
+Kronos is maintained using the MAKE utility for VMS by Todd Aven.  The MAKEFILE
+provided is for this program.
+
+The checksum utility used by the CHECK_FILES job was developed by Michael N.
+Levine.  It was modified slightly for use with Kronos.

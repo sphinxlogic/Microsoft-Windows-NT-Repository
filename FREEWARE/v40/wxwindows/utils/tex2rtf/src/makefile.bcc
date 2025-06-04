@@ -1,0 +1,130 @@
+#
+# File:		makefile.bcc
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds Tex2RTF for Windows 3.1
+# For Windows version invoke with no target, or with target 'all'
+# For DOS version, invoke makefile with NO_GUI=1
+# To optimize and remove debugging information, add FINAL=1 to
+# the command line.
+
+!if "$(BCCDIR)" == ""
+!error You must define the BCCDIR variable in autoexec.bat, e.g. BCCDIR=d:\bc4
+!endif
+
+!if "$(WXWIN)" == ""
+!error You must define the WXWIN variable in autoexec.bat, e.g. WXWIN=c:\wx
+!endif
+
+# Change WXDIR to wherever wxWindows is found
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makebcc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+WXINC = $(WXDIR)\include
+CFG=$(WXWIN)\src\wxwin.cfg
+
+TEX2RTFDIR = $(WXDIR)\utils\tex2rtf
+TEX2RTFINC = $(TEX2RTFDIR)\src
+
+WXHELPDIR = $(WXDIR)\utils\wxhelp
+WXHELPINC = $(WXHELPDIR)\src
+
+LIBS=$(WXLIB) mathwl cwl import
+INC=-I$(WXHELPINC)
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+!ifndef NO_GUI
+OBJECTS = tex2any.obj texutils.obj htmlutil.obj rtfutils.obj xlputils.obj tex2rtf.obj readshg.obj table.obj
+!if "$(FINAL)" == "0"
+CPPFLAGS=$(INC) $(DEBUG_FLAGS) $(OPT) @$(CFG)
+CFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+LINKFLAGS=/v/Vt /Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+!else
+CPPFLAGS=$(INC) $(OPT) @$(CFG)
+CFLAGS=$(OPT) @$(CFG)
+LINKFLAGS=/Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+!endif
+!else
+SRCSUFF = cc
+OBJSUFF = obj
+OBJECTS = tex2rtf.obj rtfutils.obj xlputils.obj htmlutil.obj table.obj readshg.obj wb_list.obj wb_hash.obj wb_utils.obj wb_obj.obj
+!if "$(FINAL)" == "0"
+CPPFLAGS=$(INC) $(DEBUG_FLAGS) $(OPT) @$(CFG)
+CFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+LINKFLAGS=/v/Vt /Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+!else
+CPPFLAGS=$(INC) $(OPT) @$(CFG) /Dwx_dos /DNO_GUI
+CFLAGS=$(OPT) @$(CFG) /Dwx_dos /DNO_GUI
+LINKFLAGS=/Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+!endif
+!endif
+
+all:    $(OBJECTS) tex2rtf.exe
+
+.$(SRCSUFF).obj:
+        bcc $(CPPFLAGS) -c {$< }
+
+!ifndef NO_GUI
+wx:
+        cd $(WXDIR)\src\msw
+        make -f makefile.bcc FINAL=$(FINAL) OPT=$(OPT) PRECOMP=$(PRECOMP)
+        cd $(TEX2RTFDIR)\src
+!endif
+
+tex2any.obj: tex2any.$(SRCSUFF) tex2any.h
+texutils.obj: texutils.$(SRCSUFF) tex2any.h
+tex2rtf.obj: tex2rtf.$(SRCSUFF) bmputils.h tex2rtf.h tex2any.h
+rtfutils.obj: rtfutils.$(SRCSUFF) tex2rtf.h bmputils.h tex2any.h table.h
+xlputils.obj: xlputils.$(SRCSUFF) tex2rtf.h rtfutils.h tex2any.h
+htmlutil.obj: htmlutil.$(SRCSUFF) tex2rtf.h tex2any.h table.h
+table.obj: table.$(SRCSUFF) table.h
+readshg.obj: readshg.$(SRCSUFF)
+
+!ifdef NO_GUI
+# I'm guessing Borland make syntax here -- JACS
+wb_utils.obj:   wxwin\wb_utils.$(SRCSUFF) wxwin\wx_utils.h
+	bcc $(CPPFLAGS) -c {wxwin\$< }
+
+wb_hash.obj:   wxwin\wb_hash.$(SRCSUFF) wxwin\wx_hash.h
+	bcc $(CPPFLAGS) -c {wxwin\$< }
+
+wb_list.obj:   wxwin\wb_list.$(SRCSUFF) wxwin\wx_list.h
+	bcc $(CPPFLAGS) -c {wxwin\$< }
+
+wb_obj.obj:   wxwin\wb_obj.$(SRCSUFF) wxwin\wx_obj.h
+	bcc $(CPPFLAGS) -c {wxwin\$< }
+!endif
+
+!ifndef NO_GUI
+tex2rtf.res :      tex2rtf.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(BCCDIR)\include /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa tex2rtf
+
+tex2rtf.exe:      $(WXLIB) $(OBJECTS) tex2rtf.def tex2rtf.res
+        tlink $(LINKFLAGS) @&&!
+c0wl.obj $(OBJECTS)
+tex2rtf
+
+$(LIBS)
+tex2rtf.def
+!
+        rc -K tex2rtf.res
+!else
+# Something else for linking a DOS program: is it even possible in Borland 4.0????
+!endif
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.res
+
+cleanall:	clean
+

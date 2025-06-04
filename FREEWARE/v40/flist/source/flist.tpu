@@ -1,0 +1,4012 @@
+!
+!  Copyright © 1990, 1998 by Hunter Goatley.  This code may be freely
+!  distributed for non-commercial purposes as long as this copyright
+!  notice is retained.  Modified copies may not be redistributed.
+!
+!  If you make any changes, please let me know so that I can incorporate
+!  them.
+!
+!	TITLE		FLIST
+!	IDENT		V2.4
+!========================================================================
+!=	Never having time to rewrite files sure does affect the		=
+!=	ease-of-reading, -modifying, and a lot of other things!		=
+!=	My apologies to anyone who has to look at this code!		=
+!========================================================================
+!++
+!
+!  Program:	FLIST.TPU - TPU source for FLIST directory manager
+!  Author:	Hunter Goatley
+!		goathunter@PROCESS.COM
+!
+!  Additional code by Peter Galbraith, GALBRTH@AC.DAL.CA, (902) 494-7007,
+!			Dept. of Oceanography,  Dalhousie University,
+!			Halifax, Nova Scotia, Canada, B3H 4J1
+!
+!  Language:	VAXTPU V01-002
+!  Date:	November 1987
+!
+!  Known bugs/problems:
+!
+!	1.  Purge should let the MACRO routine search for files and purge
+!	    instead of going from the directory buffer.
+!	2.  Add command recall (will steal and hack from EVE someday).
+!
+!  Modified by:
+!
+!	V2.4		Hunter Goatley		25-FEB-1998 01:08
+!		Added flist_reload(), to reload a file being viewed.  Useful
+!		for watching batch log files as they grow.  Enhanced
+!		support for switching between 80/132 columns.  Made *.DIR
+!		"unsticky" when VIEWing a directory, so files in that
+!		directory are displayed (before, only *.DIR was shown).
+!
+!			Chris Pierce		20-May-1994 11:52
+!		Fixed the Flist_What_Line Procedure so it would NOT count
+!		[EOB] text as the last line.  Also changed Flist_Go_To_Line
+!		so that if (specified line > total lines) then it will go
+!		to the last line of text rather than the [EOB] text (to be
+!		consistent with the other Flist Buffer-Surfing Procedures).
+!
+!			Chris Pierce		19-MAY-1994 13:28
+!		Added Flist_What_Line and Flist_Go_To_Line Procedures.
+!		Hunter wrote What_Line a long time ago.  I wrote
+!		Go_To_Line, based on EVE_LINE and some of Hunter's other
+!		Flist Procedures.
+!
+!	V2.2a		Hunter Goatley		19-NOV-1992 22:58
+!		Naturally, after release, found typo in copying tagged
+!		files (prompt was "Copy you really...." and nobody
+!		noticed it!).
+!
+!		Fixed *major* bug in flist$parse_rc_name.  If the file
+!		spec was invalid, it did not return like it should have.
+!
+!	V2.2		Hunter Goatley		19-NOV-1992 12:50
+!		Changed ident to match new C driver....
+!
+!	V2.1-1		Hunter Goatley		31-MAR-1992 07:21
+!		Fixed stupid typo when checking default editor after reading
+!		FLIST.INIT.  If default was EDT, so was alternate....
+!
+!	02-001		Hunter Goatley		25-MAY-1991 17:17
+!						22-OCT-1991 09:37
+!						23-FEB-1992 13:37
+!		Added move_vertical(-1) to flist_page.  Added global
+!		variables for array sizes.  Added ability to reset files on
+!		purge.  Also fixed a couple of display problems in purge_file.
+!		Modified flist_translate_logical to return "" if the logical
+!		is not defined.  Added flist$c_working_text constant; added
+!		timer stuff to flist_view.  Moved GOLD/T definition from
+!		flist_keys to flist_dir_keys.  Redefined "RETURN" so that
+!		it "views" a file and "pops" back to the directory list.
+!		Fixed bug in flist_find that prevented "return" from being
+!		recognized as "y" when asking to search in other direction.
+!
+!		Fixed bug in flist_edit dealing with editing old version of
+!		file.  Added support for flist$default_editor.  Changed prompt
+!		to reflect editor to be used.  Changed to use callable EDT.
+!
+!		Fixed tagged file bug---on errors, file was still untagged,
+!		which was a hassle.  Also, removed global_tagged_files
+!		variable (to remove spurious errors) and added flist_check_tag.
+!
+!		Fixed several routines to prevent prompting when the flist
+!		buffer is empty.
+!
+!		Changed flist$c_cu_* constants to negative numbers to allow
+!		support for user's TPU$CALLUSER.
+!
+!		Added Peter's "sort by file type" stuff.
+!
+!               Peter Galbraith's changes:
+!                o flist_move_vertical won't attempt to go past first line
+!                o changed move_vertical to flist_move_vertical in key defs
+!                o flist_dispatch_tree, flist_tree don't scroll window when
+!                  first mapping it. Modification made to procedure
+!                  flist_tree_position_default to support this.
+!                  (in answer to Horst Scheuermann <scheuerm@UNI-TRIER.DBP.DE>)
+!                o directory recognized as such only with version number 1
+!                  (Suggested by Horst Scheuermann <scheuerm@UNI-TRIER.DBP.DE>)
+!
+!	02-000a		Hunter Goatley		23-MAY-1991 15:45
+!		Added IF in flist$tree_post_key_procedure to allow the cursor
+!		to move if tree fit on one screen.  Modified
+!		flist_main_cleanup so that the cursor is left in the
+!		directory window if the filelist is locked.  Added new
+!		flist_tree procedure to fix level bug and to start at
+!		current top-level directory instead of [000000].
+!
+!	02-000		Hunter Goatley		 2-MAY-1991 09:46
+!			Peter Galbraith
+!		Added "DIR" buffer, so that subdirectories are separated from
+!		from regular files.  Added ability to "view" parent dir.
+!		Added beginnings of a declared data area (not complete, yet).
+!
+!		Added ability to copy and rename tagged files.
+!
+!		Added flist$execute_init to support an FLIST initialization
+!		file.  This file can contain any valid TPU functions.  It
+!		is designed to let the user define personal keymaps.
+!
+!		Added Peter Galbraith's changes:
+!		  o  Added more key map lists
+!		  o  Added HELP KEYS (tied to PF2) for VIEW and DIR modes
+!		  o  Added user key maps for the three modes.
+!		  o  Added commands to change the directory window sizes
+!			(tied to COMMA and MINUS)
+!		  o  Added undefined_key routines
+!		  o  Added inquired_shift (GOLD/C)
+!		  o  Added directory tree (GOLD/T)
+!		  o  Added mouse routines
+!		  o  Added flist_confirm
+!		  o  Added repainting instead of scrolling
+!
+!		Added full message buffer display.
+!
+!		Added flist_shift_window.  Added SET PROMPT command to spawned
+!		subprocess.  Modified flist_find to clear flist_find_last_pos;
+!		this was causing multiple FINDs to fail in different files.
+!		Added support for 132 columns in view mode (status line OK).
+!
+!		Fixed bug that caused RENAME to return "File not found" after
+!		every other rename.
+!
+!		Added flist_move_vertical to keep the cursor from ever ending
+!		up on the EOB.
+!
+!		Miscellaneous clean-up stuff and bug fixes (but still no
+!		comments!).
+!
+!	01-009		Hunter Goatley		19-FEB-1991 13:16
+!		Defined KP7 as flist_page (move by page).  Also turned off
+!		DECwindows mouse so that DECwindows copy between windows
+!		would work.
+!
+!	01-008		Hunter Goatley		 9-FEB-1991 15:01
+!		Added local variable definitions to avoid a few
+!		"global variable hidden" messages during compilation.
+!
+!		Also fixed flist_purge (message printed after purge
+!		incorrectly included *all* file info).
+!
+!	01-007		Hunter Goatley		30-JUN-1990 21:50
+!		Quickly hacked to support mods to FLIST.MAR to return the
+!		file sizes and creation date for all files.  Noticeably
+!		slower, but far more useful.
+!
+!		Fixed renaming problem by changing the default directory
+!		each time the directory changes.
+!
+!	01-006		Hunter Goatley		December 14, 1988
+!		Modified FLIST_VIEW to ask before switching directories when
+!		there are tagged files.  Also modified delete, purge, tag,
+!		and untag to update a counter of tagged files.
+!
+!	01-005		Hunter Goatley		May 12, 1988
+!		 Modified  FLIST_FIND  so  that  it  handles the highlighted
+!		 range properly (i.e., it reads the next key and removes the
+!		 highlighting  if  the	key  is  not FIND NEXT).  Solves the
+!		 problems caused by searching for something  and  leaving  a
+!		 marked position that corresponds to nothing.
+!
+!	01-004		Hunter Goatley		April 4, 1988
+!		 Fixed	bug  in FLIST_RENAME.  The version number was always
+!		 included in the new filename; if a file  existed  with  the
+!		 same  version number, the rename failed.  Also fixed bug in
+!		 in FLIST_KEY_HELP:  cursor was being left in prompt buffer,
+!		 though that buffer was not displayed.
+!
+!	01-003		Hunter Goatley		January 8, 1988
+!		Added messages to EVE and EDIT routines.
+!
+!	01-002		Hunter Goatley		January 4, 1988
+!	    	 Modified  EDIT  procedures  to  use  /OUT qualifier.  Fixes
+!		 problem caused when  "W"  is  used  to  change  directories
+!		 (default   does   not	 change;   this  is  passed  to  the
+!		 subprocess).
+!
+!	01-001		Hunter Goatley		November 1987
+!		Original version.
+!
+!--
+
+
+!
+!  The beginnings of a defined data area.  Not all global variables are
+!  declared here yet.
+!
+CONSTANT					!Constants for CALL_USER
+	flist$c_cu_delete := -1,		!... values
+	flist$c_cu_rename := -2,
+	flist$c_cu_copy   := -3,
+	flist$c_cu_edt    := -4,
+	flist$c_cu_parse  := -5,
+	flist$c_cu_search := -6,
+	flist$c_cu_deflnm := -7,
+	flist$c_cu_dealnm := -8,
+	flist$c_cu_trnlnm := -9,
+	flist$c_cu_chkdir := -10;
+
+CONSTANT
+	flist$c_parent_dir := " [-]",
+	flist$c_working_text := "Reading...     ",
+	flist$c_sw_version := "V2.4";
+
+VARIABLE
+	flist_file_count,			!Number of files in flist_buf
+	saved_file_count,			!Working flist_file_count
+	flist_dir_count,			!Number of subdir in dir_buffer
+	saved_dir_count,			!Working saved_dir_count
+	asciis,					!ASCII values 0--255
+	global_dev,				!Current default device
+	global_dir,				!Current default directory
+	global_saved_pos,			!Saved position
+	global_original_default_directory,	!Original default directory
+	flist$orig_dir_window_size,		!Original size of dir_window
+	flist$specification,			!File specification
+	flist_search_string,			!Current search string
+	flist$alternate_editor,			!Alternate editor
+	flist$first_time,			!First time (view file?)
+	flist_find_last_pos,			!Last "find" position
+	flist_view_screen_width;		!Width of view screen
+!
+!  The following variables may be defined in the user's initialization file
+!
+VARIABLE
+	flist$mouse,				!Mouse activation flag
+	flist$scroll,				!Scroll or repaint flag
+	flist$status,				!Mouse status line flag
+	flist$position_buffer,			!Initial buffer position
+	flist$action_default,			!Default action flag
+	flist$dir_window_size,			!Initial size of dir_window
+	flist$no_view_files,			!Files to confirm before view
+	flist$reset_directory,			!Reset default directory
+	flist$reset_on_purge,			!Reset file to ;1
+	flist$dirtree_array_size,		!Flist_tree array sizes
+	flist$sort_by_types,			!Sort files by type
+	flist$default_editor,			!Default editor
+	flist$lock_filelist;			!"Locked" mode
+
+
+Procedure flist_main (specification)
+
+Local filename, dirspec, dir, dev, dirstr, fname, x, file,
+      file_array, file_spec, last_spec;
+
+on_error
+  [TPU$_CONTROLC]:			!On CTRL-C
+    flist_main_cleanup (filename);	!Go cleanup the windows
+    message(ERROR_TEXT);		!Say "Operation aborted by CTRL/C"
+    return;				!Return to the caller
+  [OTHERWISE] : ;
+endon_error;
+
+  erase (flist_buf);
+  erase (dir_buffer);
+
+! Remember it for CD
+  flist$specification := file_parse(specification,"","",name,type) + ";*";
+! change default now in case of immediate exit
+  set(default_directory, file_parse(specification,"","",device,directory));
+
+  position (beginning_of (dir_buffer));	!Start at beginning of dir_buffer
+  global_node := file_parse (specification,"","", NODE);
+  global_dir := file_parse (specification,"","", DIRECTORY);
+  global_dev := file_parse (specification,"","", DEVICE);
+
+! Pop possible only if not at sys$login or at [000000]
+  if file_parse(specification,"","",device,directory) <>
+     file_parse("sys$login:","","",device,directory)  then
+     if file_parse(specification,"","",directory) <> "[000000]" then
+         copy_text(flist$c_parent_dir); split_line;	!Add [-] as a choice
+     endif;
+  endif;
+
+  if flist$lock_filelist = OFF then
+    message ("Finding files matching "+specification);
+    position (beginning_of (flist_buf));  !Start at beginning of flist_buf
+    set (timer, ON, flist$c_working_text);
+
+    flist_file_count := 0;
+    flist_dir_count := 0;
+    filename := call_user(flist$c_cu_search,"");
+    filename := call_user(flist$c_cu_search,specification);
+!+++++++++++++
+    if flist$sort_by_types = ON then
+      file_array := create_array(1000);
+      loop
+        exitif filename = "";
+        exitif substr(filename,1,1) = "%";
+        x := index(filename,".");
+        if x <> 0 then
+!           if substr(filename,x,4) = ".DIR" then
+            if (substr(filename,x,6) = ".DIR;1") AND
+		  (call_user(flist$c_cu_chkdir,"") = "Y") then
+                position(dir_buffer);
+                copy_text(" "+filename);
+                split_line;
+                flist_dir_count := flist_dir_count + 1; !Increment global var.
+           else
+                file := substr(filename,1,index(filename," ")-1);
+                file_array{file_parse(file,"","",type)+"."+
+                           file_parse(file,"","",name,version)} := filename;
+                flist_file_count := flist_file_count + 1; !Increment global v
+            endif;
+        endif;
+        filename := call_user(flist$c_cu_search,specification);
+      endloop;
+      if flist_file_count <> 0 then
+        last_spec := get_info(file_array,"last");
+        file_spec := get_info(file_array,"first");
+        loop
+          position(flist_buf);
+          copy_text(" "+file_array{file_spec}); split_line;
+          exitif (file_spec = last_spec);
+          file_spec := get_info(file_array,"next");
+        endloop;
+      endif;
+      delete(file_array);
+    else
+!+++++++++++++
+      if filename <> "" then
+          loop
+            exitif filename = "";
+            exitif substr(filename,1,1) = "%";
+            x := index(filename,".");
+            if x <> 0 then
+!              if substr(filename,x,4) = ".DIR" then
+               if (substr(filename,x,6) = ".DIR;1") AND
+		  (call_user(flist$c_cu_chkdir,"") = "Y") then
+                    position(dir_buffer);
+                    copy_text(" "+filename);
+                    split_line;
+                    flist_dir_count := flist_dir_count + 1; !Increment global var.
+               else
+                    position(flist_buf);
+                    copy_text(" "+filename);
+                    split_line;
+                    flist_file_count := flist_file_count + 1; !Increment global var.
+                endif;
+            endif;
+            filename := call_user(flist$c_cu_search,specification);
+          endloop;
+      endif;
+    endif;
+!+++++++++++++
+  else ! Do only directories
+    flist_file_count := 0;
+    flist_dir_count := 0;
+!    dirspec := file_parse(specification,"","",device,directory) + "*.DIR";
+    dirspec := file_parse(specification,"","",device,directory) + "*.DIR;1";
+    filename := call_user(flist$c_cu_search,"");
+    filename := call_user(flist$c_cu_search,dirspec);
+    if filename <> "" then
+        loop
+          exitif filename = "";
+          exitif substr(filename,1,1) = "%";
+          copy_text(" "+filename); split_line;
+          flist_dir_count := flist_dir_count + 1; !Increment global var.
+          filename := call_user(flist$c_cu_search,dirspec);
+        endloop;
+    endif;
+  endif;
+  flist_main_cleanup(filename);
+EndProcedure;
+
+Procedure flist_main_cleanup (filename)
+
+  if substr(filename,1,1)="%" then message(filename);
+  else set(DEFAULT_DIRECTORY,global_node+global_dev+global_dir);
+  endif;
+  position(flist_buf);
+  erase_line;
+  position(dir_buffer);
+  erase_line;
+  position (beginning_of (dir_buffer));	!Move to beginning of buffer
+  set (eob_text, dir_buffer, "[End of "+global_node+global_dev+global_dir+"]");
+  set (timer, OFF);
+  if flist$lock_filelist = OFF then
+	position (beginning_of (flist_buf));
+	position (main_window);
+  endif;
+  flist_set_status_line (0);
+  if flist$first_time and			!If first time through and
+     (flist_dir_count = 0) and			!... no directories and
+     (flist_file_count = 1) then		!... only one file was found,
+     flist_view;				!... go ahead and view it.
+  endif;
+EndProcedure;
+
+Procedure flist_delete
+ Local pat1, ans, cnt, filename, result, found, save_pos, dirbuf;
+
+  on_error;
+  endon_error;
+
+  if current_buffer = dir_buffer then dirbuf := 1; else dirbuf := 0; endif;
+  pat1 := line_begin & "*";
+  position(line_begin);
+  save_pos := mark(none);
+  cnt := 0;
+  position(beginning_of(current_buffer));
+  found := search_quietly (pat1, forward, exact);
+  if found <> 0 then
+    if flist_confirm ("Do you really want to delete the tagged files?",
+                      flist$action_default, "No files deleted", "delete") then
+      loop
+	exitif found = 0;
+	position (found);
+	if current_line = flist$c_parent_dir then	!If [-], skip it
+	  filename := "";				!...
+	  result := "%";				!Fake an error
+	  message("Cannot delete parent directory");
+	else
+	  filename := global_node+global_dev+global_dir+flist_strip_file(current_line);
+	  result := call_user(flist$c_cu_delete, filename);	!Go delete it
+	  message (result);			!And print the result
+	endif;
+	if substr (result, 1, 1) <> "%" then
+	  erase_line;
+	  exitif mark(none) = end_of(current_buffer);
+	  if dirbuf then
+	    flist_dir_count := flist_dir_count - 1;
+	  else
+	    flist_file_count := flist_file_count - 1;
+	  endif;
+!	  move_vertical (-1);
+	  cnt := cnt + 1;
+	else
+	  move_vertical(1);		!Move down 1
+	  exitif mark(none) = end_of(current_buffer);
+!	  copy_text (" ");
+!	  move_horizontal (-1);
+	endif;
+	found := search_quietly (pat1, forward, exact);
+      endloop;
+    else
+      position (save_pos);
+    endif;
+  else
+    position (save_pos);
+    if save_pos = end_of (current_buffer) then
+      return;
+    endif;
+    if current_line = flist$c_parent_dir then	!Do nothing if [-]
+      message("Cannot delete parent directory");
+      return;
+    endif;
+
+    filename := flist_strip_file (current_line);
+    if filename <> "" then
+      ans := flist_confirm ("Delete "+filename+"?", flist$action_default,
+		"file not deleted", "delete");
+    else
+      ans := FALSE;
+    endif;
+    if ans then
+      result := call_user(flist$c_cu_delete, global_node+global_dev+global_dir+filename);
+      message (result);
+      if substr (result, 1, 1) <> "%" then
+	erase_line;
+	if dirbuf then
+	  flist_dir_count := flist_dir_count - 1;
+	else
+	  flist_file_count := flist_file_count - 1;
+	endif;
+      endif;
+    else
+      message (filename+" not deleted");
+    endif;
+  endif;
+
+  position (save_pos);
+  if mark(none) = end_of(current_buffer) then
+     move_vertical(-1);
+  endif;
+  flist_set_status_line (1);
+
+EndProcedure
+
+
+Procedure flist_purge
+
+Local pat1, found, found_1st, pat2, ans, spec, cnt, filename, result, purgcnt,
+      save_pos, delete_all, totpurgcnt;
+
+  on_error;
+  endon_error;
+
+   if mark(none) = end_of (current_buffer) then
+	return;
+   endif;
+  filename := substr (current_line, 2, index (current_line, ";")-2);
+  pat1 := line_begin & "*";
+  position(line_begin);
+  save_pos := mark(none);
+  cnt := 0;
+  position(buffer_begin);
+  found := search_quietly (pat1, forward, exact);
+  if found <> 0 then
+    if flist_confirm ("Do you really want to purge the tagged files?",
+                      flist$action_default, "Files not purged", "purge") then
+      totpurgcnt := 0;
+      loop
+	exitif found = 0;
+	position (found);
+	filename := global_node+global_dev+global_dir+flist_strip_file(current_line);
+        delete_all := flist$purge_file(filename,purgcnt);
+        totpurgcnt := totpurgcnt + purgcnt;
+        position(buffer_begin);
+	found := search_quietly (pat1, forward, exact);
+      endloop;
+      if (totpurgcnt = 0) then
+	message("No previous versions of tagged files to purge");
+      else
+	message ("Total of "+str(totpurgcnt)+" files deleted");
+      endif;
+    else
+      position (save_pos);
+    endif;
+  else
+    if flist_confirm ("Do you really want to purge "+filename+"?",
+                      flist$action_default, "File not purged", "purge") then
+      origfilename := filename;
+      delete_all := flist$purge_file(filename,purgcnt);
+
+      if purgcnt = 0 then
+        if delete_all then message("No previous versions to purge - "+
+                                    global_node+global_dev+global_dir+origfilename);
+        endif;
+        ! else the error message from the calluser routine is sufficient
+      else
+	origfilename := call_user(flist$c_cu_search,origfilename);
+        origfilename := substr(origfilename,1,index(origfilename,";"));
+        if delete_all then
+          message (fao ("!AS purged - !ZL file!%S deleted",
+                        global_dir+origfilename,purgcnt));
+        else
+          message (fao ("!AS purged - !ZL file!%S deleted (Not all deleted).",
+                        filename, purgcnt));
+        endif;
+      endif;
+    endif;
+  endif;
+
+  position (save_pos);
+  move_horizontal (-current_offset);
+  flist_set_status_line (1);
+
+EndProcedure;
+
+Procedure flist$purge_file(purge_file, count)
+! Return true if all were succesfully deleted, False otherwise
+! purge_file:  input - filename to purge
+! count:      output - number of file deleted
+ local found, purgpat, purgcnt, delete_all, filename, result, found_1st;
+
+ position(buffer_begin);
+ purgepat := LINE_BEGIN + (" "|"*") + file_parse(purge_file,"","",name,type) +
+		";";
+ found_1st := search_quietly (purgepat, forward, exact);
+ if found_1st = 0 then count := 0; return(true); endif;
+ position (found_1st);
+ if (current_character = "*") then !Untag it if tagged
+   copy_text(" ");  move_horizontal(-1);
+ endif;
+ found_1st := mark(none);
+ move_vertical(1); position(line_begin);
+ purgcnt := 0;
+ delete_all := TRUE;
+ loop
+   found := search_quietly (purgepat, forward, exact);
+   exitif found = 0;
+   position (found);
+   filename := global_node+global_dev+global_dir+flist_strip_file(current_line);
+   found := file_search (""); !Check if file actually exists
+   found := file_search (filename);
+   if found <> "" then ! Yes... Try to delete
+     result := call_user(flist$c_cu_delete, filename);
+     message (result);
+     if substr (result, 1, 1) <> "%" then
+       if (current_character = "*") then !Untag it if tagged
+         copy_text(" ");  move_horizontal(-1);
+       endif;
+       erase_line;
+       flist_file_count := flist_file_count - 1; !Increment global var.
+       purgcnt := purgcnt + 1;
+     else !Can't delete it... skip over it
+       delete_all := FALSE;
+       if (current_character = "*") then !Untag it if tagged
+         copy_text(" ");  move_horizontal(-1);
+       endif;
+       move_vertical(1);
+     endif;
+   else                ! File was deleted after being listed... erase line
+     flist_file_count := flist_file_count - 1; !Increment global var.
+     erase_line;
+   endif;
+ endloop;
+ position(found_1st);
+ if flist$reset_on_purge AND
+    (purgcnt > 0) then
+    flist$reset_file;
+ endif;
+ count := purgcnt;
+ return(delete_all);
+endprocedure;
+
+Procedure flist$reset_file
+!Assumes cursor is on file to be reset
+Local filename, newname, spec, result;
+  filename := current_line;
+  filename := substr(filename, 2, index(filename,";")-1);
+  newname := ";1";
+  spec := ascii(length(filename)) + filename +
+	  ascii(length(newname)) + newname;
+  result := call_user(flist$c_cu_rename, spec);
+  if substr (result, 1, 1) <> "%" then
+	erase_character (length(current_line));
+	spec := call_user(flist$c_cu_search,"");
+	filename := call_user(flist$c_cu_search,filename);
+	copy_text (" "+filename);
+	move_horizontal (-current_offset);
+  else
+	message ("Error renaming - "+result);
+  endif;
+EndProcedure;
+
+Procedure flist_rename
+Local	pat1
+	,ans
+	,cnt
+	,filename
+	,found
+	,result
+	,save_pos
+	,tmp_save_pos
+	,spec
+	,dirbuf
+	;
+
+  on_error;
+  endon_error;
+
+  if current_buffer = dir_buffer then dirbuf := 1; else dirbuf := 0; endif;
+  position(line_begin);
+  save_pos := mark(none);
+  if save_pos = end_of (current_buffer) then
+	return;
+  endif;
+
+  pat1 := line_begin & "*";
+  cnt := 0;
+  position(beginning_of(current_buffer));
+  found := search_quietly (pat1, forward, exact);
+  if found <> 0 then
+
+      if flist_confirm ("Do you really want to rename the tagged files?",
+		flist$action_default, "Files not renamed", "NONE") then
+
+	  ans := flist_ask ("New directory or wildcarded filename: ", 128);
+	  ans := flist$parse_rc_name(ans);
+	  if ans = "" then return; endif;
+	  loop
+	   exitif found = 0;
+	   position (found);
+	   if current_line = flist$c_parent_dir then	!If [-], skip it
+		filename := "";				!...
+		result := "%";				!Fake an error
+		message("Cannot rename parent directory");
+	   else
+	     filename := flist_strip_file(current_line);
+	     spec := ascii(length(filename)) + filename +
+			ascii(length(ans)) + ans;
+	     result := call_user(flist$c_cu_rename, spec);
+	     message (result);				!And print the result
+	   endif;
+	   if substr (result, 1, 1) <> "%" then
+	   !Erase the line and decrement flist_file_count.  If the file was
+	   !renamed within this directory, flist_add_to_display will bump it
+	   !back up.
+	      erase_line;
+	      if dirbuf then
+		flist_dir_count := flist_dir_count - 1;
+	      else
+		flist_file_count := flist_file_count - 1;
+	      endif;
+	      tmp_save_pos := mark(none);
+	      flist_add_to_display (result, "to ");
+	      position(tmp_save_pos);
+	      cnt := cnt + 1;
+		exitif mark(none) = end_of(current_buffer);
+!	      move_vertical(-1);
+	   else
+		move_vertical(1);		!Move down 1
+		exitif mark(none) = end_of(current_buffer);
+!		copy_text (" ");
+!		move_horizontal (-1);
+	   endif;
+	   found := search_quietly (pat1, forward, exact);
+	  endloop;
+      endif;
+  position (save_pos);
+  return;
+  endif;	!if found <> 0 then
+
+  position(save_pos);
+  if current_line = flist$c_parent_dir then		!Do nothing if [-]
+	message("Cannot rename parent directory");
+	return;
+  endif;
+
+  filename := flist_strip_file(current_line);
+  if flist_confirm ("Rename "+filename+"?", flist$action_default,
+                     filename+" not renamed", "NONE") then
+	ans := flist_ask ("New name: ", 128);
+	if ans = "" then
+	   message (filename+" not renamed");
+	   return;
+	endif;
+	filename := file_parse (filename, global_node+global_dev+global_dir+"*.*");
+	ans := flist$parse_rc_name(ans);
+	if ans = "" then return; endif;
+!	ans := file_parse (ans, substr (filename, 1, index(filename,";")));
+	spec := ascii(length(filename)) + filename +
+		ascii(length(ans)) + ans;
+	result := call_user(flist$c_cu_rename, spec);
+	message (result);
+	if substr (result, 1, 1) <> "%" then
+	!Erase the line and decrement flist_file_count.  If the file was
+	!renamed within this directory, flist_add_to_display will bump it
+	!back up.
+	   erase_line;
+	   if dirbuf then
+		flist_dir_count := flist_dir_count - 1;
+	   else
+		flist_file_count := flist_file_count - 1;
+	   endif;
+	   flist_add_to_display (result, "to ");
+	endif;
+  endif;
+
+  flist_set_status_line (1);
+  position (save_pos);
+  if mark(none) = end_of(current_buffer) then
+	move_vertical(-1);
+  endif;
+  move_horizontal (-current_offset);
+
+EndProcedure;
+
+
+Procedure flist_copy
+Local	pat1
+	,ans
+	,cnt
+	,filename
+	,found
+	,result
+	,save_pos
+	,tmp_save_pos
+	,indx
+	,spec
+	,tmp
+	,thedev
+	,thedir
+	;
+
+  on_error;
+  endon_error;
+
+  position(line_begin);
+  save_pos := mark(none);
+  if save_pos = end_of (current_buffer) then
+	return;
+  endif;
+
+  pat1 := line_begin & "*";
+  cnt := 0;
+  position(beginning_of(current_buffer));
+  found := search_quietly (pat1, forward, exact);
+  if found <> 0 then
+     if flist_confirm ("Do you really want to copy the tagged files?",
+	                flist$action_default, "Files not copied", "NONE") then
+        ans := flist_ask ("New directory or wildcarded filename: ", 128);
+        ans := flist$parse_rc_name(ans);
+        if ans = "" then return; endif;
+     	loop
+            exitif found = 0;
+            position (found);
+            filename := flist_strip_file(current_line);
+            spec := ascii(length(filename)) + filename +
+                         ascii(length(ans)) + ans;
+            result := call_user(flist$c_cu_copy, spec);
+            message (result);           !And print the result
+            if substr (result, 1, 1) <> "%" then
+               tmp_save_pos := mark(none);
+               flist_add_to_display (result, "to ");
+               position(tmp_save_pos);
+               copy_text (" ");
+               move_horizontal (-1);
+!               move_vertical(-1);
+               cnt := cnt + 1;
+	    else
+		move_vertical(1);		!Move down 1
+		exitif mark(none) = end_of(current_buffer);
+            endif;
+            found := search_quietly (pat1, forward, exact);
+	endloop;
+     endif;
+     position (save_pos);
+     return;
+  endif;	!if found <> 0 then
+
+  position(save_pos);
+  filename := flist_strip_file(current_line);
+  if flist_confirm ("Copy "+filename+"?", flist$action_default,
+                     filename+" not copied","NONE") then
+	ans := flist_ask ("Filename of copy: ", 128);
+	if ans = "" then
+	   message (filename+" not copied");
+	   return;
+	endif;
+	filename := file_parse (filename, global_node+global_dev+global_dir);
+	ans := flist$parse_rc_name(ans);
+	if ans = "" then return; endif;
+!	ans := file_parse (ans, substr (filename, 1, index(filename,";")-1));
+	spec := ascii(length(filename)) + filename +
+		ascii(length(ans)) + ans;
+	result := call_user(flist$c_cu_copy, spec);
+	message (result);
+	if substr (result, 1, 1) <> "%" then
+		flist_add_to_display (result, "to ");
+	endif;
+  endif;
+  flist_set_status_line (1);
+  position (save_pos);
+
+EndProcedure;
+
+
+Procedure flist_section (how_many_screens)
+
+local how_much_scroll,		! How many lines to scroll
+      scroll_window,		! Window to be scrolled
+      this_window,		! Current window
+      this_column,		! Current column in scroll_window
+      this_row,			! Current row in scroll_window
+      old_scroll_top,		! Original value of scroll_top
+      old_scroll_bottom,	! Original value of scroll_bottom
+      old_scroll_amount;   	! Original value of scroll_amount
+
+! Trap and ignore messages about move beyond buffer boundaries -
+! just move to top or bottom line of buffer
+
+on_error
+   flist_section := 0;	!and continue
+endon_error;
+
+flist_section := 1;
+
+scroll_window := current_window;
+
+how_much_scroll := get_info (scroll_window, "visible_length");
+if get_info (scroll_window, "status_line") <> 0 then
+    how_much_scroll := how_much_scroll - 3;
+else
+    how_much_scroll := how_much_scroll - 2;
+endif;
+
+if how_much_scroll <= 0 then
+    how_much_scroll := 1;
+endif;
+
+! By using a scrolling region and move_vertical, we can move to the first or
+! last line on the screen when on the first or last screen in the buffer.  Also
+! is much faster for scrolling a select range than using the scroll builtin.
+
+this_row := get_info (scroll_window, "current_row");
+if this_row = 0	then	! Screen info not all updated yet
+    this_row := get_info (scroll_window, "visible_top");
+endif;
+this_column := get_info (scroll_window, "current_column");
+position (search_quietly (line_begin, reverse));
+if get_info (scroll_window, "beyond_eol") then
+    update (scroll_window);
+endif;
+old_scroll_top := get_info (scroll_window, "scroll_top");
+old_scroll_bottom := get_info (scroll_window, "scroll_bottom");
+old_scroll_amount := get_info (scroll_window, "scroll_amount");
+set (scrolling, scroll_window, flist$scroll,
+     this_row - get_info (scroll_window, "visible_top"),
+     get_info (scroll_window, "visible_bottom") - this_row, 0);
+
+move_vertical (how_many_screens * how_much_scroll);
+update (scroll_window);
+cursor_horizontal (this_column - get_info (scroll_window, "current_column"));
+if this_window <> current_window then
+    position (this_window);
+endif;
+set (scrolling, scroll_window, on, old_scroll_top, old_scroll_bottom,
+     old_scroll_amount);
+if mark(none) = end_of(current_buffer) then
+  move_vertical(-1);
+endif;
+
+endprocedure;
+
+!===============================================================================
+
+Procedure flist_ask (prompt, ans_length)
+Local	saved_pos
+	,ans
+	;
+
+  saved_pos := mark(none);
+  map (prompt_window, prompt_buffer);
+  erase (prompt_buffer);
+  position (end_of (prompt_buffer));
+
+  ans := read_line (prompt, ans_length);
+  unmap (prompt_window);
+  position (saved_pos);
+
+  return (ans)
+
+EndProcedure;
+
+!===============================================================================
+
+ ! Added by Chris Pierce.
+ ! Purpose:
+ !	   This is not in use as of 19-May-1994, but I thought I'd leave it
+ !	   in for possible future use (I THINK it works).
+ !
+Procedure flist_ask_num (prompt, ans_length)
+Local	saved_pos,
+	numb,
+	ans;
+
+  saved_pos := mark(none);
+  map (prompt_window, prompt_buffer);
+  erase (prompt_buffer);
+  set (EOB_TEXT, prompt_buffer, "");
+  position (end_of (prompt_buffer));
+
+  ans := read_line (prompt);
+  edit (ans, TRIM);			! Remove excess spaces and tabs.
+  if (ans = "") then
+    message("No value specified.");
+    numb := 0;
+    unmap (prompt_window);
+    position (saved_pos);
+    return (numb);
+  else
+    translate (ans, "1","l");		! Change lowercase 'L' to a 1.
+    numb := int (ans);
+    if (numb = 0) and (ans <> "0") then
+      message (fao ("Do not understand !AS", ans));
+      unmap (prompt_window);
+      position (saved_pos);
+      return(0);
+    else
+      unmap (prompt_window);
+      position (saved_pos);
+      return(1)
+    endif;
+  endif;
+  
+  unmap (prompt_window);
+  position (saved_pos);
+  return (numb);
+
+EndProcedure;
+!===============================================================================
+
+ ! Added by Chris Pierce.
+ ! Purpose:
+ !	  To clear the Prompt_Buffer of my messages which don't need to hang
+ !	  around (I just like to keep my buffers clean).
+ !
+Procedure flist_clear_prompt_buffer
+
+  map(prompt_window, prompt_buffer);
+  set (EOB_TEXT, prompt_buffer, "");
+  erase (prompt_buffer);
+  unmap (prompt_window);
+  return;
+
+EndProcedure;	! flist_clear_prompt_buffer
+!===============================================================================
+
+Procedure flist_view
+ Local file, fname, newdir, new_spec, ans, fileext;
+
+  if mark(none) = end_of (current_buffer)  then return; endif;
+  if current_line = "" then return; endif;
+  if current_line = flist$c_parent_dir then flist_pop; return; endif;
+
+  flist_view_screen_width := get_info(screen,'width');
+
+  file := call_user(flist$c_cu_search, "");
+  file := call_user(flist$c_cu_search, flist_strip_file(current_line));
+  file := global_node+global_dev+global_dir+flist_strip_file(" "+file);
+! if file_parse (file, "", "", TYPE) = ".DIR" then
+  if (file_parse (file, "", "", TYPE,VERSION) = ".DIR;1") AND
+		  (call_user(flist$c_cu_chkdir,"") = "Y") then
+	if flist_check_tag then
+	   if not flist_confirm (
+                  "You have tagged files.  Leave directory anyway?",
+                   FALSE, "File not viewed", "view") then
+		return;
+	   endif;
+	endif;
+	fname := file_parse (file, "","", NAME);
+	newdir := substr (global_dir, 1, length(global_dir)-1) + "." +
+		  fname + "]";
+!	new_spec := file_parse (newdir, global_node+global_dev+"*.*;*");
+	if (file_parse(flist$specification,"","",TYPE) = ".DIR") then
+	    flist$specification := "*.*;*";
+	endif;
+	new_spec := file_parse (newdir, global_node+global_dev+flist$specification);
+	if new_spec <> "" then
+	   flist_main (new_spec);
+	else
+	   message ("Error generating directory spec: "+newdir);
+	endif;
+  else
+        fileext := file_parse (file,"","",TYPE);
+	if index(flist$no_view_files,"/"+fileext+"/") <> 0 then
+            if not flist_confirm ("Type is " + substr(fileext,2) +
+                                  " - do you really want to view?",
+                                  FALSE, "File not viewed", "view") then return;
+            endif;
+        endif;
+	global_saved_pos := mark(none);
+	position (beginning_of (view_buffer));
+	message ("Reading file " + file);
+	set (timer, ON, flist$c_working_text);
+	read_file (file);
+	set (timer, OFF);
+	position (beginning_of (view_buffer));
+	set(modifiable,view_buffer,OFF);	!Don't modify buffer
+	map (view_window, view_buffer);
+	flist$current_file := file_parse(file,"","",NAME,TYPE,VERSION);
+	set (forward, view_buffer);		!Set direction to forward
+	flist_set_status_line(1);
+  endif;
+
+EndProcedure;
+
+
+Procedure flist_view_exit
+Local	shifted;
+
+  if get_info(screen,'width') <> flist_view_screen_width then
+	set (width, current_window, flist_view_screen_width);
+  endif;
+
+  shifted := get_info(current_window, "shift_amount");
+  if shifted > 0 then
+	shift (current_window, -shifted);
+  endif;
+
+  unmap(view_window);
+  set(modifiable,view_buffer,ON);	!Allow buffer modifications
+  erase (view_buffer);
+  message ("");	!Clear bottom line
+  flist_search_string := "";
+  flist_find_last_pos := 0;		!Set last find position to 0
+  position(global_saved_pos);
+  flist_set_status_line (0);
+
+EndProcedure;
+
+
+Procedure flist_reload(top_or_bottom)
+
+	position (beginning_of (view_buffer));
+	set(modifiable,view_buffer,ON);		!Modify buffer
+	erase(view_buffer);
+	message ("Reading file " + flist$current_file);
+	set (timer, ON, flist$c_working_text);
+	read_file (flist$current_file);
+	set (timer, OFF);
+	if top_or_bottom = 0 then
+	    position (beginning_of (view_buffer));
+	else
+	    position (end_of (view_buffer));
+	endif;
+	set(modifiable,view_buffer,OFF);	!Don't modify buffer
+!	map (view_window, view_buffer);
+!	flist$current_file := file_parse(file,"","",NAME,TYPE,VERSION);
+	set (forward, view_buffer);		!Set direction to forward
+	flist_set_status_line(1);
+
+EndProcedure;
+
+
+Procedure flist_wild(;wild_argument)
+Local	new_spec
+	,dev
+	,dir
+	;
+
+   on_error
+   endon_error;
+
+   if flist_check_tag then
+        if not flist_confirm (
+           "You have tagged files.  Redo directory anyway?", FALSE,
+           "Directory not changed", "NONE") then
+	     return;
+	endif;
+   endif;
+
+   new_spec := "";
+   if get_info(wild_argument,"type") <> UNSPECIFIED then
+      new_spec := wild_argument;
+   endif;
+
+   if new_spec = "" then
+     new_spec := flist_ask ("Wildcard specification: ", 128);
+     if new_spec = "" then
+      	return;
+     endif;
+   endif;
+   new_spec := file_parse (new_spec, global_node+global_dev+global_dir+"*.*;*");
+   if new_spec <> "" then
+	flist_main (new_spec);
+   else
+	message ("Invalid directory specification.");
+   endif;
+
+EndProcedure;
+
+
+procedure flist_find (target)
+
+local new_target,		! Local copy of target
+      start_find_key,		! String describing key used to invoke find
+      stop_find_key,		! String describing key used after prompt
+      this_position,		! Marker for current cursor position
+      find_range,		! Range returned by search
+      other_direction,		! Keyword for opposite direction
+      other_direction_string,	! String for message including other_direction
+      find_reply,		! Reply to inquiry about changing direction
+      start_mark,		! Beginning of found search item
+      end_mark,			! End of found search item
+      next_key,
+      the_program,
+      change_direction_key;	! Keyword for key used to end find_reply
+
+on_error
+    if error = TPU$_STRNOTFOUND then
+	find_range := 0;
+    endif;
+endon_error;
+
+flist_highlight_range := 0;
+
+start_find_key := lookup_key (last_key, comment);
+if target <> "" then
+    new_target := target;
+else
+    if current_direction = forward then
+	new_target := flist_ask ("Forward Find: ", 128);
+    else
+	new_target := flist_ask ("Reverse Find: ", 128);
+    endif;
+endif;
+stop_find_key := lookup_key (last_key, comment);
+if new_target = "" then
+    if (start_find_key = "flist find") and (stop_find_key = "flist find") then
+	if flist_search_string = "" then
+	    message ("No previous target to find");
+	    return (0);
+	else
+	    if get_info (flist_search_string, "type") = string then
+		message (fao ("Finding previous target: !AS", flist_search_string));
+	    else
+		message ("Finding previous target: ");
+	    endif;
+	endif;
+    else
+	message ("Nothing to find");
+	flist_find_last_pos := 0;
+	return (0);
+    endif;
+else
+    flist_search_string := new_target;
+endif;
+
+this_position := mark (none);
+if current_direction = forward then
+    if flist_find_last_pos <> 0 then
+	position (flist_find_last_pos);
+    endif;
+    if this_position <> end_of (current_buffer) then
+	    move_horizontal (1);
+	find_range := search_quietly (flist_search_string, forward, no_exact);
+    else
+	find_range := 0;
+    endif;
+else
+    if flist_find_last_pos <> 0 then
+	position (flist_find_last_pos);
+    endif;
+    if this_position <> beginning_of (current_buffer) then
+	move_horizontal (-1);
+	find_range := search_quietly (flist_search_string, reverse, no_exact);
+    else
+	find_range := 0;
+    endif;
+endif;
+
+if find_range = 0 then
+    if current_direction = forward then
+	other_direction := reverse;
+	other_direction_string := "reverse";
+    else
+	other_direction := forward;
+	other_direction_string := "forward";
+    endif;
+    position (this_position);
+    if other_direction = forward then
+	if this_position <> end_of (current_buffer) then
+	    move_horizontal (1);
+	    find_range := search_quietly (flist_search_string, forward, no_exact);
+	else
+	    find_range := 0;
+	endif;
+    else
+	if this_position <> beginning_of (current_buffer) then
+	    move_horizontal (-1);
+	    find_range := search_quietly (flist_search_string, reverse, no_exact);
+	else
+	    find_range := 0;
+	endif;
+    endif;
+
+    if find_range = 0 then
+	if get_info (flist_search_string, "type") = string then
+	    message (fao ("Could not find: !AS", flist_search_string));
+	else
+	    message ("Could not find: ");
+	endif;
+	position (this_position);
+	return (0);
+    else
+	find_reply :=
+	    flist_ask (fao ("Found in !AS direction.  Go there? ",
+			    other_direction_string), 128);
+
+	! Hitting return or do means yes; hitting another non-typing
+	! key is probably a mistake, so interpret as no.
+
+	if find_reply = "" then
+	    change_direction_key := lookup_key (last_key, comment);
+	    if (substr(change_direction_key,1,6) = "return") or
+	       (change_direction_key = "do") then
+		find_reply := "yes";
+	    else
+		find_reply := "no";
+	    endif;
+	else
+	    change_case (find_reply, lower);
+	endif;
+
+	if substr ("yes", 1, length (find_reply)) = find_reply then
+	    set (other_direction, current_buffer);
+	    position (find_range);
+	    start_mark := mark(none);
+	    if current_direction = reverse then
+		 flist_find_last_pos := mark(none);
+	    endif;
+	    move_horizontal (length (flist_search_string) - 1);
+	    end_mark := mark(none);
+	    if current_direction = forward then
+		 flist_find_last_pos := mark(none);
+	    endif;
+	    flist_highlight_range := create_range (start_mark, end_mark,
+				REVERSE);
+	    move_horizontal (-current_offset);
+	else
+	    position (this_position);
+	    flist_find_last_pos := 0;
+	    return (0);
+	endif;
+    endif;
+else
+    position (find_range);
+    start_mark := mark(none);
+    if current_direction = reverse then
+	 flist_find_last_pos := mark(none);
+    endif;
+    move_horizontal (length (flist_search_string) - 1);
+    end_mark := mark(none);
+    if current_direction = forward then
+	 flist_find_last_pos := mark(none);
+    endif;
+    flist_highlight_range := create_range (start_mark, end_mark,
+			REVERSE);
+    move_horizontal (-current_offset);
+endif;
+
+  update(current_window);
+  next_key := read_key;
+  if lookup_key (next_key, COMMENT) = "FLIST Find Next" then
+	flist_find(flist_search_string);
+	return(0);
+  else
+	flist_highlight_range := 0;
+	flist_find_last_pos := 0;
+	the_program := lookup_key(next_key,PROGRAM);
+	if the_program <> 0 then
+	   execute(the_program);
+	else
+	   message ("Key currently has no definition");
+	endif;
+	return(0);
+  endif;
+
+endprocedure;
+
+
+Procedure flist_pop
+Local	dir
+	,indx
+	,save_indx
+	,b,c,temp
+	;
+
+  if current_buffer = view_buffer then
+	flist_view_exit;
+	return;
+  endif;
+
+  dir := global_dir;
+  save_indx := 0;
+  b := 1;
+  c := length(dir);
+  loop
+	indx := index (substr (dir, b, c), ".");
+	exitif indx = 0;
+	save_indx := indx + b - 1;
+	b := b+indx;
+  endloop;
+
+  if save_indx <> 0 then
+	if flist_check_tag then
+	  if not flist_confirm (
+             "You have tagged files.  Pop directory anyway?",FALSE,
+             "Directory not changed", "NONE") then return;
+	  endif;
+	endif;
+
+	temp := substr (global_dir, length(global_dir), 1);
+	global_dir := substr (dir, 1, save_indx-1) + temp;
+	temp := file_parse (global_dir, global_node+global_dev+"*.*;*");
+	flist_main (temp);
+  else
+! Pop possible only if not at sys$login or at [000000]
+        if file_parse(global_node+global_dev+global_dir,"","",device,directory) <>
+           file_parse("sys$login:","","",device,directory)  then
+           if file_parse(global_dir,"","",directory) <> "[000000]" then
+              flist_main ("[000000]*.*;*"); return;
+           endif;
+        endif;
+	message ("Already at top-level directory");
+  endif;
+
+EndProcedure;
+
+
+Procedure flist_add_to_display (result, key)
+Local	indx
+	,tmp
+	,thedev
+	,thedir
+	;
+
+    indx := index (result, key);
+    if indx <> 0 then
+	tmp := substr (result, indx + length(key), length(result));
+	thedev := file_parse (tmp, "", "", DEVICE);
+	thedir := file_parse (tmp, "", "", DIRECTORY);
+	if (thedir = global_dir) and (thedev = global_dev) then
+		   flist_insert_filename(tmp);
+	endif;
+    endif;
+
+EndProcedure;
+
+
+Procedure flist_insert_filename (filename)
+Local   filespec
+        ,res, ores
+        ,tmp
+        ,nvers, overs
+        ,dirbuf
+        ,start_same, start_new, found_start_same, the_position
+        ;
+
+
+   if current_buffer = dir_buffer then dirbuf := 1; else dirbuf := 0; endif;
+!/*
+   filespec := file_parse (filename, "", "", NAME,TYPE);
+   the_position := mark(free_cursor);
+   if (current_buffer <> dir_buffer) and (current_buffer <> flist_buf) then
+     position(beginning_of(flist_buf)); ! Called after editing a viewed file
+     ! Is this necessary?  Can the buffer ever be <> flist_buf?
+   else
+     position (beginning_of (current_buffer));
+   endif;
+!   position (beginning_of (current_buffer));
+!*/
+   start_same := mark(none);
+   found_start_same := 0;
+   loop
+        exitif mark(none) = end_of(current_buffer);
+        res := flist_strcmp(substr(current_line,2, index(current_line, ";")-2),
+                filespec);
+        if (res = 0) AND (start_same = beginning_of(current_buffer)) AND
+	   (found_start_same = 0) then
+           start_same := mark(none);
+           found_start_same := 1;
+        endif;
+        exitif res = 1;
+        move_vertical (1);
+   endloop;
+
+   start_new := "";
+   if res = 1 then                      !If exited because line > filespec,
+        start_new := current_line;      !... save this line
+   endif;                               !...
+!/*
+   filespec := file_parse (filename, "", "", NAME,TYPE,VERSION);
+!*/
+   nvers := int(file_parse(filespec,"","",VERSION)-";");
+   tmp := call_user(flist$c_cu_search,"");              !Make sure $SEARCH starts at beginning
+   filespec := call_user(flist$c_cu_search,filespec);   !Now look for the file
+
+   if found_start_same then                     !If we found another version...
+     !
+     !  Here, we found one or more files in the buffer with the same name.
+     !  Loop through them looking for the proper place to put the new
+     !  version.
+     !
+     position(start_same);                      !Move to it
+     loop
+        exitif mark(none) = end_of(current_buffer);
+        exitif current_line = start_new;        !Exit if no more of same file
+        tmp := flist_strip_file(current_line);  !Get file name.ext;version
+        overs := int(file_parse(tmp,"","",VERSION)-";");        !Get version
+        !
+        ! If the version of the current line is less than the version of the
+        ! new file, then we've found the proper insertion location.
+        !
+        exitif overs < nvers;                   !Exit if found location
+        move_vertical (1);                      !Move to next line
+     endloop;
+   endif;
+
+   split_line;
+   move_vertical (-1);
+   copy_text (" "+filespec);
+!/*
+   move_horizontal (-current_offset);
+   position(beginning_of(get_info(the_position,"buffer")));
+   position(the_position);
+!*/
+
+   if dirbuf then
+      flist_dir_count := flist_dir_count + 1;
+   else
+      flist_file_count := flist_file_count + 1;
+   endif;
+
+EndProcedure;
+
+
+
+
+Procedure flist_strcmp (str1, str2)
+Local	x
+	,i
+	,y
+	,a
+	,b
+	,matchstr
+	,indx
+	,cnt
+	;
+
+! ASCIIS is a global string of all ASCII characters
+
+    x := length(str1);
+    y := length(str2);
+    cnt := x;
+    if x > y then
+	cnt := y;
+    endif;
+
+    matchstr := 0;
+    indx := 1;
+    loop
+	exitif indx > cnt;
+	a := INDEX (asciis, (substr (str1, indx, 1))) - 1;
+	b := INDEX (asciis, (substr (str2, indx, 1))) - 1;
+	if a = b then
+	   matchstr := 0;
+	else
+	   if a > b then
+		matchstr := 1;
+		exitif 1;
+	   else
+		matchstr := -1;
+		exitif 1;
+	   endif;
+	endif;
+	indx := indx + 1;
+    endloop;
+
+    if (indx > cnt) and (x <> y) then
+	if (cnt = x) then
+	   matchstr := -1;
+	else
+	   matchstr := 1;
+	endif;
+    endif;
+
+   return matchstr;
+
+EndProcedure;
+
+
+Procedure flist_set_status_line (set_type)
+  if set_type = 1 then		!If update....
+     if current_buffer = view_buffer then
+	format_status_line;
+     else
+	if (flist_file_count <> saved_file_count) OR
+	   (flist_dir_count  <> saved_dir_count)  then
+	   format_status_line;
+	endif;
+     endif;
+  else
+	format_status_line;
+  endif;
+EndProcedure;
+
+
+Procedure format_status_line
+Local	dirstr
+	,currdir
+	,currshift
+	,currwidth
+	,temp
+	;
+
+  currwidth := get_info(screen,"width");	!Current screen width
+
+  if get_info(current_buffer,"direction") = FORWARD then
+     currdir := "Forward";
+  else
+     currdir := "Reverse";
+  endif;
+  if current_buffer = view_buffer then
+     if (flist$status = OFF) or (flist$mouse = OFF) then
+        currshift := get_info(view_window,"shift_amount");
+        if currshift <> 0 then
+           temp := fao("File: !AS!ULAS | Shift: !AS3UL | !ASAS",
+                           "!",currwidth-30,"!","!");
+           temp := fao(temp,flist$current_file,
+                       get_info(view_window,"shift_amount"), currdir);
+        else
+           temp := fao("File: !AS!ULAS | !ASAS",
+                           "!",currwidth-17,"!","!");
+           temp := fao(temp,flist$current_file,currdir);
+        endif;
+     else
+        temp := " Spawn | EVE | EDT | Return to Directory            | " +
+                currdir + " | Previous | Next";
+     endif;
+     set (status_line, view_window, REVERSE, temp);
+  else
+     if current_buffer = flist$tree_buffer then
+        if (flist$status = OFF) or (flist$mouse = OFF) then
+           temp := " Directory Tree";
+        else
+           temp :=  " Spawn | Locate Default | Renew Tree | " +
+                    "Return to Directory    | Previous | Next ";
+        endif;
+        set (status_line, tree_window, REVERSE, temp);
+     else
+        if (flist$status = OFF) or (flist$mouse = OFF) then
+           dirstr := global_dev + global_dir + flist$specification;
+           dirstr := dirstr + substr (flist_spaces, 1, 52-length(dirstr));
+           temp := fao("FLIST Dir: !AS!ULAS  !AS4UL file!AS%S",
+       			"!",currwidth-23,"!","!");
+           temp := fao(temp,dirstr, flist_file_count);
+        else
+           temp :=  " Spawn | Tree | EVE | EDT | Delete | Purge          | " +
+                    currdir + " | Previous | Next";
+        endif;
+        set (status_line, main_window, REVERSE, temp);
+
+        dirstr := global_dev + global_dir;
+        dirstr := dirstr + substr (flist_spaces, 1, 51-length(dirstr));
+        temp := fao("FLIST Dir: !AS!ULAS  !AS4UL subdir!AS%S",
+  			"!",currwidth-25,"!","!");
+        temp := fao(temp,dirstr, flist_dir_count);
+        set (status_line, dir_window, REVERSE, temp);
+
+        saved_file_count := flist_file_count;
+        saved_dir_count := flist_dir_count;
+     endif;
+  endif;
+
+EndProcedure;
+
+
+Procedure flist_tag (;do_updates)
+Local	tag_all;
+  tag_all := FALSE;
+  if get_info(do_updates,"type") <> UNSPECIFIED then
+	tag_all := do_updates;
+  endif;
+  if mark(none) <> end_of (current_buffer)  then
+    position(line_begin);
+    if substr(current_line,1,1) <> "*" then
+        copy_text('*');
+        move_horizontal(-1);
+	if tag_all then			!Hack to keep from updating when
+	   move_vertical(1);		!... tagging all files
+	else
+           flist_move_vertical(1);
+	endif;
+!/* Modified by Peter Galbraith -- Untag an already tagged file
+    else
+        flist_untag;
+!End */
+    endif;
+  endif;
+
+EndProcedure;
+
+
+Procedure flist_untag (;do_updates)
+Local	untag_all;
+  untag_all := FALSE;
+  if get_info(do_updates,"type") <> UNSPECIFIED then
+	untag_all := do_updates;
+  endif;
+  if mark(none) <> end_of (current_buffer)  then
+    if substr(current_line,1,1) = "*" then
+	copy_text(' ');
+	move_horizontal(-1);
+	if untag_all then		!Hack to keep from updating when
+	   move_vertical(1);		!... untagging all files
+	else
+           flist_move_vertical(1);
+	endif;
+    endif;
+  endif;
+
+EndProcedure;
+
+Procedure flist_check_tag
+Local	temp, save_pos
+	;
+
+  save_pos := mark(none);
+  temp := flist$check_tag(flist_buf);
+  if temp = 0 then
+     temp := flist$check_tag(dir_buffer);
+  endif;
+  position(save_pos);
+  return(temp);
+
+EndProcedure;		! flist_check_tag
+
+Procedure flist$check_tag(the_buffer)	!Check to see if any files are tagged
+Local	temp, found;
+
+  position(beginning_of(the_buffer));
+  temp := LINE_BEGIN & "*";
+  found := search_quietly (temp, forward, exact);
+  if found = 0 then
+     found := search_quietly(temp, reverse, exact);
+  endif;
+  if found = 0 then
+     return(0);
+  else
+     return(1);
+  endif;
+
+EndProcedure;		! flist$check_tag
+
+
+Procedure flist_run
+Local	ans
+	,filename
+	;
+
+   if mark(none) = end_of (current_buffer) then
+	return;
+   endif;
+   filename := substr (current_line, 2, index (current_line, ";")-2);
+   if file_parse (filename,"","",TYPE) <> ".EXE" then
+	ans := flist_confirm (
+        "Type is not EXE - do you really want to run "+filename+"?",
+        FALSE, "File not executed", "NONE");
+   else
+	ans := flist_confirm ("Do you really want to run "+filename+"?",
+        flist$action_default, "File not executed", "NONE");
+   endif;
+   if ans then
+	filename := global_dev + global_dir + filename;
+	message ("Spawning RUN subprocess...");
+	spawn ("RUN "+filename);
+	message ("");
+   endif;
+
+EndProcedure;
+
+
+Procedure flist_com
+Local	ans
+	,filename
+	,params
+	;
+
+   if mark(none) = end_of (current_buffer) then
+	return;
+   endif;
+   filename := substr (current_line, 2, index (current_line, ";")-2);
+   if file_parse (filename,"","",TYPE) <> ".COM" then
+	ans := flist_confirm (
+	"Type is not COM - do you really want to execute "+filename+"?",
+        FALSE, "File not executed" ,"NONE");
+   else
+	ans := flist_confirm ("Do you really want to execute "+filename+"?"
+        ,flist$action_default, "File not executed" ,"NONE");
+   endif;
+   if ans then
+	params := flist_ask ("Enter any parameters or <CR> for none: ", 256);
+	filename := global_dev + global_dir + filename;
+	message ("Spawning COM subprocess...");
+	spawn ("@"+filename+" "+params);
+	message ("");
+   endif;
+
+EndProcedure;
+
+
+Procedure flist_edit(editor)  !editor is either "default" or "alternate"
+Local ans, filename, orig, result, fileext, save_pos,
+	highest_version, the_editor;
+
+  if mark(none) = end_of (current_buffer) then
+	return;
+  endif;
+   if editor = "default" then
+      the_editor := flist$default_editor;
+   else
+      the_editor := flist$alternate_editor;
+   endif;
+   if current_window = view_window then
+     filename := flist$current_file;
+   else
+     filename := substr (current_line,2);
+     filename := substr (filename,1,index(filename," ")-1);
+   endif;
+   fileext := file_parse (filename,"","",TYPE);
+   if index(flist$no_view_files,"/"+fileext+"/") <> 0 then
+     if not flist_confirm ("Type is " + substr(fileext,2) +
+                           " - do you really want to edit?",FALSE,
+                           "File not edited",editor) then
+       return;
+     endif;
+   else
+     if the_editor = "EVE" then
+	orig := "(EVE) ";
+     else
+	orig := "(EDT) ";
+     endif;
+     if not flist_confirm ("Do you really want to edit "+orig+
+     file_parse(filename,"","",NAME,TYPE,VERSION)+"?",
+		flist$action_default, "File not edited",editor) then
+       return;
+     endif;
+   endif;
+   highest_version := file_search("");
+   highest_version := file_search(
+             file_parse(filename,"","",DEVICE,DIRECTORY,NAME,TYPE));
+   if the_editor = "EDT" then
+     message ("Invoking EDT...");
+     orig := call_user(flist$c_cu_edt,filename);
+     refresh;
+!     message ("Spawning EDT subprocess...");
+!     spawn ("EDIT/EDT "+filename);
+   else
+     message ("Spawning EVE subprocess...");
+     spawn ("EDIT/TPU "+filename);
+   endif;
+   message ("");
+   result := file_search("");
+   result := file_search(
+             file_parse(filename,"","",DEVICE,DIRECTORY,NAME,TYPE));
+   if result <> "" then !Insert higher version number file only
+     if int(substr(file_parse(result,"","",VERSION),2)) >
+        int(substr(file_parse(highest_version,"","",VERSION),2)) then
+          flist_insert_filename (file_parse(result,"","",NAME,TYPE,VERSION));
+          if current_window = view_window then
+            flist_reload_view(result);
+          endif;
+     endif;
+   endif;
+   return;
+EndProcedure;
+
+
+Procedure flist_key_help
+Local	this_key, save_pos, the_key_map_list, the_comment;
+
+!/* Modified by Peter Galbraith
+  the_key_map_list := get_info(current_buffer,"key_map_list");
+!End of modification */
+  save_pos := mark(none);
+  map (prompt_window, prompt_buffer);
+  erase (prompt_buffer);
+  position (end_of (prompt_buffer));
+  copy_text ("Press the key in question: ");
+  update (prompt_window);
+  this_key := read_key;
+!/* Modified by Peter Galbraith  >> Also added the_comment as local variable
+  the_comment := lookup_key (this_key, comment, the_key_map_list);
+!End of modification */
+  if the_comment = "" then
+	message ("Key has no FLIST definition");
+  else
+	message (the_comment);
+  endif;
+  unmap (prompt_window);
+  position(save_pos);
+
+EndProcedure;
+
+
+Procedure flist_line_help
+
+   if current_buffer = flist_buf then
+	message ("C-opy D-el E-ve O-ther P-urge R-ename S-pawn T-ag U-ntag V-iew W-ildcard");
+   else
+	if current_buffer = dir_buffer then
+	   message ("D-el O-ther R-ename S-pawn T-ag U-ntag V-iew W-ildcard");
+	else
+	   message ("W - Toggle width     KP3 - Return to Main");
+	endif;
+   endif;
+
+EndProcedure;
+
+
+Procedure flist_spawn
+  message ("Spawning subprocess...");
+  spawn ('SET PROMPT="FLIST-Sub$ "', OFF);	!Indicate that we're in subproc
+  message ("");
+Endprocedure;
+
+
+Procedure flist_strip_file (line)
+Local	temp
+	,temp2
+	;
+
+   temp := substr (line, 2, length(line)-1);
+   temp2 := index (temp," ");
+   return (substr(temp,1,temp2-1));
+
+EndProcedure;		! flist_strip_line
+
+
+Procedure flist_page
+Local	temp
+	;
+
+   on_error;					!Trap "String not found" errors
+   endon_error;					!...
+
+   if current_character = ASCII(12) then	!If we're sitting on <FF>,
+	if current_direction = FORWARD then	!Move over it
+	   move_horizontal(1);			!...
+	else					!...
+	   move_horizontal(-1);			!...
+	endif;					!...
+   endif;					!...
+
+   temp := search_quietly (ASCII(12), current_direction, EXACT); !Look for <FF>
+   if temp = 0 then				!If no <FF> found,
+	if current_direction = forward then
+	    message ("No next page found.  Now at bottom of buffer.");
+	    position (end_of(current_buffer));
+	    move_vertical(-1);		!Move back one line
+	else
+	    message ("No previous page found.  Now at top of buffer.");
+	    position (beginning_of(current_buffer));
+	endif;
+   else
+	position(temp);			!Move to <FF>
+   endif;
+EndProcedure;		! flist_page
+
+
+Procedure flist_other_window
+Local	temp
+	;
+
+    if current_window = main_window then
+	position(dir_window);
+    else
+	position(main_window);
+    endif;
+
+EndProcedure;		! flist_other_window
+
+
+Procedure flist_move_vertical (num_lines)
+Local	temp
+	;
+
+on_error;
+endon_error;
+
+   if num_lines < 0 then
+        if get_info(mark(none),"record_number")+num_lines > 0 then
+           move_vertical(num_lines);
+        else
+           position(beginning_of(current_buffer)); ! VMS5.3 compatible
+        endif;
+   else
+	move_vertical(num_lines);
+	update(ALL);
+	if mark(none) = end_of(current_buffer) then
+	   move_vertical (-1);
+	endif;
+   endif;
+   update(ALL);
+
+EndProcedure;		! flist_move_vertical
+
+
+Procedure flist_bottom_of_buffer
+Local	temp
+	;
+
+   position(end_of (current_buffer));
+   update(ALL);
+   if get_info(current_buffer, "record_count") > 0 then
+	flist_move_vertical(-1);
+   endif;
+
+EndProcedure;		! flist_bottom_of_buffer
+
+
+! Procedures by Peter Galbraith:
+!
+! FLIST_CALL_CD - FLIST_CD - FLIST_DISPATCH_TREE - FLIST_TREE
+! FLIST_TREE_POSITION_DEFAULT - FLIST_TREE_SELECT
+! FLIST$TREE_POST_KEY_PROCEDURE - FLIST_HELP_KEYS
+! FLIST_REMOVE_HELP_KEYS - FLIST$KEY_NAME - FLIST_ADJUST_WINDOW -
+! FLIST_TOGGLE_SCROLL - FLIST_TOGGLE_MOUSE - FLIST_TOGGLE_STATUS -
+! FLIST_MOUSE - FLIST_CONFIRM - FLIST$CURRENT_INDICATOR - FLIST_DIRECTION
+! FLIST_SCREEN_CURRENT_DIRECTION - FLIST_SCREEN_OPPOSITE_DIRECTION
+! FLIST_MOUSE_SELECT_LINE - FLIST_MOUSE_PROCESS_LINE - FLIST_NULL
+! FLIST$UNDEFINED_KEY - FLIST_RELOAD_VIEW - FLIST_EXIT
+
+procedure flist_call_cd
+local answer;
+
+ answer := flist_ask("Enter CD search path: ", 128);
+ if flist_cd(answer) then
+! Keep same search name (ie *.TEX or *.*) but in new directory
+   flist_main(flist$specification);
+ endif;
+endprocedure;
+
+
+procedure flist_cd(peve$arg1)
+! CD.TPU by Peter Galbraith (GALBRTH@AC.DAL.CA), Dalhousie University
+
+ local ini_dir, login_device, done, command, i, newi, rlevels, plevels, tmpstr,
+       end_path, current_dir, found, the_string;
+
+on_error
+ [TPU$_SEARCHFAIL]:
+ [TPU$_PARSEFAIL]:
+ [OTHERWISE]:
+             return(false);
+endon_error;
+
+!  +---------------------------------------------------------------------+
+!  | ATTENTION:  To use in your extended eve, uncomment the next 2 lines |
+!  | commented with `!eve!' and comment the line: `command := peve$arg1' |
+!  +---------------------------------------------------------------------+
+!
+!eve! if not eve$prompt_string(peve$arg1,command,"Enter CD search path: ",
+!eve!        set(default_directory,"")) then endif;
+command := peve$arg1;
+
+ ini_dir := set(default_directory,"");    ! Get default directory
+ login_device := file_parse("sys$login_device","","",device);
+
+! Display default directory and exit on empty command
+ if command = "" then
+   if login_device = file_parse(ini_dir,"","",device) then
+     message(file_parse(ini_dir,"","",directory));
+   else
+     message(file_parse(ini_dir,"","",device,directory));
+   endif;
+   return(false);
+ endif;
+
+! Trip tokens and process them
+! .. -> SET DEF [-]
+! .  -> Ignore
+! /  -> Ignore
+! #  -> A tempdisk
+! \  -> SYS$LOGIN
+! ~  -> SYS$LOGIN
+! $  -> No validation
+
+ loop
+   done := 0;           !number of characters processed in token
+   if substr(command,1,2) = '..' then
+     if file_parse(set(default_directory,""),"","",DIRECTORY) <> '[000000]' then
+       set(default_directory,"[-]"); done := 2;
+     else
+       message("Cannot go up that high...");
+       set(default_directory,ini_dir);
+       return(false);
+     endif;
+   else
+     if substr(command,1,1) = '.' then done := 1; endif;
+   endif;
+   if substr(command,1,1) = '/' then done := 1; endif;
+!* force directory-change without validation or abbreviations on $
+   if substr(command,1,1) = '$' then
+     set(default_directory,substr(command,2)); done := 0; command := "";
+   endif;
+!* If first character is \ or ~ goto SYS$LOGIN
+   if (substr(command,1,1) = '\') or (substr(command,1,1) = '~') then
+     set(default_directory,'sys$login'); done := 1;
+   endif;
+   exitif (done = 0);
+   command := substr(command,done+1);
+   exitif (command = '');
+ endloop;
+
+ if command = "" then ! All done
+   the_string := set(default_directory,"");
+   if file_parse(the_string,"","",device) =  login_device then
+     message(file_parse(the_string,"","",directory));
+   else
+     message(file_parse(the_string,"","",device,directory));
+   endif;
+   return(true);
+ endif;
+
+! Tokens all processed... process rest of string.
+ translate(command,'.','/');         ! Substitute all / for .
+
+! Count levels required for destination directory
+ i := 1;
+ rlevels := 1;
+ loop
+   newi := index(substr(command,i),'.');
+   exitif (newi = 0);
+   i := newi + i;
+   rlevels := rlevels + 1;
+ endloop;
+! Count levels already deep
+ tmpstr := set(default_directory,"");
+ i := 1;
+ plevels := 1;
+ loop
+   newi := index(substr(tmpstr,i),'.');
+   exitif (newi = 0);
+   i := newi + i;
+   plevels := plevels + 1;
+ endloop;
+! If sum is greater than 8 than I have to pop before I search
+! Can't have more than 8 directory levels...
+ rlevels := plevels + rlevels - 8;
+ loop
+   exitif (rlevels < 1);
+   if file_parse(set(default_directory,""),"","",DIRECTORY) <> '[000000]' then
+     set(default_directory,"[-]");
+   else
+     message("Directory not found");
+     set(default_directory,ini_dir);
+     return(false);
+   endif;
+   rlevels := rlevels - 1;
+ endloop;
+
+! part1.part2.part3 searched as DISK:[CURRENT.CURRENT.PART1*.PART2*]PART3*.DIR
+! if not found search for DISK:[CURRENT.PART1*.PART2*]PART3*.DIR
+! and finally for DISK:[PART1*.PART2*]PART3*.DIR
+! except if DISK:[CURRENT] is SYS$LOGIN, then don't go go pass that
+
+! Build end of search path... .PART1*.PART2*]PART3.DIR
+ end_path := "";
+ loop
+   i := index(command,'.');
+   exitif (i = 0);
+   end_path := end_path + "." + substr(command,1,i-1) + "*";  ! .P*
+   command  := substr(command,i+1);
+ endloop;
+!end_path := end_path + "]" + command + "*.DIR";
+ end_path := end_path + "]" + command + "*.DIR;1";
+
+ loop   !Try to find target, popping directory level if not found
+! DISK:[CURRENT.CURRENT
+   current_dir := set(default_directory,"");
+   found := file_search("");
+   found := file_search(current_dir-"]"+end_path,"","",device,directory,name);
+   exitif (found <> "");
+! Did not find it... strip out a top directory
+   if (file_parse(current_dir,"","",device,directory) =
+       file_parse("sys$login:","","",device,directory)) or
+      (file_parse(current_dir,"","",directory) = "[000000]") then
+     message ("Directory not found");
+     set(default_directory,ini_dir);
+     return(false);
+   endif;
+   set(default_directory,"[-]");
+ endloop;
+
+! found it in form
+! DISK:[CURRENT.CURRENT.PART1.PART2]PART3.DIR  change default to
+!      [CURRENT.CURRENT.PART1.PART2.PART3]
+ the_string := file_parse(found,"","",device,directory,name);
+ translate(the_string,'.',']');
+ the_string := the_string + "]";
+ set(default_directory,the_string);
+ if file_parse(the_string,"","",device) =  login_device then
+   message(file_parse(the_string,"","",directory));
+ else
+   message(file_parse(the_string,"","",directory));
+ endif;
+ return(true);
+endprocedure;
+
+procedure flist_lock_filelist
+ if flist$lock_filelist = ON then
+! Redisplay files
+   flist$lock_filelist := OFF;
+   adjust_window(dir_window,0,
+                 flist$reset_dir_window_size-flist$dir_window_size);
+   set (eob_text, flist_buf, "[End of FLIST buffer]");
+   position(flist_buf);
+   flist_main(flist$specification);
+ else
+   flist$reset_dir_window_size := flist$dir_window_size;
+   adjust_window(dir_window,0,
+      get_info(SCREEN,"visible_length")-flist$dir_window_size-4);
+   flist$lock_filelist := ON;
+   set (eob_text, flist_buf, "[File list locked - Gold\L to unlock it]");
+   erase(flist_buf);
+   position(dir_buffer);
+ endif;
+ flist$dir_window_size := get_info(dir_window,"length",VISIBLE_WINDOW);
+endprocedure;
+
+procedure flist_dispatch_tree
+local this_position;
+! Decide whether to call flist_tree or simply go to its buffer
+! At creation time, I didn't write the header in flist$reftree_buffer
+!  so use this info to see if it's been done already...
+ this_position := mark(free_cursor);
+ position(beginning_of(flist$reftree_buffer));
+ if beginning_of(flist$reftree_buffer) = end_of(flist$reftree_buffer) then
+   copy_text("Tree:  <RET> exits  <V>,<M2> select directory   "+
+                     "<L> locates default directory");
+   position(buffer_begin);
+!  position(beginning_of(flist$tree_buffer));
+   position(this_position);
+   flist_tree;
+ else
+   erase(flist$reftree_buffer);
+   copy_text("Tree:  <GOLD/T> to renew;  <RETURN> to exit;  "+
+             "<V>,<M2> to select a directory");
+   position(buffer_begin);
+   position(beginning_of(flist$tree_buffer));
+   map(reftree_window, flist$reftree_buffer);
+   map(tree_window, flist$tree_buffer);
+   flist_set_status_line (0);
+!  scroll(tree_window,1); !not needed - flist_tree_position_default fix
+   flist_tree_position_default;
+!  set(scrolling,tree_window,off,0,2,0);
+   flist$tree_post_key_procedure;
+   set(scrolling,tree_window,on,0,2,0);   !May not need this, never off
+ endif;
+endprocedure;
+
+procedure flist_tree
+ local root_search, root_tree, file_spec, file_array, last_spec, this_position,
+       level, offset, newoffset, display_line, array_index, this_window,
+       root_flag, the_index, found_flag;
+
+on_error
+  [TPU$_CONTROLC]:			!On CTRL-C
+    if (current_window = tree_window) then ! Almost finished anyway
+      flist_set_status_line(0);
+      set (timer, OFF);
+      message(" ");
+      position(beginning_of(flist$tree_buffer));
+      scroll(tree_window,1);
+      flist_tree_position_default;
+      flist$tree_post_key_procedure;
+    else
+      erase(flist$reftree_buffer);
+      erase(flist$tree_buffer);
+      position(this_position);
+      position(this_window);
+    endif;
+    message(ERROR_TEXT);		!Say "Operation aborted by CTRL/C"
+    return;				!Return to the caller
+  [OTHERWISE] : ;
+    message(ERROR_TEXT);
+    return;
+  [TPU$_SEARCHFAIL]:
+endon_error;
+
+ this_position := mark(free_cursor);
+ this_window   := current_window;
+ set (timer, ON, flist$c_working_text);
+ message("Finding all directories...");
+
+!/* This code replaced by Peter Galbraith to not always search all [000000]
+!   when not in SYS$LOGIN tree.
+!! start at SYS$LOGIN unless on other device or default already at [000000]
+! if (file_parse("sys$disk:[]","","",device) <>
+!     file_parse("sys$login:", "","",device)    )  or
+!    (file_parse("sys$disk:[]","","",directory) = "[000000]")  then
+!   root_tree   := file_parse("sys$disk:[]","","",device) + "[000000]";
+!   root_search := file_parse("sys$disk:[]","","",device) + "[000000...]*.DIR";
+!   root_flag := TRUE;
+! else
+!   root_tree   := file_parse("sys$login:","","",device,directory);
+!   root_search := file_parse("sys$login:","","",device,directory) - "]" +
+!                  "...]*.DIR";
+!   root_flag := FALSE;
+! endif;
+
+! start at SYS$LOGIN if in our own tree
+! start at other root directory unless already at [000000]
+ if (file_parse("sys$disk:[]","","",directory) = "[000000]")  then
+   root_tree   := file_parse("sys$disk:[]","","",device) + "[000000]";
+!  root_search := file_parse("sys$disk:[]","","",device) + "[000000...]*.DIR";
+   root_search := file_parse("sys$disk:[]","","",device) + "[000000...]*.DIR;1";
+   root_flag := TRUE;
+ else ! check if within own tree
+   root_flag := FALSE;
+   current_root := file_parse("sys$disk:[]","","",device,directory);
+   if index(current_root,".") <> 0 then
+     if index(current_root,"[000000") <> 0 then !Strip out 000000 to compare
+       current_root := file_parse(current_root,"","",device) + "[" +
+                       substr(current_root,index(current_root,".")+1);
+     endif;
+     if index(current_root,".") <> 0 then ! Keep first directory only
+       current_root := substr(current_root,1,index(current_root,".")-1) + "]";
+     endif;
+   endif;
+   root_tree   := current_root;
+!  root_search := current_root - "]" + "...]*.DIR";
+   root_search := current_root - "]" + "...]*.DIR;1";
+ endif;
+! end of code replaced */
+
+ file_spec := file_search ('');
+ file_array := create_array(flist$dirtree_array_size);
+ flist$tree_array := create_array(flist$dirtree_array_size);
+ loop
+   file_spec := file_search (root_search);
+   exitif file_spec = "";
+   found_flag := TRUE;
+   if root_flag then
+     if index(file_spec,"[000000") = 0 then
+       the_index := index(file_spec,"[");
+       file_spec := substr(file_spec,1,the_index) + "000000." +
+                    substr(file_spec,the_index+1);
+     endif;
+   endif;
+   translate(file_spec,".","]");
+   file_spec := substr(file_spec,1,index(file_spec,".DIR")-1);
+   file_array{file_spec} := 1;
+ endloop;
+ if not found_flag then
+   erase(flist$reftree_buffer);
+   if current_buffer = flist$tree_buffer then
+     unmap(tree_window);
+     unmap(reftree_window);
+     flist_set_status_line(0);
+     message("No directories found---Returned to File list");
+   else
+     message("No directories found");
+   endif;
+   return;
+ endif;
+
+! Make Reference array
+ last_spec := get_info(file_array,"last");
+ file_spec := get_info(file_array,"first");
+ array_index := 1;
+ flist$tree_array{1} := root_tree;
+ loop
+   array_index := array_index + 1;
+   flist$tree_array{array_index} := file_spec + "]";
+   exitif (file_spec = last_spec);
+   file_spec := get_info(file_array,"next");
+ endloop;
+ flist$tree_last_index := array_index;
+
+! Make Display buffer -- Pick out last directory and level
+ if (get_info(flist$tree_buffer,"type") <> BUFFER) then
+   flist$tree_buffer := create_buffer("DIRECTORY TREE");
+   set(eob_text,flist$tree_buffer,"[End of TREE buffer]");
+ endif;
+ set(no_write,flist$tree_buffer);
+!set(scrolling,tree_window,off,0,2,0); !flist_tree_position_default fix
+ set(modifiable,flist$tree_buffer,on);
+ erase(flist$tree_buffer);
+ position(beginning_of(flist$tree_buffer));
+ copy_text(" " + root_tree);
+ display_line := "  " + "|     "*20;
+ array_index := 2;
+ loop
+   file_spec := flist$tree_array{array_index};
+   level := -1;
+   offset := 1;
+   loop
+     newoffset := index(substr(file_spec,offset),".");
+     exitif(newoffset = 0);
+     offset := offset + newoffset;
+     level := level + 1;
+   endloop;
+   split_line;
+   copy_text(substr(display_line,1,3+(level*6)) + "--" +
+             substr(file_spec,offset) - "]" );
+   exitif (array_index = flist$tree_last_index);
+   array_index := array_index + 1;
+ endloop;
+ position(this_position);
+ map(reftree_window, flist$reftree_buffer);
+ map(tree_window, flist$tree_buffer);
+ flist_set_status_line(0);
+! set(status_line,tree_window,REVERSE," DIRECTORY TREE");
+ set (timer, OFF);
+ message(" ");
+! /* conditionally done in flist_tree_position_default
+! position(buffer_begin);
+! scroll(tree_window,1);
+! */
+ flist_tree_position_default;
+ flist$tree_post_key_procedure;
+ set(scrolling,tree_window,on,0,2,0);
+endprocedure;
+
+procedure flist_tree_position_default
+! Position cursor on default directory line
+local default_dir, array_index, status, first_line_number, the_mark;
+ default_dir := set(default_directory,"");
+ array_index := 1;
+ status := TRUE;
+ loop
+   exitif (flist$tree_array{array_index} = default_dir);
+   if array_index = flist$tree_last_index then
+     status := FALSE;
+     exitif (1);
+   endif;
+   array_index := array_index + 1;
+ endloop;
+ if status then
+   move_vertical(array_index -get_info(mark(free_cursor),"record_number"));
+ else
+   message("could not find default directory in tree");
+   return(false);
+ endif;
+! /* display first directory of tree if it will fit in the page
+  if array_index <= get_info(tree_window,"length",visible_window)-
+                    get_info(tree_window,"scroll_bottom")
+  then
+     the_mark := mark(none);
+     position(buffer_begin);
+     scroll(tree_window,1);
+     position(the_mark);
+  endif;
+! */
+endprocedure;
+
+Procedure flist_tree_select
+local lnumber;
+ lnumber := get_info(mark(free_cursor),"record_number");
+ if lnumber > flist$tree_last_index then
+   message("No directory to select");
+ else
+   unmap(tree_window);
+   unmap(reftree_window);
+   flist_wild(flist$tree_array{lnumber});
+   flist_set_status_line (0);
+ endif;
+endprocedure;
+
+
+procedure flist$tree_post_key_procedure
+! Get top directory show, and remove last level
+! We know that the top of the widow is at line 3
+!   offset between here and first line is `current_row' - 3
+!   record number of first line is `record_number' - `current_row' + 3
+ local first_line_number, base_directory, offset, newoffset,
+       display_line;
+
+ if current_buffer <> flist$tree_buffer then return; endif;
+ update(tree_window);
+ first_line_number := get_info(mark(free_cursor),"record_number") -
+                      get_info(tree_window,"current_row") + 3;
+ if (first_line_number = 1) and (get_info(mark(free_cursor),"record_number")<>1)
+ then ! Scroll window when cursor not on first line and top line is visible
+   if scroll(tree_window,1) = 1 then move_vertical(-1); first_line_number := 2;
+   endif;
+   update(tree_window);
+ endif;
+ if (first_line_number = 1) then
+   display_line := "";
+ else
+   base_directory := flist$tree_array{first_line_number};
+   offset := 1;
+   loop
+     newoffset := index(substr(base_directory,offset),".");
+     exitif(newoffset = 0);
+     offset := offset + newoffset;
+   endloop;
+   display_line := substr(base_directory,1,offset-2) + "]";
+ endif;
+ if get_info(reftree_window,"status_line") <> display_line then
+    set (status_line,reftree_window,none,display_line);
+ endif;
+ flist$bold_current_line := create_range(line_begin,line_end,bold);
+endprocedure;
+
+procedure flist_help_keys
+
+local the_key, the_comment, the_string, the_space, the_key_map_list;
+
+on_error
+    [OTHERWISE]:
+endon_error;
+
+message ("Listing all defined keys...");
+the_key_map_list := get_info(current_buffer,"key_map_list");
+
+if get_info(help_buffer,"TYPE") <> BUFFER then
+   help_buffer := create_buffer ("HELP Buffer");
+   set (no_write, help_buffer);
+   set (system, help_buffer);
+   set (permanent, help_buffer);
+   set (eob_text, help_buffer, "[End of HELP buffer]");
+   set (key_map_list, "FLIST$HELP_KEY_MAP_LIST", help_buffer);
+   set (self_insert, "FLIST$HELP_KEY_MAP_LIST", off);
+   help_window := create_window (1, get_info(SCREEN,"visible_length")-2, ON);
+endif;
+position (help_buffer);
+erase (help_buffer);
+map (help_window, help_buffer);
+set (status_line, help_window, REVERSE, " HELP KEYS (press <RETURN> to exit)");
+copy_text (" List of defined keys:  Press <RETURN> to continue");
+split_line; split_line;
+
+the_key := get_info (DEFINED_KEY, "first", the_key_map_list);
+loop
+    exitif the_key = 0;
+    the_comment := lookup_key(the_key, COMMENT, the_key_map_list);
+    edit(the_comment,trim_leading);
+    translate (the_comment, " ", "_");
+    the_string := flist$key_name(the_key,TRUE);
+    if (the_string <> "") and (the_comment <> "") then
+      the_space := 12-length(the_string);
+      copy_text(" " + the_string + " "*the_space + the_comment); split_line;
+    endif;
+    the_key := get_info (DEFINED_KEY, "next", the_key_map_list);
+endloop;
+
+message("");
+position (buffer_begin);
+endprocedure;
+
+procedure flist_remove_help_keys
+! because HELP KEYS did not call my POST_KEY procedure on exit
+ unmap(help_window);
+ if current_buffer = flist$tree_buffer then FLIST$TREE_POST_KEY_PROCEDURE; endif;
+endprocedure;
+
+
+
+procedure flist$key_name(the_key, double_flag)
+! double_flag FALSE -> return key name even if a lower case character
+! double_flag TRUE  -> return emtpy string on lower case and modified keys
+!                      so as to not list keys twice in HELP KEYS
+local the_keystring, the_string, lower_string;
+
+ the_keystring := str(the_key);
+ the_string := "";
+ case get_info (the_key, "key_type")
+   [PRINTING]:	       !KEY_NAME("V") type
+     the_string := substr(the_keystring,12,
+			  index(the_keystring,")")-13);
+     if double_flag and (index("qwertyuiopasdfghjklzxcvbnm",the_string) <> 0)
+     then
+       the_string := "";
+     endif;
+
+   [KEYPAD]:	       !KP8 type or KEY_NAME (UP, SHIFT_MODIFIED)
+		       !	    KEY_NAME (UP, CTRL_MODIFIED)
+		       !don't print these ^^^^^^^^^^^^^^^^^^^^^^^
+     the_string := the_keystring;
+     if index(the_keystring,"MODIFIED") <> 0 then
+       if double_flag then
+         the_string := "";
+       else
+         the_string := substr(the_keystring,11,index(the_keystring,',')-11);
+       endif;
+     endif;
+   [FUNCTION]:	       !E1 type
+     the_string := the_keystring;
+   [CONTROL]:	       ! CTRL_Z_KEY type, or TAB_KEY, RET_KEY, DEL_KEY,
+		       !		     BS_KEY, LF_KEY
+     if substr(the_keystring,1,5) = 'CTRL_' then
+       the_string := "CTRL/" + substr(the_keystring,6,1);
+     else
+       the_string := the_keystring;
+     endif;
+   [SHIFT_PRINTING]:   !KEY_NAME ("\", SHIFT_KEY) form
+     the_string := substr(the_keystring,12,
+			  index(the_keystring,', SHIFT_KEY)')-13);
+     if double_flag and (index("qwertyuiopasdfghjklzxcvbnm",the_string) <> 0)
+     then
+       the_string := "";
+     else
+       the_string := "GOLD/" + the_string;
+     endif;
+   [SHIFT_KEYPAD]:     !KEY_NAME (KP7, SHIFT_KEY)
+     the_string := "GOLD/"+substr(the_keystring,11,index(the_keystring,',')-11);
+   [SHIFT_FUNCTION]:   !KEY_NAME (E1, SHIFT_KEY) type
+     the_string := "GOLD/"+substr(the_keystring,11,index(the_keystring,',')-11);
+   [SHIFT_CONTROL]:    !KEY_NAME (BS_KEY, SHIFT_KEY)  Type
+     the_string := "GOLD/"+substr(the_keystring,11,index(the_keystring,',')-11);
+ endcase;
+ return(the_string);
+endprocedure;
+
+procedure flist_adjust_window(the_amount)
+  local iamount, maxsize, target_size, cur_window;
+
+  iamount := int(the_amount);
+  if (get_info(dir_window,"length",VISIBLE_WINDOW) = 5)
+	AND  (iamount < 0) then
+	message("Cannot decrease window size any further");
+	return;
+  endif;
+  cur_window := current_window;			!Remember which window we're in
+  maxsize := get_info (SCREEN, "visible_length");
+  if maxsize > 12 then
+    maxsize := maxsize - 6;
+  else
+    maxsize := maxsize - 5;
+  endif;
+  target_size := flist$dir_window_size + iamount;
+  if target_size > maxsize then
+    message("Cannot increase window size any further");
+!    return;                                !Commented out
+    target_size := maxsize;
+  endif;
+  if target_size < 5 then
+    message("Cannot decrease window size any further");
+!    return;                                !Commented out
+    target_size := 5;
+  endif;
+  iamount := target_size - flist$dir_window_size;
+!  adjust_window(dir_window,0,iamount);     !Commented out
+  if (target_size < flist$orig_dir_window_size) AND (iamount < 0) then
+	adjust_window(main_window,iamount,0);
+  else
+        adjust_window(dir_window,0,iamount);
+  endif;
+  !
+  !  If dir_window is changed, TPU automatically adjusts main_window, until
+  !  the original size of the window.
+  !
+  flist$dir_window_size := get_info(dir_window,"length",VISIBLE_WINDOW);
+  position(cur_window);			!Position back to original window
+endprocedure;
+
+procedure flist_toggle_scroll
+! This procedure bound to GOLD\W on the flist keypad
+ if (flist$scroll = ON) then
+    flist$scroll := OFF;
+    message("Paging will repaint");
+ else
+    flist$scroll := ON;
+    message("Paging will scroll");
+ endif
+endprocedure;
+
+procedure flist_toggle_mouse
+! This procedure bound to M on the flist keypad
+ if (flist$mouse = ON) then
+    flist$mouse := OFF;
+    message("Mouse is deactivated");
+ else
+    flist$mouse := ON;
+    message("Mouse is activated");
+ endif;
+ set(mouse, flist$mouse);
+ flist_set_status_line (0);
+endprocedure;
+
+procedure flist_toggle_status
+! This procedure bound to GOLD\S on the flist keypad
+ if (flist$status = ON) then
+    flist$status := OFF;
+ else
+    flist$status := ON;
+    flist$mouse  := ON;
+    set(mouse,on);
+ endif;
+ flist_set_status_line (0);
+endprocedure;
+
+ !
+ ! Added by Chris Pierce, written by Hunter Goatley.
+ ! Purpose:
+ !	  To tell the current line number (and percentage) out of the total.
+ !	  Hunter wrote this long before Digital put it in EVE.
+ !
+procedure flist_what_line      ! What line am I on?
+
+Local  this_position,          ! marker - current position
+       start_of_buffer,        ! marker - beginning of current buffer
+       this_line_position,     ! marker - position at start of this_line
+       total_lines,            ! integer - total lines in buffer
+       high_line,              ! integer - high line limit for binary search
+       low_line,               ! integer - low line limit for binary search
+       this_line,              ! integer - line number of current guess
+       percent;                ! integer - percent of way through buffer
+
+! Initialization
+
+on_error
+  [TPU$_CONTROLC]:			!On CTRL-C
+    message(ERROR_TEXT);		!Say "Operation aborted by CTRL/C"
+    return;				!Return to the caller
+  [OTHERWISE] : ;
+endon_error;
+
+  this_position := mark (none);
+  start_of_buffer := beginning_of (current_buffer);
+  total_lines := get_info (current_buffer, "record_count");
+  high_line := (total_lines + 1);	! +1 to correct for [EOB] text.
+
+  if this_position = end_of (current_buffer) then
+    if (high_line = 1) then
+      message ("Buffer is empty.");
+      return;
+    else
+      message ("End Of Buffer");
+      return;
+    endif;
+  else
+    low_line := 1;
+  endif;
+
+! Binary search
+
+  loop
+    exitif high_line - low_line <= 1;
+    this_line := low_line + ((high_line - low_line) / 2);
+    position (start_of_buffer);
+    move_vertical (this_line - 1);
+    if mark (none) > this_position then
+       high_line := this_line;
+    else
+        low_line := this_line;
+        if mark (none) = this_position then
+          high_line := this_line;
+        endif;
+    endif;
+  endloop;
+
+ ! TPU will truncate numbers on division; make it round instead
+
+ percent := (((low_line * 1000) / total_lines) + 5) / 10;
+
+ ! Display message and return to original position
+
+ message (fao ("You are on line !SL out of !SL (!SL%)",
+          low_line, total_lines, percent));
+
+ position (this_position);
+
+EndProcedure;			! flist_what_line
+
+ !
+ ! Added by Chris Pierce.
+ ! Purpose:
+ !	   To go to a certain line in the buffer.  This does NOT go to a
+ !	   certain line in a specified Procedure, as does EVE_LINE in 
+ !	   EVE$EDIT.TPU.
+ !
+procedure flist_go_to_line !(line_parameter)	! Go to a certain line.
+
+LOCAL
+   ans,				! The line number from prompt.
+   ret_len,			! The possible length of the line #.
+   the_line,			! Local copy of line_parameter.
+   orig_pos,			! Get a range to single space.
+   saved_win,			! Current window.
+   last_line;			! Total lines in buffer, including eob_text.
+
+ON_ERROR			! Quit and go back to Original Position if
+    [TPU$_CONTROLC]:		! Control-C is hit.
+	  message (ERROR_TEXT);
+	  return (TRUE);
+    [TPU$_ENDOFBUF]:
+    [OTHERWISE]:		! For any other error.
+	if (ERROR = TPU$_INVNUMSTR) then
+          flist_clear_prompt_buffer;
+        endif;
+        return (FALSE);
+ENDON_ERROR;
+
+ message ("");			! Clear the message line first thing.
+
+ the_line := read_line ("Line number: ");
+ if (the_line <> "") then
+   edit (the_line, TRIM);
+   the_line := int (the_line);
+ else
+   message ("No line number specified.");
+   flist_clear_prompt_buffer;
+   return (FALSE);
+ endif;
+
+ last_line := get_info (current_buffer, "record_count");
+ 					! Do NOT include eob_text.
+
+ if (last_line = 0) then	! Buffer is empty, give error message
+   message("Buffer is empty."); ! and quit.
+   flist_clear_prompt_buffer;
+   return (FALSE);
+ endif;
+
+ if (the_line <= 0) then 	! Can't move to a line that is <= 0.
+   message (fao ("Cannot move to line: !SL", the_line));
+   flist_clear_prompt_buffer;   ! Clear Prompt Buffer.
+   return (FALSE);		! Exit without moving.
+  endif;
+
+ orig_pos := mark (none);	! Save our original position.
+ saved_win := current_window;	! Save the current window.
+ position (TEXT);        	! Snap the cursor.
+
+ if (the_line > last_line) then		! If line specified is > the total
+   position (end_of (current_buffer));	! # of lines, go to the [EOB].
+   move_vertical (-1);			! Move up one, so will be on Text.
+   message(fao ("Buffer has only !UL lines.  (Now going to End Of Buffer)", last_line));
+   flist_clear_prompt_buffer;		! Clear Prompt Buffer.
+   return (FALSE);
+ else					! Otherwise, go to the specified line.
+   position (the_line);
+   flist_clear_prompt_buffer;
+   return (TRUE);
+ endif;
+
+ENDPROCEDURE;			! flist_go_to_line
+ !
+ ! End Procedures added by Chris Pierce.
+ !
+
+procedure flist_mouse   ! PG02001 - Allow directory window size change
+local mouse_window, mouse_column, mouse_row, the_indicator, the_key,
+      the_window;
+ the_window := current_window;
+ if locate_mouse(mouse_window, mouse_column, mouse_row) then
+   if mouse_window = reftree_window then return; endif; !Not valid move
+   if (mouse_column <> 0) and (mouse_row <> 0) then
+      position(MOUSE);
+      position(line_begin);
+   else if (mouse_row = 0) then
+! /* New PG02001 feature
+     if mouse_window = dir_window then ! Drag the dir window size
+       the_key := read_key;            ! User releases mouse on new destination
+       if locate_mouse(mouse_window, mouse_column, mouse_row) then
+         if mouse_window = dir_window then !release in same window -> smaller?
+           if mouse_row <> 0 then      ! Not on status line -> smaller
+             flist_adjust_window(
+                mouse_row - get_info(dir_window,"length",VISIBLE_WINDOW));
+           endif;
+         else
+           if mouse_window = main_window then ! bigger directory window
+             if mouse_row <> 0 then flist_adjust_window(mouse_row); endif;
+           else                        ! Not in either main windows
+             message("Directory window unchanged");
+           endif;
+         endif;
+       endif;
+! End of New PG02001 feature */
+     else
+       the_indicator := flist$current_indicator(mouse_window, mouse_column);
+       if the_indicator <> 0 then
+         the_key := read_key; ! Eat M2UP
+         if the_indicator = "forward" then
+           flist_direction('r');
+         endif;
+         if the_indicator = "reverse" then
+           flist_direction('f');
+         endif;
+         if the_indicator = "spawn" then
+           flist_spawn;
+         endif;
+         if the_indicator = "return to directory" then
+           if the_window = tree_window then
+             unmap(tree_window);
+             unmap(reftree_window);
+             flist_set_status_line(0);
+           endif;
+           if the_window = view_window then
+             flist_pop;
+           endif;
+         endif;
+         if the_indicator = "locate default" then
+           flist_tree_position_default;
+         endif;
+         if the_indicator = "renew tree" then
+           flist_tree;
+         endif;
+         if the_indicator = "previous" then
+           flist_section(-1);
+         endif;
+         if the_indicator = "next" then
+           flist_section(1);
+         endif;
+         if the_indicator = "tree" then
+           flist_dispatch_tree;
+         endif;
+         if the_indicator = "eve" then
+           flist_edit("eve");
+         endif;
+         if the_indicator = "edt" then
+           flist_edit("edt");
+         endif;
+         if the_indicator = "delete" then
+           flist_delete;
+         endif;
+         if the_indicator = "purge" then
+           flist_purge;
+         endif;
+         if the_indicator = "copy" then
+           flist_copy;
+         endif;
+       endif;
+     endif;
+   endif;
+   endif;
+ endif;
+endprocedure;
+
+procedure flist_confirm(prompt_string, default_answer, default_message,
+                        confirm_indicator)
+!    user enters either: "Y"   -> return TRUE
+!                        <CR>  -> return default
+!                        clicks on a valid status line indicator -> return TRUE
+local mouse_window, mouse_column, mouse_row, the_indicator, the_prompt, answer;
+ if default_answer then
+    the_prompt := " [Y] ";
+ else
+    the_prompt := " [N] ";
+ endif;
+ answer := flist_ask(prompt_string+the_prompt, 1);
+ if (last_key = M1DOWN) or (last_key = M3DOWN) then
+   if confirm_indicator = "ANY" then return (TRUE); endif;
+   if locate_mouse(mouse_window, mouse_column, mouse_row) then
+     if (mouse_column <> 0) and (mouse_row = 0) then
+       the_indicator := flist$current_indicator(mouse_window, mouse_column);
+       if (the_indicator = confirm_indicator) then
+         return (TRUE);
+       else
+         message(default_message);
+       endif;
+     endif;
+   endif;
+   return(FALSE);
+ endif;
+ if answer = "" then message(default_message); return(default_answer); endif;
+ if (answer = "y") or (answer = "Y") then return(TRUE); endif;
+ if (answer = "n") or (answer = "n") then return(FALSE); endif;
+ message(default_message);
+ return(FALSE); ! We could return default_answer on any other key hit here...
+endprocedure;
+
+
+procedure flist$current_indicator (the_window, the_column)
+ ! Get status indicator under mouse
+ local pointer_found, the_status_line, next_bar, the_field;
+
+ ! (row,col)=(0,0) = intersection of horizontal and vertical scroll bars
+ if (the_column = 0) then return (0); endif;
+ the_status_line := get_info (the_window, "status_line") + "|";
+ indicator_column := 1;
+ loop
+    if the_status_line = "" then return (FALSE); endif;
+    next_bar := index (the_status_line, "|");
+    if next_bar = 0 then return (0); endif;
+    if (next_bar >= the_column) then
+	the_field := substr (the_status_line, 1, next_bar - 1);
+	edit (the_field, TRIM, COMPRESS, LOWER, OFF);
+	return (the_field);
+    endif;
+    the_status_line := substr (the_status_line, next_bar + 1,
+			       length (the_status_line) - next_bar);
+    the_column := the_column - next_bar;
+ endloop;
+ return (FALSE);
+endprocedure;	! eve$current_indicator
+
+procedure flist_direction(arg_direction)
+ local the_direction
+  if arg_direction = 'r' then the_direction := REVERSE; endif;
+  if arg_direction = 'f' then the_direction := FORWARD; endif;
+  if arg_direction = 't' then
+    if get_info(current_buffer,"direction") = FORWARD then
+      the_direction := REVERSE;
+    else
+      the_direction := FORWARD;
+    endif;
+  endif;
+  if (current_buffer = dir_buffer) or (current_buffer = flist_buf) then
+    set (the_direction,dir_buffer);
+    set (the_direction,flist_buf);
+  else
+    set (the_direction,current_buffer);
+  endif;
+  flist_set_status_line(0);
+endprocedure;
+
+procedure flist_screen_current_direction
+  if current_direction = forward then
+    flist_section(1);
+  else
+    flist_section(-1);
+  endif;
+endprocedure;
+
+procedure flist_screen_opposite_direction
+  if current_direction = forward then
+    flist_section(-1);
+  else
+    flist_section(1);
+  endif;
+endprocedure;
+
+procedure flist_mouse_select_line
+local mouse_window, mouse_column, mouse_row;
+ if locate_mouse(mouse_window, mouse_column, mouse_row) then
+   if (mouse_column <> 0) and (mouse_row <> 0) then
+      position(MOUSE);
+      position(line_begin);
+      flist$line_range := create_range(line_begin, line_end, bold);
+   endif;
+ endif;
+endprocedure;
+
+procedure flist_mouse_process_line
+local mouse_window, mouse_column, mouse_row, mouse_position;
+ if get_info(flist$line_range,"type") = UNSPECIFIED then return; endif;
+ mouse_position := mark(free_cursor);
+ if locate_mouse(mouse_window, mouse_column, mouse_row) then
+   if (mouse_column <> 0) and (mouse_row <> 0) then
+      position(MOUSE);
+      position(line_begin);
+      if get_info(mark(free_cursor),"within_range",flist$line_range) = 1 then
+        delete(flist$line_range);
+        if current_buffer = view_buffer then
+          flist_pop;
+        else
+          if current_buffer = flist$tree_buffer then
+            flist_tree_select;
+          else
+            flist_view;
+          endif;
+        endif;
+        return;
+      endif;
+   endif;
+ endif;
+ delete(flist$line_range);
+ position(mouse_position);
+ position(line_begin);
+endprocedure;
+
+procedure flist_mouse_kept_editor
+local mouse_window, mouse_column, mouse_row, mouse_position;
+
+ if get_info(flist$line_range,"type") = UNSPECIFIED then return; endif;
+ mouse_position := mark(free_cursor);
+ if locate_mouse(mouse_window, mouse_column, mouse_row) then
+   if (mouse_column <> 0) and (mouse_row <> 0) then
+      position(mouse);
+      if get_info(mark(free_cursor),"within_range",flist$line_range) = 1 then
+
+        flist_kept_editor(true);
+
+      endif;
+   endif;
+ endif;
+ position(mouse_position);
+ position(line_begin);
+ delete(flist$line_range);
+endprocedure;
+
+
+procedure flist_kept_editor(file_flag)
+local the_process, filename, status, result, fileext, high_version;
+
+!  file_flag -> True then attach with file, else simply attach w/o a file
+!  EDIT_NEW_FILE    (logical) is used to pass a new file to edit to EVEPLUS.
+!  EDIT_NEW_DEFAULT (logical) is used to pass a new default directory to go to.
+!  KEPT_EDIT        (logical) hold the process name of the editor
+
+on_error
+  [TPU$_CONTROLC]:
+  [TPU$_SYSERROR]:
+	message("FLIST kept editor process does not exist");
+	return;
+  [OTHERWISE]:
+endon_error;
+
+ the_process := flist_translate_logical("KEPT_EDIT");
+ if the_process = "" then
+   message("No kept editor defined by KEPT_EDIT logical."); return;
+ endif;
+
+ if file_flag then
+   if current_window = view_window then
+     filename := flist$current_file;
+   else
+     filename := substr (current_line,2);
+     filename := substr (filename,1,index(filename," ")-1);
+   endif;
+   filename := file_parse(filename,"","",DEVICE,DIRECTORY,NAME,TYPE,VERSION);
+   if filename = "" then message("No file to edit"); return; endif;
+   result := file_search("");
+   result := file_search(filename);
+   if result = "" then message("No file to edit"); return; endif;
+
+   fileext := file_parse (filename,"","",TYPE);
+   if index(flist$no_view_files,"/"+fileext+"/") <> 0 then
+     if not flist_confirm ("Type is "+substr(fileext,2)+
+        " - do you really want to edit?",FALSE,"File not edited","ANY") then
+       return;
+     endif;
+   else
+     if not flist_confirm ("Do you really want to edit "+
+            file_parse(filename,"","",NAME,TYPE)+"?",flist$action_default,
+            "File not edited","ANY") then
+       return;
+     endif;
+   endif;
+
+
+   status := flist_define_logical("EDIT_NEW_FILE",filename);
+   if not status then
+     message("Error. Cannot set logical name..."); return;
+   endif;
+   status := flist_define_logical("EDIT_NEW_DEFAULT",
+               file_parse(filename,"","",DEVICE,DIRECTORY));
+   if not status then
+     message("Error. Cannot set logical name..."); return;
+   endif;
+   highversion := file_search("");
+   highversion := file_search(
+                  file_parse(filename,"","",DEVICE,DIRECTORY,NAME,TYPE),
+                  "","",VERSION);
+ endif;
+
+ status := flist_define_logical("EDIT_NEW_DEFAULT",set(default_directory,""));
+ if not status then
+   message("Error. Cannot set logical name..."); return;
+ endif;
+ attach(the_process);
+
+ if file_flag then
+   if file_parse("EDIT_NEW_FILE:","","",NAME) <> "" then
+     status := flist_deassign_logical("EDIT_NEW_FILE"); ! Override old file
+   endif;
+   result := file_search("");
+   result := file_search(file_parse(filename,"","",DEVICE,DIRECTORY,NAME,TYPE));
+   if result <> "" then !Insert higher version number file only
+     if int(substr(file_parse(result,"","",VERSION),2)) >
+        int(substr(highversion,2)) then
+       flist_insert_filename (file_parse(result,"","",NAME,TYPE,VERSION));
+       if current_window = view_window then
+         flist_reload_view(result);
+       endif;
+     endif;
+   endif;
+ endif;
+endprocedure;
+
+
+
+procedure flist_null
+endprocedure;
+
+procedure flist$undefined_key(the_key);
+ local the_string;
+ the_string := flist$key_name(the_key,FALSE);
+ message("Key "+the_string+" is not defined. Use PF2 to list key definitions");
+endprocedure;
+
+Procedure flist_reload_view(load_file)
+ Local found;
+
+! This assumes that we are already in view
+  found := file_search("");
+  found := file_search(file_parse(load_file,"","",DEVICE,DIRECTORY,NAME,TYPE),
+                       "","",DEVICE,DIRECTORY,NAME,TYPE,VERSION);
+  if found = "" then return; endif;
+  set(modifiable,view_buffer,ON);
+  erase (view_buffer);
+  message ("Reading file " + found);
+  read_file (found);
+  position (buffer_begin);
+  set(modifiable,view_buffer,OFF);
+  flist$current_file := file_parse(found,"","",NAME,TYPE,VERSION);
+  flist_set_status_line(1);
+
+EndProcedure;
+
+Procedure flist_exit
+! Go back to original default if FLIST$RESET_DIRECTORY is true
+  if FLIST$RESET_DIRECTORY then
+    set(default_directory,global_original_default_directory);
+    message('Default directory: '+orig_dev+orig_dir);
+  endif;
+  message('Default directory: '+file_parse("*.*","","",DEVICE,DIRECTORY));
+  quit;
+EndProcedure;
+
+
+!  FLIST_SHIFT_WINDOW
+!  Shift screen left or right (# of columns passed in)
+!  Parameters:
+!		+ - shift right
+!		- - shift left
+!		0 - shift left until no longer shifted
+Procedure flist_shift_window (amount)
+Local	cur_amount;
+
+    cur_amount := get_info(current_window, "shift_amount");
+    if (cur_amount = 0) AND (amount < 0) then
+	message("Window is not shifted");
+	return;
+    endif;
+
+    if (amount = 0) OR (amount < -cur_amount) then
+	shift (current_window, -cur_amount);
+	flist_set_status_line(1);
+	message("Window is no longer shifted");
+	return;
+    endif;
+
+    position(line_begin);					!HG2-1-001
+    shift (current_window, amount);
+    position(line_begin);					!HG2-1-001
+    flist_set_status_line(1);
+
+EndProcedure;	! flist_shift_window
+
+Procedure flist_inquire_shift
+Local	want_shift
+	;
+
+on_error;
+   message("Must specify a valid integer specifying the amount to shift");
+   abort;
+endon_error;
+
+  want_shift := flist_ask ("Shift to what column? ",128);
+  if want_shift = "" then message("Window not shifted"); return; endif;
+  want_shift := int(want_shift);
+  if want_shift < 0 then message("Bad column number"); return; endif;
+  want_shift := want_shift - get_info(current_window,"shift_amount") - 1;
+  if want_shift = 0 then
+      message(fao("Already shifted to column !UL",want_shift+1)); return;
+  endif;
+  flist_shift_window (want_shift);
+
+EndProcedure;		! flist_inquire_shift
+
+! FLIST_DISPLAY_MESSAGES
+!
+! Maps the messages buffer to the screen (creating the window if necessary)
+!
+Procedure flist_display_messages
+
+   if get_info(full_message_window,"TYPE") <> WINDOW then
+	! Create a full-size message window to display all messages
+	full_message_window := create_window (1,
+		get_info(SCREEN,"visible_length")-2, ON);
+   endif;
+
+   map(full_message_window, message_buffer);
+   set (status_line, full_message_window, REVERSE,
+		"FLIST messages (press <RETURN> to exit)");
+
+
+EndProcedure;		! flist_display_messages
+
+
+!
+!  FLIST$PARSE_RC_NAME
+!
+!	This routine parses names for flist_rename and flist_copy.
+!
+Procedure flist$parse_rc_name (filespec)
+Local	temp
+	,fnode
+	,fdev
+	,fdir
+	,fname
+	,fext
+	,fvers
+	;
+
+  if filespec = "" then return(""); endif;
+
+  temp  := file_parse (filespec, global_node+global_dev+global_dir+"*.*;");
+  if temp = "" then return(""); endif;
+  fnode := file_parse(temp,"","",NODE);
+  if fnode <> "" then
+	message("Node specifications are not allowed");
+	return("");
+  endif;
+  fdev  := file_parse(temp,"","",DEVICE);
+  fdir  := file_parse(temp,"","",DIRECTORY);
+  fname := file_parse(temp,"","",NAME);
+  fext  := file_parse(temp,"","",TYPE);
+  fvers := file_parse(temp,"","",VERSION);
+  !
+  ! Barf if a "%" is given.  It'd be nice to allow it, but I don't feel like
+  ! doing it yet.
+  !
+  if (index(fname,"%") <> 0) OR (index(fext,"%") <> 0) then
+	message("Wildcard % is not supported");
+	return("");
+  endif;
+
+  !
+  ! Barf if a version number is given
+  !
+  if (fvers = ";*") then
+	fvers := "";
+!  else
+!     if (fvers <> ";") then
+!	message("Specific version numbers are not supported");
+!	return("");
+!     endif;
+  endif;
+
+  !
+  ! Barf if a "*" is used with other characters.
+  !
+  if fname = "*" then
+	fname := "";
+  else
+     if (index(fname,"*") <> 0) then
+	message("Invalid use of wildcard; specify * only");
+	return("");
+     endif;
+  endif;
+  if fext = ".*" then
+	fext := "";
+  else
+     if (index(fext,"*") <> 0) then
+	message("Invalid use of wildcard; specify * only");
+	return("");
+     endif;
+  endif;
+
+  !
+  !  Now extract the final file name.  This should be one of the following:
+  !
+  !	[directory]	*.*	file.*	*.ext	file.ext;
+  !
+  return (fdev+fdir+fname+fext+fvers);
+
+EndProcedure;		! flist$parse_rc_name
+
+
+Procedure flist_define_logical (logical, equivstr)
+Local	temp
+	;
+   temp := ascii(length(logical)) + logical +
+	   ascii(length(equivstr)) + equivstr;
+   temp := call_user(flist$c_cu_deflnm, temp);
+
+   if temp <> "" then
+	message(temp);
+	return(FALSE);
+   endif;
+   return (TRUE);
+
+EndProcedure;		! flist_define_logical
+
+
+Procedure flist_deassign_logical (logical)
+Local	temp
+	;
+
+   temp := call_user(flist$c_cu_dealnm, logical);
+
+   if temp <> "" then
+	message(temp);
+	return(FALSE);
+   endif;
+   return (TRUE);
+
+EndProcedure;		! flist_deassign_logical
+
+
+Procedure flist_translate_logical (logical)
+Local	retstr;
+
+  retstr := call_user(flist$c_cu_trnlnm, logical);
+  if substr(retstr,1,18) = "%SYSTEM-F-NOLOGNAM" then
+	return("");
+  else
+	return(retstr);
+  endif;
+
+EndProcedure;		! flist_translate_logical
+
+
+Procedure flist_tag_all
+Local	this_position
+	;
+
+  if not flist_confirm ("Tag all files?", flist$action_default,
+			"Files not tagged", "NONE") then
+	return;
+  endif;
+
+this_position := mark(free_cursor);
+position(beginning_of(current_buffer));
+loop
+  exitif (mark(free_cursor) = end_of(current_buffer));
+  if substr(current_line, 1, 1) <> "*" then
+	flist_tag(TRUE);
+  else
+	move_vertical(1);
+  endif;
+
+endloop;
+position(this_position);
+message("All files tagged");
+
+EndProcedure;		! flist_tag_all
+
+Procedure flist_untag_all
+Local	this_position
+	,pat1
+	,found
+	;
+
+on_error
+endon_error;
+
+  if flist_check_tag = 0 then
+	message("No files are tagged");
+	return;
+  endif;
+  if not flist_confirm ("Untag all tagged files?", flist$action_default,
+			"Files not Untagged", "NONE") then
+	return;
+  endif;
+
+pat1 := line_begin & "*";
+this_position := mark(free_cursor);
+position(beginning_of(current_buffer));
+loop
+  found := search_quietly (pat1, forward);
+  exitif found = 0;
+  position (found);
+  flist_untag(TRUE);
+endloop;
+position(this_position);
+
+message("All tagged files have been untagged");
+
+EndProcedure;		! flist_untag_all
+
+Procedure flist$execute_init
+Local	init_buffer
+	,init_file
+	;
+
+  init_file := file_search ("");	        !Initialize search
+  init_file := file_search ("FLIST_INIT");	!Look for FLIST_INIT
+  if init_file = "" then			!If no file is found,
+     return;					!... just return
+  endif;					!...
+
+  message(fao("Executing FLIST initialization file: !AS", init_file));
+
+!!! set (informational, off) doesn't prevent messages from create_buffer and
+!!! execute.  Why not?
+
+  set (informational, OFF);			!Don't print messages
+  init_buffer := create_buffer ("$INIT$", init_file);	!Create buffer w/ file
+  execute(init_buffer);				!Execute the buffer
+  set (informational, ON);			!Print info messages again
+
+  delete(init_buffer);				!Now delete the buffer
+
+EndProcedure;		! flist$execute_init
+
+
+Procedure tpu$init_procedure
+Local	temp
+	,temp2
+	,i
+	,pagesize
+	;
+
+   on_error
+   endon_error;
+
+   pagesize := get_info (SCREEN, "visible_length");	!Get terminal's pagesize
+   if pagesize < 12 then
+	message ("Screen page size is not large enough for FLIST - use ^Y to abort");
+	quit;
+   endif;
+
+!/*
+!Create buffers and windows for TREE
+   flist$tree_buffer := create_buffer ("Tree Buffer");
+   set (key_map_list, "FLIST$TREE_KEY_MAP_LIST", flist$tree_buffer);
+   set (self_insert, "FLIST$TREE_KEY_MAP_LIST", off);
+   set (post_key_procedure, "FLIST$TREE_KEY_MAP_LIST",
+        "FLIST$TREE_POST_KEY_PROCEDURE");
+   set (no_write, flist$tree_buffer);
+   set (system, flist$tree_buffer);
+   set (eob_text, flist$tree_buffer, "");
+   set (permanent, flist$tree_buffer);
+   tree_window := create_window (3, pagesize-4, ON);
+   flist$reftree_buffer := create_buffer ("REFTREE Buffer");
+   set (no_write, flist$reftree_buffer);
+   set (system, flist$reftree_buffer);
+   set (eob_text, flist$reftree_buffer, "");
+   set (permanent, flist$reftree_buffer);
+   reftree_window := create_window (1, 2, ON);
+!*/
+
+!Create a buffer and window for messages
+   message_buffer := create_buffer ("Message Buffer");
+   set (no_write, message_buffer);
+   set (system, message_buffer);
+   set (eob_text, message_buffer, "");
+   set (permanent, message_buffer);
+   message_window := create_window (pagesize, 1, OFF);
+   map (message_window, message_buffer);
+   set (key_map_list, "FLIST$MESSAGES_KEY_MAP_LIST", message_buffer);
+   set (self_insert,  "FLIST$MESSAGES_KEY_MAP_LIST", OFF);	!Don't insert chars
+
+!Create a buffer and window for SHOW
+   show_buffer := create_buffer ("Show Buffer");
+   set (no_write, show_buffer);
+   set (system, show_buffer);
+   set (permanent, show_buffer);
+   info_window := create_window (1, pagesize-2, ON);
+
+   prompt_buffer := create_buffer ("Prompt Buffer");
+   set (no_write, prompt_buffer);
+   set (system, prompt_buffer);
+   set (permanent, prompt_buffer);
+   prompt_window := create_window (pagesize-1, 1, OFF);
+
+! Initialize global variables
+	flist_file_count := 0;
+	saved_file_count := -1;
+	flist_dir_count := 0;
+	saved_dir_count := -1;
+	flist_search_string := "";
+
+
+   set (bell, broadcast, on);
+   set (mouse, off);
+   flist$mouse := OFF;                  ! /* Peter Galbraith Add-on */
+   flist$scroll := ON;                  ! /* Peter Galbraith Add-on */
+   flist$status := OFF;                 ! /* Peter Galbraith Add-on */
+   flist$reset_directory := TRUE;       ! /* Peter Galbraith Add-on */
+   flist$position_buffer := "FLIST";
+   flist$action_default := FALSE;
+   flist$no_view_files :=
+	"/.BCK/.ZIP/.TAR-GZ/.OBJ/.EXE/.TLB/.MLB/.OLB/.TPU$SECTION/.DVI/.TAR/.GIF/.JPG/.TIFF/.XLS/";
+   flist$lock_filelist := OFF;
+   flist$dirtree_array_size := 200;	!Array size in flist_tree
+   flist$reset_on_purge := TRUE;	!Reset file to ;1
+   flist$sort_by_types := OFF;		!Sort files by type
+   flist$default_editor := "EVE";	!Default editor is EVE	HG2-1-001
+
+   flist$execute_init;					!Initialization file
+
+   if flist$lock_filelist = ON then                     !If user enabled lock
+      flist$lock_filelist := OFF;                        !... reset and
+      flist_lock_filelist;                              !... toggle the setting
+   endif;
+
+   if flist$mouse = ON then				!If user enabled mouse
+	set(mouse, ON);              			!... toggle the setting
+   endif;
+
+   change_case(flist$default_editor, UPPER);
+   if flist$default_editor = "EVE" then
+	flist$alternate_editor := "EDT";
+   else
+      if flist$default_editor = "EDT" then
+	flist$alternate_editor := "EVE";
+      else
+	message("Invalid editor, setting default to EVE");
+	flist$default_editor := "EVE";
+	flist$alternate_editor := "EDT";
+      endif;
+   endif;
+
+! Create a buffer for viewing files
+
+   view_buffer := create_buffer ("View Buffer");
+   set (no_write, view_buffer);
+   set (system, view_buffer);
+   set (permanent, view_buffer);
+   set (eob_text, view_buffer, "[End of VIEW buffer]");
+! /* Modified by Peter Galbraith -- give it its own KML
+   set (key_map_list, "FLIST$VIEW_KEY_MAP_LIST", view_buffer);
+! end of modification */
+   set (self_insert,  "FLIST$VIEW_KEY_MAP_LIST", OFF);	!Don't insert chars
+   view_window := create_window (1, pagesize-2, ON);
+
+! Create a buffer and window for the .DIR entries
+    dir_buffer := create_buffer ("DIR FLIST");
+    set (no_write, dir_buffer);
+    set (system, dir_buffer);
+    set (overstrike, dir_buffer);
+    set (permanent, dir_buffer);
+    set (eob_text, dir_buffer, "[End of DIR FLIST buffer]");
+! /* Modified by Peter Galbraith
+    if get_info(flist$dir_window_size, "TYPE") <> INTEGER then
+	if pagesize > 30 then
+	  flist$dir_window_size := pagesize/5;
+	else
+	  flist$dir_window_size := 5;
+	endif;
+    else
+	i := (((pagesize-2)/2)-2);
+	if i < flist$dir_window_size then
+	    flist$dir_window_size := i;
+	endif;
+    endif;
+    flist$orig_dir_window_size := flist$dir_window_size;
+    dir_window := create_window (1, flist$dir_window_size, ON);
+    set (key_map_list, "FLIST$DIR_KEY_MAP_LIST", dir_buffer);
+    set (self_insert,  "FLIST$DIR_KEY_MAP_LIST", off);
+! end of modification */
+    map (dir_window, dir_buffer);
+
+! Create a buffer and window for editing
+    flist_buf := create_buffer ("FLIST");
+    set (no_write, flist_buf);
+    set (system, flist_buf);
+    set (permanent, flist_buf);
+    set (overstrike, flist_buf);
+    set (eob_text, flist_buf, "[End of FLIST buffer]");
+! /* Modified by Peter Galbraith
+    main_window := create_window (flist$dir_window_size+1,
+				  pagesize-flist$dir_window_size-2, ON);
+    set (key_map_list, "FLIST$MAIN_KEY_MAP_LIST", flist_buf);
+    set (self_insert,  "FLIST$MAIN_KEY_MAP_LIST", off);
+! end of modification */
+    map (main_window, flist_buf);
+
+    set (facility_name, "FLIST");
+    set (prompt_area, pagesize-1, 1, BOLD);
+
+    position (flist_buf);
+
+! Set up global ASCII string used in string comparisons
+
+    asciis := ""; i := 0; loop; exitif i = 256; asciis := asciis + ASCII(i);
+     i := i + 1; endloop;
+
+    flist_find_last_pos := 0;
+
+    !Build a string of spaces to use for padding the status line.
+    flist_spaces := ""; i := 0; loop; exitif i = 81;
+	flist_spaces := flist_spaces + ASCII(32); i := i + 1; endloop;
+
+    temp := file_search ("*.*;");			! Make a quick search
+    orig_dev := file_parse (temp, "", "", DEVICE);	! ... for file to get
+    orig_dir := file_parse (temp, "", "", DIRECTORY);	! ... original dev & dir
+
+    temp2 := get_info (command_line, "file_name");	!See if file name
+    if temp2 = "" then					!... was given
+	temp2 := "*.*;*"				!If not, use *.*;*
+    endif;
+    temp2 := file_parse (temp2, "*.*;*");		!Parse the given spec
+
+    global_original_default_directory := get_info(SYSTEM,"default_directory");
+
+    flist$first_time := TRUE;
+    flist_main (temp2);					!Call main routine
+    flist$first_time := FALSE;
+
+    if flist$position_buffer = "DIR" then
+	flist_other_window;
+    endif;
+    message("Welcome to FLIST "+flist$c_sw_version+
+	".  Press PF2 or ? for key definitions");
+
+EndProcedure;		!TPU$INIT_PROCEDURE
+
+
+!===============================================================================
+
+flist$x_flist_main_keys := create_key_map ("FLIST$FLIST_MAIN_KEYS");
+flist$x_flist_dir_keys := create_key_map ("FLIST$FLIST_DIR_KEYS");
+flist$x_flist_keys := create_key_map ("FLIST$FLIST_KEYS");
+flist$x_view_keys := create_key_map ("FLIST$VIEW_KEYS");
+flist$x_help_keys := create_key_map ("FLIST$HELP_KEYS");
+flist$x_messages_keys := create_key_map ("FLIST$MESSAGES_KEYS");
+!/* Peter Galbraith ADD-ON
+flist$x_userview_keys := create_key_map ("FLIST$USERVIEW_KEYS");
+flist$x_usermain_keys := create_key_map ("FLIST$USERMAIN_KEYS");
+flist$x_usertree_keys := create_key_map ("FLIST$USERTREE_KEYS");
+flist$x_user_keys     := create_key_map ("FLIST$USER_KEYS");
+flist$x_tree_keys     := create_key_map ("FLIST$TREE_KEYS");
+! End of ADD-ON */
+
+!=======  Define keys for Key Map FLIST$TREE_KEYS  **Peter Galbraith Add-on
+
+ define_key("unmap(tree_window);unmap(reftree_window);flist_set_status_line(0);"
+           ,RET_KEY,"Exit Tree",flist$x_tree_keys);
+  define_key ("flist_tree",key_name("T",SHIFT_KEY),"Renew Tree",
+               flist$x_tree_keys);
+  define_key ("flist_tree_position_default",key_name("l"),
+              "Locate default directory",flist$x_tree_keys);
+  define_key ("flist_tree_position_default",key_name("L"),
+              "Locate default directory",flist$x_tree_keys);
+  define_key ("flist_tree_select",key_name("V"),
+              "Select directory",flist$x_tree_keys);
+  define_key ("flist_tree_select",key_name("v"),
+              "Select directory",flist$x_tree_keys);
+  Define_key ("FLIST_MOUSE_SELECT_LINE", M2DOWN,"Select",flist$x_tree_keys);
+  Define_key ("FLIST_MOUSE_PROCESS_LINE", M2UP,"Pop to selected Directory",
+               flist$x_tree_keys);
+
+!=======  Define keys for Key Map FLIST$MESSAGES_KEYS
+
+  Define_key ("unmap(full_message_window)", RET_KEY, "Exit MESSAGES",
+		flist$x_messages_keys);
+
+!=======  Define keys for Key Map FLIST$HELP_KEYS  **Peter Galbraith Add-on
+
+  Define_key ("flist_remove_help_keys", RET_KEY, "Exit HELP",flist$x_help_keys);
+
+!=======  Define keys for Key Map FLIST$VIEW_KEYS
+
+   define_key ("if get_info(current_window,'width') = 80 then" +
+		  " set (width, current_window, 132); else "+
+		  "set (width, current_window, 80); endif;"+
+		  "flist_set_status_line(1);",
+		key_name ('w'), "Toggle Width",
+		flist$x_view_keys);
+
+  Define_Key ("flist_inquire_shift", key_name ("C"),
+		"Shift to specified column", flist$x_view_keys);
+  Define_Key ("flist_kept_editor(true)", key_name("K"),
+		"Kept editor with this file", flist$x_view_keys);
+  Define_Key ("flist_kept_editor(true)", key_name("k"),
+		"Kept editor with this file", flist$x_view_keys);
+  Define_Key ("flist_pop", key_name("V"),
+		"Exit to FLIST Directory", flist$x_view_keys);
+  Define_Key ("flist_pop", key_name("v"),
+		"Exit to FLIST Directory", flist$x_view_keys);
+  Define_key ("flist_pop", M2DOWN,"Exit to FLIST Directory",flist$x_view_keys);
+  Define_key ("flist_null", M2UP,"",flist$x_view_keys);
+  Define_key ("flist_kept_editor(true)", M3UP,"Kept editor with this file",
+               flist$x_view_keys);
+  Define_key ("flist_null", M3DOWN,"",flist$x_view_keys);
+  Define_Key ("flist_pop", KP3, "Exit to FLIST Directory",
+		flist$x_view_keys);
+  Define_Key ("flist_shift_window(-(get_info(screen,'width')/2))",
+		key_name(left, shift_key), "Shift left half a screen",
+		flist$x_view_keys);
+  Define_Key ("flist_shift_window(get_info(screen,'width')/2)",
+		key_name(right, shift_key), "Shift right half a screen",
+		flist$x_view_keys);
+  Define_Key ("flist_pop", ret_key, "return to directory",
+		flist$x_view_keys);
+  Define_Key ("flist_reload(0)", key_name("R"),
+		"Reload currently viewed file", flist$x_view_keys);
+  Define_Key ("flist_reload(0)", key_name("r"),
+		"Reload currently viewed file", flist$x_view_keys);
+  Define_Key ("flist_reload(1)", key_name("U"),
+		"Reload currently viewed file (end)", flist$x_view_keys);
+  Define_Key ("flist_reload(1)", key_name("u"),
+		"Reload currently viewed file (end)", flist$x_view_keys);
+
+  Define_Key ("flist_shift_window(-1)", left, "Shift left", flist$x_view_keys);
+  Define_Key ("flist_shift_window(1)", right, "Shift right", flist$x_view_keys);
+
+!  define_key("flist_view_exit",ctrl_z_key,"exit", flist$x_view_keys);
+
+!=======  Define keys for Key Map FLIST$FLIST_KEYS (always defined)
+!/* Added by Peter Galbraith
+  Define_Key ("flist_help_keys", PF2,"HELP Keys",
+	       flist$x_flist_keys);
+  Define_Key ("flist_help_keys", key_name("?"),"HELP Keys",
+	       flist$x_flist_keys);
+  Define_key ("flist_mouse", M1DOWN,"",flist$x_flist_keys);
+  Define_key ("flist_null", M1UP,"",flist$x_flist_keys);
+  Define_Key ("flist_kept_editor(false)", key_name("K",SHIFT_KEY),
+		"Kept editor w/o file", flist$x_flist_keys);
+  Define_Key ("flist_toggle_mouse", key_name("m"),
+		"Toggle Mouse On/Off", flist$x_flist_keys);
+  Define_Key ("flist_toggle_mouse", key_name("M"),
+		"Toggle Mouse On/Off", flist$x_flist_keys);
+  Define_Key ("flist_toggle_status", key_name("S",SHIFT_KEY),
+		"Toggle Status Line Mouse Control On/Off", flist$x_flist_keys);
+! End of add-on*/
+  Define_Key ("flist_display_messages",	key_name("M", shift_key),
+		"Display messages buffer", flist$x_flist_keys);
+  Define_Key ("position(buffer_begin)", key_name("A"),
+		"Top of Buffer", flist$x_flist_keys);
+  Define_Key ("flist_bottom_of_buffer", key_name("Z"),
+		"Bottom of Buffer", flist$x_flist_keys);
+  Define_Key ("position(buffer_begin)", key_name("a"),
+		"Top of Buffer", flist$x_flist_keys);
+  Define_Key ("flist_bottom_of_buffer", key_name("z"),
+		"Bottom of Buffer", flist$x_flist_keys);
+  Define_Key ("refresh; message('');", ctrl_w_key, "Refresh Screen", flist$x_flist_keys);
+ !
+ ! Added by Chris Pierce.
+ ! Purpose:
+ !	   Define GOLD-L as Flist_What_Line.
+ !	   Define CTRL-L as Flist_Go_To_Line.
+ !
+  Define_Key ("flist_what_line", key_name("L",SHIFT_KEY),
+                "What Line", flist$x_flist_keys);
+  Define_Key ("flist_go_to_line", ctrl_l_key, "Go to Line",
+		flist$x_flist_keys);
+ !
+ ! End by CP.
+ !
+ !/* Change move_vertical to flist_move_vertical
+  Define_Key ("Flist_move_vertical(-1)", left, "Move Up", flist$x_flist_keys);
+  Define_Key ("Flist_move_vertical(1)", right, "Move Down", flist$x_flist_keys);
+  Define_Key ("Flist_move_vertical(-1)", Up, "Move Up", flist$x_flist_keys);
+  Define_Key ("flist_move_vertical(1)", Down, "Move Down", flist$x_flist_keys);
+  Define_Key ("if current_direction = forward then " +
+	 " flist_move_vertical(1) else flist_move_vertical(-1) endif",
+	 KP0, "Move By Line", flist$x_flist_keys);
+  ! End of  change */
+  Define_Key ("flist_direction('f')",KP4, "Forward", flist$x_flist_keys);
+  Define_Key ("flist_direction('r')",KP5, "Reverse", flist$x_flist_keys);
+
+  Define_Key ("flist_page", KP7, "Move by page", flist$x_flist_keys);
+
+  Define_Key ("flist_screen_current_direction",KP8,
+               "Move By Screen in current direction",flist$x_flist_keys);
+  Define_Key ("flist_screen_opposite_direction",key_name(KP8,SHIFT_KEY),
+              "Move By Screen in opposite direction", flist$x_flist_keys);
+  Define_Key ("flist_bottom_of_buffer", key_name(KP4, shift_key),
+	 "Bottom of Buffer", flist$x_flist_keys);
+  Define_Key ("position(buffer_begin)", key_name(KP5,shift_key),
+	 "Top of Buffer", flist$x_flist_keys);
+  Define_Key ("flist_view", ret_key, "View a file or directory",
+		flist$x_flist_keys);
+  Define_Key ("flist_find('')", key_name (pf3, shift_key), "FLIST Find",
+		flist$x_flist_keys);
+  Define_Key ("flist_find(flist_search_string)", pf3, "FLIST Find Next",
+		flist$x_flist_keys);
+  Define_Key ("flist_exit",CTRL_Z_KEY,"Exit",flist$x_flist_keys);
+
+  Define_Key ("flist_bottom_of_buffer", key_name (down, shift_key),
+		"Bottom of Buffer", flist$x_flist_keys);
+  Define_Key ("position(buffer_begin)", key_name (up,shift_key),
+		"Top of Buffer", flist$x_flist_keys);
+  Define_Key ("flist_find('')", e1, "FLIST Find", flist$x_flist_keys);
+  Define_Key ("flist_section(-1)", e5, "Previous Screen", flist$x_flist_keys);
+  Define_Key ("flist_section(1)", e6, "Next Screen", flist$x_flist_keys);
+  Define_Key ("flist_key_help", key_name("h", shift_key),
+		"Key Help", flist$x_flist_keys);
+  Define_Key ("flist_line_help", key_name("h"),
+		"Help Line", flist$x_flist_keys);
+  Define_Key ("flist_line_help", key_name("H"),
+		"Help Line", flist$x_flist_keys);
+  Define_Key ("flist_spawn", key_name("s"),
+		"Spawn a Subprocess", flist$x_flist_keys);
+  Define_Key ("flist_spawn", key_name("S"),
+		"Spawn a Subprocess", flist$x_flist_keys);
+  Define_Key ("flist_toggle_scroll", key_name("W",SHIFT_KEY),
+		"Toggle Scroll/Repaint for Move By Screen",
+                 flist$x_flist_keys);
+
+!=======  Define keys for Key Map FLIST$FLIST_MAIN_KEYS (dir & main buffer)
+
+  Define_Key ("flist_copy", key_name("C"),
+		"Copy File", flist$x_flist_main_keys);
+  Define_Key ("flist_copy", key_name("c"),
+		"Copy File", flist$x_flist_main_keys);
+  Define_Key ("flist_other_window", key_name("O"),
+		"Move to DIR window", flist$x_flist_main_keys);
+  Define_Key ("flist_other_window", key_name("o"),
+		"Move to DIR window", flist$x_flist_main_keys);
+  Define_Key ("flist_purge", key_name("P"),
+		"Purge File", flist$x_flist_main_keys);
+  Define_Key ("flist_purge", key_name("p"),
+		"Purge File", flist$x_flist_main_keys);
+  Define_Key ("flist_main(flist$specification)", key_name("R", shift_key),
+		"Rescan directory for new files", flist$x_flist_main_keys);
+  Define_Key ("flist_edit('default')", key_name("E"),
+		"Edit file with default editor",
+		flist$x_flist_main_keys);
+  Define_Key ("flist_edit('default')", key_name("e"),
+		"Edit file with default editor",
+		flist$x_flist_main_keys);
+  Define_Key ("flist_edit('alternate')", key_name("e", shift_key),
+		"Edit file with alternate editor",
+		flist$x_flist_main_keys);
+  Define_Key ("flist_run", key_name("$"),
+ 	"RUN Image", flist$x_flist_main_keys);
+  Define_Key ("flist_com", key_name("@"),
+		"Execute DCL Command Procedure", flist$x_flist_main_keys);
+
+!=======  Define keys for Key Map FLIST$FLIST_DIR_KEYS (dir & main buffer)
+  Define_Key ("flist_dispatch_tree", key_name("T",SHIFT_KEY),
+		"Directory Tree", flist$x_flist_dir_keys);
+  Define_key ("FLIST_MOUSE_SELECT_LINE",M2DOWN,"Select",
+               flist$x_flist_dir_keys);
+  Define_key ("FLIST_MOUSE_PROCESS_LINE", M2UP,"View selected file/directory",
+               flist$x_flist_dir_keys);
+  Define_key ("FLIST_MOUSE_SELECT_LINE",M3DOWN,"Select",
+               flist$x_flist_dir_keys);
+  Define_key ("FLIST_MOUSE_KEPT_EDITOR", M3UP,"Kept Editor on selected file",
+               flist$x_flist_dir_keys);
+  Define_key ("flist_adjust_window(1)", key_name("+"),
+		"Bigger Directory Window", flist$x_flist_dir_keys);
+  Define_key ("flist_adjust_window(1)",COMMA,
+		"Bigger Directory Window", flist$x_flist_dir_keys);
+  Define_key ("flist_adjust_window(-1)", key_name("-"),
+		"Smaller Directory Window",flist$x_flist_dir_keys);
+  Define_key ("flist_adjust_window(-1)", MINUS,
+		"Smaller Directory Window",flist$x_flist_dir_keys);
+  Define_Key ("flist_pop", KP3, "Pop to next higher directory",
+		flist$x_flist_dir_keys);
+  Define_Key ("flist_call_cd", key_name("C",SHIFT_KEY),
+		"CD Directory Changer", flist$x_flist_dir_keys);
+  Define_Key ("flist_delete", key_name("D"),
+		"Delete File(s)", flist$x_flist_dir_keys);
+  Define_Key ("flist_delete", key_name("d"),
+		"Delete File(s)", flist$x_flist_dir_keys);
+  Define_Key ("flist_kept_editor(true)", key_name("K"),
+		"Kept editor with this file", flist$x_flist_dir_keys);
+  Define_Key ("flist_kept_editor(true)", key_name("k"),
+		"Kept editor with this file", flist$x_flist_dir_keys);
+  Define_Key ("flist_lock_filelist", key_name("L",SHIFT_KEY),
+		"Lock file listing for fast directory navigating",
+                flist$x_flist_dir_keys);
+  Define_Key ("flist_other_window", key_name("O"),
+		"Move to FILE window", flist$x_flist_dir_keys);
+  Define_Key ("flist_other_window", key_name("o"),
+		"Move to FILE window", flist$x_flist_dir_keys);
+  Define_Key ("flist_rename", key_name("R"),
+		"Rename File", flist$x_flist_dir_keys);
+  Define_Key ("flist_rename", key_name("r"),
+		"Rename File", flist$x_flist_dir_keys);
+  Define_Key ("flist_view", key_name("V"),
+	       	"View File", flist$x_flist_dir_keys);
+  Define_Key ("flist_view", KP2,
+		"View File", flist$x_flist_dir_keys);
+  Define_Key ("flist_view", key_name("v"),
+		"View File", flist$x_flist_dir_keys);
+  Define_Key ("flist_wild", key_name("W"),
+		"New Directory Specification", flist$x_flist_dir_keys);
+  Define_Key ("flist_wild", key_name("w"),
+		"New Directory Specification", flist$x_flist_dir_keys);
+
+  Define_Key ("flist_tag_all", key_name("*"),
+		"Tag All Files", flist$x_flist_dir_keys);
+  Define_Key ("flist_untag_all", key_name("*", shift_key),
+		"Untag All Files", flist$x_flist_dir_keys);
+!  Define 8 and GOLD\8 as tag/untag too (saves from having to SHIFT)
+  Define_Key ("flist_tag_all", key_name("8"),
+		"Tag All Files", flist$x_flist_dir_keys);
+  Define_Key ("flist_untag_all", key_name("8", shift_key),
+		"Untag All Files", flist$x_flist_dir_keys);
+  Define_Key ("flist_tag", key_name("T"),
+		"Tag File", flist$x_flist_dir_keys);
+  Define_Key ("flist_tag", key_name("t"),
+		"Tag File", flist$x_flist_dir_keys);
+  Define_Key ("flist_untag", key_name("U"),
+		"Untag File", flist$x_flist_dir_keys);
+  Define_Key ("flist_untag", key_name("u"),
+		"Untag File", flist$x_flist_dir_keys);
+
+!/*Modified by Peter Galbraith -- Much easier to deal with many KMLs each
+! associated with a specific buffer or more
+create_key_map_list ("FLIST$VIEW_KEY_MAP_LIST",
+		     flist$x_userview_keys,
+                     flist$x_user_keys,
+		     flist$x_view_keys,
+		     flist$x_flist_keys);
+create_key_map_list ("FLIST$MAIN_KEY_MAP_LIST",
+		     flist$x_usermain_keys,
+                     flist$x_user_keys,
+		     flist$x_flist_main_keys,
+		     flist$x_flist_dir_keys,
+		     flist$x_flist_keys);
+create_key_map_list ("FLIST$DIR_KEY_MAP_LIST",
+		     flist$x_usermain_keys,
+                     flist$x_user_keys,
+		     flist$x_flist_dir_keys,
+		     flist$x_flist_keys);
+create_key_map_list ("FLIST$HELP_KEY_MAP_LIST",
+                     flist$x_user_keys,
+		     flist$x_help_keys,
+		     flist$x_flist_keys);
+
+!/*Peter Galbraith Add-on -- kml for directory TREE
+create_key_map_list ("FLIST$TREE_KEY_MAP_LIST",
+                     flist$x_usertree_keys,
+                     flist$x_user_keys,
+                     flist$x_tree_keys, flist$x_flist_keys);
+!*/
+
+! End of modification */
+create_key_map_list ("FLIST$MESSAGES_KEY_MAP_LIST",
+                     flist$x_user_keys,
+		     flist$x_messages_keys,
+		     flist$x_flist_keys);
+
+!/* Peter Galbraith ADD-ON
+ set(undefined_key, "FLIST$TREE_KEY_MAP_LIST",
+     "flist$undefined_key(last_key)");
+ set(undefined_key, "FLIST$VIEW_KEY_MAP_LIST",
+     "flist$undefined_key(last_key)");
+ set(undefined_key, "FLIST$MAIN_KEY_MAP_LIST",
+     "flist$undefined_key(last_key)");
+ set(undefined_key, "FLIST$DIR_KEY_MAP_LIST",
+     "flist$undefined_key(last_key)");
+ set(undefined_key, "FLIST$HELP_KEY_MAP_LIST",
+     "flist$undefined_key(last_key)");
+ set(undefined_key, "FLIST$MESSAGES_KEY_MAP_LIST",
+     "flist$undefined_key(last_key)");
+!End of ADD-ON */
+
+save("BINDIR:FLIST.TPU$SECTION");
+quit;

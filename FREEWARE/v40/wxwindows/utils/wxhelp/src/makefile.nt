@@ -1,0 +1,111 @@
+#
+# File:		makefile.nt
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxHelp (MS VC++).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+EXTRAINC=/I$(WXDIR)\utils\hytext\src
+EXTRALIBS=$(WXDIR)\utils\hytext\lib\hytext.lib
+DOCDIR=$(WXDIR)\docs
+LOCALDOCDIR=$(WXDIR)\utils\wxhelp\docs
+
+!include $(WXDIR)\src\ntwxwin.mak
+
+THISDIR = $(WXDIR)\utils\wxhelp
+PROGRAM=wxhelp
+ 
+OBJECTS = $(PROGRAM).obj
+
+$(PROGRAM):    $(PROGRAM).exe
+
+all:    wx $(PROGRAM).exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt FINAL=$(FINAL)
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt clean
+        cd $(THISDIR)
+
+$(PROGRAM).exe:      $(DUMMYOBJ) $(WXLIB) $(OBJECTS) $(PROGRAM).res
+	$(link) @<<
+-out:$(PROGRAM).exe
+$(LINKFLAGS)
+$(DUMMYOBJ) $(OBJECTS) $(PROGRAM).res
+$(LIBS)
+<<
+
+
+$(PROGRAM).obj:      $(PROGRAM).$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+$(PROGRAM).res :      $(PROGRAM).rc $(WXDIR)\include\msw\wx.rc
+    $(rc) -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -fo$@ $(PROGRAM).rc
+
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+
+DOCSOURCES=$(LOCALDOCDIR)\manual.tex
+
+html: $(DOCDIR)\html\wxhelp\help.htm
+hlp: $(DOCDIR)\winhelp\wxhelp.hlp
+ps: $(WXDIR)\docs\ps\wxhelp.ps
+
+$(DOCDIR)\winhelp\wxhelp.hlp:         $(LOCALDOCDIR)\wxhelp.rtf $(LOCALDOCDIR)\wxhelp.hpj
+        cd $(LOCALDOCDIR)
+        -erase wxhelp.ph
+        hc wxhelp
+        move wxhelp.hlp $(DOCDIR)\winhelp\wxhelp.hlp
+        move wxhelp.cnt $(DOCDIR)\winhelp\wxhelp.cnt
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\wxhelp.rtf: $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -start /w tex2rtf $(LOCALDOCDIR)\manual.tex $(LOCALDOCDIR)\wxhelp.rtf -twice -winhelp
+        cd $(THISDIR)
+
+$(DOCDIR)\html\wxhelp\help.htm:         $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -mkdir $(DOCDIR)\html\wxhelp
+        -start /w tex2rtf $(LOCALDOCDIR)\manual.tex $(DOCDIR)\html\wxhelp\help.htm -twice -html
+        -erase $(DOCDIR)\html\wxhelp\*.con
+        -erase $(DOCDIR)\html\wxhelp\*.ref
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\manual.dvi:	$(DOCSOURCES)
+	cd $(LOCALDOCDIR)
+        -latex manual
+        -latex manual
+        -makeindx manual
+        -bibtex manual
+        -latex manual
+        -latex manual
+        cd $(THISDIR)
+
+$(WXDIR)\docs\ps\wxhelp.ps:	$(LOCALDOCDIR)\manual.dvi
+	cd $(LOCALDOCDIR)
+        -dvips32 -o wxhelp.ps manual
+        move wxhelp.ps $(WXDIR)\docs\ps\wxhelp.ps
+        cd $(THISDIR)
+
+

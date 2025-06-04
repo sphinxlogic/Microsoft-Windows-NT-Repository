@@ -1,0 +1,3838 @@
+
+
+
+
+
+
+
+fab:	$fab	fac=<get,put,upd,del>,shr=<put,get,del,upd>
+rab:	$rab	usz=10000,rsz=10000,ubf=buffer,rbf=buffer,rac=key,-
+		ksz=4,kbf=uid,fab=fab
+
+
+buffer:	.blkb	10000
+
+
+
+
+
+	.library	/sys$login:peb/
+	.library	/sys$library:lib/
+	$prvdef
+	$Maildef
+	$hlpdef
+        $notesdef
+	$NOTESMSGDEF
+	NOTEITEMS
+	$ttdef
+ 	$tt2def
+	$brkdef
+	$Fscndef
+
+fpmt:	
+.ascid	/Command (Copy) > /
+
+
+cpmt:	.ascid	/Cli     Pmt > /
+
+
+
+
+; ---------------------------------------------------------------
+
+
+	.entry	Copy_uid,0
+
+
+
+	pushaq	op_msg_mast
+	calls	#1,g^lib$put_output
+
+
+
+; get the master conf name
+
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  Master
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+
+	movw	input,notes_open_i
+
+
+
+; should we treat this as being a notebook entry ?
+
+	pushaq	notebook
+	calls	#1,g^Cli$Present
+	blbs	r0,301$			; skip if NOnotebook
+	brw	300$
+301$:	nop
+
+
+	movl    #100,notebook_spec      
+	Pushaw  notebook_spec
+	pushaq  notebook_spec
+	pushaq  notebook
+	calls   #3,g^cli$get_value 
+	check	r0,error
+	movw	notebook_spec, notebook_in
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent,outbuf=out,outlen=out,-
+		p1=#Input
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+; open notebook (if its not open already!)
+
+        pushaw  null
+        pushaw  notebook_in
+        pushal  notebook_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+; begin
+
+	pushaw  null
+	pushaw	book_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_begin
+	check	r0,error
+
+; get the entry
+
+	movw	input, ent_in
+	movl	input+4, ent_in+4
+
+
+	pushaw	ent_out
+	pushaw	ent_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_get
+	check	r0,error
+
+
+	movl	entry_name_len, master_entry_len
+	movc3	entry_name_len, entry_name, master_entry
+
+
+	movl	Notefile_file_name_len, descr
+	movab	Notefile_file_name, descr+4
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent1,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	movl	Descr, Input
+	movc3	Input, @Descr+4, Input+8
+
+	movw	input,notes_open_i
+
+300$:	nop
+
+
+
+	movw	#full_default_name_len, def_l
+	movab	full_default_name, def_n
+
+
+
+        pushaw  notes_open_o
+        pushaw  notes_open_i
+        pushal  mast_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+
+	movl	max_uid_in_high_uid, maximum_uid
+
+
+
+        movl    result_spec_len,Descr
+        movab   result_spec,descr+4
+;       pushaq  descr
+;       calls   #1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_filn,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+	movl	title_len,Descr
+	movab	title,Descr+4
+;	pushaq	Descr
+;	calls	#1,g^lib$put_output
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_title,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+        movl    notice_len,Descr
+        movab   notice,descr+4
+;       pushaq  descr
+;       calls   #1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_notice,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+; --------------------------------------------------------------
+
+	pushaq	dlm
+	calls	#1,g^lib$put_output
+
+
+	pushaq	op_msg_shad
+	calls	#1,g^lib$put_output
+
+
+
+
+
+; get the shadow conf name
+
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  Shadow
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+	movw	input,notes_open_i
+
+; should we treat this as being a notebook entry ?
+
+	pushaq	notebook
+	calls	#1,g^Cli$Present
+	blbs	r0,1301$			; skip if NOnotebook
+	brw	1300$
+1301$:	nop
+
+
+	movl    #100,notebook_spec      
+	Pushaw  notebook_spec
+	pushaq  notebook_spec
+	pushaq  notebook
+	calls   #3,g^cli$get_value 
+	check	r0,error
+	movw	notebook_spec, notebook_in
+
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent,outbuf=out,outlen=out,-
+		p1=#Input
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	tstl	notebook_file_cont
+	bneq	557799$
+
+        pushaw  null
+        pushaw  notebook_in
+        pushal  notebook_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+; begin
+
+	pushaw  null
+	pushaw	book_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_begin
+	check	r0,error
+
+557799$:	nop
+
+; get the entry
+
+	movw	input, ent_in
+	movl	input+4, ent_in+4
+
+
+	pushaw	ent_out
+	pushaw	ent_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_get
+	check	r0,error
+
+
+
+	movl	entry_name_len, shad_entry_len
+	movc3	entry_name_len, entry_name, shad_entry
+
+
+
+	movl	Notefile_file_name_len, descr
+	movab	Notefile_file_name, descr+4
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent1,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	movl	Descr, Input
+	movc3	Input, @Descr+4, Input+8
+
+	movw	input,notes_open_i
+
+1300$:	nop
+
+
+
+
+
+
+
+
+
+	movw	#default_name_len, def_l
+	movab	default_name, def_n
+
+        pushaw  notes_open_o
+        pushaw  notes_open_i
+        pushal  shad_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+
+
+
+	movl	title_len,Descr
+	movab	title,Descr+4
+;	pushaq	Descr
+;	calls	#1,g^lib$put_output
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_title,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+        movl    notice_len,Descr
+        movab   notice,descr+4
+;       pushaq  descr
+;       calls   #1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_notice,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+; enable mod priv !!
+
+
+	pushaq	mod_en
+	calls	#1,g^lib$put_output
+
+
+
+        pushaw  open_o
+        pushaw  open_m
+        pushal  shad_file_cont
+        calls   #3,G^Notes$notefile_modify
+	check	r0,error
+
+
+
+        movl    result_spec_len,Descr
+        movab   result_spec,descr+4
+;        pushaq  descr
+;        calls   #1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_filn,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+	movb	descr,fab+fab$b_fns
+	movl	descr+4,fab+fab$l_fna
+
+	pushaq	dlm
+	calls	#1,g^lib$put_output
+
+
+	pushaq	o_msg
+	calls	#1,g^lib$put_output
+
+	$open	fab=fab
+	check	r0,error
+
+
+	$connect	rab=rab
+	check	r0,error
+
+
+	pushaq	dlm
+	calls	#1,g^lib$put_output
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_max_u,outbuf=out,outlen=out,-
+		p1=maximum_uid,-
+		p2=max_uid_in_high_uid
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+; make sure it is a max uid we are about to set
+
+
+
+
+
+
+	cmpl	max_uid_in_high_uid,maximum_uid
+	bleqU	588$
+
+	pushaq	not_a_high
+	calls	#1,g^lib$put_output
+	$exit_s	code=#1
+
+
+
+
+588$:	nop
+
+
+; get the conf header record
+
+	$get	rab=rab
+	check	r0,error
+
+	cmpl	max_uid_in_high_uid, buffer+92
+	beql	10$
+	
+	pushaq	san_fail
+	calls	#1,g^lib$put_output
+	$exit_s	code=#ss$_abort
+
+10$:	nop
+
+
+
+
+
+; change the next uid field
+	movl	maximum_uid, buffer+92
+
+	$update	rab=rab
+	check	r0,error
+
+
+
+
+error:	ret
+
+
+
+
+open_o:         .word   8
+                .word   notes$k_notefile_create_time
+                .long   create_time
+                .long   0
+;
+		.word	100
+		.word	notes$k_notefile_user_area
+		.long	notefile_user_area
+		.long	notefile_user_area_len
+;
+                .long   0
+
+
+
+first_end:	.ascid	/%PAN-I-DONE, Scan terminated, first UID in master reached/
+ctr_fire:	.ascid	/%PAN-I-RANGE, UID range !XL (note !AD) to !XL (last note)/
+no_up_done:	.ascid	/%PAN-F-NSHAD, No shadow update has been done/
+op_msg_mast:	.ascid	/%PAN-I-OPEN_SC, Opening the Master conference/
+op_msg_shad:	.ascid	/%PAN-I-OPEN_TC, Opening the Shadow conference/
+o_msg:	.ascid	/%PAN-I-OPEN_R, Opening file for RMS access/
+result_spec:            .blkb   150
+result_spec_len:        .blkl   1
+Shadow:	.ascid	/SHADOW/
+shad_entry_len:		.blkl	1
+shad_entry:		.blkb	300
+shad_file_cont:	.blkl	1
+title:          .blkb   100
+title_len:      .blkl   1
+uid:			.blkl	1
+OUT:	.long	500
+	.long	out+8
+	.blkb	500
+
+
+
+out_len = . - out
+
+tmp_OUT:	.long	500
+		.long	tmp_out+8
+		.blkb	500
+
+
+
+
+open_m:         .word   4
+                .word   notes$k_notefile_moderate
+                .long   moderate
+                .long   0
+;
+                .word   4
+                .word   notes$k_nosignal
+                .long   hint
+                .long   0
+;
+                .long   0
+
+
+Null:		.word	0
+		.word	0
+		.long	0
+		.long	0
+;
+		.long	0
+
+
+notice:         .blkb   100
+notice_len:     .blkl   1
+
+
+
+notes_open_o:   .word   100
+                .word   notes$k_notefile_title
+                .long   title
+                .long   title_len
+;
+                .word   150
+                .word   notes$k_notefile_result_spec
+                .long   result_spec
+                .long   result_spec_len
+;
+                .word   100
+                .word   notes$k_notefile_notice
+                .long   notice
+                .long   notice_len
+;
+		.word	4
+		.word	notes$k_notefile_restricted
+		.long	is_restricted
+		.long	0
+;
+		.word	300
+		.word	notes$k_notefile_moderator
+		.long	moderator_st
+		.long	moderator_st_len
+;
+		.word	4
+		.word	notes$k_notefile_high_uid
+		.long	max_uid_in_high_uid
+		.long	0
+;
+		.word	100
+		.word	notes$k_notefile_user_area
+		.long	notefile_user_area
+		.long	notefile_user_area_len
+;
+		.word   8
+                .word   notes$k_notefile_create_time
+                .long   create_time
+                .long   0
+;
+                .long   0
+
+
+
+master_create_time:	.blkl	2
+
+
+
+
+Notefile_file_name:	.blkb	100
+Notefile_file_name_len:	.blkl	1
+
+
+notebook_spec:		.long	100
+			.long	notebook_spec+8
+			.blkb	100
+
+
+notebook_in:	.word   0
+                .word   notes$k_notefile_file_name
+                .long   notebook_spec+8
+                .long   0
+;
+		.word	notebook_def_len
+		.word	notes$k_notefile_default_name
+		.long	notebook_def_spec
+		.long	0
+;
+		.long	0
+
+
+notebook_def_spec:	.ascii	/SYS$LOGIN:notes$notebook.NOTE/
+notebook_def_len = . - notebook_def_spec
+
+
+notebook_file_cont:	.blkl	1
+
+
+
+notebook:	.ascid	/NOTEBOOK/
+
+
+
+
+
+book_in:	.word	4
+		.word	notes$k_notefile_context
+		.long	notebook_file_cont
+		.long	0
+;
+		.long	0
+
+notebook_cont:	.blkl	1
+
+
+mod_en:	.ascid	/%PAN-I-MODP, Enable moderator privileges on the Target conference/
+
+mast_file_cont:	.blkl	1
+
+
+master_entry_len:	.blkl	1
+master_entry:		.blkb	300
+
+Master:	.ascid	/MASTER/
+
+
+input:	.long	300
+	.long	input+8
+	.blkb	300
+
+
+full_default_name:   .ascii  /Notes$Library:.Note/
+full_default_name_len =. - full_default_name
+
+ent_out:	.word	100
+		.word	notes$k_notefile_file_name
+		.long	Notefile_file_name
+		.long	Notefile_file_name_len
+;
+		.word	4
+		.word	notes$k_entry_last_status
+		.long	last_status
+		.long	0
+;
+		.word	4
+		.word	notes$k_entry_unseen_est
+		.long	unseen_est
+		.long	0
+;
+		.word	100
+		.word	notes$k_entry_name
+		.long	entry_name
+		.long	entry_name_len
+;
+		.word	3000
+		.word	notes$k_seen_map
+		.long	seen_map
+		.long	seen_map_len
+;
+		.word	100
+		.word	NOTES$K_ENTRY_USER_AREA
+		.long	note_user_area
+		.long	note_user_area_len
+;
+		.word	4
+		.word	notes$k_notefile_entrytotal
+		.long	entrytotal
+		.long	0
+;
+		.word	4
+		.word	notes$k_notefile_high_uid
+		.long	high_uid
+		.long	0
+;
+		.word	8
+		.word	notes$k_notefile_lastrev
+		.long	notefile_lastrev
+		.long	0
+;
+		.word	300
+		.word	notes$k_notefile_moderator
+		.long	moderator_st
+		.long	moderator_st_len
+;
+                .word   100
+                .word   notes$k_notefile_notice
+                .long   notice
+                .long   notice_len
+;
+		.word   4
+                .word   notes$k_notefile_numnotes
+                .long   number_of_notes
+                .long   0
+;
+		.word   100
+                .word   notes$k_notefile_title
+                .long   title
+                .long   title_len
+;
+		.word	3000
+		.word	notes$k_seen_map
+		.long	seen_map
+		.long	seen_map_len
+;
+		.long	0
+
+                                                                  
+
+
+entry_name:	.blkb	100
+entry_name_len:	.blkl	1
+
+dlm:	
+.ascid	/-------------------------------------------------------------------------------/
+
+descr:		.blkl	2
+
+ctr_title:	.ascid	/%PAN-I-TI,  Title = "!AS"/
+ctr_notice:	.ascid	/%PAN-I-NO, Notice = "!AS"/
+
+ctr_filn:	.ascid	/%PAN-I-CONF, Conference file is "!AS"/
+
+ctr_ent:	.ascid	/%PAN-I-ENTO, Opening notebook entry !AS ............../
+ctr_ent1:	.ascid	/%PAN-I-CONO, Opening conference     !AS ............../
+
+
+
+
+ 
+
+
+unseen_est:	.blkl	1
+
+seen_map:	.blkb	3000
+seen_map_len:	.blkl	1
+NUMBER_OF_NOTES:	.blkl	1
+
+note_user_area_len:	.blkl	1
+note_user_area:		.blkb	100
+
+notes_open_i:   .word   0
+                .word   notes$k_notefile_file_name
+                .long   input+8
+                .long   0
+;
+def_l:          .word   default_name_len
+                .word   notes$k_notefile_default_name
+def_n:          .long   default_name
+                .long   default_name_len
+;
+se_mp:		.word	0
+		.word	notes$k_seen_map
+		.long	seen_map
+		.long	0
+;
+                .long   0
+
+notefile_user_area:	.blkb	100
+notefile_user_area_len:	.blkl	1
+
+notefile_lastrev:	.blkl	2
+moderator_st:		.blkb	500
+moderator_st_len:	.blkl	1
+
+moderate:       .long   1       ; we want to be a Goderator  !!
+
+max_uid_in_high_uid:	.blkl	1
+
+last_status:	.blkl	1
+
+is_restricted:	.blkl	1
+
+hint:		.long	1
+
+high_uid:	.blkl	1
+
+ent_in:		.word	0
+		.word	notes$k_entry_name
+		.long	0
+		.long	0
+;
+		.word   default_name_len
+cl_xy:          .word   notes$k_noop		;notes$k_notefile_default_name
+		.long   default_name
+                .long   default_name_len
+;
+		.long	0
+
+entrytotal:		.blkl	1
+
+
+default_name:   .ascii  /Notes$library:.Note/
+default_name_len =. - default_name
+
+create_time:	.blkl	2
+
+ctr_max_u:	.ascid	/Copy the input maximum UID (!XL) to the output conf (!XL)/
+maximum_uid:	.blkl	1
+
+not_a_high:	.ascid	/*** This is __NOT__ a higher UID than exists ***/
+
+san_fail:	.ascid	/>>> failed to understand the file structure <<</
+
+copy:		.ascid	/COPY/
+
+
+
+qual:	.ascid	/QUALIFIER/
+q_v:	.long	100
+	.long	q_v+8
+	.blkb	100
+
+	.entry	SYNCHRONIZE,0
+
+	clrl	indent
+
+; get the qualifiers to be passed to copy
+
+
+	movl    #100,q_v
+	Pushaw  q_v
+	pushaq  q_v
+	pushaq  qual
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+
+; set a default for DCL symbol PAN$TO_BE_COPIED
+
+        PUSHAL  DCLFLAG                
+        PUSHAQ  def_tbc		   ; value of symbol
+        PUSHAQ  symbol; symbol to set
+        CALLS   #3,G^LIB$SET_SYMBOL    
+
+
+
+
+	movl	miss_g, descr
+	clrl	miss_g
+
+	pushaq	Copy
+	calls	#1,g^cli$present
+	blbc	r0,1$
+
+	clrl	copy
+
+	movl	descr, miss_g
+
+	movl	am1, am
+	movl	am1+4, am+4
+
+1$:	nop
+
+
+
+	pushaq	report
+	calls	#1,g^cli$present
+	blbc	r0,11$
+	clrl	report
+
+11$:	nop
+
+
+	pushaq	op_msg_mast
+	calls	#1,g^lib$put_output
+
+
+
+; get the master conf name
+
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  Master
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+
+; save it
+
+	movl	input, master_name
+	movc3	input, input+8, master_name+8
+
+
+
+
+	movw	input,notes_open_i
+
+
+
+
+; should we treat this as being a notebook entry ?
+
+
+	pushaq	notebook
+	calls	#1,g^Cli$Present
+	blbs	r0,301$			; skip if NOnotebook
+	movl	#12, master_name_flag
+	brw	300$
+301$:	nop
+
+
+	clrl	master_name_flag
+
+	movl    #100,notebook_spec      
+	Pushaw  notebook_spec
+	pushaq  notebook_spec
+	pushaq  notebook
+	calls   #3,g^cli$get_value 
+	check	r0,error
+	movw	notebook_spec, notebook_in
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent,outbuf=out,outlen=out,-
+		p1=#Input
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+; open notebook (if its not open already!)
+
+        pushaw  null
+        pushaw  notebook_in
+        pushal  notebook_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+; begin
+
+	pushaw  null
+	pushaw	book_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_begin
+	check	r0,error
+
+; get the entry
+
+	movw	input, ent_in
+	movl	input+4, ent_in+4
+
+
+	pushaw	ent_out
+	pushaw	ent_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_get
+	check	r0,error
+
+
+	movl	entry_name_len, master_entry_len
+	movc3	entry_name_len, entry_name, master_entry
+
+
+	movl	Notefile_file_name_len, descr
+	movab	Notefile_file_name, descr+4
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent1,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	movl	Descr, Input
+	movc3	Input, @Descr+4, Input+8
+
+	movw	input,notes_open_i
+
+300$:	nop
+
+
+
+	movw	#full_default_name_len, def_l
+	movab	full_default_name, def_n
+
+
+
+        pushaw  notes_open_o
+        pushaw  notes_open_i
+        pushal  mast_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+	movq	create_time, master_create_time
+
+
+
+	movl	max_uid_in_high_uid, maximum_uid
+
+	movl	maximum_uid  ,note_uid
+
+	movab	mast_file_cont, notes_beg_i+4
+
+
+; context to first note
+
+
+
+        pushaw  notes_beg_O
+        pushaw  notes_beg_I
+        pushal  first_note_cont
+        calls   #3,G^Notes$note_begin
+	check	r0,error
+
+
+
+; find the uid of the first note in the file
+
+	pushaw	mast_note_out
+	pushaw	first_note_in
+	pushal	first_note_cont
+	calls	#3,g^notes$note_get
+	check	r0,error
+
+
+; tell us about the firast/last note
+
+
+	movl	mast_uid, first_uid
+
+
+
+        pushaw  notes_beg_o
+        pushaw  notes_beg_i
+        pushal  mast_note_cont
+        calls   #3,G^Notes$note_begin
+	check	r0,error
+
+
+
+        pushaw  notes_beg_o
+        pushaw  notes_beg_i
+        pushal  other_mast_note_cont
+        calls   #3,G^Notes$note_begin
+	check	r0,error
+
+
+
+
+
+
+
+
+
+
+
+
+        movl    result_spec_len,Descr
+        movab   result_spec,descr+4
+;       pushaq  descr
+;       calls   #1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_filn,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+	movl	title_len,Descr
+	movab	title,Descr+4
+;	pushaq	Descr
+;	calls	#1,g^lib$put_output
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_title,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+        movl    notice_len,Descr
+        movab   notice,descr+4
+;       pushaq  descr
+;       calls   #1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_notice,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_fire,outbuf=out,outlen=out,-
+		p1=first_uid, -
+                p2=mast_note_id_len, -
+                p3=#mast_note_id, -
+		p4=maximum_uid
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+; --------------------------------------------------------------
+
+	pushaq	dlm
+	calls	#1,g^lib$put_output
+
+
+	pushaq	op_msg_shad
+	calls	#1,g^lib$put_output
+
+
+
+
+
+; get the shadow conf name
+
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  Shadow
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+	movw	input,notes_open_i
+
+
+; save it
+
+	movl	input, shadow_name
+	movc3	input, input+8, shadow_name+8
+
+
+
+; should we treat this as being a notebook entry ?
+
+
+	pushaq	notebook
+	calls	#1,g^Cli$Present
+	blbs	r0,1301$			; skip if NOnotebook
+	movl	#12, shadow_name_flag
+	brw	1300$
+1301$:	nop
+
+	clrl	shadow_name_flag
+
+	movl    #100,notebook_spec      
+	Pushaw  notebook_spec
+	pushaq  notebook_spec
+	pushaq  notebook
+	calls   #3,g^cli$get_value 
+	check	r0,error
+	movw	notebook_spec, notebook_in
+
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent,outbuf=out,outlen=out,-
+		p1=#Input
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	tstl	notebook_file_cont
+	bneq	557799$
+
+        pushaw  null
+        pushaw  notebook_in
+        pushal  notebook_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+; begin
+
+	pushaw  null
+	pushaw	book_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_begin
+	check	r0,error
+
+557799$:	nop
+
+; get the entry
+
+	movw	input, ent_in
+	movl	input+4, ent_in+4
+
+
+	pushaw	ent_out
+	pushaw	ent_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_get
+	check	r0,error
+
+
+
+	movl	entry_name_len, shad_entry_len
+	movc3	entry_name_len, entry_name, shad_entry
+
+
+
+	movl	Notefile_file_name_len, descr
+	movab	Notefile_file_name, descr+4
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent1,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	movl	Descr, Input
+	movc3	Input, @Descr+4, Input+8
+
+	movw	input,notes_open_i
+
+1300$:	nop
+
+
+
+
+
+
+
+
+
+	movw	#default_name_len, def_l
+	movab	default_name, def_n
+
+        pushaw  notes_open_o
+        pushaw  notes_open_i
+        pushal  shad_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+
+
+
+
+
+
+
+
+
+	movab	shad_file_cont, notes_beg_i+4
+
+        pushaw  notes_beg_o
+        pushaw  notes_beg_i
+        pushal  shad_note_cont
+        calls   #3,G^Notes$note_begin
+	check	r0,error
+
+
+
+        pushaw  notes_beg_o
+        pushaw  notes_beg_i
+        pushal  other_shad_note_cont
+        calls   #3,G^Notes$note_begin
+	check	r0,error
+
+
+
+
+        pushaw  null
+        pushaw  notes_beg_i
+        pushal  keyword_cnx
+        calls   #3,G^Notes$keyword_begin
+	check	r0,error
+
+
+
+
+
+	movl	title_len,Descr
+	movab	title,Descr+4
+;	pushaq	Descr
+;	calls	#1,g^lib$put_output
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_title,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+        movl    notice_len,Descr
+        movab   notice,descr+4
+;       pushaq  descr
+;       calls   #1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_notice,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+; enable mod priv !!
+
+	tstl	report
+	beql	111$
+
+	pushaq	mod_en
+	calls	#1,g^lib$put_output
+
+
+
+        pushaw  open_o
+        pushaw  open_m
+        pushal  shad_file_cont
+        calls   #3,G^Notes$notefile_modify
+	check	r0,error
+
+111$:	nop
+
+; =================================================================
+; do we have a data_store keyword ?
+
+
+	movw	#keyword_len, key_in
+	movab	keyword, key_in+4
+
+        pushaw  key_out
+        pushaw  key_in
+        pushal  keyword_cnx
+        calls   #3,G^Notes$keyword_get
+	blbs	r0, 400$
+
+	cmpl    r0,#NOTES$_NO_SUCH_KEYWORD
+	beql	401$
+
+	$exit_s	code=R0
+
+401$:	nop		; add our keyword
+
+
+
+	pushaq	keyword_add
+	calls	#1,g^lib$put_output
+
+	movq	master_create_time, KEYWORD_USER_AREA
+	movl	#8, KEYWORD_USER_AREA_len
+	movw	#8, key_add
+
+        pushaw  null
+        pushaw  key_add
+        pushal  keyword_cnx
+        calls   #3,G^Notes$keyword_add
+	check	r0,error
+
+
+
+
+400$:	nop
+
+; make sure this is the master we expected
+
+	cmpl	master_create_time,   KEYWORD_USER_AREA
+	bneq	490$
+
+	cmpl	master_create_time+4, KEYWORD_USER_AREA+4
+	bneq	490$
+
+	brw	491$	
+
+490$:	nop	; ITS NOT THE RIGHT MASTER FILE !!!
+
+	pushaq	wrg_mst
+	calls	#1,g^lib$put_output
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_wm1,outbuf=out,outlen=out,-
+		p1=#master_create_time
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_wm2,outbuf=out,outlen=out,-
+		p1=#KEYWORD_USER_AREA
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	$exit_s	code=#0
+
+
+
+491$:	nop
+; =================================================================
+
+
+; last update time??
+
+
+
+;	cmpl	#8,notefile_user_area_len
+;	bneq	8$
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_last2,outbuf=out,outlen=out,-
+		p1=#notefile_user_area
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	movq	notefile_user_area, last_shadow_update
+
+
+; check its a valid time...
+
+	movl	#100,out
+
+	$Asctim_s	timbuf=Out,-
+			timadr=notefile_user_area
+	check	r0,error
+
+
+
+; make sure its not null
+
+
+	tstl	last_shadow_update
+	bneq	8$
+	tstl	last_shadow_update+4
+	bneq	8$
+
+
+	pushaq	no_up_done
+	calls	#1,g^lib$put_output
+
+	$exit_s	code=#0
+
+8$:	nop
+
+
+
+
+        movl    result_spec_len,Descr
+        movab   result_spec,descr+4
+;        pushaq  descr
+;        calls   #1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_filn,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+	pushaq	dlm
+	calls	#1,g^lib$put_output
+
+
+
+
+	movl    #100,out
+	Pushaw  out
+	pushaq  out
+	pushaq  Since
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+
+	pushaq	out
+	pushaq	out
+	calls	#2,g^str$upcase
+
+; from last update time ??
+
+
+	cmpb	#^a/^/,Out+8
+	bneq	20$
+
+
+
+	$gettim_s	timadr=end_quad
+
+
+
+	$bintim_s	timbuf=day,-
+			timadr=tmp
+	check	r0,error
+
+
+        addl2   tmp, end_quad
+        adwc    tmp+4,  end_quad+4
+
+
+
+	brw	30$
+
+20$:	nop
+	
+
+
+	$bintim_s	timbuf=Out,-
+			timadr=end_quad
+	check	r0,error
+
+30$:	nop
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_last3,outbuf=out,outlen=out,-
+		p1=#End_Quad
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+;	movl	maximum_uid  ,note_uid
+
+        calls   #0,g^lib$init_timer
+
+	movab	cond_hand, (fp)
+
+; /LIMIT_TIME set ?????
+
+
+	pushaq	limit
+	calls	#1,g^Cli$Present
+	blbc	r0, 551$
+
+
+
+	movl    #100,out
+	Pushaw  out
+	pushaq  out
+	pushaq  limit
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+
+	$bintim_s       timbuf=out,- 
+	                timadr=quad   
+	check   r0,error              
+
+	$setimr_s       daytim=quad,- 
+	                astadr=limit_ast    
+	check   r0,error              
+
+551$:	nop
+
+
+
+
+
+
+; should we start somewhere else than the max UID ???
+
+	pushaq	start_uid
+	calls	#1,g^Cli$Present
+	blbc	r0,loop
+
+
+	movl    #100,out
+	Pushaw  out
+	pushaq  out
+	pushaq  start_uid
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+; convert that to HEX
+
+	pushal	note_uid
+	pushaq	out
+	calls	#2,g^OTS$CVT_TZ_L
+
+
+loop:	nop
+
+
+
+
+
+
+
+	tstl	notes_tested
+	beql	551$
+
+	tstl	saved
+	bneq	551$
+
+	tstl	limit_done
+	bneq	551$
+
+	brw	fin
+
+551$:	nop
+
+; --------------------------------------------
+
+
+	tstl	saved
+	beql	re_start
+
+	subl2	#4, save_point
+	movl	@save_point, note_uid
+	decl	saved
+
+
+
+re_start:	nop
+
+
+	clrl	m_pad
+	clrl	s_pad
+
+
+
+	cmpl	#^x40000000, note_uid
+	bneq	8150$
+	brw	fin
+8150$:	nop
+
+
+
+
+
+
+
+
+
+
+
+
+; are we wasting our time ??
+	brw	55$
+	cmpl	#30, neither
+	bneq	55$
+	pushaq	nei_exit
+	calls	#1,g^lib$put_output
+	
+	brw	fin
+
+55$:	nop
+
+
+
+	incl	uid_scan
+
+	clrl	mast_note_id_len
+	clrl	shad_note_id_len
+
+	movc5	#0,(sp),#^a/ /,#50, mast_note_id
+	movc5	#0,(sp),#^a/ /,#50, shad_note_id
+
+	movc5	#0,(sp),#^a/ /,#200, shad_note_title
+	movc5	#0,(sp),#^a/ /,#200, mast_note_title
+
+	movc5	#0,(sp),#^a/ /,#100,shad_author
+	movc5	#0,(sp),#^a/ /,#100,mast_author
+
+; get a note from the master
+
+
+	movw	#notes$k_noop, hd
+
+
+	clrl	mast_note_flag
+
+	pushaw	mast_note_out
+	pushaw	note_in
+	pushal	mast_note_cont
+	calls	#3,g^notes$note_get
+	blbs	r0,10$
+	cmpl    r0,#NOTES$_NO_SUCH_NOTE
+	beql	100$
+	$exit_s	code=R0
+10$:	nop
+
+	incl	mast_note_flag
+
+
+
+100$:	nop
+; and the same (?) one from the shadow
+
+
+
+
+
+
+	clrl	shad_note_flag
+
+	pushaw	shad_note_out
+	pushaw	note_in
+	pushal	shad_note_cont
+	calls	#3,g^notes$note_get
+	blbs	r0,20$
+	cmpl    r0,#NOTES$_NO_SUCH_NOTE
+	beql	200$
+	$exit_s	code=R0
+20$:	nop
+
+	incl	shad_note_flag
+
+
+
+
+200$:	nop
+
+
+	movw	#notes$k_nosignal, hd
+
+
+; ------------------------------------------------------------
+	tstl	saved
+	beql	541$
+	brw	1500$
+541$:	nop
+
+	tstl	mast_note_flag
+	bneq	1499$
+	brw	1500$
+1499$:	nop
+
+
+	movq	end_quad, tmp
+
+
+
+
+        subl2   mast_note_time, tmp
+        sbwc    mast_note_time+4, tmp+4
+
+
+
+
+	clrw	word7
+
+        $numtim_s       timbuf=word7,-
+                        timadr=tmp
+;        check   r0,error
+
+
+
+
+
+	tstw	word7
+	beql	1500$
+
+	decl	uid_scan
+
+	brw	fin
+	
+
+
+
+1500$:	nop
+
+
+
+; ------------------------------------------------------------
+; if the master note exists and the shadow note does not
+; and the note timestamp is before the "last shadow update"
+; time then tell us we have a missing note
+
+
+
+	tstl	mast_note_flag
+	bneq	6000$
+	brw	7000$
+6000$:	nop
+
+; master note exists
+
+
+	tstl	shad_note_flag
+	beql	6001$
+	brw	7000$
+6001$:	nop
+
+; shadow note does not
+
+
+
+	movq	last_shadow_update, tmp
+
+;
+	cmpl	mast_note_time, tmp
+	bneq	34$
+	cmpl	mast_note_time+4, tmp+4
+	bneq	34$
+	brw	17000$
+34$:	nop
+;
+
+
+        subl2   mast_note_time, tmp
+        sbwc    mast_note_time+4, tmp+4
+
+
+
+
+
+        $numtim_s       timbuf=word7,-
+                        timadr=tmp
+        check   r0,error
+
+
+
+
+
+	tstl	saved
+	beql	1541$
+	brw	17000$
+1541$:	nop
+
+
+
+
+
+	tstw	word7
+;	bneq	6999$
+	beql	6998$
+	brw	6999$
+6998$:	nop
+
+; note not copied yet
+
+
+
+	locc	#^a/./, mast_note_id_len , mast_note_id
+	subl3	R0, mast_note_id_len, R6
+	subl3	R6, #6, m_pad
+
+
+
+
+
+
+	movl	saved, indent
+	movl	#100,out
+	$fao_s	ctrstr=ctr_tell_u1,outbuf=out,outlen=out,-
+		p1=#indent,-
+		p2=note_uid,-
+		p3=#m_pad,-
+		p4=mast_note_id_len,-
+		p5=#mast_note_id,-
+		p6=#s_pad,-
+		p7=#ny_len,-
+		p8=#ny,-
+		p9=#mast_note_time
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+	incl	ny_count
+
+; see if there is a note in the shadow with this mast_note_id
+; ================================================================
+	movw	mast_note_id_len, ask_in
+
+	movab	mast_note_id, ask_in+4
+
+
+
+
+	movc5	#0,(sp),#^a/ /,#50, iw_note_id
+
+
+	pushaw	ask_out_iw
+	pushaw	ask_in
+	pushal	other_shad_note_cont
+	calls	#3,g^notes$note_get
+
+
+	cmpc3	#50, mast_note_id, iw_note_id
+	beql	155600$
+	brw	955500$
+155600$:	nop
+
+	
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_iw1,outbuf=out,outlen=out,-
+		p1=iw_note_id_len, -
+		p2=#iw_note_id, -
+		p3=iw_note_uid
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+	brw	4$
+
+955500$:	nop
+; ================================================================
+
+
+
+	brw	7000$
+6999$:	nop
+
+
+
+17000$:	nop
+
+
+
+	locc	#^a/./, mast_note_id_len , mast_note_id
+	subl3	R0, mast_note_id_len, R6
+	subl3	R6, #6, m_pad
+
+
+
+
+
+
+	movl	saved, indent
+	movl	#100,out
+	$fao_s	ctrstr=ctr_tell_u1,outbuf=out,outlen=out,-
+		p1=#indent,-
+		p2=note_uid,-
+		p3=#m_pad,-
+		p4=mast_note_id_len,-
+		p5=#mast_note_id,-
+		p6=#s_pad,-
+		p7=#none_len,-
+		p8=#none,-
+		p9=#mast_note_time
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+; see if there is a note in the shadow with this mast_note_id
+; ================================================================
+	movw	mast_note_id_len, ask_in
+
+	movab	mast_note_id, ask_in+4
+
+
+
+
+	movc5	#0,(sp),#^a/ /,#50, iw_note_id
+
+
+	pushaw	ask_out_iw
+	pushaw	ask_in
+	pushal	other_shad_note_cont
+	calls	#3,g^notes$note_get
+
+
+	cmpc3	#50, mast_note_id, iw_note_id
+	beql	55600$
+	brw	55500$
+55600$:	nop
+
+	
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_iw1,outbuf=out,outlen=out,-
+		p1=iw_note_id_len, -
+		p2=#iw_note_id, -
+		p3=iw_note_uid
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+	brw	4$
+
+55500$:	nop
+; ================================================================
+
+
+
+	pushaq	ctrm
+	calls	#1,g^lib$put_output
+
+; generate an add command
+
+
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_am,outbuf=out,outlen=out,-
+		p1=#Master_name,-
+		p2=#Master_name_flag-
+		p3=#shadow_name,-
+		p4=#shadow_name_flag,-
+		p5=mast_note_id_len,-
+		p6=#mast_note_id,-
+		p7=#Q_V
+	pushaq	am
+	calls	#1,g^lib$put_output
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+	tstl	copy
+	bneq	7501$
+
+
+
+	PUSHL	#0
+	PUSHL	#0
+	PUSHL	#0
+	PUSHl	#0
+	PUSHL	#0
+	PUSHl	#0
+	PUSHAB	S_FLAG
+	PUSHL	#0
+	PUSHL	#0
+	PUSHAQ	out
+	CALLS	#9,G^LIB$SPAWN
+	CHECK	R0,ERROR
+
+
+
+
+7501$:	nop
+
+
+
+
+
+	incl	missing
+
+
+
+7000$:	nop
+; ------------------------------------------------------------
+	tstl	mast_note_flag
+	bneq	1000$
+	tstl	shad_note_flag
+	bneq	1000$
+
+; neither note exists
+
+
+
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_tell_u2,outbuf=out,outlen=out,-
+		p1=#indent,-
+		p2=note_uid,-
+		p3=#m_pad,-
+		p4=#none_len,-
+		p5=#none,-
+		p6=#s_pad,-
+		p7=#none_len,-
+		p8=#none
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+	incl	del_both
+
+	incl	neither
+
+	brw	nxt
+
+
+1000$:	nop
+; ------------------------------------------------------------
+
+
+	clrl	neither
+
+
+
+; if mast note exists and not shadow then ignore this condition
+
+	tstl	mast_note_flag
+	beql	2000$
+
+; master note exists
+
+	tstl	shad_note_flag
+	bneq	2000$
+
+; shadow note does not exist
+
+
+	brw	nxt
+
+2000$:	nop
+
+
+
+
+; ------------------------------------------------------------
+; if shad note exists and the master note dont then delete the shadow note
+
+
+	tstl	shad_note_flag
+	bneq	2001$
+	brw	nxt
+2001$:	nop
+
+; shadow note exists
+
+
+
+	tstl	mast_note_flag
+;	bneq	2002$
+
+	beql	2200$
+	brw	2002$
+2200$:	nop
+
+
+
+; DELETE THE SHADOW NOTE HERE !!
+
+
+
+
+
+	locc	#^a/./, shad_note_id_len , shad_note_id
+	subl3	R0, shad_note_id_len, R6
+	subl3	R6, #6, s_pad
+
+
+
+
+
+	movl	saved, indent
+	movl	#100,out
+	$fao_s	ctrstr=ctr_tell_u1,outbuf=out,outlen=out,-
+		p1=#indent,-
+		p2=note_uid,-
+		p3=#m_pad,-
+		p4=#none_len,-
+		p5=#none,-
+		p6=#s_pad,-
+		p7=shad_note_id_len,-
+		p8=#shad_note_id,-
+		p9=#shad_note_time
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+
+	pushaq	del_shad
+	calls	#1,g^lib$put_output
+
+
+
+
+	tstl	report
+	beql	1234$
+
+	pushaw	null
+	pushaw	note_in
+	pushal	other_shad_note_cont
+	calls	#3,g^notes$note_delete
+	check	r0,error
+
+1234$:	nop
+
+
+	incl	shad_del
+
+	brw	nxt
+
+2002$:	nop
+
+
+
+
+; ------------------------------------------------------------
+; if both notes exist then ...
+
+	
+	clrl	changes
+	incl	notes_tested
+
+
+
+
+
+	movab	build, build_point
+	movc5	#0,(sp),#0,#build_len, build
+
+	movw	shad_note_id_len, Build	
+	movw	#notes$k_note_id, Build+2
+	movab	shad_note_id,     Build+4
+	addl2	#12, build_point
+
+
+
+
+; test notes
+
+
+	incl	fred
+	locc	#^a/./, mast_note_id_len , mast_note_id
+	subl3	R0, mast_note_id_len, R6
+	subl3	R6, #6, m_pad
+
+
+	locc	#^a/./, shad_note_id_len , shad_note_id
+	subl3	R0, shad_note_id_len, R6
+	subl3	R6, #6, s_pad
+
+
+
+	movl	saved, indent
+	movl	#100,out
+	$fao_s	ctrstr=ctr_tell_u1,outbuf=out,outlen=out,-
+		p1=#indent,-
+		p2=note_uid,-
+		p3=#m_pad,-
+		p4=mast_note_id_len,-
+		p5=#mast_note_id,-
+		p6=#s_pad,-
+		p7=shad_note_id_len,-
+		p8=#shad_note_id,-
+		p9=#mast_note_time
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+
+
+; are these notes the same date/time ???
+
+
+; dont test if the shadow note is a delete base note
+
+
+	tstl	shad_author_len
+	bneq	444$
+
+; is this a shadow base note ??
+
+	movab	shad_note_id, R6
+	addl2	shad_note_id_len , R6
+	subl2	#2, R6
+
+	cmpw	#^a/.0/, (R6)
+	beql	79001$
+	brw	444$
+79001$:	nop
+
+	brw	1001$
+
+
+444$:	nop
+
+	cmpl	shad_note_time, mast_note_time
+	bneq	1100$
+	cmpl	shad_note_time+4, mast_note_time+4
+	bneq	1100$
+
+
+	brw	1001$
+
+
+1100$:	nop
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_ns1,outbuf=out,outlen=out,-
+		p1=mast_uid,-
+		p2=mast_note_id_len,-
+		p3=#mast_note_id,-
+		p4=#mast_note_time
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_ns2,outbuf=out,outlen=out,-
+		p1=shad_uid,-
+		p2=shad_note_id_len,-
+		p3=#shad_note_id,-
+		p4=#shad_note_time
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+
+	pushaq	no_same
+	calls	#1,g^lib$put_output
+	
+	$exit_s	code=#0
+
+
+
+1001$:	nop
+
+; ------------------------------------------------------------
+; note id
+
+
+	clrl	id_ch
+
+	cmpc3	#50, shad_note_id, mast_note_id
+	bneq	499$
+	brw	500$
+499$:	nop
+
+	incl	id_ch
+	
+
+	pushaq	note_id_ch
+	calls	#1,g^lib$put_output
+
+; ++++++++++++++++++++++++++++++++++++++++++++++++
+; if we are moving a reply check to see if the base
+; note exists
+
+
+; is this a reply ?
+	movab	mast_note_id, R6
+	addl2	mast_note_id_len , R6
+	subl2	#2, R6
+
+	cmpw	#^a/.0/, (R6)
+	bneq	9001$
+	brw	9000$
+9001$:	nop
+
+; make sure the base note exists in the shadow
+
+
+	locc	#^a/./, mast_note_id_len , mast_note_id
+
+	clrl	descr
+	subl3	R0, mast_note_id_len , descr
+	movab	mast_note_id , descr+4
+
+	movc5	#0,(sp),#^a/ /,#50, out+8
+
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_cb,outbuf=out,outlen=out,-
+		p1=#Descr
+
+
+
+
+; ask the shadow if this note exists
+
+
+
+	movw	out, ask_in
+	movab	out+8, ask_in+4
+
+	movc3	#out_len, out, tmp_out
+
+
+	movc5	#0,(sp),#^a/ /,#50, iw_note_id
+
+
+
+	pushaw	ask_out_iw
+	pushaw	ask_in
+	pushal	other_shad_note_cont
+	calls	#3,g^notes$note_get
+;	check	r0,error
+
+
+; break lock
+
+	pushaw	null
+	pushaw	break_in
+	pushal	other_shad_note_cont
+	calls	#3,g^notes$note_get	
+
+
+
+	cmpc3	#50, out+8, iw_note_id
+	bneq	15601$
+	brw	15600$
+15601$:	nop
+
+	pushaq	no_base
+	calls	#1,g^lib$put_output
+
+
+
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+; ask the master what UID is this base note ?
+
+
+	movc5	#0,(sp),#^a/ /,#50, iw_note_id
+
+	pushaw	ask_out_iw
+	pushaw	ask_in
+	pushal	other_mast_note_cont
+	calls	#3,g^notes$note_get
+	check	r0,error
+
+
+	cmpc3	#50, out+8, iw_note_id
+	beql	25600$
+	pushaq	no_base_m
+	calls	#1,g^lib$put_output
+	$exit_s	code=#1
+25600$:	nop
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_cb1,outbuf=out,outlen=out,-
+		p1=iw_note_id_len,-
+		p2=#iw_note_id,-
+		p3=iw_note_uid
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+
+	cmpl	iw_note_uid, last_uid
+	bneq	88$
+	pushaq	huh
+	calls	#1,g^lib$put_output
+
+
+	tstl	saved
+	bneq	4489$
+	brw	nxt
+4489$:	nop
+; dump the stack
+
+
+
+	movl	#0, saved
+	movab	save, save_point
+	addl2	#4, save_point
+
+
+	movl	@save_point, note_uid		
+	movab	save, save_point
+
+	brw	Nxt
+
+88$:	nop
+
+	movl	iw_note_uid, last_uid
+
+
+
+
+
+	incl	saved
+	movl	note_uid, @save_point
+	addl2	#4, save_point
+
+	movl	iw_note_uid, note_uid
+	brw	re_start
+
+
+15600$:	nop
+
+
+
+9000$:	nop
+; ++++++++++++++++++++++++++++++++++++++++++++++++
+; check the shadow conf to see if the target note exists
+
+
+
+	movw	mast_note_id_len, ask_in
+
+	movab	mast_note_id, ask_in+4
+
+
+
+
+	movc5	#0,(sp),#^a/ /,#50, iw_note_id
+
+
+	pushaw	ask_out_iw
+	pushaw	ask_in
+	pushal	other_shad_note_cont
+	calls	#3,g^notes$note_get
+;	check	r0,error
+
+
+
+; break lock
+
+	pushaw	null
+	pushaw	break_in
+	pushal	other_shad_note_cont
+	calls	#3,g^notes$note_get	
+
+
+	cmpc3	#50, mast_note_id, iw_note_id
+	beql	5600$
+	brw	5500$
+5600$:	nop
+
+	
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_iw1,outbuf=out,outlen=out,-
+		p1=iw_note_id_len, -
+		p2=#iw_note_id, -
+		p3=iw_note_uid
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	brw	4$
+
+	$exit_s	code=#1
+
+5500$:	nop
+; ++++++++++++++++++++++++++++++++++++++++++++++++
+
+
+
+
+	incl	shad_Cnote_id
+	incl	changes
+
+	movw	mast_note_id_len , @build_point
+	addl2	#2, build_point
+
+	movw	#NOTES$K_NOTE_NEW_ID, @build_point
+	addl2	#2, build_point
+
+	movab	mast_note_id,     @build_point
+	addl2	#8, build_point
+
+
+
+
+500$:	nop
+
+
+
+; ------------------------------------------------------------
+; title 
+
+	cmpc3	#200, shad_note_title, mast_note_title
+	beql	502$
+
+	pushaq	note_tit_ch
+	calls	#1,g^lib$put_output
+
+	incl	changes
+	incl	shad_Cnote_tit
+
+
+	movw	mast_note_title_len , @build_point
+	addl2	#2, build_point
+
+	movw	#notes$k_note_title, @build_point
+	addl2	#2, build_point
+
+	movab	mast_note_title,     @build_point
+	addl2	#8, build_point
+
+
+502$:	nop
+
+
+; ------------------------------------------------------------
+; hidden status
+
+	cmpl	shad_hidden, mast_hidden
+	bneq	5041$
+	brw	504$
+5041$:	nop
+
+	pushaq	note_hid_ch
+	calls	#1,g^lib$put_output
+
+	incl	shad_Cnote_hid
+	incl	changes
+
+
+	movw	#4 , @build_point
+	addl2	#2, build_point
+
+	movw	#notes$k_note_hidden, @build_point
+	addl2	#2, build_point
+
+	movab	mast_hidden,     @build_point
+	addl2	#8, build_point
+
+
+; if we are setting a shadow note UNhidden we need to
+; check (and fix if need be!) that there is some text
+; to UN hide (ie we could not read the note to copy
+; it in in the first place)
+
+
+	cmpc3	#50, shad_note_id, mast_note_id
+	beql	18000$
+	brw	504$
+18000$:	nop
+
+	tstl	mast_hidden
+	beql	18004$
+	brw	504$
+18004$:	nop
+
+
+	
+	cmpl	mast_number_of_lines, shad_number_of_lines
+	bneq	18002$
+	brw	504$
+18002$:	nop
+
+; fix this...
+
+	pushaq	un_hid_nol
+	calls	#1,g^lib$put_output
+
+
+
+
+
+
+504$:	nop
+
+; ---------------------------------------------------------
+
+; if we are not planing any changes to this note
+
+	tstl	changes
+	beql	5005$
+	brw	5000$
+5005$:	nop
+
+; is this a deleted base note in the master ?
+
+
+; is it a base note?
+
+	movab	mast_note_id, R6
+	addl2	mast_note_id_len , R6
+	subl2	#2, R6
+
+	cmpw	#^a/.0/, (R6)
+	beql	5006$
+	brw	5000$
+5006$:	nop
+
+
+; has it a null author and no lines in the master
+
+	tstl	mast_author_len
+	beql	5001$
+	brw	5000$
+5001$:	nop
+
+	tstl	mast_number_of_lines
+	beql	5002$
+	brw	5000$
+5002$:	nop
+
+; so its a deleted base in the master !
+
+; if the shadow note has neither of a null author or
+; no lines then delete it!
+
+
+
+
+
+	tstl	shad_author_len
+	bneq	18001$
+	brw	5000$
+18001$:	nop
+
+	tstl	shad_number_of_lines
+	bneq	6002$
+	brw	5000$
+6002$:	nop
+
+
+	pushaq	del_bas
+	calls	#1,g^lib$put_output
+
+
+	tstl	report
+	beql	8001$
+
+	pushaw	null
+	pushaw	note_in
+	pushal	other_shad_note_cont
+	calls	#3,g^notes$note_delete
+	check	r0,error
+
+8001$:	nop
+
+
+	incl	shad_del
+
+	brw	8000$
+
+5000$:	nop
+; ---------------------------------------------------------
+; make sure both notes have the same number of lines
+
+	brw	8000$
+	cmpl	mast_number_of_lines, shad_number_of_lines
+	beql	8000$
+
+	pushaq	no_same_lines
+	calls	#1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_li,outbuf=out,outlen=out,-
+		p1=mast_number_of_lines,-
+		p2=shad_number_of_lines
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+8000$:	nop
+; ---------------------------------------------------------------
+
+
+
+	tstl	changes
+;	beql	nxt
+	bneq	1$
+	brw	nxt
+1$:	nop
+
+
+	tstl	report
+;	beql	nxt
+	bneq	2$
+	brw	nxt
+2$:	nop
+
+
+	pushaw	null
+	pushaw	build
+	pushal	other_shad_note_cont
+	calls	#3,g^notes$note_modify
+	blbc	r0, 3$
+	brw	123456$
+3$:	nop
+
+
+	MOVL    R0,VEC+4
+        $PUTMSG_S       MSGVEC=VEC
+
+
+
+	cmpl	vec+4, #notes$_Alrexists_N
+;	bneq	nxt
+	beql	4$
+	brw	nxt
+4$:	nop
+
+
+	cmpl	note_uid, last_uid
+	bneq	8$
+	pushaq	huh
+	calls	#1,g^lib$put_output
+
+
+	tstl	saved
+	bneq	4451$
+	brw	nxt
+4451$:	nop
+; dump the stack
+
+
+
+	movl	#0, saved
+	movab	save, save_point
+	addl2	#4, save_point
+
+
+	movl	@save_point, note_uid		
+	movab	save, save_point
+
+	brw	Nxt
+
+8$:	nop
+
+	movl	note_uid, last_uid
+
+
+
+	incl	saved
+	movl	note_uid, @save_point
+	addl2	#4, save_point
+
+; get the uid of the note thats in the way
+
+	movw	mast_note_id_len, ask_in
+	movab	mast_note_id, ask_in+4
+
+
+
+	pushaw	ask_out
+	pushaw	ask_in
+	pushal	other_shad_note_cont
+	calls	#3,g^notes$note_get
+	check	r0,error
+
+
+
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_iw,outbuf=out,outlen=out,-
+		p1=mast_note_id_len, -
+		p2=#mast_note_id, -
+		p3=note_uid
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+
+
+
+	brw	re_start
+
+
+	$exit_s	code=#1
+
+
+123456$:	nop
+
+
+	tstl	id_ch
+	bneq	909$
+	brw	nxt
+909$:	nop
+
+
+; prevent deleted base notes with replies if doing a move
+
+	pushaw	null
+	pushaw	note_in
+	pushal	other_shad_note_cont
+	calls	#3,g^notes$note_get
+
+	movc5	#0,(sp),#^a/ /,#50, shad_note_id
+
+	pushaw	shad_note_out
+	pushaw	note_in
+	pushal	shad_note_cont
+	calls	#3,g^notes$note_get
+
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_tell_uI,outbuf=out,outlen=out,-
+		p1=mast_note_id_len,-
+		p2=#mast_note_id,-
+		p3=shad_note_id_len,-
+		p4=#shad_note_id
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	cmpc3	#50, shad_note_id, mast_note_id
+	beql	nxt
+
+	brw	re_start
+
+
+nxt:	nop
+
+
+
+	cmpl	first_uid, note_uid
+	bneq	8151$
+
+	pushaq	first_end
+	calls	#1,g^lib$put_output
+
+	brw	fin
+8151$:	nop
+
+
+
+
+decl	note_uid
+
+	brw	loop
+
+
+; ----------------------------------------------
+fin:	nop
+
+	pushaq	dlm
+	calls	#1,g^lib$put_output
+
+        calls   #0,g^lib$show_timer
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_rep5,outbuf=out,outlen=out,-
+		p1=del_both
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_rep6,outbuf=out,outlen=out,-
+		p1=uid_scan
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_rep7,outbuf=out,outlen=out,-
+		p1=notes_tested
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+	pushaq	blank
+	calls	#1,g^lib$put_output
+
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_rep1,outbuf=out,outlen=out,-
+		p1=shad_del
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_rep2,outbuf=out,outlen=out,-
+		p1=shad_Cnote_id
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_rep3,outbuf=out,outlen=out,-
+		p1=shad_Cnote_tit
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_rep4,outbuf=out,outlen=out,-
+		p1=shad_Cnote_hid
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_rep8,outbuf=out,outlen=out,-
+		p1=missing,-
+		p2=#miss_g
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_rep9,outbuf=out,outlen=out,-
+		p1=ny_count
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_rep10,outbuf=out,outlen=out,-
+		p1=ny_count
+
+
+
+
+
+        PUSHAL  DCLFLAG                
+        PUSHAQ  Out		   ; value of symbol
+        PUSHAQ  symbol; symbol to set
+        CALLS   #3,G^LIB$SET_SYMBOL    
+
+
+
+
+
+
+
+	tstl	report
+	bneq	10$
+
+	pushaq	report_only
+	calls	#1,g^lib$put_output
+
+	pushaq	report_only1
+	calls	#1,g^lib$put_output
+
+10$:	nop
+
+
+	tstl	ny_count
+	bneq	20$
+	ret
+20$:	nop
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_am1,outbuf=out,outlen=out,-
+		p1=#Master_name,-
+		p2=#Master_name_flag-
+		p3=#shadow_name,-
+		p4=#shadow_name_flag,-
+		p5=#Q_V
+
+
+
+	tstl	copy
+	bneq	7501$
+
+	pushaq	do_c_o
+	calls	#1,g^lib$put_output
+
+	pushaq	out
+	calls	#1,g^lib$put_output	
+
+	pushaq	out
+	calls	#1,g^lib$do_command
+
+	ret
+
+
+7501$:	nop
+
+
+
+
+
+	ret
+
+do_c_o:	.ascid	/%PAN-I-DO_CO, PAN will now copy the new notes/
+
+report_only:	.ascid	+(As this pass was done /REPORT_ONLY)+
+report_only1:	.ascid	+(*_NO_* changes have been made))+
+
+
+note_in:	.word	4
+		.word	notes$k_note_uid
+		.long	note_uid
+		.long	0
+;
+                .word   4
+hd:             .word   notes$k_nosignal
+                .long   no_sig
+                .long   0
+;
+		.long	0
+
+
+
+
+
+
+note_uid:	.long	0
+
+
+
+first_note_in:
+                .word   4
+                .word   notes$k_nosignal
+                .long   no_sig
+                .long   0
+;
+		.word	4
+		.word	notes$k_note_next_unseen
+		.long	no_sig
+		.long	0
+;
+		.long	0
+
+
+
+first_uid:	.blkl	1
+
+first_note_cont:	.blkl	1
+
+
+first_char:	.ascid	/8-SEP-1954/
+
+first_date:	.blkl	2
+
+
+
+
+notes_beg_i:    .word   4
+                .word   notes$k_notefile_context
+                .long   0
+                .long   0
+;
+                .word   4
+                .word   notes$k_nosignal
+                .long   no_sig
+                .long   0
+
+;
+                .long   0
+
+
+
+
+notes_beg_o:    .word   4
+                .word   notes$k_notefile_numnotes
+                .long   number_of_notes
+                .long   0
+;
+                .long   0
+                                                                                
+
+
+shad_note_cont:	.blkl	1
+mast_note_cont:	.blkl	1
+
+no_sig:         .long   1
+
+
+
+
+
+
+mast_note_out:	
+		.word   20
+                .word   notes$k_note_id
+                .long   mast_note_id
+                .long   mast_note_id_len
+;
+		.word	4
+		.word	notes$k_note_uid
+		.long	mast_uid
+		.long	0
+;
+		.word	100
+		.word	notes$k_note_title
+		.long	mast_note_title
+		.long	mast_note_title_len
+;
+		.word	8
+		.word	notes$k_note_create_time
+		.long	mast_note_time
+		.long	0
+;
+		.word	4
+		.word	notes$k_note_hidden
+		.long	mast_hidden
+		.long	0
+;
+		.word	100
+		.word	notes$k_note_author
+		.long	mast_author
+		.long	mast_author_len
+;
+		.word	4
+		.word	notes$k_note_numrecords
+		.long	mast_number_of_lines
+		.long	0
+;
+		.long	0
+
+
+
+mast_number_of_lines:	.blkl	1
+shad_number_of_lines:	.blkl	1
+
+
+mast_note_id:		.blkb	50
+mast_note_id_len:	.blkl	1
+mast_uid:		.blkl	1
+mast_note_title:	.blkb	200
+mast_note_title_len:	.blkl	1
+mast_note_time:		.blkl	2
+mast_hidden:		.blkl	1
+
+ctr_tell_u:		.ascid	/Working on UID !XL/
+
+
+shad_note_out:	
+		.word   20
+                .word   notes$k_note_id
+                .long   shad_note_id
+                .long   shad_note_id_len
+;
+		.word	4
+		.word	notes$k_note_uid
+		.long	shad_uid
+		.long	0
+;
+		.word	100
+		.word	notes$k_note_title
+		.long	shad_note_title
+		.long	shad_note_title_len
+;
+		.word	8
+		.word	notes$k_note_create_time
+		.long	shad_note_time
+		.long	0
+;
+		.word	4
+		.word	notes$k_note_hidden
+		.long	shad_hidden
+		.long	0
+;
+		.word	100
+		.word	notes$k_note_author
+		.long	shad_author
+		.long	shad_author_len
+;
+		.word	4
+		.word	notes$k_note_numrecords
+		.long	shad_number_of_lines
+		.long	0
+;
+		.long	0
+
+
+shad_author:	.blkb	100
+mast_author:	.blkb	100
+
+shad_author_len:	.blkl	1
+mast_author_len:	.blkl	1
+
+
+
+shad_note_id:		.blkb	50
+shad_note_id_len:	.blkl	1
+shad_uid:		.blkl	1
+shad_note_title:	.blkb	200
+shad_note_title_len:	.blkl	1
+shad_note_time:		.blkl	2
+shad_hidden:		.blkl	1
+
+mast_note_flag:		.blkl	1
+shad_note_flag:		.blkl	1
+
+no_same:	.Ascid	/%PAN-F-DATE_MISMATCH, Same UID notes have not same time stamp/
+
+wrg_mst:	.ascid	/%PAN-F-WRG_MAST, This is not the right master file for this shadow /
+
+
+
+
+
+
+
+ctr_ns2:	.ascid	/Shadow, UID !XL, note !12AD, time !%D/
+ctr_ns1:	.ascid	/Master, UID !XL, note !12AD, time !%D/
+
+ctr_tell_u1:	.ascid	/!ASUID !XL:Master !12<!AS!12AD!>,Shadow !12<!AS!12AD!> @!%D/
+ctr_tell_u2:	.ascid	/!ASUID !XL:Master !12<!AS!12AD!>,Shadow !12<!AS!12AD!> @/
+
+
+neither:	.blkl	1
+nei_exit:	.ascid	/%PAN-I-LIMEX, Scan exit after 30 "no notes"/
+
+last_uid:	.blkl	1
+
+
+
+
+
+indent:	.ascid	/####################################################/
+
+
+un_hid_nol:	.ascid	/>>> WARNING! Unhiding note we did not get the text for <<</
+
+ctr_cb1:	.ascid	/>>> the master has the missing base note !AD, as UID !XL<<</
+no_base:	.ascid	/>>> this topic does not exist <<</
+huh:		.ascid	/>>> loop detected , move stack dumped <<</
+ctr_iw:		.ascid	/>>> Shadow note !AD is UID !XL<<</
+ctr_li:		.ascid	/>>> Master note !UL lines, Shadow note !UL lines<<</
+no_same_lines:	.Ascid	/>>> Same notes have not the same number of lines <<</
+del_bas:	.ascid	/>>> base note deleted in the master, but not in the shadow <<</
+ctrm:		.ascid	/>>> Master note is missing from the shadow <<</
+auth_ch:	.ascid	/>>> Note authors are different <<</
+del_shad:	.ascid	/>>> Delete shadow note (not in the master) <<</
+note_id_ch:	.ascid	/>>> Note ID has changed <<</
+note_tit_ch:	.ascid	/>>> Note Title has changed <<</
+note_hid_ch:	.ascid	/>>> Note hidden status has changed <<</
+
+shad_del:	.blkl	1
+shad_Cnote_id:	.blkl	1
+shad_Cnote_tit:	.blkl	1
+shad_Cnote_hid:	.blkl	1
+del_both:	.blkl	1
+
+
+ctr_rep1:	.ascid	/!5UL Notes were deleted from the shadow /
+ctr_rep2:	.ascid	/!5UL Notes were moved/
+ctr_rep3:	.ascid	/!5UL Notes had titles changed/
+ctr_rep4:	.ascid	/!5UL Notes had their hidden status changed/
+ctr_rep5:	.ascid	/!5UL Notes were not in either conf /
+ctr_rep6:	.ascid	/!5UL UID's scanned /
+ctr_rep7:	.ascid	/!5UL Notes found & compared/
+ctr_rep8:	.ascid	/!5UL Notes missing from the shadow !AS/
+ctr_rep9:	.ascid	/!5UL Notes should be copied over (symbol PAN$TO_BE_COPIED/
+ctr_rep10:	.ascid	/!UL/
+
+ny_count:	.blkl	1
+
+
+miss_g:		.ascid	+, and copied over+
+
+notes_tested:	.blkl	1
+
+uid_scan:	.blkl	1
+
+since:	.ascid	/SINCE/
+
+
+end_quad:	.blkl	2
+
+
+tmp:	.blkl	2
+word7:	.blkw	20
+
+ctr_last2:	.ascid	/Last shadow update completed at !%D/
+
+ctr_peb:	.ascid	/!UW, !UW, !UW, !UW/
+
+
+
+
+from_last:	.ascid	/Will SYNC from completion of last update/
+ctr_last3:	.ascid	+Verifying notes written since !%D+
+day:	.ascid	/1 00:00:00/
+
+build:		.blkl	100
+build_len = . - build
+
+build_point:	.blkl	1
+
+changes:	.blkl	1
+
+start_uid:	.ascid	/START_UID/
+
+other_shad_note_cont:	.blkl	1
+
+other_other_shad_note_cont:	.blkl	1
+
+
+
+
+
+	.entry	do_pan_cre_symbols,^m<r3,r4,r5,r6,r7,r8,r9>
+	nop
+	nop
+	movl	(ap),  R2
+	movl	@4(ap), R3	; number of notes written
+	movl	8(ap), R4	; address of return info structure
+	movl	@12(ap), R8
+
+
+; create a DCL symbol for notes written PAN$EXTRACT_NOTES_WRITTEN
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_rep10,outbuf=out,outlen=out,-
+		p1=R3
+
+        PUSHAL  DCLFLAG                
+        PUSHAQ  out		   ; value of symbol
+        PUSHAQ  p_wrt		   ; symbol to set
+        CALLS   #3,G^LIB$SET_SYMBOL    
+	check	r0,error
+
+
+
+; default the other symbols
+
+	clrl	out
+
+        PUSHAL  DCLFLAG                
+        PUSHAQ  out		   ; value of symbol
+        PUSHAQ  e_noI		   ; symbol to set
+        CALLS   #3,G^LIB$SET_SYMBOL    
+	check	r0,error
+
+        PUSHAL  DCLFLAG                
+        PUSHAQ  out		   ; value of symbol
+        PUSHAQ  e_noA		   ; symbol to set
+        CALLS   #3,G^LIB$SET_SYMBOL    
+	check	r0,error
+
+        PUSHAL  DCLFLAG                
+        PUSHAQ  out		   ; value of symbol
+        PUSHAQ  e_noT		   ; symbol to set
+        CALLS   #3,G^LIB$SET_SYMBOL    
+	check	r0,error
+
+
+	cmpl	#^x3fd19,	R8
+	beql	456$
+
+	pushaq	sym_cre
+	calls	#1,g^lib$put_output
+
+456$:	nop
+
+
+	movl	@4(ap), R3	; number of notes written
+
+	cmpl	#1, R3
+	beql	10$
+	ret
+10$:	nop
+
+
+
+
+
+;0	(itmcod = notes$k_note_id,
+;12	(itmcod = notes$k_note_author,
+;24	(itmcod = notes$k_note_pen_name,
+;36	(itmcod = notes$k_note_title,
+;	(itmcod = notes$k_note_create_time,
+;	(itmcod = notes$k_note_numresponses,
+;	(itmcod = notes$k_note_numrecords,
+;	(itmcod = notes$k_note_hidden,
+;	(itmcod = notes$k_note_blink_id,
+;	(itmcod = notes$k_note_blink_title,
+;	(itmcod = notes$k_notefile_file_name,
+
+
+; -------------------------------------------------------------
+
+	movl	8(ap), R9	; address of return info structure
+
+	cmpw	#notes$k_note_id, 2(R9)
+	beql	20$
+	pushaq	struc_q
+	calls	#1,g^lib$put_output
+	$exit_s	code=#1
+20$:	nop
+
+
+	movl	4(R9), R4
+	movl	@8(R9), R5
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_s1,outbuf=out,outlen=out,-
+		p1=R5,-
+		p2=R4
+
+
+        PUSHAL  DCLFLAG                
+        PUSHAQ  out		   ; value of symbol
+        PUSHAQ  e_noI		   ; symbol to set
+        CALLS   #3,G^LIB$SET_SYMBOL    
+	check	r0,error
+
+; -------------------------------------------------------------
+
+
+
+	movl	8(ap), R9	; address of return info structure
+	addl2	#12, R9
+
+	cmpw	#notes$k_note_author, 2(R9)
+	beql	21$
+	pushaq	struc_q
+	calls	#1,g^lib$put_output
+	$exit_s	code=#1
+21$:	nop
+
+
+	movl	4(R9), R4
+	movl	@8(R9), R5
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_s1,outbuf=out,outlen=out,-
+		p1=R5,-
+		p2=R4
+
+
+        PUSHAL  DCLFLAG                
+        PUSHAQ  out		   ; value of symbol
+        PUSHAQ  e_noA		   ; symbol to set
+        CALLS   #3,G^LIB$SET_SYMBOL    
+	check	r0,error
+; -------------------------------------------------------------
+
+
+
+	movl	8(ap), R9	; address of return info structure
+	addl2	#36, R9
+
+	cmpw	#notes$k_note_title, 2(R9)
+	beql	22$
+	pushaq	struc_q
+	calls	#1,g^lib$put_output
+	$exit_s	code=#1
+22$:	nop
+
+
+	movl	4(R9), R4
+	movl	@8(R9), R5
+
+
+	locc	#0, #100 , (R4)
+
+	subl3	R0, #100, R5
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_s1,outbuf=out,outlen=out,-
+		p1=R5,-
+		p2=R4
+
+
+        PUSHAL  DCLFLAG                
+        PUSHAQ  out		   ; value of symbol
+        PUSHAQ  e_noT		   ; symbol to set
+        CALLS   #3,G^LIB$SET_SYMBOL    
+	check	r0,error
+
+
+
+	ret
+
+ctr_s1:		.ascid	/!AD/
+
+struc_q:	.ascid	/%PAN-F-INERR, Internal structure error/
+
+	.entry	do_pan_enable_mod,^m<r3,r4,r5,r6,r7,r8,r9>
+
+
+	pushaq	mod
+	calls	#1,g^Cli$Present
+	blbc	r0,10$
+
+	cmpl	#^x3fd19, @8(ap)
+	beql	456$
+
+	pushaq	mod_en
+	calls	#1,g^lib$put_output
+
+456$:	nop
+
+	movl	@4(ap), shad_file_cont
+
+        pushaw  null
+        pushaw  open_m
+        pushal  shad_file_cont
+        calls   #3,G^Notes$notefile_modify
+	blbs	r0,10$
+
+	MOVL    R0,VEC+4
+        $PUTMSG_S       MSGVEC=VEC
+
+
+10$:	nop
+	movl	#1, r0
+	ret
+
+mod:		.ascid	/MODERATOR/
+ent_this:	.ascid	/*******  do_pan_enable_mod *******/
+
+
+
+
+
+
+VEC:    .LONG   2
+        .BLKL   1
+        .LONG   0
+        .LONG   0
+
+last_shadow_update:	.blkl	2
+
+ctr_word:	.ascid	/word 7 !UW /
+blank:	.ascid	/                             /
+missing:	.blkl	1
+
+
+ny:	.ascii	/not yet copied/
+ny_len = . - ny
+
+
+none:	.ascii	/**None**/
+none_len = . - none
+
+report:	.ascid	/REPORT_ONLY/
+
+base_fnd:	.ascid	/this is a base note/
+
+
+ask_out:	.word	4
+		.word	notes$k_note_uid
+		.long	note_uid
+		.long	0
+;
+		.word   20
+                .word   notes$k_note_id
+                .long   mast_note_id
+                .long   mast_note_id_len
+;
+		.long	0
+
+ask_in:		.word	0
+		.word	notes$k_note_id
+		.long	0
+		.long	0
+;
+		.long	0
+
+save:		.blkl	500
+save_point:	.long	save
+saved:		.blkl	1
+
+
+
+
+
+ask_out_iw:	.word	4
+		.word	notes$k_note_uid
+		.long	iw_note_uid
+		.long	0
+;
+		.word   20
+                .word   notes$k_note_id
+                .long   iw_note_id
+                .long   iw_note_id_len
+;
+		.long	0
+
+
+iw_note_uid:	.blkl	1
+
+iw_note_id:	.blkb	50
+
+iw_note_id_len:	.blkl	1
+
+ctr_iw1:	.ascid	/The target note_id !AD exists in the shadow,as UID !XL/
+
+ctr_cb:	.ascid	/!AS.0/
+
+other_mast_note_cont:	.blkl	1
+
+
+fred:	.blkl	1
+
+
+master_name_flag:	.ascid	+/NOnotebook   +
+master_name:		.long	100
+			.long	master_name+8
+			.blkb	100
+
+
+shadow_name_flag:	.ascid	+/NOnotebook   +
+shadow_name:		.long	100
+			.long	shadow_name+8
+			.blkb	100
+
+
+ctr_am:		.ascid	+$ Pan Copy Note !AS!AS !AS!AS /Range=!AD /NOlog !AS+
+
+ctr_am1:	.ascid	+$ Pan Copy Note !AS!AS !AS!AS /NOlog /Limit=100 !AS+
+
+
+am:	.ascid	+Do the following (or use SYNC/COPY) to get this note+
+am1:	.ascid	/Spawning PAN to copy this note/
+S_FLAG:	.LONG	0
+
+
+
+m_pad:	.ascid	/                   /
+s_pad:	.ascid	/                   /
+
+
+	.entry	cond_hand, ^m<r2,r3,r4,r5,r6,r7,r8,r9>
+
+
+
+
+; get pointer to signal array           
+                                        
+        movl    chf$l_sigarglst(ap),r5  
+
+	movl	chf$l_sig_name(r5),R5
+
+
+	cmpl    R5,#NOTES$_NO_SUCH_NOTE
+	beql	10$
+
+
+	movl	#ss$_resignal, r0
+	
+	ret
+
+
+
+10$:	movl	#ss$_continue, r0
+
+
+	ret
+
+symbol:	.ascid	/PAN$TO_BE_COPIED/
+DCLFLAG:        .LONG   LIB$K_CLI_GLOBAL_SYM  
+
+def_tbc:	.ascid	/-1/
+
+keyword_cnx:	.blkl	1
+
+
+
+keyword:	.ascii	/PAN$DATA_STORE/
+keyword_len = . - keyword
+
+
+
+key_out:	.word	100
+		.word	NOTES$K_KEYWORD_USER_AREA
+		.long	KEYWORD_USER_AREA
+		.long	KEYWORD_USER_AREA_len
+;
+		.long	0
+
+KEYWORD_USER_AREA:	.blkb	100
+KEYWORD_USER_AREA_len:	.blkl	1
+
+
+
+
+key_in:	.word	0
+	.word	NOTES$K_KEYWORD_NAME
+	.long	0
+	.long	0
+;
+        .word   4
+        .word   notes$k_nosignal
+        .long   no_sig
+        .long   0
+;
+	.long	0	
+
+keyword_add:	.ascid	/Adding keyword PAN$DATA_STORE/
+
+ctr_wm1:	.ascid	/Master conf creation date is !%D/
+ctr_wm2:	.ascid	/Master conf creation date is !%D  (Stored in the shadow conf)/
+
+key_add:	.word	0
+		.word	NOTES$K_KEYWORD_USER_AREA
+		.long	KEYWORD_USER_AREA
+		.long	0
+;
+		.word	keyword_len
+		.word	NOTES$K_KEYWORD_NAME
+		.long	keyword
+		.long	0	
+;
+		.long	0
+
+
+
+
+p_wrt:	.ascid	/PAN$EXTRACT_NOTES_WRITTEN/
+
+e_noI:	.ascid	/PAN$EXTRACT_NOTE_ID/
+
+e_noA:	.ascid	/PAN$EXTRACT_NOTE_AUTHOR/
+
+e_noT:	.ascid	/PAN$EXTRACT_NOTE_TITLE/
+
+sym_cre:	.ascid	/%PAN-I-SYMC, DCL symbols PAN$EXTRACT_* created/
+
+time:	.ascid	/0 00:00:30/
+quad:	.blkl	2
+
+
+break_in:	.word	10
+		.word	notes$k_note_id
+		.long	break_range
+		.long	0
+;
+		.long	0
+
+break_range:	.ascii	/1.*-999999.*/
+
+
+
+no_base_m:	.ascid	/asking the master for this base note did not find it/
+limit_done:	.ascid	/ **** LIMIT time has expired ****/
+id_ch:	.blkl	1
+limit:		.ascid	/LIMIT_TIME/
+ctr_tell_uI:	.ascid	/master note !AD, shadow note is now !AD/
+
+
+	.entry	limit_ast,^m<r2,r3,r4,r5,r6,r7,r8,r9>
+
+	pushaq	limit_done
+	calls	#1,g^lib$put_output
+
+	clrl	limit_done
+
+	ret
+
+
+	.end	
+

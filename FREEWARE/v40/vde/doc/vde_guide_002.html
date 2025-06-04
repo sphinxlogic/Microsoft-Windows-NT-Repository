@@ -1,0 +1,909 @@
+<!-- VDE_GUIDE_002.HTML continuation of VDED$:[VDE.VDEDOC.DOC]VDE_GUIDE.HTML -->
+<html>
+<head>
+<title>VDE</title>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">VDE<br>Guide to Using<br> VDE</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_001.html#bottom_001">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+
+<hr>
+<p>
+<strong>Examples</strong>
+<br>
+
+<p>
+This is an example of the output of the RESERVE command:
+<a name="index_x_93"></a>
+<a name="index_x_94"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; RESERVE/STREAM=BIRCH [FACIL]MOD.TYP "Fix QAR 55"
+%VDE-I-FETCHED, generation [FACIL]MOD.TYP;3(3) fetched from library
+%VDE-I-OUTFILE, output file is DEV$:[MYDIR]MOD.TYP;
+%VDE-I-RESERVED, generation [FACIL]MOD.TYP;3(3) reserved from stream BIRCH
+%VDE-I-EXPGENEXPR, expected generation expression at replacement is 3A1
+%VDE-I-COMMIT, database transaction has successfully committed
+VSC&gt;
+</pre>
+</font>
+</table>
+
+In this example, module MOD.TYP in facility FACIL is reserved from the 
+OpenVMS VAX library. The module is reserved for stream BIRCH and all 
+successor streams that have the same generation of MOD.TYP as BIRCH. 
+One of the log messages indicates that generation 3 in that stream was 
+fetched out. The new generation created when you later replace the 
+module is expected to have the generation expression 3A1; you should 
+use this string as the audit trail identifier in the code comments 
+explaining your changes.
+
+<p>
+The following example shows how VSC displays multiple log 
+messages when you reserve multiple modules with the same RESERVE 
+command:
+<a name="index_x_95"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SET FACILITY SYS
+VSC&gt; RESERVE/STREAM=PHOENIX A.MAR,B.MAR,C.MAR "Add scramble feature"
+%VDE-I-FETCHED, generation [FACIL]A.MAR;5(2A3) fetched from library
+%VDE-I-OUTFILE, output file is DEV$:[MYDIR]A.MAR;
+%VDE-I-FETCHED, generation [FACIL]B.MAR;1(1) fetched from library
+%VDE-I-OUTFILE, output file is DEV$:[MYDIR]B.MAR;
+%VDE-I-FETCHED, generation [FACIL]C.MAR;3(3) fetched from library
+%VDE-I-OUTFILE, output file is DEV$:[MYDIR]C.MAR;
+%VDE-I-RESERVED, generation [FACIL]A.MAR;5(2A3) reserved from stream PHOENIX
+%VDE-I-EXPGENEXPR, expected generation expression at replacement is 2A4
+%VDE-I-RESERVED, generation [FACIL]B.MAR;1(1) reserved from stream PHOENIX
+%VDE-I-EXPGENEXPR, expected generation expression at replacement is 2
+%VDE-I-RESERVED, generation [FACIL]C.MAR;3(3) reserved from stream PHOENIX
+%VDE-I-EXPGENEXPR, expected generation expression at replacement is 4
+%VDE-I-COMMIT, database transaction has successfully committed
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<a name="concur_res"><h2>2.2.1 Concurrent Reservations</h2></a>
+
+<p>
+A module reservation is said to &quot;cover&quot; all development 
+streams to which you expect the module to be propagated when you later 
+replace it. This means that, if the stream that you reserve a module 
+from has a successor stream and if the module has not yet diverged 
+between the two streams, the reservation covers both streams. If the 
+successor stream also has a successor, that stream is covered too (if 
+the module has not diverged), and so on. If two reservations of the 
+same module cover at least one common development stream, then the two 
+reservations are said to be <strong>concurrent reservations</strong> of 
+the module.
+<a name="index_x_96"></a>
+
+<p>
+The source control system does not by default create a concurrent 
+reservation for you when you reserve a module. If someone else's 
+existing reservation conflicts with the reservation you are trying to 
+create, it is best for you to wait for the other developer to replace 
+(or unreserve) the module before you reserve it and start to modify it. 
+If both of you modify a module at the same time for the same stream, 
+one of you will have to manually merge the parallel sets of changes to 
+make the module right. This extra step in effect requires someone to 
+enter his or her changes twice, which is more work and increases the 
+risk of errors. Avoiding concurrent reservations is therefore your best 
+policy.
+
+<p>
+However, there are exceptions. Sometimes you might need to change a 
+module to fix a bug in the current build, for example, even though 
+someone else (or even you yourself) already has reserved the module for 
+more extensive changes. In such cases, you can use the 
+/OVERRIDE=CONCURRENT qualifier on the RESERVE command to concurrently 
+reserve the module. When you have completed your change, you queue the 
+module for replacement with the REPLACE command. When the release 
+project leader performs your replacement, the other developer's 
+reservation is cancelled and he or she is notified of this fact by a 
+mail message. That other developer must then rereserve the module, 
+merge his or her changes with your changes, and then continue his or 
+her work. When you create a concurrent reservation for a module and 
+then replace the module first, you thus create work for another 
+developer, so you need a good reason for doing so.
+
+<p>
+The following example illustrates what happens when you try to reserve 
+a module that is already reserved:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; RESERVE [RMS]MODULE_E.B32 "Emergency bug fix"
+Module [BUILD_TEST]E.B32 is currently reserved:
+   Reservation 1 by user HOFFMAN on 18-JAN-1990 15:45:51.77
+      Remark: FIRST RESERVATION
+%VDE-E-MODALRRES, module [RMS]MODULE_E.B32 already reserved by another user
+ attempt to reserve module has failed
+%VDE-I-ROLLBACK, database transaction rolled back
+VSC&gt;
+</pre>
+</font>
+</table>
+
+In this example, the RESERVE command fails because the module is 
+already reserved by another user. The command's output identifies the 
+conflicting reservation so you can see who owns it (user HOFFMAN in 
+this example). The reservation conflicts with the one you wanted to 
+make because it covers some common stream for the same module.
+
+<p>
+If you decide that you must create a concurrent reservation for the 
+module after all, you enter this command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; RESERVE/OVERRIDE=CONCURRENT [RMS]MODULE_E.B32 "Emergency bug fix"
+Module [BUILD_TEST]E.B32 is currently reserved:
+   Reservation 1 by user HOFFMAN on 18-JAN-1990 15:45:51.77
+      Remark: FIRST RESERVATION
+%VDE-I-FETCHED, generation [RMS]MODULE_E.B32;1(1) fetched from library
+%VDE-I-OUTFILE, output file is DEV$:[MYDIR]MODULE_E.B32;
+%VDE-I-RESERVED, generation [RMS]MODULE_E.B32;1(1) reserved from stream BIRCH
+%VDE-I-EXPGENEXPR, expected generation expression at replacement is 2
+%VDE-I-COMMIT, database transaction has successfully committed
+VSC&gt;
+</pre>
+</font>
+</table>
+
+This RESERVE command creates a concurrent reservation for the module 
+because it contains the /OVERRIDE=CONCURRENT qualifier. It also sends 
+mail to user HOFFMAN to notify HOFFMAN that you just concurrently 
+reserved the module.
+
+<p>
+When you reserve a module, you can specify that you do not want other 
+developers to create concurrent reservations for that module. To do so, 
+use the /NOCONCURRENT qualifier on the RESERVE command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; RESERVE/NOCONCURRENT [RMS]MODULE_E.B32 "Remark string"
+</pre>
+</font>
+</table>
+
+This qualifier causes the source control system to reject future 
+attempts to create reservations that are concurrent with this one until 
+you replace the module into the library or unreserve it. If you are 
+about to make complicated changes to a module, you can thus prevent 
+others from concurrently reserving that module. Normal usage, however, 
+is to omit this qualifier and to allow concurrent reservations in case 
+they are needed in an emergency. You can change a reservation's 
+noconcurrent attribute with the MODIFY RESERVATION command.
+
+<a name="queued_res"><h2>2.2.2 Queued Reservations</h2></a>
+
+<p>
+VSC and VSC support queued reservations. When you 
+queue a reservation request, the source control system records the 
+queued reservation in its database, pending the availability of the 
+specified module. When the developer who owns the current reservation 
+later replaces the module into the library or cancels the reservation, 
+VSC sends a mail message to each user who has queued a 
+reservation request for the module.
+
+<p>
+The queued reservation request mail message indicates that the module 
+is now available for reservation, and it lists all users who have 
+requested it, in the order the requests were posted. The users listed 
+in the message must decide among themselves who should reserve the 
+module first.
+
+<p>
+To actually reserve the module, one must enter an explicit RESERVE 
+command.
+<a name="index_x_97"></a>
+<a name="index_x_98"></a>
+<a name="index_x_99"></a>
+
+<p>
+In addition to displaying other reservation information, the SHOW 
+RESERVATION command displays all queued reservations.
+
+<a name="cre_new_mod"><h1><font color=maroon>2.3 Creating New Modules</font></h1></a>
+
+<p>
+To create a new source module, use the CREATE MODULE command:
+<a name="index_x_100"></a>
+<a name="index_x_101"></a>
+<a name="index_x_102"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; CREATE MODULE [FACIL]MOD.TYP /STREAM=BIRCH /REMARK="Remark string"
+</pre>
+</font>
+</table>
+
+This command records the new module in the source control database and 
+creates a reservation for the module in the specified stream. It does 
+not create the first generation of the module, however. You must use a 
+subsequent REPLACE command to actually create the initial generation of 
+the module.
+
+<p>
+You can create multiple modules with a single CREATE MODULE command by 
+specifying a list of module names separated by commas.
+
+<p>
+VDE also allows you to associate a number of modules from 
+various RESERVE and CREATE MODULE commands together, by using the 
+/SESSION qualifier. The /SESSION qualifier allows you to pick a name 
+for a group of modules, and to avoid having to specify each module on 
+the REPLACE command. The use of /SESSION also provides the reviewers 
+and the project leader with a clear indication that a group of 
+replacement modules are related.
+
+<p>
+If you should mistakenly create a module under an incorrect module 
+name, or should you create a module that becomes unnecessary, you 
+can---<em>prior to module replacement</em>---issue a DELETE MODULE 
+command. The DELETE MODULE command will cancel the
+<a name="index_x_103"></a>
+reservation, and will correctly back out the CREATE MODULE command. For 
+further details on this, see the <em>VDE Reference Manual</em>.
+
+<p>
+The CREATE MODULE command accepts a number of qualifiers. The help text 
+and the reference manual have the details on all of the qualifiers 
+accepted by the command. <a href="vde_guide_002.html#qualtbl_cremod">Table 2-2</a> lists some of the more 
+commonly-used qualifiers. <p>
+<a name="index_x_104"></a>
+
+<table border=3>
+  <caption><a name="qualtbl_cremod"><strong>Table 2-2 Qualifiers to the CREATE MODULE command</strong></a></caption>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/LOG</strong>
+      <br>
+      <strong>/NOLOG</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specify whether informational log messages are printed after each 
+       module is created. /LOG causes such messages to be printed and /NOLOG 
+       suppresses them. /LOG is the default.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/MARKER</strong>
+      <br>
+      <strong>/NOMARKER</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specify that the module is a &quot;marker file&quot;. A marker file is 
+       any binary, image, saveset, or library file that should not stored via 
+       the normal
+      <em>delta</em> mechanism used within the CMS library, but should be 
+      stored as a seperate module in the marker file directory (see SHOW 
+      DIRECTORY/DELTA). This setting avoids having extensive delta-related 
+      processing and storage overhead between one
+      <a name="index_x_105">
+      </a>
+               <a name="index_x_106">
+      </a>
+               <a name="index_x_107">
+      </a>
+               <a name="index_x_108">
+      </a>
+               generation of a binary module and the next.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/REMARK="string"</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies a one-line remark string to be associated with the module. 
+       This remark typically explains the purpose or function of the module. 
+       If you omit this qualifier, VSC prompts you for a remark.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/SESSION=session-name</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       /SESSION allows you to associated various reserved and created modules 
+       together into a session; sessions allow you to later replace a whole 
+       series of reserved and created modules via a single REPLACE command. 
+       When used with the queued-replacement environment, the use of sessions 
+       also provides a clear indication to the reviewers and to the project 
+       leader that the modules being replaced are associated. The particular 
+       session name used is typically a mnemonic name chosen by the user, and 
+       usually reflects the particular set of changes being made.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/STREAM=stream-name</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies the development stream from which the new module is reserved. 
+       The
+      <strong>stream-name</strong> parameter gives the name of the stream. If 
+      this qualifier is omitted, the module is reserved from your default 
+      development stream, provided one is defined.
+    </td>
+  </tr>
+</table>
+<p>
+<a name="cre_new_mod_examples"><strong>Examples</strong></a>
+<br>
+
+<p>
+This is an example of the CREATE MODULE command:
+<a name="index_x_109"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SET STREAM PHOENIX
+VSC&gt; CREATE MODULE [FACNAM]NEWMOD.C /REMARK="Update widget table"
+%VDE-I-RESERVED, generation [FACNAM]NEWMOD.C reserved from stream PHOENIX
+%VDE-I-MODADDED, module [FACNAM]NEWMOD.C added to the database
+%VDE-I-COMMIT, database transaction has successfully committed
+VSC&gt;
+</pre>
+</font>
+</table>
+
+This example makes stream PHOENIX the default development stream and 
+then creates the new module NEWMOD.C in facility FACNAM. The CREATE 
+MODULE command adds the module to the source control database and 
+reserves it from the default stream. A subsequent REPLACE command (not 
+shown) is needed to create the first generation of the module in the 
+library.
+
+<a name="fetch_mod"><h1><font color=maroon>2.4 Fetching Modules</font></h1></a>
+
+<p>
+To fetch an existing module without reserving it, use the FETCH 
+command. For example:
+<a name="index_x_110"></a>
+<a name="index_x_111"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; FETCH/STREAM=FOO [FACIL]MOD.TYP
+</pre>
+</font>
+</table>
+
+This command copies the latest generation for stream FOO of module 
+MOD.TYP in facility FACIL to your default directory.
+
+<p>
+The FETCH command accepts multiple module names separated by commas and 
+accepts the asterisk (*) and percent sign (%) wildcard characters in 
+the module-name parameters. Those modules whose names match the 
+wildcard patterns are fetched.
+
+<p>
+You can specify the specific generation you want to fetch in two ways. 
+One way is to specify a generation number preceded by a semicolon after 
+the module name. For example, MOD.TYP;5 refers to absolute generation 5 
+for the specified development stream. MOD.TYP;0 refers to the latest 
+generation of the module in the specified stream and MOD.TYP;--1 refers 
+to generation --1 relative to the latest generation in the stream (in 
+other words, to the next most recent generation). The second method to 
+specify the generation you want is to use the 
+/GENERATION=<em>gen-expr</em> qualifier to specify the CMS 
+&quot;generation expression&quot; of the desired generation. If you 
+specify neither a generation number nor the /GENERATION qualifier, 
+VSC fetches the latest generation for the specified (or 
+default) development stream.
+
+<p>
+In addition to the /GENERATION qualifier, the FETCH command accepts a 
+subset of the RESERVE command qualifiers. The FETCH command also 
+accepts an optional quoted remark parameter for compatibility with CMS, 
+but since there is no reason to record fetch operations, the remark 
+string is simply discarded.
+
+<p>
+The FETCH command accepts a number of qualifiers. The help text and the 
+reference manual have the details on the qualifiers accepted by the 
+command. <a href="vde_guide_002.html#qualtbl_fetch">Table 2-3</a> contains some of the more commonly-used 
+qualifiers. <p>
+<a name="index_x_112"></a>
+
+<table border=3>
+  <caption><a name="qualtbl_fetch"><strong>Table 2-3 Qualifiers to the FETCH command</strong></a></caption>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/CONFIRM</strong>
+      <br>
+      <strong>/NOCONFIRM</strong>
+      <br>
+      <strong>/LOG</strong>
+      <br>
+      <strong>/NOLOG</strong>
+      <br>
+      <strong>/OUTPUT</strong>
+      <br>
+      <strong>/STREAM</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      Same as for the RESERVE command.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/GENERATION=gen-expr</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies that the module generation be fetched that has the CMS 
+       generation expression given by the
+      <strong>gen-expr</strong> parameter. This expression is also the 
+      generation's audit trail identifier. If this qualifier is omitted, the 
+      command fetches the generation given by the generation number on the 
+      module-name parameter. If both this qualifier and the generation number 
+      are omitted, the command fetches the most recent generation of the 
+      module in the specified development stream.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/HISTORY[="string"]</strong>
+      <br>
+      <strong>/NOHISTORY</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Determine whether CMS history information is included in the fetched 
+       source module. /HISTORY causes CMS history information to be included 
+       in the output file and /NOHISTORY suppresses such information. If 
+       neither qualifier is specified, the history attribute for each module 
+       determines whether history information is included. For OpenVMS VAX, 
+       history information is turned off by default.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/NOTES[="string"]</strong>
+      <br>
+      <strong>/NONOTES</strong>
+      <br>
+      <strong>/POSITION=col-num</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Determine whether CMS notes information is included in the fetched 
+       source module. /NOTES causes CMS notes information to be included in 
+       the output file and /NONOTES causes such information to be omitted. If 
+       CMS notes are included, the /POSITION qualifier specifies the column 
+       number of the notes text. If neither /NOTES nor /NONOTES is specified, 
+       the notes attribute for each module determines whether notes are 
+       included. For OpenVMS VAX, notes are turned off by default.
+    </td>
+  </tr>
+</table>
+<p>
+<a name="fetch_mod_examples"><strong>Examples</strong></a>
+<br>
+
+<p>
+This is an example of the FETCH command:
+<a name="index_x_113"></a>
+<a name="index_x_114"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; FETCH A.REQ
+%VDE-I-FETCHED, generation [FACNAM]A.REQ;3(2A1) fetched from library
+%VDE-I-OUTFILE, output file is DEV$:[MYDIR]A.REQ;
+VSC&gt;
+</pre>
+</font>
+</table>
+
+This example fetches generation 3 (for the default stream) of module 
+A.REQ in facility FACNAM. The generation's CMS generation expression 
+(and audit trail identifier) is 2A1. VSC places a file 
+containing that generation in your default directory.
+
+<p>
+The following example fetches two modules, C.B32 in facility SYS and 
+D.B32 in facility BAD, and copies them to directory [MYDIR]:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; FETCH/OUTPUT=[MYDIR] [SYS]C.B32/STREAM=V4.4,[BAD]D.B32/GENERATION=3A2
+%VDE-I-FETCHED, generation [SYS]C.B32;4(4) fetched from library
+%VDE-I-OUTFILE, output file is DEV$:[MYDIR]C.B32;
+%VDE-I-FETCHED, generation [BAD]D.B32;5(3A2) fetched from library
+%VDE-I-OUTFILE, output file is DEV$:[MYDIR]D.B32;
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<p>
+The command fetches the latest generation of C.B32 for stream V4.4, and 
+it fetches the generation of D.B32 that has CMS generation expression 
+3A2.
+
+<a name="unres_mod"><h1><font color=maroon>2.5 Unreserving Modules</font></h1></a>
+
+<p>
+To cancel a module reservation without replacing the module, use the 
+UNRESERVE command. The following example illustrates its use:
+<a name="index_x_115"></a>
+<a name="index_x_116"></a>
+<a name="index_x_117"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; UNRESERVE/STREAM=FOO [FACIL]MOD.TYP "Remark string"
+</pre>
+</font>
+</table>
+
+This command cancels the reservation of module MOD.TYP in facility 
+FACIL. The /STREAM qualifier specifies the stream for which the 
+reservation was made. If you omit this qualifier, your default stream 
+is assumed. If you have more than one reservation of the module for 
+that stream, you must specify its reservation identifier with the 
+/IDENTIFICATION qualifier. The command can cancel both queued 
+reservation requests and real reservations.
+
+<p>
+The UNRESERVE command accepts wildcard characters in the module-name 
+parameter. Those modules whose names match the wildcard pattern are 
+unreserved. The command also accepts multiple module-name parameters 
+separated by commas.
+
+<p>
+The optional remark string parameter specifies a remark that explains 
+why the module reservation was cancelled. You can also specify the 
+remark string with the /REMARK qualifier.
+
+<p>
+The UNRESERVE command accepts a subset of the REPLACE command 
+qualifiers (see <a href="vde_guide_003.html#qualtbl_replace">Table 2-5</a>). The following qualifiers have the same 
+meanings as for the REPLACE command: /CONFIRM, /NOCONFIRM, 
+/IDENTIFICATION, /LOG, /NOLOG, /STREAM, and /USERNAME.
+<a name="index_x_118"></a>
+
+<a name="disp_res"><h1><font color=maroon>2.6 Displaying Reservations</font></h1></a>
+
+<p>
+Once a reservation has been entered into the source control system's 
+database, you can display it with the SHOW RESERVATION command. This is 
+a typical example:
+<a name="index_x_119"></a>
+<a name="index_x_120"></a>
+<a name="index_x_121"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW RESERVATION [FACIL]MOD.TYP
+</pre>
+</font>
+</table>
+
+This command shows all reservations and queued reservation requests for 
+module MOD.TYP in facility FACIL. If the module-name parameter is 
+omitted, the command displays all reservations for modules in your 
+default facility.
+
+<p>
+The SHOW RESERVATION command accepts a list of module names separated 
+by commas, and you can use the asterisk (*) and percent sign (%) 
+wildcard characters in the module names. All reservations for modules 
+that match the wildcard patterns are displayed.
+
+<p>
+The SHOW RESERVATION command accepts a number of qualifiers. The help 
+text and the reference manual have the details on all of the qualifiers 
+accepted by the command. <a href="vde_guide_002.html#qualtbl_shores">Table 2-4</a> describes a number of the more 
+commonly-used qualifiers. <p>
+<a name="index_x_122"></a>
+
+<table border=3>
+  <caption><a name="qualtbl_shores"><strong>Table 2-4 Qualifiers to the SHOW RESERVATION command</strong></a></caption>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/BEFORE=date-time</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Displays only those reservations created before the specified date and 
+       time.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/BRIEF</strong>
+      <br>
+      <strong>/FULL</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Determine the type of information displayed for each reservation. 
+       /BRIEF displays the reservation identifier, the name of the reserved 
+       module, the reserving user, the date of the reservation, and the stream 
+       in which the module is reserved. This display normally fits on one 
+       line. /FULL displays all database information about the reservation; 
+       this display requires several lines per reservation. /BRIEF is the 
+       default.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/NOQUEUE</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies that queued reservation requests not be displayed. If this 
+       qualifier is omitted, the command displays both queued reservation 
+       requests and normal reservations.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/OUTPUT=filespec</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Directs the printed output of this command to a specified file. The
+      <strong>filespec</strong> parameter specifies the name of the file. 
+      VSC creates a new file with that name, directs the command's 
+      print output to that file, and prints nothing on your terminal. If this 
+      qualifier is omitted, all output appears on the terminal.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/SINCE=date-time</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Displays only those reservations created on or after the specified date 
+       and time.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/STREAM[=stream-name]</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Displays only those reservations made for the development stream given 
+       by the
+      <strong>stream-name</strong> parameter. If the
+      <strong>stream-name</strong> parameter is omitted, the command only 
+      displays those reservations made for your default stream. If the 
+      /STREAM qualifier is omitted entirely, the command displays 
+      reservations for all streams.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/TOTAL</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Shows the total number of reservations that match the specified module 
+       names, usernames, and other constraints. Only the total count is shown; 
+       other information about the individual reservations is not shown.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/USERNAME[=username]</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies the OpenVMS user name for the user whose reservations 
+       are to be shown. If this qualifier is specified, VSC only 
+       displays that user's reservations. If the
+      <strong>username</strong> parameter is omitted, VSC only 
+      displays your own reservations. If the whole qualifier is omitted, 
+      VSC displays reservations for all users.
+    </td>
+  </tr>
+</table>
+<p>
+<a name="disp_res_examples"><strong>Examples</strong></a>
+<br>
+
+<p>
+This is an example of the brief output of the SHOW RESERVATION command:
+<a name="index_x_123"></a>
+<a name="index_x_124"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW RESERVATION
+Reservation 1 of [FACIL]FOO.MAR             SMITH        18-NOV-1990 BIRCH
+Reservation 1 of [FACIL]FUMBLE.MAR          JONES         5-SEP-1990 PHOENIX
+Queued reservation 2 of [FACIL]FUMBLE.MAR   MURGATROID   21-NOV-1990 PHOENIX
+Reservation 1 of [FACIL]SCRAMBLE.B32        SMITH        31-OCT-1990 MUSHROOM
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<p>
+The following example shows the full output of the SHOW RESERVATION 
+command for one reservation:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW RESERVATION/FULL [FACIL]FOO.MAR
+Reservation 1 of [FACIL]FOO.MAR
+   Reservation created on 18-NOV-1990 10:39:54.31
+   Reservation created by user SMITH (Jane Smith)
+   Generation 15 (15) reserved from stream BIRCH
+   Expected generation expression at replacement is 16 (audit trail identifier)
+   Concurrent reservations are allowed
+   Remark: Fix QAR 23 again
+ 
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<a name="bottom_002"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_001.html#bottom_001">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vde_guide_003.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+</body>
+</html>

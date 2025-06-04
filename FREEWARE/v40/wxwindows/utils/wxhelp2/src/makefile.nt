@@ -1,0 +1,111 @@
+#
+# File:		makefile.nt
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxHelp 2 (MS VC++).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+EXTRAINC=/I$(WXDIR)\utils\wxweb\src
+EXTRALIBS=$(WXDIR)\utils\wxweb\lib\wxhtml.lib $(WXDIR)\utils\wximage\lib\wxima.lib wsock32.lib
+DOCDIR=$(WXDIR)\docs
+LOCALDOCDIR=$(WXDIR)\utils\wxhelp2\docs
+
+!include $(WXDIR)\src\ntwxwin.mak
+
+THISDIR = $(WXDIR)\utils\wxhelp2
+PROGRAM=wxhelp
+ 
+OBJECTS = $(PROGRAM).obj
+
+$(PROGRAM):    $(PROGRAM).exe
+
+all:    wx $(PROGRAM).exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt FINAL=$(FINAL)
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt clean
+        cd $(THISDIR)
+
+$(PROGRAM).exe:      $(DUMMYOBJ) $(WXLIB) $(OBJECTS) $(PROGRAM).res
+	$(link) @<<
+-out:$(PROGRAM).exe
+$(LINKFLAGS)
+$(DUMMYOBJ) $(OBJECTS) $(PROGRAM).res
+$(LIBS)
+<<
+
+
+$(PROGRAM).obj:      $(PROGRAM).$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+$(PROGRAM).res :      $(PROGRAM).rc $(WXDIR)\include\msw\wx.rc
+    $(rc) -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -fo$@ $(PROGRAM).rc
+
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+
+DOCSOURCES=$(LOCALDOCDIR)\manual.tex
+
+html: $(DOCDIR)\html\wxhelp2\help.htm
+hlp: $(DOCDIR)\winhelp\wxhelp2.hlp
+ps: $(WXDIR)\docs\ps\wxhelp2.ps
+
+$(DOCDIR)\winhelp\wxhelp2.hlp:         $(LOCALDOCDIR)\wxhelp2.rtf $(LOCALDOCDIR)\wxhelp.hpj
+        cd $(LOCALDOCDIR)
+        -erase wxhelp2.ph
+        hc wxhelp2
+        move wxhelp2.hlp $(DOCDIR)\winhelp\wxhelp2.hlp
+        move wxhelp2.cnt $(DOCDIR)\winhelp\wxhelp2.cnt
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\wxhelp2.rtf: $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -start /w tex2rtf $(LOCALDOCDIR)\manual.tex $(LOCALDOCDIR)\wxhelp2.rtf -twice -winhelp
+        cd $(THISDIR)
+
+$(DOCDIR)\html\wxhelp2\help.htm:         $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -mkdir $(DOCDIR)\html\wxhelp2
+        -start /w tex2rtf $(LOCALDOCDIR)\manual.tex $(DOCDIR)\html\wxhelp2\help.htm -twice -html
+        -erase $(DOCDIR)\html\wxhelp2\*.con
+        -erase $(DOCDIR)\html\wxhelp2\*.ref
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\manual.dvi:	$(DOCSOURCES)
+	cd $(LOCALDOCDIR)
+        -latex manual
+        -latex manual
+        -makeindx manual
+        -bibtex manual
+        -latex manual
+        -latex manual
+        cd $(THISDIR)
+
+$(WXDIR)\docs\ps\wxhelp2.ps:	$(LOCALDOCDIR)\manual.dvi
+	cd $(LOCALDOCDIR)
+        -dvips32 -o wxhelp2.ps manual
+        move wxhelp2.ps $(WXDIR)\docs\ps\wxhelp2.ps
+        cd $(THISDIR)
+
+

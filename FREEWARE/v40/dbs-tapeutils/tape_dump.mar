@@ -1,0 +1,2591 @@
+	.title	tape_dump
+	.ident	/X2-005/
+	.subtitle Psect, library and external definitions
+
+;+
+; Version:	X2-005
+;
+; Facility:	Diagnostic utilities.
+;
+; Abstract:	This utility allows you to read any part of any tape (as long
+;		as there is valid data where you are reading).  Most errors
+;		are ignored and therefore you can read past end-of-volume
+;		conditions and parity error conditions that would stop normal
+;		utilities in there tracks.  By using appropriate commands,
+;		the data can be copied to a sequential file on disk for later
+;		processing, effectively allowing retrieval of data from an
+;		otherwise unusable tape.
+;
+; Environment:	PHY_IO and LOG_IO are needed to perform the qio's on the
+;		selected tape drive.
+;
+; History:
+;
+;	30-Oct-1990, DBS; Version X2-001
+; 001 -	Original version.  (Based on a similar utility I wrote for RSTS/E.)
+;	31-Oct-1990, DBS; Version X2-002
+; 002 -	Fix bug with SKIP EOT to get past eov conditions.
+;	31-Oct-1990, DBS; Version X2-003
+; 003 -	Added a check on EXIT to close any output file (and truncate it).
+;	Changed segment display for SET COPY LOG to be BOTH.
+;	01-May-1991, DBS; Version X2-004
+; 004 -	Allow the use of "AND" and "&" to make command syntax more readable.
+;	19-Feb-1992, DBS; Version X2-005
+; 005 -	Removed shared read access to our output file, it should speed up
+;	processing when doing lots of copies.
+;-
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	.external	lib_get_input
+	.external	lib_output_seg_t
+	.external	lib_output_seg_tzb
+	.external	lib_output_seg_zb
+	.external	lib$put_output
+	.external	lib$spawn
+	.external	lib$tparse
+	.external	lib$tra_ebc_asc
+	.external	str_uppercase
+
+	$dcdef
+	$devdef
+	$dvidef
+	$fabdef
+	$iodef
+	$libdef
+	$mtdef
+	$mt2def
+	$namdef
+	$psldef
+	$rabdef
+	$rmsdef
+	$ssdef
+	$stsdef
+	$tpadef
+	$gblini GLOBAL
+
+	def_psect _tape_buffer, type=DATA, alignment=PAGE
+	def_psect _tape_data_rw, type=DATA, alignment=LONG
+	def_psect _tape_data_ro, type=RO_DATA, alignment=LONG
+	def_psect _tape_code, type=CODE, alignment=LONG
+
+	.subtitle Local macros
+
+.macro	display_error status=r0, ?next
+
+	blbs	status, next
+	movl	status, tape_msgsts
+	$putmsg_s msgvec=tape_msgvec
+next:
+
+.endm	;display_error
+
+.macro	check_skip_count exit=, ?ok
+
+	.if blank exit
+	  .error 0 ;Missing destination for CHECK_SKIP_COUNT
+	  .mexit
+	.endc
+
+	movl	tpa$l_number(ap), r0
+	jsb	check_skip_count
+	blbs	r0, ok
+	movl	#tpa$_exit, r0
+	brw	exit
+ok:
+
+.endm	;check_skip_count
+
+	.subtitle Macro to create SET/RESET flag routines
+
+.macro	set_reset mask, flag=enabled, mode=bit
+
+	.if not_defined tape_m_'mask
+	  .error ;No bitmask defined for SET_RESET
+	  .mexit
+	.endc
+__mode_invalid=0
+
+	.if identical <mode>, <bit>
+__mode_invalid=1
+	.list
+	.entry -
+tape_set_'mask, ^m<>
+	bisl	#tape_m_'mask, tape_'flag
+	ret
+	.entry -
+tape_reset_'mask, ^m<>
+	bicl	#tape_m_'mask, tape_'flag
+	ret
+	.nlist
+	.endc
+
+	.if identical <mode>, <move>
+__mode_invalid=1
+	.list
+	.entry -
+tape_set_'mask, ^m<>
+	movl	#tape_m_'mask, tape_'flag
+	movl	#1, r0
+	ret
+	.nlist
+	.endc
+
+	.if equal __mode_invalid
+	  .error ;Invalid option in SET_RESET
+	  .mexit
+	.endc
+
+.endm	;set_reset
+
+	.subtitle Read only data area
+
+lf=10
+cr=13
+space=32
+
+	set_psect _tape_data_ro
+
+tape_version:
+	.ascid	"TapeDump X2-005"
+tape_prompt:
+	.ascid	"tape "
+tape_tt:
+	.ascid	"TT"
+
+blank_line:
+	.ascid	<cr>
+
+tape_ambiguous:
+	.ascid	"!/The use of the word !AS is ambiguous"
+
+tape_syntaxerr:
+	.ascid	"I didn't understand that command, "
+
+tape_confused:
+	.ascid	"!/!ASI got confused when I reached !AS"
+
+tape_badtable:
+	.ascid	<cr><lf>"My internal tables are invalid... help"
+
+tape_fatal:
+	.ascid	<cr><lf>"A fatal logic error has occurred... help"
+
+io_status:
+	.ascid	"iosb :  !8XL  !8XL"
+sensed_char:
+	.ascid	"char :  !8XL  !8XL  !8XL"
+
+	reset_psect
+
+	.subtitle Impure data area and TPA argument block
+
+	set_psect _tape_data_rw
+
+;>>> start of lib$tparse argument block
+; this becomes the argument block for all lib$tparse action routines
+
+tape_parse_ctrl:		; control block for lib$tparse
+	.long	tpa$k_count0	; longword count - required
+	.long	tpa$m_abbrev	; allow unambiguous abbreviations
+		; from here down is filled in at run time
+	.long	0	; length of input string	tpa$l_stringcnt
+	.long	0	; pointer to input string	tpa$l_stringptr
+	.long	0	; length of current token	tpa$l_tokencnt
+	.long	0	; pointer to current token	tpa$l_tokenptr
+	.blkb	3	; unused area
+	.byte	0	; character returned		tpa$b_char
+	.long	0	; binary value of numeric token	tpa$l_number
+	.long	0	; argument supplied by user	tpa$l_param
+		; up to here is REQUIRED, anything after here is optional
+tape_parse_ctrl_end:
+
+;>>> end of lib$tparse argument block
+
+	alloc_string	tape_command, 256
+	alloc_string	tape_faobuf, 1024
+
+tape_tt_chan:	.long	0
+
+tape_msg: 	$putmsg msgvec=tape_msgvec ; setup a message vector for tape
+tape_msgvec:	.word	^X0001		; argument count
+tape_msgtxt:	.word	^X0001		; set message/text
+tape_msgsts:	.long	0		; here we store the status
+
+
+; This is the stuff for use with the DUMP command
+
+	_vield	tape,0,<-
+		<dump_ascii,,M>,-	; set dump ascii
+		<dump_hex,,M>,-		; set dump hexadecimal
+		<dump_both,,M>,-	; set dump both
+		>
+tape_dump_flags:
+	.long	tape_m_dump_ascii	; default to set dump ascii
+
+; These are some flags that are useful
+
+	_vield	tape,0,<-
+		<debug,,M>,-		; enable/disable debug
+		<sensechar,,M>,-	; enable/disable sensechar
+		<shortdump,,M>,-	; set dump short | full
+		<using,,M>,-		; set when a use is issued
+		<copy,,M>,-		; set when an open is issued
+		<copylog,,M>,-		; set copy log | nolog
+		<chunky,,M>,-		; indirectly set via set recordsize
+		<convert,,M>,-		; enable/disable convert
+		>
+tape_enabled:
+	.long	<tape_m_shortdump -	; default to short dumps
+		!tape_m_sensechar>	; and sensechar (debug initially off)
+
+	reset_psect
+
+	.subtitle Main command processing loop
+
+	set_psect _tape_code
+
+	.entry -
+tape_start, ^m<>
+
+	display	tape_version
+
+	$assign_s -			; assign a channel to our terminal
+		devnam=tape_tt, -	;  so we can setup a control c
+		chan=tape_tt_chan	;  trap
+	jsb	tape_set_ctrlcast	; now do it
+
+tape_get_command:
+	display	blank_line		; before we do anything else
+	pushaw	tape_command
+	pushaq	tape_prompt
+	pushaq	tape_command_ds
+	calls	#3, g^lib_get_input
+	blbc	r0, tape_input_error	; get out if any problems occurred
+	tstw	tape_command		; was a command entered ?
+	beql	tape_get_command	; nothing, try again
+
+	pushaq	tape_command
+	calls	#1, g^str_uppercase
+	movzwl	tape_command, -		; move the command descriptor to
+		tape_parse_ctrl+tpa$l_stringcnt ; the control block so that
+	movab	tape_command_t, -	; lib$tparse knows what to look at
+		tape_parse_ctrl+tpa$l_stringptr
+	pushab	start_keyword_tbl	; that's the keyword table to use
+	pushab	start_state_tbl		; that's the state table to use
+	pushab	tape_parse_ctrl		; that's the control block
+	calls	#3, g^lib$tparse	; let's parse the command
+	blbs	r0, 20$			; any errors ?
+	jsb	tape_syntax_error	; go do some error processing
+20$:	brw	tape_get_command	; and back again for another command
+
+tape_nasty:
+	display	tape_fatal		; say we've got a problem
+	calls	#0, g^tape_exit		; and bail out
+
+	.subtitle Error handler for main loop
+
+tape_input_error:
+	cmpl	r0, #rms$_eof		; did they do a ^Z ?
+	beql	10$			; yes, don't report an error
+	tstw	tape_command		; did they give a response ?
+	beql	10$			; no, just go away
+	display_error
+10$:	brw	tape_exit_die
+
+tape_syntax_error:
+	movl	r0, tape_msgsts		; in case we need it later
+	cmpl	r0, #lib$_invtype	; is it a table problem ?
+	bneq	10$			; no, try some other tests
+	display_error tape_msgsts
+	display	tape_badtable		; say our parse table is rs
+	brw	90$			; and bail out
+10$:	cmpl	r0, #lib$_syntaxerr	; was it a syntax error ?
+	beql	20$			; yes, check for ambiguity as well
+	display_error tape_msgsts
+	brw	90$			; and bail out
+20$:	movaq	tape_parse_ctrl+tpa$l_tokencnt, r0
+	bbs	#tpa$v_ambig, -		; here we check to see if the word
+		tape_parse_ctrl+tpa$l_options, - ; was ambiguous so we can
+		30$			; give our message
+	$fao_s	ctrstr=tape_confused, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=#tape_syntaxerr, -
+		p2=r0			; that's the confusing bit
+	brw	40$
+30$:	$fao_s	ctrstr=tape_ambiguous, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=r0			; that's the ambiguous bit
+40$:	display	tape_faobuf
+90$:	rsb
+
+	.entry -		; exit without displaying any messages but
+tape_exit, ^m<>			; leave the status value intact
+tape_exit_die::
+	calls	#0, mt_close_output
+	bisl	#sts$m_inhib_msg, r0
+	$exit_s	code=r0
+	ret
+
+	.subtitle Some SET routines, parse error routines, spawn
+
+	set_psect _tape_data_ro
+tape_incomplete:	.ascid	"!/?!AS what?"
+tape_no_can_do:		.ascid	\!/"!AS" is not a thing that I can do\
+	reset_psect
+
+	set_reset debug
+	set_reset sensechar
+	set_reset shortdump
+
+	.entry -
+mt_spawn, ^m<>
+	calls	#0, g^lib$spawn
+	ret
+
+	.entry -			; tell them that what they type was
+tape_not_possible, ^m<>			; not something we can do
+	$fao_s	ctrstr=tape_no_can_do, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=#tape_command
+	display	tape_faobuf
+	ret
+
+	.entry -		; tell them that their command was lacking
+tape_short_command, ^m<>	; in substance
+	$fao_s	ctrstr=tape_incomplete, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=#tape_command
+	display	tape_faobuf
+	ret
+
+	.entry -		; use implicit processing of blanks
+tape_blanks_off, ^m<>
+	bbcc	#tpa$v_blanks, tpa$l_options(ap), 10$
+10$:	ret
+
+	.entry -		; use explicit processing of blanks
+tape_blanks_on, ^m<>
+	bbss	#tpa$v_blanks, tpa$l_options(ap), 10$
+10$:	ret
+
+tape_set_ctrlcast::
+	$qiow_s	chan=tape_tt_chan, -
+		func=#<io$_setmode!io$m_ctrlcast>, -
+		p1=tape_exit, -
+		p3=#3
+	rsb
+
+	.subtitle Some debug routines for TPA
+
+	set_psect _tape_data_ro
+dbg_fao_string:	.ascid	"             string : [!AS]"
+dbg_fao_token:	.ascid	"              token : [!AS]"
+dbg_parse_format:
+		.ascii	"    tpa$l_count     : !8XL  !-!UL!/"
+		.ascii	"    tpa$l_options   : !8XL!/"
+		.ascii	"    tpa$l_stringcnt : !8XL  !-!UL!/"
+		.ascii	"    tpa$l_stringptr : !8XL  !-!UL!/"
+		.ascii	"    tpa$l_tokencnt  : !8XL  !-!UL!/"
+		.ascii	"    tpa$l_tokenptr  : !8XL  !-!UL!/"
+		.ascii	"    tpa$b_char      : !8<!XB!>  !-!UB!/"
+		.ascii	"    tpa$l_number    : !8XL  !-!UL!/"
+		.ascii	"    tpa$l_param     : !8XL  !-!UL"
+dbg_parse_size=.-dbg_parse_format
+dbg_fao_parse:	.long	dbg_parse_size
+		.address dbg_parse_format
+	reset_psect
+
+debug_show_string::
+	pushr	#^m<r6>
+	movaq	tape_parse_ctrl+tpa$l_stringcnt, r6
+	$fao_s	ctrstr=dbg_fao_string, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=r6
+	display	tape_faobuf
+	popr	#^m<r6>
+	rsb
+
+debug_show_token::
+	pushr	#^m<r6>
+	movaq	tape_parse_ctrl+tpa$l_tokencnt, r6
+	$fao_s	ctrstr=dbg_fao_token, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=r6
+	display	tape_faobuf
+	popr	#^m<r6>
+	rsb
+
+debug_show_parse::
+	$fao_s	ctrstr=dbg_fao_parse, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=<tape_parse_ctrl+tpa$l_count>, -
+		p2=<tape_parse_ctrl+tpa$l_options>, -
+		p3=<tape_parse_ctrl+tpa$l_stringcnt>, -
+		p4=<tape_parse_ctrl+tpa$l_stringptr>, -
+		p5=<tape_parse_ctrl+tpa$l_tokencnt>, -
+		p6=<tape_parse_ctrl+tpa$l_tokenptr>, -
+		p7=<tape_parse_ctrl+tpa$b_char>, -
+		p8=<tape_parse_ctrl+tpa$l_number>, -
+		p9=<tape_parse_ctrl+tpa$l_param>
+	display	tape_faobuf
+	jsb	debug_show_string
+	jsb	debug_show_token
+	rsb
+
+	.subtitle Data areas for Allocate device routines
+
+	set_psect _tape_data_ro
+
+device_not_tape:
+	.ascid	"Device !AS is not a tape device"
+using_device:
+	.ascid	"Allocated !AS device !AS"
+
+	reset_psect
+
+	set_psect _tape_data_rw
+
+	alloc_string	mt_device, 64
+	alloc_string	mt_physical, 64
+	alloc_string	mt_media_name, 64
+
+mt_devclass:		.long	0	; used for the getdvi info
+mt_devchar:		.long	0
+mt_devchar2:		.long	0
+mt_devdepend:		.long	0
+mt_devdepend2:		.long	0
+
+dvi_item_list:
+	.word	mt_media_name_s		; get MEDIA_NAME
+	.word	dvi$_media_name
+	.address mt_media_name_t
+	.long	mt_media_name
+	.word	4			; get DEVCLASS
+	.word	dvi$_devclass
+	.address mt_devclass
+	.long	0
+	.word	4			; get DEVCHAR
+	.word	dvi$_devchar
+	.address mt_devchar
+	.long	0
+	.word	4			; get DEVCHAR2
+	.word	dvi$_devchar2
+	.address mt_devchar2
+	.long	0
+	.word	4			; get DEVDEPEND
+	.word	dvi$_devdepend
+	.address mt_devdepend
+	.long	0
+	.word	4			; get DEVDEPEND2
+	.word	dvi$_devdepend2
+	.address mt_devdepend2
+	.long	0
+	.long	0			; to end the item list
+
+	reset_psect
+
+	.subtitle Device validation routine
+
+	set_reset using, enabled
+
+	.entry -
+mt_validate_device, ^m<r2,r3,r4,r5,r6,r7>
+
+;++
+; Functional Description:
+;	We extract the thing they want to use from the command line and do
+;	a GETDVI on it to see if it is a tape drive.  If not, we tell them
+;	so and return to process more commands.  If it is, we call the
+;	allocation and setup routine.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	R0/R1 destroyed.
+;--
+
+	movq	tpa$l_tokencnt(ap), r6	; get the alleged device and copy
+	movc5	r6, (r7), #space, -	; it to where we can play with it
+		#mt_device_s, mt_device_t
+	movl	tpa$l_tokencnt(ap), -	; and fixup the string length
+		mt_device
+
+	$getdvi_s -			; this will verify that what was
+		devnam=mt_device, -	; entered was a device and
+		itmlst=dvi_item_list, -	; get the characteristics
+		iosb=mt_iosb		; so that we can
+	cmpl	#dc$_tape, mt_devclass	; check for a tape device
+	bneq	10$			; not a tape, let them know
+
+	jsb	setup_device		; it's a tape, grab it..
+	brb	20$			; and continue
+
+10$:	$fao_s	ctrstr=device_not_tape, - ; just tell them that what they
+		outbuf=tape_faobuf_ds, - ; tried to use was not a tape
+		outlen=tape_faobuf, -
+		p1=#mt_device
+	display	tape_faobuf
+
+20$:	ret
+
+	.subtitle Tape drive allocation and setup routine
+
+setup_device::
+
+;++
+; Functional Description:
+;	Here we try to allocate the device then assign a channel to it so
+;	that we can drive it.  If anything doesn't work we display the
+;	information and bail out of here.
+;
+; Calling Sequence:
+;	jsb	setup_device
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	mt_device contains the thing we are trying to use.
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	$dassgn_s chan=mt_chan		; deassign any existing channel
+	$dalloc_s devnam=mt_device	; and deallocate the device
+	calls	#0, tape_reset_using
+
+	$alloc_s -			; now try to allocate the device
+		devnam=mt_device, -	; we want to use
+		phybuf=mt_physical_ds, - ; and get the physical device
+		phylen=mt_physical	; name while we're at it
+	blbs	r0, 10$			; did we get it?
+	display_error			; no, show why not
+	brw	40$			; then return to caller
+
+10$:	$fao_s	ctrstr=using_device, -	; we got it, so say we have
+		outbuf=tape_faobuf_ds, - ; allocated it and show them
+		outlen=tape_faobuf, -	; the physical device name
+		p1=#mt_media_name, -
+		p2=#mt_physical
+	display	tape_faobuf
+
+	$assign_s -			; now assign a channel to it so
+		devnam=mt_device, -	; we can drive it
+		chan=mt_chan
+	blbs	r0, 20$			; did it work?
+	display_error			; no, show why not
+	brw	40$			; then exit
+
+20$:	jsb	do_packack		; like the manual says
+	display_error			; see if it worked
+	jsb	check_iosb
+	blbc	r0, 40$
+	calls	#0, tape_set_using
+40$:	rsb
+
+	.subtitle Check IOSB
+
+check_iosb::
+
+;++
+; Functional Description:
+;	This routine checks the debug flags and displays the information
+;	used for debugging.  Then it checks the status in the iosb and if
+;	any error occurred the appropriate message is displayed.
+;
+; Calling Sequence:
+;	jsb	check_iosb
+;
+; Formal Argument(s):
+;	None
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	bbc	#tape_v_debug, -	; if debug is not enabled
+		tape_enabled, 10$	;   skip the display stuff
+
+	$fao_s	ctrstr=io_status, -	; display the iosb associated with
+		outbuf=tape_faobuf_ds, - ; the last qio operation
+		outlen=tape_faobuf, -
+		p1=mt_iosb, -
+		p2=mt_char
+	display	tape_faobuf
+
+	bbc	#tape_v_sensechar, -	; if sensechar display is not wanted
+		tape_enabled, 10$	;   skip that bit
+
+	jsb	do_sensechar		; get the current characteristics
+	$fao_s	ctrstr=sensed_char, -	; and format them for display
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=mtc_class, -
+		p2=mtc_char, -
+		p3=mtc_densities
+	display	tape_faobuf
+
+10$:	blbs	mt_iosb, 20$		; just exit if last status was ok
+
+	movzwl	mt_iosb, tape_msgsts	; else load the value into the message
+	$putmsg_s msgvec=tape_msgvec	; vector and say what's up
+
+20$:	rsb
+
+	.subtitle Skip 1 or n
+
+	.entry -
+mt_skip_1, ^m<>
+	movl	#1, tpa$l_number(ap)	; fudge a default of 1
+	brb	mt_skip			; and now execute the common code
+
+	.entry -
+mt_skip_n, ^m<>
+
+;++
+; Functional Description:
+;	These routines handle a counted skip command.  Records are skipped
+;	until an EOF, EOV or EOT condition is reached or the desired number
+;	of records have been skipped.  If we enter the skip code with an EOV
+;	status, we do a read to skip the tape mark and clear the EOV otherwise
+;	the skip will fail immediately.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routines.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+mt_skip::
+
+	check_skip_count exit=20$	; make sure the count is valid
+
+	movw	tpa$l_number(ap), -	; copy the count to where we will
+		mt_skiprecord_count	; use it in the qio routine
+
+	jsb	mt_init_skip		; initialize things for this skip
+
+	bbc	#tape_v_using, tape_enabled, 20$ ; no tape selected
+
+	cmpw	#ss$_endofvolume, mt_iosb ; check for an initial EOV status
+	bneq	10$			; if not, go straight to the skip
+	jsb	do_readpblk		; else read over the next tape mark
+
+10$:	jsb	do_skiprecord		; call the qio routine
+
+	jsb	mt_skipped		; check iosb, say how many we skipped
+
+20$:	ret
+
+	.subtitle Backspace 1 or n
+
+	.entry -
+mt_backspace_1, ^m<>
+	movl	#1, tpa$l_number(ap)	; fudge a default of 1
+	brb	mt_backspace		; and now execute the common code
+
+	.entry -
+mt_backspace_n, ^m<>
+
+;++
+; Functional Description:
+;	These routines handle a counted backspace command.  Records are skipped
+;	until an EOF or BOT condition is reached or the desired number of
+;	of records have been skipped.  If we enter the backspace code with an
+;	EOT or EOF status, we do an initial backspace to backup over the tape
+;	mark otherwise we will fail immediately and another backspace command
+;	will need to be issued.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routines.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+mt_backspace::
+
+	check_skip_count exit=50$	; check the count is valid
+
+	jsb	mt_init_skip		; initialize things for this backspace
+
+	bbc	#tape_v_using, tape_enabled, 50$ ; no tape selected
+
+	bbs	#mt$v_bot, mt_char, 40$	; if at BOT, then just bail out
+
+	bbc	#mt$v_eof, mt_char, 10$	; if not at EOF, check for EOT
+	brb	20$			; at EOF, backup over the tape mark
+10$:	bbc	#mt$v_eot, mt_char, 30$	; if not at EOT, go do the work
+
+20$:	mnegw	#1, mt_skiprecord_count	; this is done to backup over a tape
+	jsb	do_skiprecord		; mark otherwise we'll go nowhere
+
+30$:	mnegw	tpa$l_number(ap), -	; save the number and negate it so
+		mt_skiprecord_count	; the qio generates backwards motion
+	jsb	do_skiprecord		; call the qio routine
+
+40$:	jsb	mt_backspaced		; check iosb, and say how many we did
+
+50$:	ret
+
+	.subtitle Find BOF
+
+	.entry -
+mt_find_bof, ^m<>
+
+;++
+; Functional Description:
+;	Here we backspace the tape until we get to an EOF or BOT.  If we enter
+;	the code with an EOT or EOF status, we do an initial backspace to
+;	backup over the tape mark otherwise we will fail immediately and think
+;	we did what was asked.  If we are initially at BOT we do nothing.
+;	Skiprecord is used (with a large count) rather than skipfile so we can
+;	count how many blocks we processed.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	jsb	mt_init_skip		; initialize things for this run
+
+	bbc	#tape_v_using, tape_enabled, 60$ ; no tape selected
+
+	bbs	#mt$v_bot, mt_char, 50$	; if at BOT, just exit
+
+	bbc	#mt$v_eof, mt_char, 10$	; if not EOF, check for EOT
+	brb	20$			; at EOF, backup over the tape mark
+10$:	bbc	#mt$v_eot, mt_char, 30$	; if not EOT, go do the work
+
+20$:	mnegw	#1, mt_skiprecord_count	; here we backup over a tape mark
+	jsb	do_skiprecord		; so the real request will work
+
+30$:	mnegw	#skip_maximum, -	; backspace in big chunks so we can
+		mt_skiprecord_count	; count things (rather than skipfile)
+
+40$:	jsb	do_skiprecord		; call the qio routine
+
+	bbs	#mt$v_bot, mt_char, 50$	; if at BOT, do no more
+	bbc	#mt$v_eof, mt_char, 40$	; if not at EOF, go do some more
+
+50$:	jsb	mt_backspaced		; check iosb, say how many we skipped
+
+60$:	ret
+
+	.subtitle Find EOF
+
+	.entry -
+mt_find_eof, ^m<>
+
+;++
+; Functional Description:
+;	Here we just skip records until we get an EOF or EOT condition.
+;	Skiprecord is used so that we can keep track of the number of blocks
+;	we actually skip.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	movzwl	#skip_maximum, -	; try to skip lots of records in
+		mt_skiprecord_count	; each qio
+
+	jsb	mt_init_skip		; initialize things for this skip
+
+	bbc	#tape_v_using, tape_enabled, 30$ ; no tape selected
+
+	bbs	#mt$v_eot, mt_char, 20$	; if at EOT, bail out
+
+10$:	jsb	do_skiprecord		; call the qio routine
+
+	bbs	#mt$v_eot, mt_char, 20$	; if at EOT, we've finished
+	bbc	#mt$v_eof, mt_char, 10$	; if not at EOF, keep going
+
+20$:	jsb	mt_skipped		; check iosb, show the skip count
+
+30$:	ret
+
+	.subtitle Find EOV
+
+	.entry -
+mt_find_eov, ^m<>
+
+;++
+; Functional Description:
+;	Here we skip records until we get an EOV or EOT condition.  If we
+;	enter here with an EOV status, we do a read to get over the tape mark
+;	and clear the EOV status, then we carry on.  As with the previous
+;	routines skiprecord is used so we can count the blocks we skip.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	movzwl	#skip_maximum, -	; skip in leaps and bounds
+		mt_skiprecord_count
+
+	jsb	mt_init_skip		; initialize things for this skip
+
+	bbc	#tape_v_using, tape_enabled, 30$ ; no tape selected
+
+	bbs	#mt$v_eot, mt_char, 20$	; if at EOT, just bail out
+	cmpw	#ss$_endofvolume, mt_iosb ; check for a initial EOV status
+	bneq	10$			; wasn't, so get to it
+	jsb	do_readpblk		; was EOV, read over the tape mark
+
+10$:	jsb	do_skiprecord		; call the qio routine
+
+	cmpw	#ss$_endofvolume, mt_iosb ; are we now at EOV
+	beql	20$			; yes, bail out
+	bbs	#mt$v_eot, mt_char, 20$	; if at EOT, we've finished
+	bbs	#mt$v_eof, mt_char, 10$	; if at EOF, ignore it and keep going
+
+20$:	jsb	mt_skipped		; check iosb, show skip count
+
+30$:	ret
+
+	.subtitle Find EOT
+
+	.entry -
+mt_find_eot, ^m<>
+
+;++
+; Functional Description:
+;	Here we skip records until we get to the physical end of tape marker.
+;	If initially at end of tape, we just bail out.  We use skiprecord so
+;	we can count how many blocks we skipped.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	movzwl	#skip_maximum, -	; skip in leaps and bounds
+		mt_skiprecord_count
+
+	jsb	mt_init_skip		; initialize counters for this skip
+
+	bbc	#tape_v_using, tape_enabled, 40$ ; no tape selected
+
+	bbs	#mt$v_eot, mt_char, 30$	; if at EOT, we're done
+
+10$:	jsb	do_skiprecord		; call the qio routine
+
+	cmpw	#ss$_endofvolume, mt_iosb
+	bneq	20$
+	jsb	do_readpblk
+
+20$:	bbc	#mt$v_eot, mt_char, 10$	; if not EOT, keep going
+
+30$:	jsb	mt_skipped		; check iosb, show skip count
+
+40$:	ret
+
+	.subtitle Check specified skip count
+
+skip_minimum=1
+skip_maximum=32767
+
+	set_psect _tape_data_ro
+
+invalid_skip_count:
+	.ascid	"Skip/Backspace value must be in the range 1 to 32767"
+
+	reset_psect
+
+check_skip_count::
+
+;++
+; Functional Description:
+;	This routine validates the number specified in a skip or backspace
+;	command.
+;
+; Calling Sequence:
+;	Either use the CHECK_SKIP_COUNT macro (recommended) or load the
+;	value to be checked into R0 and do a JSB CHECK_SKIP_COUNT.
+;
+; Formal Argument(s):
+;	R0	Contains the value to be checked.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	R0 will contain 0 (bad number) or 1 (number ok).
+;
+; Side Effects:
+;	None
+;--
+
+	cmpl	r0, #skip_minimum	; less than our minimum?
+	blss	10$			; yes, tell them it's no good
+
+	cmpl	r0, #skip_maximum	; greater than our maximum?
+	bgtr	10$			; yes, tell them it's no good
+
+	movl	#1, r0			; all is well, indicate success
+	brb	20$			; and return to caller
+
+10$:	display invalid_skip_count	; tell them what we want
+	clrl	r0			; and indicate failure
+
+20$:	rsb
+
+	.subtitle Miscellaneous Skip/Backspace/Find routines
+
+	set_psect _tape_data_ro
+
+skipped_n:	.ascid	"Skipped !UL block!%S"
+backspaced_n:	.ascid	"Backspaced !UL block!%S"
+
+	reset_psect
+
+	set_psect _tape_data_rw
+
+xfer_count:	.long	0		; used to store mt_xfer_count as
+					; a longword
+skip_count:	.long	0		; to keep track of the blocks skipped
+
+	reset_psect
+
+mt_init_skip::
+;+
+; Initialize the counters that get used in all skip operations.
+;-
+	clrl	xfer_count
+	clrl	skip_count
+	bbs	#tape_v_using, tape_enabled, 10$
+	display	sho_no_device
+10$:	rsb
+
+mt_skipped::
+;+
+; Call the routine to check the status of the last i/o then display the
+; number of blocks we have skipped.
+;-
+	jsb	check_iosb
+	$fao_s	ctrstr=skipped_n, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=skip_count
+	display tape_faobuf
+	rsb
+
+mt_backspaced::
+;+
+; Call the routine to check the status of the last i/o then display the
+; number of blocks we have backspaced.
+;-
+	jsb	check_iosb
+	$fao_s	ctrstr=backspaced_n, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=skip_count
+	display tape_faobuf
+	rsb
+
+	.subtitle Data areas for Dump routines
+
+	set_psect _tape_data_ro
+
+dumped_n:
+	.ascid	"Dumped !UL block!%S"
+dumping_n_bytes:
+	.ascid	"D> !UW byte block"
+dump_a_segsize:
+	.long	64			; segment size for ascii format dump
+dump_b_segsize:
+	.long	16			;    "	   "	"  both	   "	 "
+dump_h_segsize:
+	.long	24			;    "	   "	"  hex	   "	 "
+
+	reset_psect
+
+	set_psect _tape_data_rw
+
+dump_buffersize:			; this gets loaded with mt_xfer_count
+	.long	0
+dump_displaysize:			; this depends on current options
+	.long	0
+dump_count:				; this counts the blocks dumped
+	.long	0
+dump_last_iosb:				; this is used to detect EOV since
+	.long	0			; a read never actually returns it
+
+	reset_psect
+
+	.subtitle Dump 1 or n
+
+	.entry -
+mt_dump_1, ^m<r11>
+	movl	#1, tpa$l_number(ap)	; fudge default to 1
+	brb	mt_dump			; now execute the common code
+
+	.entry -
+mt_dump_n, ^m<r11>
+
+;++
+; Functional Description:
+;	These routines handle the counted dump commands.  Blocks are dumped
+;	until we encounter any error, including EOF, EOT etc.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+mt_dump::
+
+	movl	tpa$l_number(ap), r11	; copy the count for the sobgtr
+
+	jsb	mt_init_dump		; initialize things for this dump
+
+	bbc	#tape_v_using, tape_enabled, 30$ ; no tape selected
+
+10$:	jsb	mt_dump_block		; call the common dump routine
+
+	blbc	mt_iosb, 20$		; stop dumping if we get an error
+	sobgtr	r11, 10$		; else keep going until finished
+
+20$:	jsb	mt_dumped		; now say how many blocks we dumped
+
+30$:	ret
+
+	.subtitle Dump EOF
+
+	.entry -
+mt_dump_eof, ^m<>
+
+;++
+; Functional Description:
+;	This routine will dump blocks until an EOF (or EOT) condition is
+;	encountered.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	jsb	mt_init_dump		; initialize things for this dump
+
+	bbc	#tape_v_using, tape_enabled, 30$ ; no tape selected
+
+10$:	jsb	mt_dump_block		; call the common dump routine
+
+	bbs	#mt$v_eof, mt_char, 20$	; if at EOF, that's us done, exit
+	bbs	#mt$v_eot, mt_char, 20$	; EOT will do the same
+	brb	10$			; not EOF or EOT, try again
+
+20$:	jsb	mt_dumped		; now say how many blocks we did
+
+30$:	ret
+
+	.subtitle Dump EOV
+
+	.entry -
+mt_dump_eov, ^m<>
+
+;++
+; Functional Description:
+;	This routine will dump blocks until an end-of-volume condition is
+;	encountered (or EOT).  Since we are doing reads and an EOV status is
+;	only returned on skip functions, we have to fudge the EOV by keeping
+;	track of the last iosb we got and looking for two consecutive EOF's.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	jsb	mt_init_dump		; initialize things for this dump
+
+	bbc	#tape_v_using, tape_enabled, 40$ ; no tape selected
+
+10$:	jsb	mt_dump_block		; call the common dump routine
+
+	bbs	#mt$v_eot, mt_char, 30$	; if at EOT, that's all we can do
+	bbc	#mt$v_eof, mt_char, 20$	; if not EOF, save iosb and try again
+
+	cmpw	#ss$_endoffile, -	; we're at EOF, see if the last iosb
+		dump_last_iosb		; we got was also an EOF
+	beql	30$			; two EOF's mean EOV... that's it
+
+20$:	movzwl	mt_iosb, dump_last_iosb	; save iosb for next time
+	brb	10$			; and keep going
+
+30$:	jsb	mt_dumped		; now say how many blocks we dumped
+
+40$:	ret
+
+	.subtitle Dump EOT
+
+	.entry -
+mt_dump_eot, ^m<>
+
+;++
+; Functional Description:
+;	This routine dumps blocks until we get to physical end of tape.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	jsb	mt_init_dump		; initialize things for this dump
+
+	bbc	#tape_v_using, tape_enabled, 20$ ; no tape selected
+
+10$:	jsb	mt_dump_block		; call the common dump routine
+
+	bbc	#mt$v_eot, mt_char, 10$	; if not EOT, keep going
+
+	jsb	mt_dumped		; now say how many blocks we dumped
+
+20$:	ret
+
+	.subtitle Common routine to Dump a single block
+
+mt_dump_block::
+
+;++
+; Functional Description:
+;	This is where the data is actually read from the tape for each dump
+;	operation, and displayed according to the current dump options.
+;
+; Calling Sequence:
+;	jsb	mt_dump_block
+;
+; Formal Argument(s):
+;	None
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	jsb	do_readpblk		; call the qio routine
+
+	jsb	check_iosb		; see if it worked
+	blbs	mt_iosb, 10$		; ok, now dump what we got
+	brw	50$			; return to caller, they can fix it
+	
+10$:	movzwl	mt_xfer_count, -	; load the transfer count as the
+		dump_buffersize		;   size of the buffer to dump
+	tstl	dump_buffersize		; if we got any bytes
+	bneq	20$			; then go and display them
+	brw	50$			; else just bail out of here
+
+20$:	incl	dump_count		; non-zero byte count and no errors
+					; so include it in our count
+	$fao_s	ctrstr=dumping_n_bytes, - ; say how many bytes we got and
+		outbuf=tape_faobuf_ds, - ;   are possibly going to display
+		outlen=tape_faobuf, -
+		p1=dump_buffersize
+	display	tape_faobuf
+
+	jsb	mt_set_dump_displaysize	; now setup the real display size
+
+	bbs	#tape_v_dump_ascii, tape_dump_flags, 30$
+	bbs	#tape_v_dump_both, tape_dump_flags, 40$
+
+	pushal	dump_h_segsize		; dump things in hex
+	pushal	dump_displaysize
+	pushaq	mt_buffer
+	calls	#3, g^lib_output_seg_zb
+	brb	50$
+
+30$:	pushal	dump_a_segsize		; dump things in ascii
+	pushal	dump_displaysize
+	pushaq	mt_buffer
+	calls	#3, g^lib_output_seg_t
+	brb	50$
+
+40$:	pushal	dump_b_segsize		; dump things in hex and ascii
+	pushal	dump_displaysize
+	pushaq	mt_buffer
+	calls	#3, g^lib_output_seg_tzb
+
+50$:	rsb
+
+	.subtitle Miscellaneous Dump routines
+
+	set_reset dump_ascii, dump_flags, move
+	set_reset dump_both, dump_flags, move
+	set_reset dump_hex, dump_flags, move
+
+mt_init_dump::
+;+
+; This routine just initializes the count of blocks dumped and resets the
+; saved iosb we use to fake end-of-volume conditions.
+;-
+	clrl	dump_count		; just initialize the dump count
+	clrl	dump_last_iosb		; so we can fake EOV's
+	bbs	#tape_v_using, tape_enabled, 10$
+	display	sho_no_device
+10$:	rsb
+
+mt_set_dump_displaysize::
+;+
+; This routine uses the current dump options to ensure that the correct
+; display size is used.
+;-
+	movl	dump_buffersize, -	; assume display is full and set
+		dump_displaysize	; displaysize to buffersize
+	bbc	#tape_v_shortdump, tape_enabled, 30$ ; if not short, done
+
+	bbs	#tape_v_dump_ascii, tape_dump_flags, 10$
+	bbs	#tape_v_dump_both, tape_dump_flags, 20$
+	movl	dump_h_segsize, dump_displaysize
+	brb	30$
+10$:	movl	dump_a_segsize, dump_displaysize
+	brb	30$
+20$:	movl	dump_b_segsize, dump_displaysize
+30$:	rsb
+
+mt_dumped::
+;+
+; Display the number of blocks that we dumped for the user
+;-
+	$fao_s	ctrstr=dumped_n, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=dump_count
+	display tape_faobuf
+	rsb
+
+	.subtitle Data area for Output file processing
+
+	set_psect _tape_data_ro
+
+out_closing:	.ascid	"Closing current output file"
+out_using:	.ascid	/Data will be copied to "!AS"/
+
+	reset_psect
+
+	set_psect _tape_data_rw
+
+output_alq=120				; initial allocation quantity
+output_deq=120				; default extension quantity
+output_mbc=120				; multi-block count
+output_mbf=4				; multi-buffer count
+output_mrs=32765			; maximum record size
+output_rtv=64				; retrieval window size
+
+	.align	long
+output_fab:
+	$fab	alq=output_alq, -
+		deq=output_deq, -
+		dnm=<TAPE.DUMP>, -
+		fac=<PUT,TRN>, -	; we will put and truncate
+		fop=<TEF>, -		; truncate on close
+		mrs=output_mrs, -
+		nam=output_nam, -	; that's where the filename is
+		org=<SEQ>, -		; create a sequential file
+		rat=<CR>, -		; cr carriage control
+		rfm=<VAR>, -		; variable length records
+		rtv=output_rtv
+
+	.align	long
+output_nam:
+	$nam				; filled in later
+
+	.align	long
+output_rab:
+	$rab 	fab=output_fab, -
+		mbc=output_mbc, -
+		mbf=output_mbf, -
+		rac=<SEQ>, -
+		rop=<WBH,TPT>
+
+out_filespec:		.long	0	; filled in by lib$tparse
+out_filespec_addr:	.long	0
+
+	alloc_string	res_filespec, 255 ; for what RMS will use
+
+	reset_psect
+
+	.subtitle Open <filespec>
+
+	.entry -
+mt_create_output, ^m<r2,r3,r4,r5,r6,r7>
+
+;++
+; Functional Description:
+;	This routine will take a user supplied filename and try to create
+;	a file to receive the data from copy operations.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	tape_v_copy bit in tape_enabled is set if successful.
+;
+; Side Effects:
+;	None
+;--
+
+	bbc	#tape_v_copy, -		; if we don't have an active output
+		tape_enabled, 10$	; stream then try to make one
+	calls	#0, mt_close_output	; else close the current one
+
+10$:	movb	out_filespec, -
+		output_fab+fab$b_fns ; and what the user said
+	movl	out_filespec_addr, -
+		output_fab+fab$l_fna
+	movb	#res_filespec_s, -
+		output_nam+nam$b_ess ; and where the result
+	movab	res_filespec_t, -
+		output_nam+nam$l_esa ; is to go
+
+	$create	fab=output_fab		; try to create the file
+	display_error			; show any errors
+	blbc	r0, 20$			; and bail out if it failed
+
+	$connect rab=output_rab		; now setup a record stream
+	display_error			; show any errors
+	blbc	r0, 20$			; and bail out if it failed
+
+	movzbl	output_nam+nam$b_esl, res_filespec ; fixup the length
+	calls	#0, tape_set_copy	; flag that we have active output
+	$fao_s	ctrstr=out_using, -	; and show them what it is really
+		outbuf=tape_faobuf_ds, - ; called
+		outlen=tape_faobuf, -
+		p1=#res_filespec
+	display	tape_faobuf
+
+20$:	ret
+
+	.subtitle Close output file
+
+	.entry -
+mt_close_output, ^m<>
+
+;++
+; Functional Description:
+;	This routine will close an open output file.
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	tape_v_copy bit in tape_enabled is cleared.
+;--
+
+	bbc	#tape_v_copy, tape_enabled, 10$
+
+	display	out_closing		; say what we are doing
+
+	$close	fab=output_fab		; now do it
+
+	display_error			; show any errors
+
+	calls	#0, tape_reset_copy	; flag file as closed
+
+10$:	ret
+
+	.subtitle Copy data area, set copy and counted copy routines
+
+	set_psect _tape_data_ro
+
+copied_n:
+	.ascid	"Copied !UL block!%S, !UL record!%S"
+copying_n_bytes:
+	.ascid	"C> !UL byte block"
+
+	reset_psect
+
+	set_psect _tape_data_rw
+
+copy_recordsize:	.long	0	; loaded with set recordsize
+copy_buffersize:	.long	0	; this gets loaded with mt_xfer_count
+
+copy_count:		.long	0	; this counts the blocks copied
+copy_records:		.long	0	; this counts the records copied
+
+copy_last_iosb:		.long	0	; used to detect EOV
+
+copy_desc:				; this area is filled in before each
+copy_size:	.word	0		; copy - it is a fake descriptor to
+		.word	0		; allow the creation of records
+copy_addr:	.long	0
+
+copy_last_byte:	.long	0		; address of last byte to copy
+copy_bytes_left:.long	0		; number of bytes left to copy
+
+	reset_psect
+
+	.subtitle Copy 1 or n
+
+	.entry -
+mt_copy_1, ^m<r11>
+	movl	#1, tpa$l_number(ap)	; fudge default to 1
+	brb	mt_copy			; now execute the common code
+
+	.entry -
+mt_copy_n, ^m<r11>
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+mt_copy::
+
+	jsb	mt_init_copy		; initialize the stuff for this copy
+
+	bbc	#tape_v_using, tape_enabled, 30$ ; no tape selected
+	bbc	#tape_v_copy, tape_enabled, 30$ ; bail out if no output file
+
+	movl	tpa$l_number(ap), r11	; save the count for sobgtr
+
+10$:	jsb	mt_copy_block		; call the common copy routine
+
+	blbc	mt_iosb, 20$		; stop copying if we get an error
+
+	sobgtr	r11, 10$		; else keep going until finished
+
+20$:	jsb	mt_copied		; show the block/record counts
+
+30$:	ret
+
+	.subtitle Copy EOF
+
+	.entry -
+mt_copy_eof, ^m<>
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	jsb	mt_init_copy		; initialize the stuff for this copy
+
+	bbc	#tape_v_using, tape_enabled, 30$ ; no tape selected
+	bbc	#tape_v_copy, tape_enabled, 30$ ; bail out if no output file
+
+10$:	jsb	mt_copy_block		; call the common copy routine
+
+	bbs	#mt$v_eof, mt_char, 20$	; if EOF then finish
+	bbs	#mt$v_eot, mt_char, 20$	; if EOT then finish
+
+	brb	10$			; else keep going
+
+20$:	jsb	mt_copied		; show block/record counts
+
+30$:	ret
+
+	.subtitle Copy EOV
+
+	.entry -
+mt_copy_eov, ^m<>
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	jsb	mt_init_copy		; initialize the stuff for this copy
+
+	bbc	#tape_v_using, tape_enabled, 40$ ; no tape selected
+	bbc	#tape_v_copy, tape_enabled, 40$ ; bail out if no output file
+
+10$:	jsb	mt_copy_block		; call the common copy routine
+
+	bbs	#mt$v_eot, mt_char, 30$	; if EOT then finish
+	bbc	#mt$v_eof, mt_char, 20$	; if not EOF, save iosb and try again
+
+	cmpw	#ss$_endoffile, -	; now see if the last iosb we got
+		copy_last_iosb		; was also an EOF
+	beql	30$			; two EOF's mean EOV...
+
+20$:	movzwl	mt_iosb, copy_last_iosb	; save iosb for next time
+	brb	10$			; and keep going
+
+30$:	jsb	mt_copied		; show block/record counts
+
+40$:	ret
+
+	.subtitle Copy EOT
+
+	.entry -
+mt_copy_eot, ^m<>
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	jsb	mt_init_copy		; initialize the stuff for this copy
+
+	bbc	#tape_v_using, tape_enabled, 20$ ; no tape selected
+	bbc	#tape_v_copy, tape_enabled, 20$ ; bail out if no output file
+
+10$:	jsb	mt_copy_block		; call the common copy routine
+
+	bbc	#mt$v_eot, mt_char, 10$	; if not EOT, go again
+
+	jsb	mt_copied		; show the block/record counts
+
+20$:	ret
+
+	.subtitle Common routine to Copy a single block
+
+mt_copy_block::
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;	jb	mt_copy_block
+;
+; Formal Argument(s):
+;	None
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	jsb	do_readpblk		; call the qio routine
+
+	jsb	check_iosb		; show any errors
+	blbs	mt_iosb, 10$		; no errors, plod on
+	brw	90$			; else bail out
+	
+10$:	movzwl	mt_xfer_count, -	; load the transfer count as the
+		copy_buffersize		;   size of the buffer to copy
+	tstl	copy_buffersize		; if we got any bytes
+	bneq	20$			; then go and display them
+	brw	90$			; else just bail out of here
+
+20$:	incl	copy_count		; no error so bump up the count
+
+	bbc	#tape_v_copylog, tape_enabled, 30$ ; skip this if nolog
+
+	$fao_s	ctrstr=copying_n_bytes, - ; say how many bytes we got and
+		outbuf=tape_faobuf_ds, - ;   are possibly going to copy
+		outlen=tape_faobuf, -
+		p1=copy_buffersize
+	display	tape_faobuf
+
+30$:	movzwl	copy_buffersize, copy_size ; assume not chunky
+	bbc	#tape_v_chunky, tape_enabled, 40$ ; carry on if we're right
+	movzwl	copy_recordsize, copy_size ; otherwise load chunk size
+
+40$:	cmpl	copy_size, #output_mrs	; check size against maximum size
+	blss	50$			; ok, so continue
+	movl	#output_mrs, copy_size	; else force mrs sized chunks
+
+50$:	cmpl	copy_buffersize, copy_size ; is buffer .ge. copy size
+	bgeq	60$			   ; yes, continue
+	movl	copy_buffersize, copy_size ; no, reduce the copy size
+
+60$:	movl	copy_buffersize, copy_bytes_left
+	movab	mt_buffer_t, copy_addr
+	addl3	#mt_buffer_t, copy_size, copy_last_byte
+
+70$:	movw	copy_size, output_rab+rab$w_rsz ; point to the bit we want
+	movl	copy_addr, output_rab+rab$l_rbf ; to copy
+
+	$put	rab=output_rab		; copy it to the file
+	display_error			; show any errors
+
+	incl	copy_records		; bump record count
+
+	bbc	#tape_v_copylog, tape_enabled, 80$ ; skip log if nolog
+	jsb	mt_log_copy
+
+80$:	addl	copy_size, copy_addr	; point to the next record
+	subl	copy_size, copy_bytes_left
+
+	tstl	copy_bytes_left		; anything left to copy?
+	beql	90$			; no, exact fit, bail out
+
+	cmpl	copy_bytes_left, copy_size ; do we have more than a record
+	bgtr	70$			; yes, so go do another one
+	movl	copy_bytes_left, copy_size ; else fixup the size
+	brw	70$			; now go do it
+
+90$:	rsb
+
+mt_log_copy::
+	pushal	dump_b_segsize
+	pushal	dump_b_segsize
+	pushaq	copy_desc
+	calls	#3, g^lib_output_seg_tzb
+	rsb
+
+	.subtitle Set recordsize for copy
+
+copy_minimum=1
+
+	.entry -
+mt_set_recordsize, ^m<>
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;	LIB$TPARSE action routine.
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	cmpl	tpa$l_number(ap), -	; is recordsize too small?
+		#copy_minimum
+	blss	10$			; yes, do no more
+	cmpl	tpa$l_number(ap), -	; is it too big?
+		#output_mrs
+	bgtr	10$			; yes, do no more
+
+	movl	tpa$l_number(ap), copy_recordsize ; it's ok, save it
+	calls	#0, tape_set_chunky	; flag for chunky copies
+	brb	20$			; and inform the user
+
+10$:	display	copy_badsize
+
+20$:	jsb	show_copy_recordsize
+
+	ret
+
+	.subtitle Miscellaneous Copy routines
+
+	set_psect _tape_data_ro
+
+copy_unable:
+	.ascid	"No output file currently enabled"
+copy_badsize:
+	.ascid	"Recordsize must be between 1 and 32765"
+
+	reset_psect
+
+	set_reset copy, enabled
+	set_reset copylog, enabled
+	set_reset chunky, enabled
+	set_reset convert, enabled
+
+mt_init_copy::
+;+
+; Initialize things used in the copy and make sure we have an output file
+;-
+	clrl	copy_count		; initialize the copy block count
+	clrl	copy_records		; initialize the copy record count
+	clrl	copy_last_iosb		; filled in later
+	bbs	#tape_v_using, tape_enabled, 10$
+	display	sho_no_device
+10$:	bbs	#tape_v_copy, tape_enabled, 20$
+	display	copy_unable
+20$:	rsb
+
+mt_copied::
+;+
+; Show how many blocks and records we copied to the output file
+;-
+	$fao_s	ctrstr=copied_n, -	; else say how many blocks we did
+		outbuf=tape_faobuf_ds, - ; actually copy
+		outlen=tape_faobuf, -
+		p1=copy_count, -
+		p2=copy_records
+	display tape_faobuf
+	rsb
+
+mt_ebc_to_asc::
+;+
+; Convert the buffer from ebcdic to ascii
+;-
+	pushaq	mt_buffer		; destination string
+	pushaq	mt_buffer		; source string
+	calls	#2, g^lib$tra_ebc_asc
+	rsb
+
+	.subtitle Rewind
+
+	set_psect _tape_data_ro
+
+finding_bot:	.ascid	"Rewinding to beginning of tape"
+
+	reset_psect
+
+	.entry -
+mt_rewind, ^m<>
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	bbs	#tape_v_using, tape_enabled, 10$
+
+	display	sho_no_device
+	brb	20$
+
+10$:	jsb	do_rewind
+
+	jsb	check_iosb
+
+	blbc	mt_iosb, 20$
+
+	display finding_bot
+
+20$:	ret
+
+	.subtitle Unload
+
+	set_psect _tape_data_ro
+
+unloading:	.ascid	"Rewinding and unloading tape"
+
+	reset_psect
+
+	.entry -
+mt_unload, ^m<>
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	bbs	#tape_v_using, tape_enabled, 10$
+
+	display	sho_no_device
+	brb	20$
+
+10$:	jsb	do_unload
+
+	jsb	check_iosb
+
+	blbc	mt_iosb, 20$
+
+	display unloading
+
+20$:	ret
+
+	.subtitle Data area for QIO routines
+
+	set_psect _tape_buffer
+
+	alloc_string mt_buffer, 65535
+	alloc_string black_hole, 14
+
+	reset_psect
+
+	set_psect _tape_data_rw
+
+mt_chan:		.long	0	; assigned channel
+
+mt_iosb:		.word	0	; used for operational qio's
+mt_xfer_count:		.word	0
+mt_char:		.long	0
+
+sense_iosb:		.long	0	; only used for the sensechar qio
+sense_char:		.long	0
+
+mt_sensechar:				; used to get the sensed
+mtc_class:		.byte	0	;   characteristics
+mtc_type:		.byte	0
+mtc_buffersize:		.word	0
+mtc_char:		.long	0
+mtc_densities:		.word	0
+mtc_ext_char:		.word	0
+
+mt_skipfile_count:	.long	0
+mt_skiprecord_count:	.long	0
+
+	reset_psect
+
+	.subtitle QIO routines
+
+do_packack::				; IO$_PACKACK
+	$qiow_s	chan=mt_chan, -
+		func=#io$_packack, -
+		iosb=mt_iosb
+	rsb
+
+do_readpblk::				; IO$_READPBLK
+	$qiow_s	chan=mt_chan, -
+		func=#io$_readpblk, -
+		iosb=mt_iosb, -
+		p1=mt_buffer_t, -
+		p2=#mt_buffer_s
+	movzwl	mt_xfer_count, mt_buffer
+	bbc	#tape_v_convert, tape_enabled, 10$
+	jsb	mt_ebc_to_asc
+10$:	rsb
+
+do_sensechar::				; IO$_SENSECHAR
+	$qiow_s	chan=mt_chan, -
+		func=#io$_sensechar, -
+		iosb=sense_iosb, -
+		p1=mt_sensechar, -
+		p2=#12
+	rsb
+
+do_skiprecord::				; IO$_SKIPRECORD
+	$qiow_s	chan=mt_chan, -
+		func=#io$_skiprecord, -
+		iosb=mt_iosb, -
+		p1=@mt_skiprecord_count
+	movzwl	mt_xfer_count, xfer_count
+	addl2	xfer_count, skip_count
+	rsb
+
+do_rewind::				; IO$_REWIND
+	$qiow_s	chan=mt_chan, -
+		func=#<io$_rewind!io$m_nowait>, -
+		iosb=mt_iosb
+	rsb
+
+do_unload::				; IO$_UNLOAD
+	$qiow_s	chan=mt_chan, -
+		func=#<io$_unload!io$m_nowait>, -
+		iosb=mt_iosb
+	rsb
+
+	.subtitle Data area for Show routines
+
+	set_psect _tape_data_ro
+
+sho_device:	.ascid	"Device !AS is a !AS  [you entered USE !AS]"
+sho_no_device:	.ascid	"No device has currently been chosen"
+
+sho_hwl:	.ascid	"Drive is hardware write-locked"
+sho_nohwl:	.ascid	"Drive is write-enabled"
+
+sho_unk_den:	.ascid	"Density is unknown (!UL)"
+sho_density_is:	.ascid	"Density is !AS"
+sho_normal11:	.ascid	"Normal-11"
+sho_normal15:	.ascid	"Normal-15"
+sho_cordmp11:	.ascid	"CoreDump-11"
+sho_6250:	.ascid	"6250 (Group-coded recording)"
+sho_wod6250:	.ascid	"6250 (WOD)"
+sho_1600:	.ascid	"1600 (Phase-encoded recording)"
+sho_800:	.ascid	"800 (NRZI)"
+sho_833:	.ascid	"833 (Cartridge block mode)"
+sho_1250:	.ascid	"1250 (Cartridge block mode)"
+
+sho_odd:	.ascid	"Parity is odd"
+sho_even:	.ascid	"Parity is even"
+
+sho_last_op:	.ascid	"Last operation left the tape at:  !AS"
+sho_at_bot:	.ascid	"Beginning of tape"
+sho_at_eof:	.ascid	"End of file"
+sho_at_eot:	.ascid	"End of tape"
+sho_at_lost:	.ascid	"An unknown position"
+sho_at_eob:	.ascid	"End of a data block"
+
+sho_last_status:.ascid	"Status of last operation was:"
+
+sho_nocopy:	.ascid	"No output file is currently open"
+sho_copyfile:	.ascid	/Current output file is "!AS"/
+sho_nochunky:	.ascid	"Copy operations will create one record per tape block"
+sho_recordsize:	.ascid	"Copy operations will create !UL byte records"
+sho_copylog:	.ascid	"Copy operations will be logged"
+sho_nocopylog:	.ascid	"Copy operations will not be logged"
+sho_ebcdic:	.ascid	"Data will be converted from EBCDIC to ASCII"
+sho_noebcdic:	.ascid	"No EBCDIC to ASCII conversion will be done"
+
+sho_full_dump:	.ascid	"Dump will display the entire block"
+sho_short_dump:	.ascid	"Dump will display only one segment of each block"
+
+sho_mode_ascii:	.ascid	"Dump displays will be in ascii"
+sho_mode_hex:	.ascid	"Dump displays will be in hexadecimal"
+sho_mode_both:	.ascid	"Dump displays will be in ascii and hexadecimal"
+
+sho_debug_off:	.ascid	"Debug mode is currently disabled"
+sho_debug_on:	.ascid	"Debug mode is currently enabled"
+
+sho_sense_off:	.ascid	"Debug displays will not include a sensechar"
+sho_sense_on:	.ascid	"Debug displays will include a sensechar"
+
+	reset_psect
+
+	set_psect _tape_data_rw
+
+sho_dens_val:	.long	0
+
+	reset_psect
+
+	.subtitle Show routines
+
+	.entry -
+mt_show_all, ^m<>
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;
+; Formal Argument(s):
+;	LIB$TPARSE argument block.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	calls	#0, mt_show_version
+	display	blank_line
+	calls	#0, mt_show_device
+	display	blank_line
+	calls	#0, mt_show_copy
+	display	blank_line
+	calls	#0, mt_show_dump
+	display	blank_line
+	calls	#0, mt_show_debug
+	ret
+
+	.entry -
+mt_show_version, ^m<>
+	display	tape_version
+	ret
+
+	.entry -
+mt_show_device, ^m<>
+	tstw	mt_chan
+	beql	80$
+	jsb	show_device_name
+	jsb	show_hwl_status
+	jsb	show_density
+	jsb	show_parity
+	jsb	show_position
+	jsb	show_last_status
+	brb	90$
+80$:	display	sho_no_device
+90$:	ret
+
+show_device_name::
+	$fao_s	ctrstr=sho_device, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=#mt_physical, -
+		p2=#mt_media_name, -
+		p3=#mt_device
+	display	tape_faobuf
+	rsb
+
+show_hwl_status::
+	bbc	#mt$v_hwl, mt_char, 10$
+	display	sho_hwl
+	brb	20$
+10$:	display	sho_nohwl
+20$:	rsb
+
+show_density::
+	pushr	#^m<r2,r3>
+	movaq	sho_density_is, r3
+	extzv	#mt$v_density, #mt$s_density, mt_char, r2
+	cmpl	#mt$k_gcr_6250, r2
+	bneq	10$
+	movaq	sho_6250, sho_dens_val
+	brw	dsp_dens
+10$:	cmpl	#mt$k_pe_1600, r2
+	bneq	20$
+	movaq	sho_1600, sho_dens_val
+	brw	dsp_dens
+20$:	cmpl	#mt$k_nrzi_800, r2
+	bneq	30$
+	movaq	sho_800, sho_dens_val
+	brw	dsp_dens
+30$:	cmpl	#mt$k_blk_833, r2
+	bneq	40$
+	movaq	sho_833, sho_dens_val
+	brw	dsp_dens
+40$:	cmpl	#mt$k_blk_1250, r2
+	bneq	50$
+	movaq	sho_1250, sho_dens_val
+	brw	dsp_dens
+50$:	cmpl	#mt$k_normal11, r2
+	bneq	60$
+	movaq	sho_normal11, sho_dens_val
+	brw	dsp_dens
+60$:	cmpl	#mt$k_cordmp11, r2
+	bneq	70$
+	movaq	sho_cordmp11, sho_dens_val
+	brw	dsp_dens
+70$:	cmpl	#mt$k_normal15, r2
+	bneq	80$
+	movaq	sho_normal15, sho_dens_val
+	brw	dsp_dens
+80$:	cmpl	#mt$k_wod_6250, r2
+	bneq	90$
+	movaq	sho_wod6250, sho_dens_val
+	brw	dsp_dens
+90$:	movaq	sho_unk_den, r3
+	movl	r2, sho_dens_val
+dsp_dens:
+	$fao_s	ctrstr=(r3), -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=sho_dens_val
+	display	tape_faobuf
+	popr	#^m<r2,r3>
+	rsb
+
+show_parity::
+	bbc	#mt$v_parity, mt_char, 10$
+	display	sho_even
+	brb	20$
+10$:	display	sho_odd
+20$:	rsb
+
+show_position::
+	bbc	#mt$v_bot, mt_char, 10$
+	movaq	sho_at_bot, r0
+	brb	50$
+10$:	bbc	#mt$v_eof, mt_char, 20$
+	movaq	sho_at_eof, r0
+	brb	50$
+20$:	bbc	#mt$v_eot, mt_char, 30$
+	movaq	sho_at_eot, r0
+	brb	50$
+30$:	bbc	#mt$v_lost, mt_char, 40$
+	movaq	sho_at_lost, r0
+	brb	50$
+40$:	movaq	sho_at_eob, r0
+50$:	$fao_s	ctrstr=sho_last_op, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=r0
+	display	tape_faobuf
+	rsb
+
+show_last_status::
+	display	sho_last_status
+	movw	#^X000F, tape_msgtxt
+	movzwl	mt_iosb, tape_msgsts
+	$putmsg_s msgvec=tape_msgvec
+	movw	#^X0001, tape_msgtxt
+	rsb
+
+	.entry -
+mt_show_copy, ^m<>
+	jsb	show_output_file
+	jsb	show_copy_recordsize
+	bbs	#tape_v_copylog, tape_enabled, 10$
+	display	sho_nocopylog
+	brb	20$
+10$:	display	sho_copylog
+20$:	bbs	#tape_v_convert, tape_enabled, 30$
+	display	sho_noebcdic
+	brb	40$
+30$:	display	sho_ebcdic
+40$:	ret
+
+show_output_file::
+	bbs	#tape_v_copy, tape_enabled, 10$
+	display	sho_nocopy
+	brb	20$
+10$:	$fao_s	ctrstr=sho_copyfile, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=#res_filespec
+	display	tape_faobuf
+20$:	rsb
+
+show_copy_recordsize::
+	bbs	#tape_v_chunky, tape_enabled, 10$
+	display	sho_nochunky
+	brb	20$
+10$:	$fao_s	ctrstr=sho_recordsize, -
+		outbuf=tape_faobuf_ds, -
+		outlen=tape_faobuf, -
+		p1=copy_recordsize
+	display	tape_faobuf
+20$:	rsb
+
+	.entry -
+mt_show_dump, ^m<>
+	bbs	#tape_v_shortdump, tape_enabled, 10$
+	display	sho_full_dump
+	brb	20$
+10$:	display	sho_short_dump
+20$:	bbc	#tape_v_dump_ascii, tape_dump_flags, 30$
+	display	sho_mode_ascii
+	brb	90$
+30$:	bbc	#tape_v_dump_hex, tape_dump_flags, 40$
+	display sho_mode_hex
+	brb	90$
+40$:	display sho_mode_both
+90$:	ret
+
+	.entry -
+mt_show_debug, ^m<>
+	bbs	#tape_v_debug, tape_enabled, 10$
+	display	sho_debug_off
+	brb	20$
+10$:	display	sho_debug_on
+20$:	bbs	#tape_v_sensechar, tape_enabled, 30$
+	display	sho_sense_off
+	brb	40$
+30$:	display	sho_sense_on
+40$:	ret
+
+	.subtitle Parser state and transition defintions for start
+
+$init_state start_state_tbl, start_keyword_tbl
+
+	$state start
+	$tran	tpa$_eos	,tpa$_exit
+	$tran	'AND'		,start
+	$tran	'&'		,start
+	$tran	'BACKSPACE'	,backspace
+	$tran	'CLOSE'		,start,mt_close_output
+	$tran	'COPY'		,copy
+	$tran	'CREATE'	,create
+	$tran	'DISABLE'	,disable
+	$tran	'DUMP'		,dump
+	$tran	'DISPLAY'	,dump
+	$tran	'ENABLE'	,enable
+	$tran	'EXIT'		,tpa$_exit,tape_exit
+	$tran	'FIND'		,find
+	$tran	'OPEN'		,create
+	$tran	'REWIND'	,start,mt_rewind
+	$tran	'SET'		,set
+	$tran	'SHOW'		,show
+	$tran	'SKIP'		,skip
+	$tran	'SPAWN'		,start,mt_spawn
+	$tran	'UNLOAD'	,start,mt_unload
+	$tran	'USE'		,use
+	$tran	tpa$_lambda	,tpa$_exit,tape_not_possible
+
+	$state backspace
+	$tran	'BOF'		,start,mt_find_bof
+	$tran	'BOT'		,start,mt_rewind
+	$tran	tpa$_decimal	,start,mt_backspace_n
+	$tran	tpa$_lambda	,start,mt_backspace_1
+
+	$state copy
+	$tran	'EOF'		,start,mt_copy_eof
+	$tran	'EOV'		,start,mt_copy_eov
+	$tran	'EOT'		,start,mt_copy_eot
+	$tran	tpa$_decimal	,start,mt_copy_n
+	$tran	tpa$_lambda	,start,mt_copy_1
+
+	$state create
+	$tran	tpa$_eos	,tpa$_exit,tape_short_command
+	$tran	tpa$_filespec	,create_file,,,out_filespec
+
+	$state create_file
+	$tran	tpa$_lambda	,start,mt_create_output
+
+	$state disable
+	$tran	'CONVERT'	,start,tape_reset_convert
+	$tran	'DEBUG'		,start,tape_reset_debug
+	$tran	'SENSECHAR'	,start,tape_reset_sensechar
+	$tran	tpa$_lambda	,start,tape_reset_debug
+
+	$state dump
+	$tran	'EOF'		,start,mt_dump_eof
+	$tran	'EOV'		,start,mt_dump_eov
+	$tran	'EOT'		,start,mt_dump_eot
+	$tran	tpa$_decimal	,start,mt_dump_n
+	$tran	tpa$_lambda	,start,mt_dump_1
+
+	$state enable
+	$tran	'CONVERT'	,start,tape_set_convert
+	$tran	'DEBUG'		,start,tape_set_debug
+	$tran	'SENSECHAR'	,start,tape_set_sensechar
+	$tran	tpa$_lambda	,start,tape_set_debug
+
+	$state find
+	$tran	tpa$_eos	,tpa$_exit,tape_short_command
+	$tran	'BOT'		,start,mt_rewind
+	$tran	'BOF'		,start,mt_find_bof
+	$tran	'EOF'		,start,mt_find_eof
+	$tran	'EOV'		,start,mt_find_eov
+	$tran	'EOT'		,start,mt_find_eot
+
+	$state set
+	$tran	tpa$_eos	,tpa$_exit,tape_short_command
+	$tran	'COPY'		,set_copy
+	$tran	'DUMP'		,set_dump,tape_set_dump_ascii
+	$tran	'DISPLAY'	,set_dump,tape_set_dump_ascii
+	$tran	'RECORDSIZE'	,set_recordsize,tape_reset_chunky
+
+	$state set_recordsize
+	$tran	tpa$_decimal	,start,mt_set_recordsize
+	$tran	tpa$_lambda	,start,tape_reset_chunky
+
+	$state set_copy
+	$tran	'LOG'		,start,tape_set_copylog
+	$tran	'NOLOG'		,start,tape_reset_copylog
+	$tran	tpa$_lambda	,start,tape_reset_copylog
+
+	$state set_dump
+	$tran	'SHORT'		,start,tape_set_shortdump
+	$tran	'FULL'		,start,tape_reset_shortdump
+	$tran	'ASCII'		,start,tape_set_dump_ascii
+	$tran	'BOTH'		,start,tape_set_dump_both
+	$tran	'HEXADECIMAL'	,start,tape_set_dump_hex
+
+	$state show
+	$tran	'ALL'		,start,mt_show_all
+	$tran	'VERSION'	,start,mt_show_version
+	$tran	'DEVICE'	,start,mt_show_device
+	$tran	'TAPE'		,start,mt_show_device
+	$tran	'COPY'		,start,mt_show_copy
+	$tran	'OUTPUT'	,start,mt_show_copy
+	$tran	'DUMP'		,start,mt_show_dump
+	$tran	'DISPLAY'	,start,mt_show_dump
+	$tran	'DEBUG'		,start,mt_show_debug
+	$tran	tpa$_lambda	,start,mt_show_all
+
+	$state skip
+	$tran	'EOF'		,start,mt_find_eof
+	$tran	'EOV'		,start,mt_find_eov
+	$tran	'EOT'		,start,mt_find_eot
+	$tran	tpa$_decimal	,start,mt_skip_n
+	$tran	tpa$_lambda	,start,mt_skip_1
+
+	$state use
+	$tran	tpa$_eos	,tpa$_exit,tape_short_command
+	$tran	tpa$_filespec	,start,mt_validate_device
+
+$end_state
+
+	.end	tape_start

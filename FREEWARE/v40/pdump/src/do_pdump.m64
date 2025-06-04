@@ -1,0 +1,542 @@
+        .TITLE  DO_PDUMP - Process Dump System Service Routines
+        .IDENT  /V2.0/
+
+;++
+;
+; Copyright © 1996 by Kari Salminen. This code may be freely distributed and
+; modified for non-commercial purposes as long as this copyright notice is
+; retained.
+;
+; This software is provided "AS IS". The author makes no representations or
+; warranties with respect to the software and specifically disclaim any implied
+; warranties of merchantability or fitness for any particular purpose.
+;
+;
+;
+; FACILITY:     EXECUTIVE, SYSTEM SERVICES
+;
+; ABSTRACT:
+;
+;       This module contains subroutines for the process dump system service.
+;
+;
+; ENVIRONMENT:
+;
+;       Runs in User mode AST.
+;
+;
+; VERSION:      01.00
+;
+; AUTHOR:	Kari Salminen 
+;
+; DATE:         5-SEP-1996
+;
+;
+; MODIFIED BY:
+;
+;	V1.1	14-JAN-1997	Kari Salminen
+;				Correct Linkage pointer in MCH
+;
+;	V2.0	27-MAY-1997	Kari Salminen
+;				V7 port.
+;
+
+
+.INCLUDE "SYS$LIBRARY:STARLET.PREFIX"
+.INCLUDE "SYS$LIBRARY:LIB.PREFIX"
+
+
+        $CHFDEF			; Define condition handling offsets
+	$CHFCTXDEF		; Define CHF context offsets
+	$INTSTKDEF		; Define exception frame offsets
+        $PDSCDEF                ; Define Procedure Descriptor Symbols
+        $PRDEF			; Define process register offsets
+        $SSDEF                  ; Define system status codes
+	$STSDEF			; Define system service failure and status codes
+
+
+
+CHFCTX_R_MCHARGLST	=  CHFCTX$C_LENGTH
+CHFCTX_C_FIXED_BYTES	=  CHFCTX$C_LENGTH + CHF$S_CHFDEF2
+CHFCTX_C_FIXED_SIZE	=  <<CHFCTX_C_FIXED_BYTES+15> & ^C<15>>
+
+NO_MCH_ARGS	=  44		; # of quadwords in the mechanism array
+
+;
+;	The easy way to keep the target process stack "clean", is to construct
+;	the exception records inside the procedure descriptor of DO_PDUMP.
+;
+;
+;	#INTSTK$C_LENGTH				;  64
+;	#<4*8>						;  32   96 = 2*(16 + 32)
+;	#<6*4>						;  24
+;	#<NO_MCH_ARGS*8+8>				; 360  352 = 8*43+8
+;	#CHFCTX$C_LENGTH				;  80
+;							-----
+;							  616
+;	Register save area				  120
+;							-----
+;							  736
+;	Guards						   16
+;	16 byte align					   16
+;	64 byte align					   64
+;							-----
+;	PAR1 and PAR2					   24
+;							-----
+;							  856
+;
+
+;******************************************************************************
+
+
+	DECLARE_PSECT_ASM	EXEC$NONPAGED_LINKAGE
+
+LINKAGE_SECTION::
+
+DO_PDUMP_LP:
+        .PROCEDURE_DESCRIPTOR   DO_PDUMP,DO_PDUMP_CODE
+
+        .WORD   <PDSC$K_KIND_FP_STACK!PDSC$M_BASE_REG_IS_FP! -
+			PDSC$M_NATIVE!PDSC$M_NO_JACKET>
+
+        .WORD   32 			; Offset to Register save Area
+        .WORD   0                       ; Normal Fn Return (64-bit result in R0
+					; or no function result provided)
+        .WORD   0                       ; No Signature
+
+        .QUAD   DO_PDUMP_CODE   	; Code entry
+
+        .LONG   856			; Stack Frame Size
+        .LONG   0                       ; Reserved
+        .LONG   ^B00100000000000000011111111111100  ; Save R29 and R13 - R2
+;                 10987654321098765432109876543210
+        .LONG   0                       ; No floating point
+        .QUAD   0			; No handler
+
+        .ALIGN  OCTA
+
+
+
+SYSPDUMP_SUB_D = . - LINKAGE_SECTION
+	.LINKAGE_PAIR	SYSPDUMP_SUB
+
+EXE$IMGDMP_MERGE_D = . - LINKAGE_SECTION
+	.LINKAGE_PAIR	EXE$IMGDMP_MERGE
+
+
+;******************************************************************************
+
+	DECLARE_PSECT_ASM	EXEC$PAGED_CODE
+
+DO_PDUMP_CODE::
+
+	BIS	SP, R31, R0		; Save original SP
+	LDA	SP,-856(SP) 		; Allocate our fixed stack space
+
+        STQ     R27,(SP)        	; Store Procedure Descriptor address
+        STQ     R26,32(SP)        	; Store Return address 
+
+	STL	R1 ,20(SP) 		; AST parameter, PID of caller
+
+        STQ     R2 ,40(SP)        	; Store R2
+        STQ     R3 ,48(SP)        	; 
+        STQ     R4 ,56(SP)        	; 
+        STQ     R5 ,64(SP)        	; 
+        STQ     R6 ,72(SP)        	; 
+        STQ     R7 ,80(SP)        	; 
+        STQ     R8 ,88(SP)        	; 
+        STQ     R9 ,96(SP)        	; 
+        STQ     R10,104(SP)        	; 
+        STQ     R11,112(SP)        	; 
+        STQ     R12,120(SP)        	; 
+        STQ     R13,128(SP)        	; Store R13
+        STQ     R29,136(SP)        	; Store FP
+
+        STQ     R0,144(SP)        	; Save R0
+
+	BIS	SP, R31, FP	; Copy SP into FP, make this current procedure
+
+;	
+;	Construct exception stuff for IMGDMP
+;
+;	Note: Fields marked with (*** Updated ***) are first filled with
+;	      a dummy value for clarity and then replaced later with the
+;	      original value.
+;	
+;**************************************************************************
+;
+;	Construct exception frame on stack
+;
+;	63         0
+;	 ----------
+;	| Saved R2 | 		; 
+;	 ----------
+;	| Saved R3 | 		; 
+;	 ----------
+;	| Saved R4 | 		; 
+;	 ----------
+;	| Saved R5 | 		; 
+;	 ----------
+;	| Saved R6 | 		; 
+;	 ----------
+;	| Saved R7 | 		; 
+;	 ----------
+;	| Saved PS | 		; 
+;	 ----------
+;	| Saved PC | 		; 
+;	 ----------
+;
+
+        LDQ     R0,144(SP)        	; Restore R0
+
+	SUBQ	R0,#8,R0		; Guard
+	BIC     R0,#63,R0		; Align 'stack' on 64-byte boundary
+
+	SUBQ	R0,#INTSTK$C_LENGTH,R0	; Exception frame size
+
+	STQ	R2,INTSTK$Q_R2(R0)	; Save R2 (*** Updated ***)
+	STQ	R3,INTSTK$Q_R3(R0)	; Save R3
+	STQ	R4,INTSTK$Q_R4(R0)
+	STQ	R5,INTSTK$Q_R5(R0)	; Save R5 (*** Updated ***)
+	STQ	R6,INTSTK$Q_R6(R0)
+	STQ	R7,INTSTK$Q_R7(R0)	; Save R7
+	STQ	R26,INTSTK$Q_PC(R0)	; Use caller's RA as exception PC
+					;  (*** Updated ***)
+
+	BIS	R0,R31,R6		; R6 points to exception frame
+
+	RD_PS				; Read current PS
+	STQ	R0,INTSTK$Q_PS(R6)	; Store exception PS
+
+;***************
+
+;	Set up pointers to other structures
+
+	SUBQ	R6,#<4*8>,R0		; 64-bit signal array size, 3 args
+
+	BIS	R0,R31,R3		; R3 points to 64-bit signal
+
+	SUBQ	R0,#<4*4>,R0		; VAX/VMS compatible signal array size
+	BIS	R0,R31,R5		; R5 points to signal array
+
+;	Align the stack on octaword boundary after construction the signal array
+
+	BIC	R0,#15,R0			; Octaword align 
+
+	LDA	R2,CHFCTX_C_FIXED_SIZE(R31) 	; Size of fixed portion
+	SUBQ	R0,R2,R0			; Allocate fixed portion
+
+	BIS	R0,R31,R2		  ; R2 points to Exception Context area
+	LDA	R4,CHFCTX_R_MCHARGLST(R0) ; R4 points to Mechanism array
+
+;**************************************************************************
+;
+;	Construct 64-bit signal array
+;
+;        63                31          0
+;        -------------------------------------
+;       | CHF64$L_SIGNAL64 |   # of args      | +  0       ; 3 arguments,
+;        -------------------------------------		   ; SS$_SIGNAL64
+;       |                SS$_signal_name      | +  8       ; Condition
+;        -------------------------------------
+;       |                Exception PC         | + 16       ; Exception PC
+;        -------------------------------------
+;       |                Exception PS         | + 24       ; Exception PSL
+;        -------------------------------------
+;
+;
+	LDA	R0,3(R31)			; 3 arguments
+	STL	R0,CHF64$L_SIG_ARGS(R3)		; Store # of signal arguments
+
+	LDA	R0,SS$_SIGNAL64(R31)		; SIGNAL64 flag
+	STL	R0,CHF64$L_SIGNAL64(R3)		; SS$_SIGNAL64
+
+	LDA	R0,SS$_DEBUG(R31)		; DEBUG
+	STQ	R0,CHF64$Q_SIG_NAME(R3)		; Store signal name
+
+;	Copy all signal arguments from exception qualifier record to 64-bit
+;	signal array
+
+	LDQ	R0,INTSTK$Q_PC(R6)		; Get exception PC
+	STQ     R0,CHF64$Q_SIG_ARG1(R3)   	; 1st argument
+						;  (*** Updated ***)
+
+	LDQ	R0,INTSTK$Q_PS(R6)		; Get exception PS
+	STQ	R0,CHF64$Q_SIG_ARG1+8(R3)	; 2nd argument
+
+
+;**************************************************************************
+;
+;	Construct VAX/VMS-compatible longword signal array
+;
+;        31                       0
+;	 --------------------------
+;	|            |  # of args  | +  0	; 3 arguments
+;	 --------------------------
+;	|     SS$_signal_name      | +  4	; Condition
+;	 --------------------------
+;	|     Exception PC         | +  8	; Exception PC
+;	 --------------------------
+;	|     Exception PS         | + 12	; Exception PSL
+;	 --------------------------
+;
+
+	LDA	R0,3(R31)		; 3 arguments
+	STL	R0, CHF$L_SIG_ARGS(R5)	; Store number of signal arguments
+
+	LDA	R0,SS$_DEBUG(R31)	; DEBUG
+	STL	R0,CHF$L_SIG_NAME(R5)	; Store signal name
+
+;	Copy all signal arguments from exception qualifier record to VAX/VMS
+;	compatible signal array
+
+	LDQ	R0,INTSTK$Q_PC(R6)		; Get exception PC
+	STL     R0,CHF$L_SIG_ARG1(R5)   	; 1st argument
+						;  (*** Updated ***)
+
+	LDQ	R0,INTSTK$Q_PS(R6)		; Get exception PS
+	STL	R0,CHF$L_SIG_ARG1+4(R5)		; 2nd argument
+
+
+;**************************************************************************
+;
+;	Construct Exception Context area
+;
+;        63                       0
+;	 --------------------------
+;	| Linkage section pointer  | +  0	; CHFCTX$Q_LINKAGE_PTR
+;	 --------------------------
+;	| Address of signal array  | +  8	; CHFCTX$Q_SIGARGLST
+;	 --------------------------
+;	| Addr of mechanism array  | + 16	; CHFCTX$Q_MCHARGLST
+;	 --------------------------
+;	| Addr of exception frame  | + 24	; CHFCTX$Q_EXPT_ADDR
+;	 --------------------------
+;	|      Exception FP        | + 32	; CHFCTX$Q_EXPT_FP
+;	 --------------------------
+;	|    SP during unwind      | + 40	; CHFCTX$Q_UNWIND_SP
+;    ------------------------------
+;   | FP of last reinvokable frame | + 48	; CHFCTX$Q_REINVOKABLE_FP
+;    ------------------------------
+;	|      Unwind target       | + 56	; CHFCTX$Q_UNWIND_TARGET
+;     -----------------------------
+;    | Orig signal | Size of excep | + 64	; CHFCTX$L_BYTECNT
+;    | array count | context       | + 68	; CHFCTX$L_SIG_ARGS
+;     -----------------------------
+;	| Addr of    | Flags/final | + 72	; CHFCTX$L_FINALSTS
+;	| error msg  | status      | + 76	; CHFCTX$L_MSGPTR
+;	 --------------------------
+;
+
+	STQ	R27,CHFCTX$Q_LINKAGE_PTR(R2) ; Linkage section pointer
+					     ;            (*** Updated ***)
+
+	STQ	R5,CHFCTX$Q_SIGARGLST(R2) ; Address of signal array
+	STQ	R4,CHFCTX$Q_MCHARGLST(R2) ; Address of mechanism array
+	STQ	R6,CHFCTX$Q_EXPT_ADDR(R2) ; Address of exception frame
+
+	STQ     R29,CHFCTX$Q_EXPT_FP(R2)   ; Exception FP (*** Updated ***)
+	STQ	R31,CHFCTX$Q_UNWIND_SP(R2) ; Clear unwind SP field
+					   ;              (*** Updated ***)
+
+
+	STQ	R31,CHFCTX$Q_REINVOKABLE_FP(R2) ; Clear Reinvokable field
+
+	STQ	R31,CHFCTX$Q_UNWIND_TARGET(R2)	; Clear unwind field
+
+	SUBQ	R6,R2,R0		 ; Calculate offset to exception frame
+	ADDQ	R0,#INTSTK$C_LENGTH,R0	 ; Add in size of exception frame
+	STL	R0,CHFCTX$L_BYTECNT(R2)	 ; Exception context size
+
+	LDL	R0,CHF$L_SIG_ARGS(R5)	 ; Original # of signal arguments
+	STL	R0,CHFCTX$L_SIG_ARGS(R2) ; ...
+
+	LDA	R0,CHFCTX$M_SIGNAL(R31)	 ; Set flag to 'signal'
+	STL	R0,CHFCTX$L_FLAGS(R2)	 ; ...
+
+
+;**************************************************************************
+;
+;	Construct Mechanism array
+;
+;        63                       0
+;	 --------------------------
+;	|   Flags    |  # of args  | +  0	;
+;	 --------------------------
+;	| Addr of establisher frame| +  8	; 
+;	 --------------------------
+;	|            |   Depth     | + 16	; 
+;	 --------------------------
+;	| Address of handler data  | + 24	; 
+;	 --------------------------
+;	|Address of exception frame| + 32	; 
+;	 --------------------------
+;	| Address of signal array  | + 40	; 
+;	 --------------------------
+;	|     R0, R1, R16-R28      | + 48	; 
+;	:                          :
+;	:                          :
+;	|                          | + 160
+;	 --------------------------
+;	|     F0, F1, R10-R30      | + 168	; 
+;	:                          :
+;	:                          :
+;	|                          | + 344
+;	 --------------------------
+;
+
+	LDA	R0,NO_MCH_ARGS(R31)	; Get number of args in mechanism array
+	STQ	R0,CHF$IS_MCH_ARGS(R4)	; Store number of args and clear flags
+
+	STQ	R29,CHF$PH_MCH_FRAME(R4)   ; Establisher's FP (*** Updated ***)
+
+	STQ	R3,CHF$PH_MCH_SIG64_ADDR(R4) ; Address of 64-bit signal array
+	STQ	R5,CHF$PH_MCH_SIG_ADDR(R4)   ; Address of signal array
+	STQ	R6,CHF$PH_MCH_ESF_ADDR(R4)   ; Address of exception frame
+
+
+;	 -3 = Last chance exception handler
+;	 -2 = Primary exception handler
+;	 -1 = Secondary exception handler
+;	>=0 = Frame-based exception handler
+
+	BIS	R31,R31,R0			; Depth 0
+	STQ	R0,CHF$IS_MCH_DEPTH(R4)		; Store depth, clear MCH_RESVD1
+
+	STQ	R31,CHF$PH_MCH_DADDR(R4)	; No Handler data
+
+;	Save integer registers into mechanism array
+
+	STQ	R0,CHF$IH_MCH_SAVR0(R4)		; Save R0  (*** Updated ***)
+	STQ	R1,CHF$IH_MCH_SAVR1(R4)		; Save R1  (*** Updated ***)
+	STQ	R16,CHF$IH_MCH_SAVR16(R4)	; Save R16..R28
+	STQ	R17,CHF$IH_MCH_SAVR17(R4)
+	STQ	R18,CHF$IH_MCH_SAVR18(R4)
+	STQ	R19,CHF$IH_MCH_SAVR19(R4)
+	STQ	R20,CHF$IH_MCH_SAVR20(R4)
+	STQ	R21,CHF$IH_MCH_SAVR21(R4)
+	STQ	R22,CHF$IH_MCH_SAVR22(R4)
+	STQ	R23,CHF$IH_MCH_SAVR23(R4)
+	STQ	R24,CHF$IH_MCH_SAVR24(R4)
+	STQ	R25,CHF$IH_MCH_SAVR25(R4)
+	STQ	R26,CHF$IH_MCH_SAVR26(R4)	; Save R26  (*** Updated ***)
+	STQ	R27,CHF$IH_MCH_SAVR27(R4)	; Save R27  (*** Updated ***)
+	STQ	R28,CHF$IH_MCH_SAVR28(R4)
+
+;	Save floating registers into mechanism array.
+;	Actually we should check if Floating Point is enabled for the process.
+;	But it is easier just to save them.
+;
+;	LDQ     R26,SYS$CHECK_FEN_D(R27)   ; Procedure address of SYS$CHECK_FEN
+;	LDQ     R27,SYS$CHECK_FEN_D+8(R27) ; Procedure value of SYS$CHECK_FEN
+;	JSR     R26,(R26)		   ; Call SYS$CHECK_FEN
+;	BLBC    R0,xx$			   ; If LBC, Floating Point disabled
+;
+
+	STT	F0,CHF$FH_MCH_SAVF0(R4)		; Save F0 (*** Updated ***)
+	STT	F1,CHF$FH_MCH_SAVF1(R4)		; Save F1 (*** Updated ***)
+
+	STT	F10,CHF$FH_MCH_SAVF10(R4)	; Save F10
+	STT	F11,CHF$FH_MCH_SAVF11(R4)
+	STT	F12,CHF$FH_MCH_SAVF12(R4)
+	STT	F13,CHF$FH_MCH_SAVF13(R4)
+	STT	F14,CHF$FH_MCH_SAVF14(R4)
+	STT	F15,CHF$FH_MCH_SAVF15(R4)
+	STT	F16,CHF$FH_MCH_SAVF16(R4)
+	STT	F17,CHF$FH_MCH_SAVF17(R4)
+	STT	F18,CHF$FH_MCH_SAVF18(R4)
+	STT	F19,CHF$FH_MCH_SAVF19(R4)
+	STT	F20,CHF$FH_MCH_SAVF20(R4)
+	STT	F21,CHF$FH_MCH_SAVF21(R4)
+	STT	F22,CHF$FH_MCH_SAVF22(R4)
+	STT	F23,CHF$FH_MCH_SAVF23(R4)
+	STT	F24,CHF$FH_MCH_SAVF24(R4)
+	STT	F25,CHF$FH_MCH_SAVF25(R4)
+	STT	F26,CHF$FH_MCH_SAVF26(R4)
+	STT	F27,CHF$FH_MCH_SAVF27(R4)
+	STT	F28,CHF$FH_MCH_SAVF28(R4)
+	STT	F29,CHF$FH_MCH_SAVF29(R4)
+	STT	F30,CHF$FH_MCH_SAVF30(R4)
+
+;**************************************************************************
+;
+;	Now we have created and filled all the structures, some of the
+;	contents are not the actual ones at the time of the AST delivery.
+;
+;	Get the original PC, R27, FP and other stuff.
+;
+	LDL	R1 ,20(SP) 			; AST parameter, PID of caller
+
+	LDQ	R26,SYSPDUMP_SUB_D(R27)		; Call SYSPDUMP_SUB
+	LDQ	R27,SYSPDUMP_SUB_D+8(R27)	; ...
+	JSR	R26,(R26)		    	; ...
+
+        LDQ     R27, (SP)        		; Restore R27
+
+	BLBS	R0,100$				; Success
+
+
+
+;**************************************************************************
+;
+;	Inputs to IMGDMP_MERGE
+;
+;	 -----------------
+;	| CHF$L_SIGARGLST | + 4		; 4(AP)
+;	 -----------------
+;	| CHF$L_MCHARGLST | + 8		; 8(AP)
+;	 -----------------
+
+100$:	STL	R5,20(R29) 			; PAR1 = address of signal array
+	STL	R4,24(R29)			; PAR2 = address of mech array
+	LDA	R25,2(R31)			; Set argument count = 2
+
+;;;---------------------------------------------------------------------
+;;;
+;;;	Uncomment the next instruction for test purposes:
+;;;
+;;;	BPT			; = CALL_PAL 128
+;;;	
+;;;	- run a looping/hanging test program with debugger
+;;;	- use it as target process for SYSPDUMP
+;;;	- debugger gains control at breakpoint
+;;;	- analyze with SDA/DEBUGGER the call frames/exception data structures
+;;;
+;;;     - to continue from the breakpoint (activate instruction window):
+;;;
+;;;     DBG> exa/ins @pc
+;;;     0FFFFFFFF9E94220C:              BPT
+;;;     DBG> exa/ins @pc+4
+;;;     0FFFFFFFF9E942210:              LDQ             R26,#X0040(R27)
+;;;     DBG> dep pc=0FFFFFFFF9E942210
+;;;     DBG> set step/inst
+;;;     DBG> step
+;;;
+;;;---------------------------------------------------------------------
+
+	LDQ	R26,EXE$IMGDMP_MERGE_D(R27)	; Call EXE$IMGDMP_MERGE
+	LDQ	R27,EXE$IMGDMP_MERGE_D+8(R27)	; ...
+	JSR	R26,(R26)		    	; ...
+
+
+        LDQ	R29,136(SP)        	; Restore FP
+        LDQ	R13,128(SP)        	; Restore R13
+	LDQ     R12,120(SP)        	; 
+	LDQ     R11,112(SP)        	; 
+	LDQ     R10,104(SP)        	; 
+	LDQ     R9 ,96(SP)        	; 
+	LDQ     R8 ,88(SP)        	; 
+	LDQ     R7 ,80(SP)        	; 
+	LDQ     R6 ,72(SP)        	; 
+	LDQ     R5 ,64(SP)        	; 
+	LDQ     R4 ,56(SP)        	; 
+	LDQ     R3 ,48(SP)        	; 
+	LDQ     R2 ,40(SP)        	; Restore R2
+        LDQ     R26,32(SP)        	; Restore Return address	
+        LDQ     R27, (SP)        	; Restore Procedure Descriptor address
+
+	LDA	SP,856(SP) 		; Restore stack
+
+	RET	R31,(R26)		; Return JMP
+
+	.END

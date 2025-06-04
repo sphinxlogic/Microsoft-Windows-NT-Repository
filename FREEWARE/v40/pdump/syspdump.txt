@@ -1,0 +1,1587 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+			SYSPDUMP  User's  Guide
+
+
+
+
+
+	The Process Dump system service creates a process dump file of a
+	target process.
+
+
+	This manual describes the SYSPDUMP system service, including 
+        usage details.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	Software  Version:  2.0
+
+	Operating System:   OpenVMS Alpha Version 7.0 or higher.
+
+
+
+
+
+	Copyright © 1997 by Kari Salminen. This software and this manual
+	may be freely distributed and modified for non-commercial purposes
+	as long as this copyright notice is retained. This software is
+	provided "AS IS". The author makes no representations or warranties
+	with respect to the software and specifically disclaims any implied
+	warranties of merchantability or fitness for any particular purpose.
+
+
+
+	First printing:  October 1996
+
+	Last revised:    June 1997
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	I would like to thank Jim Good for his feedback concerning this
+	documentation.
+
+        INTRODUCTION
+
+Imagine that you have problems with a third-party product and - as normal - no
+sources. After lengthy discussions the provider is still insisting that it's 
+your fault, its the quotas, SYSGEN parameters, VMS, phase of the moon, etc...
+
+With the $GETEVI (SYSPDUMP) service, the image(s) can be dumped when hanging 
+or behaving abnormally and the .DMP file sent to the supplier as evidence.  
+If the provider can supply an image which is compiled/linked with debugger 
+options, then $GETEVI usage is even further enhanced.
+
+This document describes the $GETEVI (SYSPDUMP) service and its usage. 
+
+
+
+	PURPOSE OF SYSPDUMP
+
+
+The Process Dump system service creates a process dump file of any running 
+process on an OpenVMS Alpha system (running Version 7.0 or higher). The dump 
+files produced are suitable for analysis with the ANALYZE/PROCESS_DUMP 
+Utility.
+
+
+
+
+	SYSPDUMP ($GETEVI) SYSTEM SERVICE
+
+
+$GETEVI
+Dump a Process
+
+Causes a Process Dump to be created for a specified process.
+
+
+Format
+
+   SYS$GETEVI   pidadr, dummy1, dummy2
+
+
+Arguments
+
+   pidadr
+   OpenVMS usage:	process_id
+   type:		longword (unsigned)
+   access:		modify
+   mechanism:		by reference
+
+Indicates the Process identification (PID) of the process to be dumped.
+The pidadr argument is the address of a longword containing the PID.
+The pidadr argument can refer only to a process running on the local node.
+
+The pidadr argument is required.
+
+
+   dummy1
+   OpenVMS usage:	None
+   type:		longword (unsigned)
+   access:		read only
+   mechanism:		by reference
+
+The dummy1 argument is required.
+
+   dummy2
+   OpenVMS usage:	None
+   type:		longword (unsigned)
+   access:		read only
+   mechanism:		by reference
+
+The dummy2 argument is required.
+
+
+                              Description
+                              -----------
+
+The Process Dump system service creates a process dump file of the target
+process. The image executing in the target process continues normally after
+the dump file is written.
+
+The Process Dump system service requires system dynamic memory.
+
+When a Process Dump is requested for a process, a user-mode AST is queued
+for the target process. The AST routine executes in the context of the
+target process. It simulates an exception by constructing an exception frame,
+a 64-bit signal array, a VAX/VMS-compatible signal array, an exception context
+area and a mechanism array. These arrays are filled with current information
+from the target process and then the EXE$IMGDMP_MERGE service is called to write
+the dump file.
+
+Because the AST mechanism is used, user mode ASTs must be enabled for the
+target process, in order for a process to be dumped with the $GETEVI service.
+Thus, for example, a suspended process cannot be dumped by $GETEVI.
+If a dump cannot be performed for this reason, the process issuing the
+$GETEVI call does not receive a direct notification. (However, in one special 
+case an error may be received at the issuing terminal. See "Condition 
+Values Returned".)
+
+The SYSPDUMP is implemented as a true OpenVMS system service instead of
+a so-called  'user-written' system service.
+
+This is done by making use of one of the 'never-implemented' system services. 
+These represent services that were shipped with OpenVMS v1.5 and later 
+discarded. Although the never-implemented services do not provide any 
+functionality, the associated symbols and structures will remain in all 
+future OpenVMS releases and can be made use of.
+
+The Process Dump System Service will use the never-implemented system service
+$GETEVI.
+
+The advantages of this approach over the conventional method of supplying a
+user-written system service are:
+
+ - With a user-written system service, all target processes using the service
+   must be explicitly linked with it. This would restrict its use to target
+   processes for which object code is available and a re-link would be required
+   for each such process. On the other hand, all images are linked by default
+   with the base image SYS$PUBLIC_VECTORS.EXE, which resolves the calls to
+   system services, including the never-implemented services. Thus the logic
+   for using never-implemented system services is already built into OpenVMS
+   images, including those from third-party suppliers.  This allows the 
+   $GETEVI service to dump any process without requiring any modification of 
+   the target image.
+
+ - The $GETEVI call itself is simplified, especially on an AXP platform.
+   A never-implemented system service such as GETEVI can be invoked by a simple 
+   procedure call. By contrast, in calling a user-written system service, 
+   on a VAX an AST block is packed with code/data and sent to the target 
+   process. The method is even more complicated on an AXP, since its RISC 
+   architecture enforces a strict separation between code and data.
+   
+
+With the $GETEVI (SYSPDUMP) System Service a process dump can be taken of any
+process on the system without stopping or interfering with it, other than
+'stealing' the time to write the dump (which may take several seconds with large
+images).
+
+Note : The $GETEVI (SYSPDUMP) System Service has, to be installed on a system before 
+it can be used.
+
+
+                           Required Access Privileges
+                           --------------------------
+
+The calling process needs the WORLD privilege to use $GETEVI.
+
+
+                            Required Quotas
+                            ---------------
+
+None
+
+
+                             Side Effects
+                             ------------
+
+The process dump requested bit will be set in the process header.
+This causes a new .DMP file to be written on each fatal error until
+the process is restarted.
+For interactive processes it can be removed by the following 
+DCL command:
+
+	$ SET PROCESS/NODUMP
+
+
+                         Related System Services
+                         -----------------------
+
+	$CANEXH,  $CREPRC, $DCLEXH, $DELPRC, $EXIT, $FORCEX, $GETJPI,
+	$GETJPIW, $HIBER,  $PROCESS_SCAN,  $RESUME, $SETPRI, $SETPRN,
+	$SETPRV,  $SETRWM, $SUSPND, $WAKE
+
+
+                        Condition Values Returned
+                        -------------------------
+
+   SS$_NORMAL		The service completed successfully.
+
+   SS$_INSFMEM		The system dynamic memory is insufficient for the
+			operation.
+
+   SS$_NONEXPR		The specified process does not exist, or an invalid
+			process identification was specified.
+
+   SS$_NOPRIV		The process does not have the WORLD privilege to
+			dump the specified process.
+
+   SS$_SUSPENDED	The process is suspended or in MWAIT state or
+			outswapped (the Process Header is not resident)
+
+   SS$_ILLSER		Illegal service call number, the SYSPDUMP system
+			service is not installed on your system.
+			User action: Install the SYSPDUMP System Service.
+
+
+If the Process Dump system service is issued by an interactive process
+and the target process does not comply to the OpenVMS Calling Standard,
+then the error message
+
+%SYSPDUMP-F-BADSTACK, illegal procedure descriptor in call chain
+
+is written on to the issuing terminal (unless broadcast messages are disabled
+for the terminal).
+
+                               USAGE NOTES
+                               ===========
+
+- The .DMP files produced by $GETEVI can be inspected with 
+  ANALYZE/PROCESS_DUMP, which invokes the debugger to analyze the 
+  process dump.
+
+- If the source code of the target process is available, then in screen mode
+  the debugger will point to the instruction that the target process was
+  executing at the time when the $GETEVI service was called. 
+
+- If the sources for the target program are available, then more information
+  will be available in the .DMP file if the target program is compiled and 
+  linked with debugger options.
+
+- If it is possible, a smaller .DMP file will be produced if the target 
+  executable is run with the /NODEBUG switch.
+
+- If the program has been built on a different disk/directory, then the 
+  following error message will be displayed:
+
+   "%DEBUG-W-UNAOPNSRC, unable to open source file MYDISK:[MYDIR]MYFILE.EXT
+     -RMS-F-DEV, error in device name or inappropriate device type for 
+     operation"
+
+- If the sources and the dump file are located in different locations, then
+  the following logical name can be defined:
+
+     	$ DEFINE DBG$INIT MYDISK:[MYDIR]DEBUG_INIT.COM
+
+  Contents of the DEBUG_INIT.COM:
+
+  SET SOURCE SYS$DISK:[],MYDISK:[MYDIR.SRC]
+
+Note : For more details on ANALYZE/PROCESS_DUMP see the OpenVMS DCL Dictionary.
+
+- Restrictions:
+
+    ANALYZE/PROCESS_DUMP can crash with some process dumps, in which case
+    a new dump file should be created by running $GETEVI again for the target
+    process. Programs written in the ADA language with tasking enabled seem
+    to be particularly susceptible to this problem.
+
+
+    N.B.: Process dump system service runs partially in Kernel Mode, i.e. a
+       	  program error or access violation usually leads to a system crash.
+	  Thus, THE PROCESS DUMP SYSTEM SERVICE SHOULD NOT BE EXECUTED IN A
+	  PRODUCTION ENVIRONMENT.
+
+- The PD.EXE program in the distribution kit can be used to produce a
+  process dump from a process or the $GETEVI service can be called directly,
+  as with any other system service.
+
+- By default, the $GETEVI dump is written in a .DMP file on the default 
+  directory of the target process. The logical name SYS$PROCDMP can be used 
+  to point to a directory where the process dump files should be written, i.e.
+
+	$ DEFINE/SYSTEM SYS$PROCDMP MYDISK:[MYDIR]
+  or
+	$ DEFINE/GROUP SYS$PROCDMP MYDISK:[MYDIR]
+
+
+
+
+                      SYSPDUMP KIT FILES
+                      ==================
+
+The SYSPDUMP distribution kit consists of:
+
+	SYSPDUMP.MAR	- Source code written in MACRO-32
+	DO_PDUMP.M64	- Source code of subroutines written in MACRO-64
+	ARCH_DEFS.MAR	- Alpha definitions
+	SYSPDUMP.COM	- Build command file
+	SYSPDUMP.OPT	- Link option file
+	SYSPDUMP.EXE	- Loadable .EXE file
+	SYSPDUMP.STB 	- Symbol table file
+	SYS.OLB		- Object library
+
+	PROCESS_CALLS.COM - Command file to collect information and the
+			    call tree of a hanging process using SDA.
+
+                         OpenVMS Alpha files
+                         -------------------
+
+	DOINIT.MAR	- Source code of VMS executive shareable image
+			  initialization routine.
+	DOINIT.OBJ	- Object file
+	CHF_SUBS.MAR	- Source code of subroutines written in MACRO-32
+	CHF_SUBS.OBJ	- Object file
+
+
+Note:	The files DOINIT.MAR and CHF_SUBS.MAR are copyrighted software
+	and cannot be included in this kit.
+
+	The files can be obtained from the OpenVMS Source Listings CD.
+
+	DOINIT.MAR from the [V71.SYS.LIS]DOINIT.LIS using the CVTLIS
+	utility (convert listing file to source file).
+
+	CHF_SUBS.MAR consist of the following subroutines from the
+	EXCEPTION_ROUTINES.MAR, [V71.SYS.LIS]EXCEPTION_ROUTINES.LIS
+
+		- CHF_GET_PREVIOUS_FP::
+		- SCAN_SAVED_RN::
+		- CHF_CHECK_DISPATCHER::
+		- CHF_CHECK_ASTDEL::
+
+
+                 Build Of SYSPDUMP Executable
+                 ----------------------------
+
+To build the SYSPDUMP executable image, then the current default directory
+should be set to the one containing the SYSPDUMP kit files and the command file
+SYSPDUMP.COM executed as follows:
+
+	$ @SYSPDUMP
+
+
+
+                  SYSPDUMP Loader Kit Files
+                  -------------------------
+
+The SYSPDUMP LOADER distribution kit consists of:
+
+	PDUMP_LOADER.MAR	- Source file
+	PDUMP_LOADER.COM	- Build command file
+	PDUMP_LOADER.EXE	- Executable file
+	PDUMP_INSTAL.COM	- Command file to run PDUMP_LOADER.EXE
+
+
+            Build Of SYSPDUMP Loader Executable
+            -----------------------------------
+
+To build the PDUMP_LOADER executable image, the current default directory
+should be set to the one containing the SYSPDUMP LOADER kit files and the 
+command file PDUMP_LOADER.COM executed as follows:
+
+	$ @PDUMP_LOADER
+
+          Installing The Process Dump System Service $GETEVI
+          --------------------------------------------------
+
+To incorporate the process dump system service into an OpenVMS operating system, 
+the command file PDUMP_INSTAL.COM should be executed as follows:
+
+
+	$ @PDUMP_INSTAL
+
+
+
+
+TEST PROGRAM TO DUMP A PROCESS
+
+Test program files:
+
+	PD.MAR	- Source code
+	PD.COM	- Build command file
+	PD.EXE	- Executable file
+
+
+
+
+                     EXAMPLES OF USE 
+                     ===============
+$ RUN PD
+ Please enter the target Process PID:
+
+Enter the target process PID (eg. 2520024A).
+
+or define a foreign command
+
+$ PD :== $ USER_DISK5:[SALMINEN.SERV]PD.EXE
+
+And 
+
+$ PD pid
+
+Example: 
+
+$ PD 2520024A
+
+The .DMP file is written into the target process home directory or if the
+logical SYS$PROCDMP defined then to the directory pointed by that logical.
+
+Now the .DMP file can be analyzed with
+
+$ ANALYZE/PROCESS_DUMP [TARGER_DIR]MYPROC.DMP
+
+or
+
+$ ANALYZE/PROCESS_DUMP/IMAGE=[TARGER_DIR]MYPROC.EXE [TARGER_DIR]MYPROC.DMP
+
+
+If the ANALYZE/PROCESS_DUMP can't find the image, it should be started 
+again with the /IMAGE qualifier, to have more image information.
+
+
+Example - Without /IMAGE qualifier
+----------------------------------
+
+$ ana/proc DECW$TERMINAL.DMP
+
+Image file not found, USER_DISK5:[SALMINEN]DECW$TERMINAL.EXE;
+
+Assuming /NOIMAGE qualifier, selecting alternate debugger
+
+Condition signalled to take dump:
+
+%SYSTEM-F-DEBUG, command interpreter debugger signal at PC=FFFFFFFF800DB598, PS=
+0000001B
+
+
+OpenVMS Alpha DELTA Debugger
+
+Exception - Signal reason = 0000000C
+
+80B4B128!       LDQ             R28,#X0030(R2)
+
+
+
+Example - With /IMAGE qualifier
+-------------------------------
+
+$ ana/proc/ima=SYS$SYSTEM:DECW$TERMINAL.EXE DECW$TERMINAL.DMP
+
+Condition signalled to take dump:
+
+
+%SYSTEM-F-DEBUG, command interpreter debugger signal at PC=FFFFFFFF800DB598,
+PS=0000001B
+
+%DEBUG-I-SSINOTSET, system service interception is not setup, defaulting to nost
+atic watchpoints
+
+         OpenVMS Alpha DEBUG Version V7.1-000
+
+%DEBUG-W-SCRNOSRCLIN, No source line for address: FFFFFFFF800DB598
+DBG> 
+
+
+- If the ANALYZE/PROCESS_DUMP fails then the following should be tried:
+
+	$ ANALYZE/PROCESS_DUMP/FULL
+
+to get some information from the .DMP file.
+
+Example:
+--------
+
+
+GDCW3A>ana/proc MYPROG.DMP
+Condition signalled to take dump:
+
+%SYSTEM-F-DEBUG, command interpreter debugger signal at PC=00000000000301BC,
+PS=0000001B
+
+
+         OpenVMS Alpha DEBUG Version V7.1-000
+
+DBG>
+
+
+
+In the DBG> SHOW CALLS command, the first line is always for the AST send by
+the SYSPDUMP system service and the last line for the SYSIMGSTA system service.
+
+The first invocation block in the SHOW STACK command is always that of the
+routine ASTDEL (SCH$ASTDEL - AST delivery routine, Entry Address: 800A0DC0)
+in the file SYS$COMMON:[SYS$LDR]PROCESS_MANAGEMENT.EXE.
+
+The last invocation block in the SHOW STACK command is always that of the
+routine SYSIMGSTA (SYS$IMGSTA - Image activator, Entry Address: 9D38C0A0)
+in the file SYS$COMMON:[SYS$LDR]IMAGE_MANAGEMENT.EXE
+
+The values for the addresses (OpenVMS V6.2) will be different for different
+versions of the operating system.
+
+
+The 'Entry Address:' in the invocation block 1 shows the entry of the
+routine in which the program was executing at the time of the SYSPDUMP
+service was called.
+
+
+
+The following sections show typical outputs from the DBG> SHOW CALLS and 
+SHOW STACK commands in HEXADECIMAL mode for different languages.
+
+
+
+
+Using System Dump Analyzer as help
+----------------------------------
+
+If the program is hanging in a system call/service, then the PC is in 
+the range 8xxxxxxx to 9xxxxxxx.
+
+(For those not not familiar with the System Dump Analyzer, the
+command file PROCESS_CALLS.COM may be used instead of the following steps.)
+
+$ PROCESS_CALLS MY_PROCESS
+
+where MY_PROCESS is the name of the target process. The command file
+writes information about the process and the call tree into file
+PROCESS_CALLS.TMP.
+
+- Steps
+
+$ ANALYZE/SYSTEM
+SDA>read/exec
+SDA>read sys$loadable_images:sysdef.stb
+
+The program is in Event Flag Wait
+
+SDA> MAP 800A3DAC
+Image                                   Base      End       Image Offset
+PROCESS_MANAGEMENT
+      Nonpaged read only                80090000  800A6600  00013DAC
+SDA>
+SDA>  exa/ins 800A3DAC
+SYS$WAITFR_C+000BC:     LDQ             R16,#X0010(FP)
+
+
+SDA> sho summmary
+Current process summary
+-----------------------
+ Extended Indx Process name    Username    State   Pri   PCB      PHD    Wkset
+-- PID -- ---- --------------- ----------- ------- --- -------- -------- ------
+ 2EA00201 0001 SWAPPER                      HIB     16 868BFCF8 868BFA00      0
+ 2EA00205 0005 CONFIGURE       SYSTEM       HIB     10 8193BBC0 869D4000     25
+
+ 2EA0024E 004E _FTA3:          SALMINEN     LEF      4 81BA9D40 89080000     62
+
+
+- Pick up the Index of the target process
+
+SDA> set proc/ind=004E
+
+- Examine the last call the process has made
+
+SDA> sho call
+
+Call Frame Information
+----------------------
+        Stack Frame Procedure Descriptor
+Flags:  Base Register = FP, No Jacket, Native
+        Procedure Entry: FFFFFFFF 800A3CF0              SYS$WAITFR_C
+        Return address on stack = 00000000 00053254
+
+Registers saved on stack
+------------------------
+7EE119E0  00000000 00062148  Saved R2
+7EE119E8  00000000 00000000  Saved R3
+7EE119F0  00000000 00062180  Saved R13
+7EE119F8  00000000 7EE11A10  Saved R29
+
+
+
+
+
+SAMPLES
+
+Event Flag Wait 
+===============
+
+
+GDCW3A>ana/proc WAIT.DMP
+Condition signalled to take dump:
+
+
+%SYSTEM-F-DEBUG, command interpreter debugger signal at PC=FFFFFFFF800DB8A4, PS=
+0000001B
+
+
+DBG> sho calls
+
+DBG> sho call
+ module name     routine name      line           rel PC           abs PC
+                                              0000000000000000 FFFFFFFF800DB8A4
+ SHARE$SYS$SSISHR                             0000000000000000 00000000000530A0
+ SHARE$SYS$SSISHR                             0000000000000000 000000000005268C
+ SHARE$SYS$SSISHR                             0000000000000000 0000000000053194
+*.MAIN.          TMP                104       0000000000000074 0000000000030074
+                                              0000000000000000 FFFFFFFFA503F0D8
+DBG> sho stac
+
+
+invocation block 0
+
+    FP: 000000007ED319D0
+    Procedure Descriptor (FFFFFFFF9F4CEA80):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0018
+        Signature Offset        0001
+        Entry Address:          0FFFFFFFF800DB7D0
+        Ireg Mask:              2000200C <R2,R3,R13,FP>
+          RA Saved @ 000000007ED319E8:  00000000000530A0
+          R2 Saved @ 000000007ED319F0:  0000000000062120
+          R3 Saved @ 000000007ED319F8:  000000007ED31AA0
+          R13 Saved @ 000000007ED31A00: 0000000000010000
+          FP Saved @ 000000007ED31A08:  000000007ED31A10
+        Freg Mask:              00000000 
+        Size:                   00000040
+
+
+invocation block 1
+
+    FP: 000000007ED31A10
+    Procedure Descriptor (00000000000621B0):
+        Flags:                  1889
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+          HAS Jacket
+        Rsa Offset:             0008
+        Signature Offset        0000
+        Entry Address:          SHARE$SYS$SSISHR+10FE0
+        Ireg Mask:              20004000 <R14,FP>
+          RA Saved @ 000000007ED31A18:  000000000005268C
+          R14 Saved @ 000000007ED31A20: FFFFFFFF813C7600
+          FP Saved @ 000000007ED31A28:  000000007ED31A30
+        Freg Mask:              00000000 
+        Size:                   00000020
+
+
+invocation block 2
+
+    FP: 000000007ED31A30
+    Procedure Descriptor (0000000000062120):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0018
+        Signature Offset        0000
+        Entry Address:          SHARE$SYS$SSISHR+10278
+        Ireg Mask:              200007FC <R2,R3,R4,R5,R6,R7,R8,R9,R10,FP>
+          RA Saved @ 000000007ED31A48:  0000000000053194
+          R2 Saved @ 000000007ED31A50:  000000007FFCF880
+          R3 Saved @ 000000007ED31A58:  000000007EE6B879
+          R4 Saved @ 000000007ED31A60:  000000007FFCF818
+          R5 Saved @ 000000007ED31A68:  000000007FFCF938
+          R6 Saved @ 000000007ED31A70:  000000007FFAC9F0
+          R7 Saved @ 000000007ED31A78:  000000007FFAC9F0
+          R8 Saved @ 000000007ED31A80:  000000007FFAC208
+          R9 Saved @ 000000007ED31A88:  000000007FFAC410
+          R10 Saved @ 000000007ED31A90: 000000007FFAD238
+          FP Saved @ 000000007ED31A98:  000000007ED31AB0
+        Freg Mask:              00000000 
+        Size:                   00000070
+
+
+invocation block 3
+
+    FP: 000000007ED31AB0
+    Procedure Descriptor (0000000000068AA0):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0008
+        Signature Offset        0000
+        Entry Address:          SHARE$SYS$SSISHR+110D0
+        Ireg Mask:              20000000 <FP>
+          RA Saved @ 000000007ED31AB8:  0000000000030074
+          FP Saved @ 000000007ED31AC0:  000000007ED31AD0
+        Freg Mask:              00000000 
+        Size:                   00000020
+
+
+invocation block 4
+
+    FP: 000000007ED31AD0
+    Procedure Descriptor (0000000000010000):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0008
+        Signature Offset        0000
+        Entry Address:          .MAIN.\TMP\%LINE 21
+        Ireg Mask:              20002000 <R13,FP>
+          RA Saved @ 000000007ED31AD8:  FFFFFFFFA503F0D8
+          R13 Saved @ 000000007ED31AE0: FFFFFFFFA5041A90
+          FP Saved @ 000000007ED31AE8:  000000007ED31B30
+        Freg Mask:              00000000 
+        Size:                   00000020
+
+
+invocation block 5
+
+    FP: 000000007ED31B30
+    Procedure Descriptor (FFFFFFFFA5041A90):
+        Flags:                  3099
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          FP is Base Register
+        Rsa Offset:             0048
+        Signature Offset        0001
+        Entry Address:          0FFFFFFFFA503EF60
+        Ireg Mask:              20002084 <R2,R7,R13,FP>
+          RA Saved @ 000000007ED31B78:  000000007EE40DCC
+          R2 Saved @ 000000007ED31B80:  0000000000000000
+          R7 Saved @ 000000007ED31B88:  000000007FFAC9F0
+          R13 Saved @ 000000007ED31B90: 000000007EE161E0
+          FP Saved @ 000000007ED31B98:  000000007ED31BB0
+        Freg Mask:              00000000 
+        Size:                   00000070
+        Condition Handler:      0FFFFFFFFA5041A80
+DBG> 
+
+
+
+
+Looping C program
+=================
+
+$ ana/proc test6.DMP
+Condition signalled to take dump:
+
+%SYSTEM-F-DEBUG, command interpreter debugger signal at PC=00000000000200F4,
+PS=0000001B
+
+
+DBG> sho call
+ module name     routine name      line           rel PC           abs PC
+*TEST6                             1712       0000000000000000 00000000000200F4
+----- above routine is a register stack frame
+*TEST6           __main                       00000000000000A4 00000000000200A4
+                                              0000000000000000 FFFFFFFFA503F0D8
+
+
+DBG> sho stack
+
+invocation block 0
+
+    FP: 0000000000010000
+    Procedure Descriptor (0000000000010000):
+        Flags:                  300A
+          KIND:                 PDSC$K_KIND_FP_REGISTER   (0A)
+          SP is Base Register
+        Save FP Register:       R18
+        Save RA Register:       R26
+        Signature Offset        0000
+        Entry Address:          TEST6\main
+        Size:                   00000000
+
+
+invocation block 1
+
+    FP: 000000007ED31A80
+    Procedure Descriptor (0000000000010018):
+        Flags:                  30D9
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          Handler Data Valid
+          FP is Base Register
+        Rsa Offset:             0050
+        Signature Offset        0000
+        Entry Address:          TEST6\__main
+        Ireg Mask:              2000000C <R2,R3,FP>
+          RA Saved @ 000000007ED31AD0:  FFFFFFFFA503F0D8
+          R2 Saved @ 000000007ED31AD8:  000000007FFCF880
+          R3 Saved @ 000000007ED31AE0:  000000007EE6B879
+          FP Saved @ 000000007ED31AE8:  000000007ED31B30
+        Freg Mask:              00000000 
+        Size:                   00000070
+        Condition Handler:      0000000000189B00
+        Handler Data:           00000000 00000008
+
+
+invocation block 2
+
+    FP: 000000007ED31B30
+    Procedure Descriptor (FFFFFFFFA5041A90):
+        Flags:                  3099
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          FP is Base Register
+        Rsa Offset:             0048
+        Signature Offset        0001
+        Entry Address:          0FFFFFFFFA503EF60
+        Ireg Mask:              20002084 <R2,R7,R13,FP>
+          RA Saved @ 000000007ED31B78:  000000007EE40DCC
+          R2 Saved @ 000000007ED31B80:  0000000000000000
+          R7 Saved @ 000000007ED31B88:  000000007FFAC9F0
+          R13 Saved @ 000000007ED31B90: 000000007EE161E0
+          FP Saved @ 000000007ED31B98:  000000007ED31BB0
+        Freg Mask:              00000000 
+        Size:                   00000070
+        Condition Handler:      0FFFFFFFFA5041A80
+DBG> 
+
+
+
+
+MACRO-32
+========
+
+
+$ ana/proc tmp.dmp
+Condition signalled to take dump:
+
+%SYSTEM-F-DEBUG, command interpreter debugger signal at PC=0000000000020134,
+PS=0000001B
+
+	OpenVMS Alpha DEBUG Version V7.1-000
+
+DBG> sho call
+ module name     routine name      line           rel PC           abs PC
+*.MAIN.          TMP                 49       0000000000000134 0000000000020134
+                                              0000000000000000 FFFFFFFFA503F0D8
+
+DBG> sho stack
+
+invocation block 0
+
+    FP: 000000007ED31A60
+    Procedure Descriptor (0000000000010010):
+        Flags:                  3099
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          FP is Base Register
+        Rsa Offset:             0010
+        Signature Offset        0000
+        Entry Address:          .MAIN.\TMP\%LINE 12
+        Ireg Mask:              2000FFFC <R2,R3,R4,R5,R6,R7,R8,R9,R10,R11,R12,R13,R14,R15,FP>
+          RA Saved @ 000000007ED31A70:  FFFFFFFFA503F0D8
+          R2 Saved @ 000000007ED31A78:  000000007FFCF880
+          R3 Saved @ 000000007ED31A80:  000000007EE6B879
+          R4 Saved @ 000000007ED31A88:  000000007FFCF818
+          R5 Saved @ 000000007ED31A90:  000000007FFCF938
+          R6 Saved @ 000000007ED31A98:  000000007FFAD778
+          R7 Saved @ 000000007ED31AA0:  000000007FFAC4B0
+          R8 Saved @ 000000007ED31AA8:  000000007FFAD238
+          R9 Saved @ 000000007ED31AB0:  000000007FFAC410
+          R10 Saved @ 000000007ED31AB8: 000000007FFAD238
+          R11 Saved @ 000000007ED31AC0: 000000007FFCE3E0
+          R12 Saved @ 000000007ED31AC8: 0000000012121212
+          R13 Saved @ 000000007ED31AD0: FFFFFFFFA5041A90
+          R14 Saved @ 000000007ED31AD8: FFFFFFFF810F9680
+          R15 Saved @ 000000007ED31AE0: 0000000015151515
+          FP Saved @ 000000007ED31AE8:  000000007ED31B30
+        Freg Mask:              00000000 
+        Size:                   00000090
+        Condition Handler:      0000000000010000
+
+
+invocation block 1
+
+    FP: 000000007ED31B30
+    Procedure Descriptor (FFFFFFFFA5041A90):
+        Flags:                  3099
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          FP is Base Register
+        Rsa Offset:             0048
+        Signature Offset        0001
+        Entry Address:          0FFFFFFFFA503EF60
+        Ireg Mask:              20002084 <R2,R7,R13,FP>
+          RA Saved @ 000000007ED31B78:  000000007EE40DCC
+          R2 Saved @ 000000007ED31B80:  0000000000000000
+          R7 Saved @ 000000007ED31B88:  000000007FFAC4B0
+          R13 Saved @ 000000007ED31B90: 000000007EE161E0
+          FP Saved @ 000000007ED31B98:  000000007ED31BB0
+        Freg Mask:              00000000 
+        Size:                   00000070
+        Condition Handler:      0FFFFFFFFA5041A80
+DBG> 
+
+
+
+
+
+MACRO-64
+========
+
+$ ana/proc CALL.DMP
+Condition signalled to take dump:
+
+%SYSTEM-F-DEBUG, command interpreter debugger signal at PC=0000000000020024, PS=
+0000001B
+
+	OpenVMS Alpha DEBUG Version V7.1-000
+
+DBG> sho call
+ module name     routine name      line           rel PC           abs PC
+*CALL                              1536       0000000000000000 0000000000020024
+                                              0000000000000000 FFFFFFFFA503F0D8
+
+
+DBG> sho sta
+
+
+invocation block 0
+
+    FP: 000000007ED31AD0
+    Procedure Descriptor (0000000000010000):
+        Flags:                  3099
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          FP is Base Register
+        Rsa Offset:             0008
+        Signature Offset        0000
+        Entry Address:          CALL\PROC
+        Ireg Mask:              20002000 <R13,FP>
+          RA Saved @ 000000007ED31AD8:  FFFFFFFFA503F0D8
+          R13 Saved @ 000000007ED31AE0: FFFFFFFFA5041A90
+          FP Saved @ 000000007ED31AE8:  000000007ED31B30
+        Freg Mask:              00000000 
+        Size:                   00000020
+        Condition Handler:      CALL\HANDLER
+
+
+invocation block 1
+
+    FP: 000000007ED31B30
+    Procedure Descriptor (FFFFFFFFA5041A90):
+        Flags:                  3099
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          FP is Base Register
+        Rsa Offset:             0048
+        Signature Offset        0001
+        Entry Address:          0FFFFFFFFA503EF60
+        Ireg Mask:              20002084 <R2,R7,R13,FP>
+          RA Saved @ 000000007ED31B78:  000000007EE40DCC
+          R2 Saved @ 000000007ED31B80:  0000000000000000
+          R7 Saved @ 000000007ED31B88:  000000007FFAC9F0
+          R13 Saved @ 000000007ED31B90: 000000007EE161E0
+          FP Saved @ 000000007ED31B98:  000000007ED31BB0
+        Freg Mask:              00000000 
+        Size:                   00000070
+        Condition Handler:      0FFFFFFFFA5041A80
+DBG> 
+
+
+
+PASCAL
+======
+
+$ ana/proc TESTP.DMP
+Condition signalled to take dump:
+
+%SYSTEM-F-DEBUG, command interpreter debugger signal at PC=0000000000020028,
+PS=0000001B
+
+         OpenVMS Alpha DEBUG Version V7.1-000
+
+DBG> sho call
+ module name     routine name      line           rel PC           abs PC
+*TESTP           TESTP               27       0000000000000028 0000000000020028
+----- above routine is a register stack frame
+                                              0000000000000000 FFFFFFFFA503F0D8
+DBG> sho stack
+
+
+invocation block 0
+
+    FP: 0000000000010000
+    Procedure Descriptor (0000000000010000):
+        Flags:                  300A
+          KIND:                 PDSC$K_KIND_FP_REGISTER   (0A)
+          SP is Base Register
+        Save FP Register:       R18
+        Save RA Register:       R26
+        Signature Offset        0000
+        Entry Address:          TESTP
+        Size:                   00000020
+
+
+invocation block 1
+
+    FP: 000000007ED31B30
+    Procedure Descriptor (FFFFFFFFA5041A90):
+        Flags:                  3099
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          FP is Base Register
+        Rsa Offset:             0048
+        Signature Offset        0001
+        Entry Address:          -1526468768
+        Ireg Mask:              20002084 <R2,R7,R13,FP>
+          RA Saved @ 000000007ED31B78:  000000007EE40DCC
+          R2 Saved @ 000000007ED31B80:  0000000000000000
+          R7 Saved @ 000000007ED31B88:  000000007FFAC9F0
+          R13 Saved @ 000000007ED31B90: 000000007EE161E0
+          FP Saved @ 000000007ED31B98:  000000007ED31BB0
+        Freg Mask:              00000000 
+        Size:                   00000070
+        Condition Handler:      -1526457728
+DBG> 
+
+
+
+
+
+ADA
+===
+
+$ ana/proc CPU_TEST.dmp
+Condition signalled to take dump:
+
+%SYSTEM-F-DEBUG, command interpreter debugger signal at PC=0000000000030B70, PS=
+0000001B
+
+DBG> sho call
+ module name     routine name      line           rel PC           abs PC
+*CPU_TEST        SIM$TASK_BODY       14       0000000000000070 0000000000030B70
+ SHARE$ADARTL                                 0000000000000000 000000000016F3E4
+ SHARE$PTHREAD$RTL                            0000000000000000 00000000002B4148
+----- the above appears to be a null frame in the same scope as the frame below
+*CPU_TEST        CPU_TEST                                    ?                ?
+*ADA$ELAB_CPU_TEST                            0000000000000000 0000000000030128
+                 ADA$CPU_TEST$M               0000000000000208 0000000000030DF0
+----- the above appears to be a null frame in the same scope as the frame below
+                                                             ?                ?
+                                              0000000000000000 FFFFFFFF80843DE0
+*ADA$ELAB_CPU_TEST                            0000000000000000 00000000000300E0
+ SHARE$ADARTL                                 0000000000000000 0000000000198D98
+ SHARE$ADARTL                                 0000000000000000 0000000000198514
+ SHARE$ADARTL                                 0000000000000000 0000000000183430
+*ADA$ELAB_CPU_TEST                            0000000000000000 000000000003005C
+                 ADA$CPU_TEST$M               0000000000000208 0000000000030DF0
+----- the above appears to be a null frame in the same scope as the frame below
+                                              0000000000000000 0000000000010500
+ SHARE$PTHREAD$RTL                            0000000000000000 00000000002B4148
+ SHARE$PTHREAD$RTL                            0000000000000000 0000000000298664
+                                              0000000000000000 FFFFFFFFA503F0D8
+DBG> 
+DBG> sho stac
+
+
+invocation block 0
+
+    FP: 000000000047BD40
+    Procedure Descriptor (0000000000010450):
+        Flags:                  30D9
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          Handler Data Valid
+          FP is Base Register
+        Rsa Offset:             0018
+        Signature Offset        0000
+        Entry Address:          CPU_TEST.SIM$TASK_BODY
+        Ireg Mask:              2000000C <R2,R3,FP>
+          RA Saved @ 000000000047BD58:  000000000016F3E4
+          R2 Saved @ 000000000047BD60:  0000000000145630
+          R3 Saved @ 000000000047BD68:  0000000000460448
+          FP Saved @ 000000000047BD70:  000000000047BD80
+        Freg Mask:              00000000 
+        Size:                   00000040
+        Condition Handler:      SHARE$ADARTL+3CB0
+        Handler Data:           00000000 00000008
+
+
+invocation block 1
+
+    FP: 000000000047BD80
+    Procedure Descriptor (0000000000145630):
+        Flags:                  30D9
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          Handler Data Valid
+          FP is Base Register
+        Rsa Offset:             0018
+        Signature Offset        0000
+        Entry Address:          SHARE$ADARTL+2B258
+        Ireg Mask:              2000007C <R2,R3,R4,R5,R6,FP>
+          RA Saved @ 000000000047BD98:  00000000002B4148
+          R2 Saved @ 000000000047BDA0:  000000000026B990
+          R3 Saved @ 000000000047BDA8:  0000000000434EE0
+          R4 Saved @ 000000000047BDB0:  0000000000145630
+          R5 Saved @ 000000000047BDB8:  0000000000460448
+          R6 Saved @ 000000000047BDC0:  000000000027AA70
+          FP Saved @ 000000000047BDC8:  000000007ED2D510
+        Freg Mask:              00000000 
+        Size:                   00000050
+        Condition Handler:      SHARE$LIBOTS_DATA2+1460
+        Handler Data:           00000000 00000008
+
+
+invocation block 2
+
+    FP: 000000007ED2D510
+    Detected what appears to be a NULL frame
+    NULL frames operate in the same invocation context as their caller
+        Unable to find NULL frame Procedure Descriptor, moving on to caller
+    Procedure Descriptor (0000000000010480):
+        Flags:                  30D9
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          Handler Data Valid
+          FP is Base Register
+        Rsa Offset:             0078
+        Signature Offset        0000
+        Entry Address:          CPU_TEST
+        Ireg Mask:              2000001C <R2,R3,R4,FP>
+          RA Saved @ 000000007ED2D588:  0000000000030128
+          R2 Saved @ 000000007ED2D590:  0000000000010080
+          R3 Saved @ 000000007ED2D598:  0000000000460398
+          R4 Saved @ 000000007ED2D5A0:  00000000001A4618
+          FP Saved @ 000000007ED2D5A8:  000000007ED2D5B0
+        Freg Mask:              00000000 
+        Size:                   000000A0
+        Condition Handler:      SHARE$ADARTL+3CB0
+        Handler Data:           00000000 00000008
+
+
+invocation block 3
+
+    FP: 000000007ED2D5B0
+    Procedure Descriptor (0000000000010000):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0008
+        Signature Offset        0000
+        Entry Address:          0000000000030104
+        Ireg Mask:              20000000 <FP>
+          RA Saved @ 000000007ED2D5B8:  0000000000030DF0
+          FP Saved @ 000000007ED2D5C0:  000000007ED2D5E0
+        Freg Mask:              00000000 
+        Size:                   00000020
+
+
+invocation block 4
+
+    FP: 000000007ED2D5E0
+    Detected what appears to be a NULL frame
+    NULL frames operate in the same invocation context as their caller
+    NULL Procedure Descriptor (0000000000010480):
+        Flags:                  30D9
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+        Signature Offset        0000
+        Entry Address:          CPU_TEST
+    Procedure Descriptor (0000000000010550):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0030
+        Signature Offset        0000
+        Entry Address:          LIB$INITIALIZE+130
+        Ireg Mask:              20003000 <R12,R13,FP>
+          RA Saved @ 000000007ED2D610:  FFFFFFFF80843DE0
+          R12 Saved @ 000000007ED2D618: 0000000000460398
+          R13 Saved @ 000000007ED2D620: 00000000000FC260
+          FP Saved @ 000000007ED2D628:  000000007ED2D640
+        Freg Mask:              00000000 
+        Size:                   00000050
+
+
+invocation block 5
+
+    FP: 000000007ED2D640
+    Procedure Descriptor (00000000000FC260):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0008
+        Signature Offset        0020
+        Entry Address:          SHARE$LIBRTL_CODE0+48FE0
+        Ireg Mask:              20002000 <R13,FP>
+          RA Saved @ 000000007ED2D648:  00000000000300E0
+          R13 Saved @ 000000007ED2D650: 0000000000010500
+          FP Saved @ 000000007ED2D658:  000000007ED2D660
+        Freg Mask:              00000000 
+        Size:                   00000020
+
+
+invocation block 6
+
+    FP: 000000007ED2D660
+    Procedure Descriptor (0000000000010080):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0008
+        Signature Offset        0000
+        Entry Address:          0000000000030070
+        Ireg Mask:              2000003C <R2,R3,R4,R5,FP>
+          RA Saved @ 000000007ED2D668:  0000000000198D98
+          R2 Saved @ 000000007ED2D670:  000000000014AFA0
+          R3 Saved @ 000000007ED2D678:  0000000000000001
+          R4 Saved @ 000000007ED2D680:  000000007ED2D770
+          R5 Saved @ 000000007ED2D688:  000000007ED2D6E0
+          FP Saved @ 000000007ED2D690:  000000007ED2D6A0
+        Freg Mask:              00000000 
+        Size:                   00000040
+
+
+invocation block 7
+
+    FP: 000000007ED2D6A0
+    Procedure Descriptor (000000000014AF08):
+        Flags:                  30D9
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          Handler Data Valid
+          FP is Base Register
+        Rsa Offset:             0028
+        Signature Offset        0000
+        Entry Address:          SHARE$ADARTL+54D38
+        Ireg Mask:              20000000 <FP>
+          RA Saved @ 000000007ED2D6C8:  0000000000198514
+          FP Saved @ 000000007ED2D6D0:  000000007ED2D6E0
+        Freg Mask:              00000000 
+        Size:                   00000040
+        Condition Handler:      SHARE$LIBOTS_DATA2+1460
+        Handler Data:           00000000 00000010
+
+
+invocation block 8
+
+    FP: 000000007ED2D6E0
+    Procedure Descriptor (000000000014AFA0):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0028
+        Signature Offset        0000
+        Entry Address:          SHARE$ADARTL+540C0
+        Ireg Mask:              20001FFC <R2,R3,R4,R5,R6,R7,R8,R9,R10,R11,R12,FP>
+          RA Saved @ 000000007ED2D708:  0000000000183430
+          R2 Saved @ 000000007ED2D710:  0000000000148490
+          R3 Saved @ 000000007ED2D718:  00000000001A40F8
+          R4 Saved @ 000000007ED2D720:  0000000000010500
+          R5 Saved @ 000000007ED2D728:  000000007ED2DA78
+          R6 Saved @ 000000007ED2D730:  000000000027AA70
+          R7 Saved @ 000000007ED2D738:  00000000002FA4F0
+          R8 Saved @ 000000007ED2D740:  0000000000000002
+          R9 Saved @ 000000007ED2D748:  00000000002F9E90
+          R10 Saved @ 000000007ED2D750: 000000007FFAD238
+          R11 Saved @ 000000007ED2D758: 000000007FFCE3E0
+          R12 Saved @ 000000007ED2D760: 000000007ED2D818
+          FP Saved @ 000000007ED2D768:  000000007ED2D770
+        Freg Mask:              00000000 
+        Size:                   00000090
+
+
+invocation block 9
+
+    FP: 000000007ED2D770
+    Procedure Descriptor (0000000000148490):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0020
+        Signature Offset        0000
+        Entry Address:          SHARE$ADARTL+3F3B0
+        Ireg Mask:              2000000C <R2,R3,FP>
+          RA Saved @ 000000007ED2D790:  000000000003005C
+          R2 Saved @ 000000007ED2D798:  000000000026B990
+          R3 Saved @ 000000007ED2D7A0:  000000000027B480
+          FP Saved @ 000000007ED2D7A8:  000000007ED2D7B0
+        Freg Mask:              00000000 
+        Size:                   00000040
+
+
+invocation block 10
+
+    FP: 000000007ED2D7B0
+    Procedure Descriptor (0000000000010030):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0008
+        Signature Offset        0000
+        Entry Address:          0000000000030000
+        Ireg Mask:              20000000 <FP>
+          RA Saved @ 000000007ED2D7B8:  0000000000030DF0
+          FP Saved @ 000000007ED2D7C0:  000000007ED2D810
+        Freg Mask:              00000000 
+        Size:                   00000050
+
+
+invocation block 11
+
+    FP: 000000007ED2D810
+    Detected what appears to be a NULL frame
+    NULL frames operate in the same invocation context as their caller
+    NULL Procedure Descriptor (0000000000010480):
+        Flags:                  30D9
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+        Signature Offset        0000
+        Entry Address:          CPU_TEST
+    Procedure Descriptor (0000000000010500):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0030
+        Signature Offset        0020
+        Entry Address:          LIB$INITIALIZE
+        Ireg Mask:              20003000 <R12,R13,FP>
+          RA Saved @ 000000007ED2D840:  00000000002B4148
+          R12 Saved @ 000000007ED2D848: 0000000000020308
+          R13 Saved @ 000000007ED2D850: FFFFFFFFA5041A90
+          FP Saved @ 000000007ED2D858:  000000007ED2D860
+        Freg Mask:              00000000 
+        Size:                   00000050
+
+
+invocation block 12
+
+    FP: 000000007ED2D860
+    Procedure Descriptor (000000000026B990):
+        Flags:                  30D9
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          Handler Data Valid
+          FP is Base Register
+        Rsa Offset:             01C0
+        Signature Offset        FEF8
+        Entry Address:          SHARE$PTHREAD$RTL+4B818
+        Ireg Mask:              200003FC <R2,R3,R4,R5,R6,R7,R8,R9,FP>
+          RA Saved @ 000000007ED2DA20:  0000000000298664
+          R2 Saved @ 000000007ED2DA28:  0000000000268048
+          R3 Saved @ 000000007ED2DA30:  000000000027B480
+          R4 Saved @ 000000007ED2DA38:  000000000027B480
+          R5 Saved @ 000000007ED2DA40:  000000000027AA70
+          R6 Saved @ 000000007ED2DA48:  00000000002FA4F0
+          R7 Saved @ 000000007ED2DA50:  000000007FFAC9F0
+          R8 Saved @ 000000007ED2DA58:  000000007FFAC208
+          R9 Saved @ 000000007ED2DA60:  000000007FFAC410
+          FP Saved @ 000000007ED2DA68:  000000007ED2DA70
+        Freg Mask:              00000000 
+        Size:                   00000210
+        Condition Handler:      SHARE$PTHREAD$RTL+84E0
+        Handler Data:           00000000 00000008
+
+
+invocation block 13
+
+    FP: 000000007ED2DA70
+    Procedure Descriptor (0000000000268048):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             4040
+        Signature Offset        0020
+        Entry Address:          SHARE$PTHREAD$RTL+30148
+        Ireg Mask:              200000FC <R2,R3,R4,R5,R6,R7,FP>
+          RA Saved @ 000000007ED31AB0:  FFFFFFFFA503F0D8
+          R2 Saved @ 000000007ED31AB8:  000000007FFCF880
+          R3 Saved @ 000000007ED31AC0:  000000007EE6B879
+          R4 Saved @ 000000007ED31AC8:  000000007FFCF818
+          R5 Saved @ 000000007ED31AD0:  000000007FFCF938
+          R6 Saved @ 000000007ED31AD8:  000000007FFAC9F0
+          R7 Saved @ 000000007ED31AE0:  000000007FFAC9F0
+          FP Saved @ 000000007ED31AE8:  000000007ED31B30
+        Freg Mask:              00000000 
+        Size:                   00004080
+
+
+invocation block 14
+
+    FP: 000000007ED31B30
+    Procedure Descriptor (FFFFFFFFA5041A90):
+        Flags:                  3099
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          FP is Base Register
+        Rsa Offset:             0048
+        Signature Offset        0001
+        Entry Address:          0FFFFFFFFA503EF60
+        Ireg Mask:              20002084 <R2,R7,R13,FP>
+          RA Saved @ 000000007ED31B78:  000000007EE40DCC
+          R2 Saved @ 000000007ED31B80:  0000000000000000
+          R7 Saved @ 000000007ED31B88:  000000007FFAC9F0
+          R13 Saved @ 000000007ED31B90: 000000007EE161E0
+          FP Saved @ 000000007ED31B98:  000000007ED31BB0
+        Freg Mask:              00000000 
+        Size:                   00000070
+        Condition Handler:      0FFFFFFFFA5041A80
+DBG> 
+
+
+
+
+MACRO-64 and MACRO-32
+=====================
+
+$ ana/proc msub.DMP
+Condition signalled to take dump:
+
+%SYSTEM-F-DEBUG, command interpreter debugger signal at PC=00000000000301C4, PS=
+0000001B
+
+
+         OpenVMS Alpha DEBUG Version V7.1-000
+
+DBG> sho call
+ module name     routine name      line           rel PC           abs PC
+*MSUB            SUBPUB             414       0000000000000034 00000000000301C4
+*MSUB            MSUB               351       000000000000012C 000000000003012C
+                                              0000000000000000 FFFFFFFFA503F0D8
+DBG> sho stack
+
+
+invocation block 0
+
+    FP: 000000007ED31A10
+    Procedure Descriptor (0000000000010090):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0010
+        Signature Offset        0000
+        Entry Address:          MSUB\SUBPUB\%LINE 358
+        Ireg Mask:              2000003C <R2,R3,R4,R5,FP>
+          RA Saved @ 000000007ED31A20:  000000000003012C
+          R2 Saved @ 000000007ED31A28:  0000000022222222
+          R3 Saved @ 000000007ED31A30:  0000000033333333
+          R4 Saved @ 000000007ED31A38:  0000000044444444
+          R5 Saved @ 000000007ED31A40:  0000000055555555
+          FP Saved @ 000000007ED31A48:  000000007ED31A60
+        Freg Mask:              00000000 
+        Size:                   00000040
+
+
+invocation block 1
+
+    FP: 000000007ED31A60
+    Procedure Descriptor (0000000000010038):
+        Flags:                  3089
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          FP is Base Register
+        Rsa Offset:             0010
+        Signature Offset        0000
+        Entry Address:          MSUB\%LINE 321
+        Ireg Mask:              2000FFFC <R2,R3,R4,R5,R6,R7,R8,R9,R10,R11,R12,R13,R14,R15,FP>
+          RA Saved @ 000000007ED31A70:  FFFFFFFFA503F0D8
+          R2 Saved @ 000000007ED31A78:  000000007FFCF880
+          R3 Saved @ 000000007ED31A80:  000000007EE6B879
+          R4 Saved @ 000000007ED31A88:  000000007FFCF818
+          R5 Saved @ 000000007ED31A90:  000000007FFCF938
+          R6 Saved @ 000000007ED31A98:  000000007FFAC9F0
+          R7 Saved @ 000000007ED31AA0:  000000007FFAC9F0
+          R8 Saved @ 000000007ED31AA8:  000000007FFAC208
+          R9 Saved @ 000000007ED31AB0:  000000007FFAC410
+          R10 Saved @ 000000007ED31AB8: 000000007FFAD238
+          R11 Saved @ 000000007ED31AC0: 000000007FFCE3E0
+          R12 Saved @ 000000007ED31AC8: 0000000000000000
+          R13 Saved @ 000000007ED31AD0: FFFFFFFFA5041A90
+          R14 Saved @ 000000007ED31AD8: FFFFFFFF813C7600
+          R15 Saved @ 000000007ED31AE0: 00000000009B595D
+          FP Saved @ 000000007ED31AE8:  000000007ED31B30
+        Freg Mask:              00000000 
+        Size:                   00000090
+
+
+invocation block 2
+
+    FP: 000000007ED31B30
+    Procedure Descriptor (FFFFFFFFA5041A90):
+        Flags:                  3099
+          KIND:                 PDSC$K_KIND_FP_STACK (09)
+          Handler Valid
+          FP is Base Register
+        Rsa Offset:             0048
+        Signature Offset        0001
+        Entry Address:          0FFFFFFFFA503EF60
+        Ireg Mask:              20002084 <R2,R7,R13,FP>
+          RA Saved @ 000000007ED31B78:  000000007EE40DCC
+          R2 Saved @ 000000007ED31B80:  0000000000000000
+          R7 Saved @ 000000007ED31B88:  000000007FFAC9F0
+          R13 Saved @ 000000007ED31B90: 000000007EE161E0
+          FP Saved @ 000000007ED31B98:  000000007ED31BB0
+        Freg Mask:              00000000 
+        Size:                   00000070
+        Condition Handler:      0FFFFFFFFA5041A80
+DBG> 

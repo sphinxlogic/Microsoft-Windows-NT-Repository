@@ -1,0 +1,4786 @@
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+			MWAIT User's  Guide
+
+
+
+
+
+	MWAIT displays information about hanging OpenVMS processes.
+
+
+	This manual contains a description of the MWAIT program,
+	including usage details and an explanation of the output produced.
+
+
+                                       
+
+
+
+
+
+
+
+
+
+
+		
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	Software  Version:  2.8
+
+	Operating System:   OpenVMS Alpha Version 7.0 or higher.
+
+
+
+
+
+	Copyright © 1997,1998 by Kari Salminen. This software and this manual
+	may be freely distributed and modified for non-commercial purposes
+	as long as this copyright notice is retained. This software is
+	provided "AS IS". The author makes no representations or warranties
+	with respect to the software and specifically disclaims any implied
+	warranties of merchantability or fitness for any particular purpose.
+
+
+
+	First printing:  May 1997
+
+	Last revised:    August 1998
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	I would like to thank Jim Good for his feedback concerning this
+	documentation.
+
+
+
+
+
+                             CONTENTS
+
+
+ 	1. Purpose of MWAIT
+
+	2. Running the MWAIT Program
+
+	3. Usage Notes
+
+	4. Display Fields
+
+        Appendices:
+		
+		A. Standard Process Wait States
+
+ 		B. Process Status Values 
+
+        	C. System Resource Wait States
+
+		D. Sample Runs:
+
+		 D.1  Multithreaded Process
+                 D.2  Process Waiting for an Event Flag
+		 D.3  Using SDA to find module names for 
+		      system addresses
+		 D.4  DECterm process awaiting keyboard input
+		 D.5  Process is hibernated
+		 D.6  RWMBX: waiting for mailbox space
+		 D.7  RWAST: resource wait state
+		 D.8  MUTEX: resource wait state
+      		 D.9  Wrong Volume Mounted
+      		 D.10 LEF on thread upcall
+      		 D.11 Set Host
+      		 D.12 RLOGIN
+      		 D.13 Mailbox read from another process
+		 D.14 RWMBX, Process waiting for Mailbox space
+      		 D.15 Process with sub-processes
+		 D.16 Process with INETn: and BGn: devices
+		 D.17 MUTEX: waiting on BYTCNT
+
+
+
+
+
+	1. PURPOSE OF MWAIT
+
+	The MWAIT program provides detailed information about a hanging
+	process or thread and attempts to determine the reason for the
+	process going into its wait state. 
+	Starting from version 7.0 OpenVMS Alpha supports multiple
+	execution contexts within a process, each execution context has
+	it own hardware context and stacks and can execute independently.
+	The term "Kernel Thread" refers to one of these execution contexts.
+	The term "Multithreaded" refers to a process with multiple kernel
+	threads.
+
+        MWAIT provides a means of quickly obtaining and presenting 
+        process details. 
+
+  	Note: 	The System Dump Analyzer (SDA) may be used to 
+        	obtain further information about hanging processes.
+
+	The information retrieved by MWAIT includes:
+	
+	- General Process information.
+	- Thread information.
+	- Master, Owner and Sub-process information.
+	- Event flags, EFN clusters and names of common EFN clusters.
+	- Process quota usage.
+	- AST modes enabled, active and queued.
+	- Time since last event.
+	- Process active channels and open files.
+	- I/O-packets for busy devices.
+	- CXB's (Complex chained buffer) for busy INETn:/BGn: devices (TCP/IP)
+	- Session Control and OSI/NSP Transport Ports for Busy NETn: devices.
+	- Current process registers.
+	- Current PC, return address and call chain with corresponding
+	  image names.
+
+	The screen output is stored in the file 'xxx.OUT' in your current
+	default directory, where 'xxx' is the target process PID.
+
+
+	2. RUNNING THE MWAIT PROGRAM
+
+	MWAIT is started by running the MWAIT.EXE executable image.
+
+	The MWAIT image does not require any logical names or symbols to be 
+	defined before execution.
+
+	The only parameter required is the PID value for the process to be
+    	investigated. 
+
+	Note : 	PID values can be obtained from the output of the 
+        	$SHOW PROCESS or $SHOW SYSTEM commands. (They are 
+		hexadecimal numbers, e.g. '5060013B')
+
+        
+        The various alternatives available for running the MWAIT executable
+	are as follows:
+
+        2.1 The DCL RUN Command
+
+	MWAIT.EXE can be started as follows with the RUN command:
+
+		$ RUN device:[directory]MWAIT
+
+	where 'device:[directory]' is the disk device and directory in which
+	MWAIT.EXE  is located. 
+
+	Note : 	As usual, if MWAIT.EXE is in the current default directory, 
+        	then the device and directory specification can be omitted.  
+		In this case, the command simply becomes $ RUN MWAIT. 
+		This remark applies also to the other command lines shown below.
+
+	Once started by a RUN command, MWAIT will then prompt for the 
+	identification of the process to be inspected:
+
+		Please give target process PID :
+
+	2.2 DCL Foreign Command
+
+	A DCL 'foreign command' can be defined as follows:
+
+		$ MWAIT :== $device:[directory]MWAIT
+
+	With such a foreign command definition, a MWAIT session can be started
+	just by entering 'MWAIT', and the PID of the process to be investigated
+	can be entered directly on the command line. Thus, MWAIT can be
+	started as follows:
+
+		$ MWAIT pid
+
+	(If a process identification is not included on the command line,
+	then MWAIT will prompt for a PID value just as it does when it is 
+        started with an explicit RUN command.)
+
+	Note: 	If such a foreign command is defined then the device and 
+		directory specification MUST be included, even if the 
+		MWAIT.EXE file is in the current default directory. 
+
+        Note : 	The reader may find it useful to include such a foreign
+        	command in their LOGIN.COM.
+
+	2.3 MWAIT Executable in SYS$COMMON:[SYSEXE]
+
+	A third alternative is to copy the MWAIT.EXE into the 
+       	SYS$COMMON:[SYSEXE] directory, or have it copied there by a system 
+        manager. Placing the MWAIT.EXE file in SYS$COMMON:[SYSEXE] makes it 
+        available to all users on the system that have CMKRNL privilege.
+
+        In this case, MWAIT can be started with the MC command as follows:
+
+	    $ MC MWAIT pid
+
+	or
+
+            $ MC MWAIT
+
+	(with MWAIT prompting for the PID, as above).  
+
+        When the MWAIT executable copied to the SYS$COMMON:[SYSEXE] 
+	directory, it is also possible to define a foreign command
+ 	as shown above. The difference in this case is that the device and 
+	directory specification can be omitted. In other words, when
+	the MWAIT.EXE program is in SYS$COMMON:[SYSEXE], the foreign command
+	specification is simply:
+
+            $ MWAIT  :== $MWAIT
+
+
+
+
+
+
+	3. USAGE NOTES
+
+
+	3.1 PRIVILEGES REQUIRED
+
+
+	The Change Mode to Kernel (CMKRNL) privilege is needed to run MWAIT.
+
+
+	Note: 	Use $SET PROC/PRIV=CMKRNL to get this privilege. If it 
+		happens that you're not authorized to set the CMKRNL 
+		privilege, you'll have to plead with your friendly system 
+		manager.
+
+
+
+
+	3.2 ERROR MESSAGES
+
+
+	Possible error messages from MWAIT include:
+
+	SS$_ACCVIO	    - No read access to target process data structures.
+
+	SS$_NONEXPR	    - No process found that matches the specified
+			      PID.
+
+	SS$_REMOTE_PROC	    - Process is running on another node in the
+                              VMScluster. MWAIT can monitor only local 
+			      node processes.
+ 
+	%MWAIT-F-INVFRAME   - Invalid Call Frame. The target process has a
+			      non-standard call frame. The call does apply
+			      to the "OpenVMS Calling Standard".
+
+	%MWAIT-F-NORESPONSE - No response from target process. The kernel 
+			      mode AST timed out on reading the specified 
+			      target process data.
+
+	%MWAIT-F-NOTINPHYS  - Virtual data not in physical memory. The data
+			      referenced by a call frame pointer is not in
+			      physical memory.
+
+
+
+
+
+	3.4 RESTRICTIONS
+
+
+	MWAIT can only analyze processes running on the same node.
+
+
+	The SWAPPER  is not allowed as target process.
+
+
+	N.B.:   MWAIT runs partly in Kernel Mode, i.e. a program error or
+	access violation usually leads to a system crash. Thus, MWAIT SHOULD
+	NOT BE EXECUTED IN A PRODUCTION ENVIRONMENT.
+
+
+
+
+
+
+	3.5 MWAIT KIT FILES
+
+
+	The MWAIT distribution kit consists of:
+
+
+            MWAIT.EXE       Executable file for OpenVMS Alpha.
+            MWAIT.COM       Command file to build MWAIT on OpenVMS Alpha.
+            MWAIT.C         Source file for OpenVMS Alpha.
+            MWAIT.TXT       MWAIT User's guide text file (this document).
+            MWAIT.DOC       MWAIT User's guide DECwrite source file.
+            MWAIT.PS        MWAIT User's guide Postscript file.
+
+
+
+
+	3.6 BUILD OF MWAIT EXECUTABLE
+
+
+	To build the  MWAIT executable image, set the current default
+	directory to the one containing the MWAIT kit files and execute the
+	command file MWAIT.COM as follows:
+
+
+            $ @MWAIT
+
+
+
+4. DISPLAY FIELDS
+
+Field			Use
+-----			---
+Process name     	VMS process name.
+
+User name      		VMS username.
+
+Extended PID     	Extended Process ID of the process.
+
+Internal PID   		Internal Process ID of the process.
+
+Terminal name    	Control device for process (FTAn:/Det/Sub/Net/Bat)
+
+Master PID		Extended Process ID of the master process (for
+			sub-processes only).
+
+Master Process		Master process name (for sub-processes only).
+
+Owner PID		Extended Process ID of the owner process (for
+			sub-processes only).
+
+Owner Process		Owner process name (for sub-processes only).
+
+Processes in this job	All processes in the job tree (only if
+			sub-processes exist).
+			The target process is marked with '(*)'.
+
+PCB address      	Address of Process Control Block.
+
+PHD address      	Address of Process Header.
+
+JIB address      	Address of Job Information Block.
+
+Cur/Base prior 		Current/Base priority of the process.
+
+KTB vector		Kernel Thread Block.
+
+Threads			Number of process kernel threads.
+
+Running on CPU 		CPU id.
+
+Thread state    	Thread state, see table below.
+
+Thread status   	Thread status, see table below.
+
+EFN wait cluster 	The event flag cluster number that the "EFN wait mask"
+			refers to. The value shows the event flag range:
+
+			0 =  0 -  31
+			1 = 32 -  63
+			2 = 64 -  95
+			3 = 96 - 127
+			4 = 128	(Special EFN for thread upcall support)
+
+			EFNs in the range 64..127 are found in named
+			"Common Event Flag Clusters".
+			If the process is not in a wait state, the contents of
+			this field is unpredictable.
+
+EFN wait mask    	If the process is in LEF,LEFO or CEF state the wait
+			mask has one bit set for each event flag being waited
+			for. For the special thread upcall support EFN the
+			mask contents is unpredictable.
+			In other wait states a small positive number (1-20)
+			identifies the wait resource number. A negative number
+			indicates the address of the mutex lock routine or JIB.
+			If the process is not in a wait state, the contents of
+			this field is unpredictable.
+
+
+Process quotas		Displays the quota usage of the process, under
+			currently available/maximum quota/currently used
+			If a quota has been exhausted, then the text
+			"*** Process has run out of XXX quota ***"
+			is displayed.
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :      150 /     150  In use : 0
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :    99680 /   99680  In use : 0
+Byte count/orig. limit     [Bytes] :    99680 /  100000  In use : 320
+File count/limit           [Files] :      199 /     200  In use : 1
+Timer queue count/limit   [Timers] :        0 /      64  In use : 64
+Working set quota/limit [Pagelets] :    78224 /   80000  In use : 1776
+Page file quota/limit      [Pages] :     3887 /    4096  In use : 209
+AST count/limit            [AST's] :      248 /     250  In use : 2
+
+
+AST's enabled		Each letter corresponds to a mode for which AST's
+			are enabled (Kernel, Executive, Supervisor and User,
+			"-" means disabled).
+
+AST's active		Each letter corresponds to a mode for which AST's
+			are currently active ("-" means not active)
+
+AST's queued		Each letter corresponds to a process AST queue
+			which is not empty ("-" means nothing queued).
+
+Delete pending count	Number of active XQP (eXtended QIO Processor) threads
+			for the process.
+
+Process active channels	Displays process active I/O channels.
+			'Chnl' is the I/O channel index.
+			'Window' is the window control block address.
+			'IOC' is the I/O count.
+			'Sts' is the I/O channel status (busy or idle)
+			'Device/file accessed' is the device and file name.
+
+
+Session Control Port   Session control port name (busy NETn: devices only)
+OSI Transport Port     OSI Transport Port name   (busy NETn: devices only)
+ or
+NSP Transport Port     NSP Transport Port name   (busy NETn: devices only)
+
+CXB		       Complex chained buffer    (busy INETn: devices only)
+		       One logical buffer is split into several segments
+		       for the transmission over a data link and they are
+		       combined when transferred to the user buffer.
+
+
+
+
+APPENDIX A  STANDARD PROCESS WAIT STATES
+
+State	Description 
+-----	----------- 
+
+COLPG	Collided page wait. Two or more processes (or kernel threads within 
+	mulitithreaded processes) have referenced the same page, and this
+      	page is not in physical memory. The first of such processes/threads 
+	goes into PFW and the subsequent processes/threads into COLPG.
+
+MWAIT	Mutex and miscellaneous resource wait. The process/thread is waiting
+	for a exhausted or locked resource or a job quota (MUTEX).
+
+CEF	Common event flag wait. The process/thread is waiting on event
+	flags in clusters 2 (64-95) or 3 (96-127). MWAIT displays the name
+	of any associated common event flag clusters, and the EFN numbers.
+	The process can be resident or outswapped.
+
+PFW	Page fault wait. The process/thread has referenced a page that is not 
+	in physical memory, and must wait until the page has been read in. 
+  	(Process deletion, AST delivery and a successful read of the page 
+	will place the process into COM or COMO.)
+
+LEF	Local event flag wait.  The process/thread is waiting for one or
+	more local event flags to be set. The program displays the event
+	flag cluster number 0 (0-31) or 1 (32-63) or 4 (128) and the EFN
+	numbers.
+	If more than one EFN is being waited for, the process is waiting for
+	any of the EFNs shown to be set.
+	
+	Typically the process has called a system service like $QIOW,
+	$SYNCH or $WAITFR.
+
+LEFO	Local event flag wait, Outswapped.
+
+HIB	Hibernate wait. The process/thread has called $HIBER. (A $WAKE or
+	$SCHDWK will restart the process.)
+
+HIBO	Hibernate wait, Outswapped.
+
+SUSP	Suspended. The process has used, or been subject to, a $SUSPND call.
+        (A $RESUME will restart the process.)
+
+SUSPO	Suspended, Outswapped.
+
+FPG	Free page wait. The Process has requested a physical page to be added to
+	its working set, and there are no pages are on the free page list. 
+	(When a page is made available, the process becomes COM or COMO.)
+
+COM	Compute wait. The process is capable of using a CPU, but none is 
+	currently available.
+
+COMO	Computable, Outswapped.
+
+CUR	Current process. Currently executing on a CPU.
+
+
+
+APPENDIX B  PROCESS STATUS VALUES
+
+Status	   Description
+-----	   -----------
+RES 	   Resident, in balance set
+DELPEN	   Delete pending
+FORCPEN	   Force exit pending
+INQUAN	   Initial quantum in progress
+PSWAPM	   Process cannot be swapped
+RESPEN	   Resume pending, skip suspend
+SSFEXC	   System service exception enable (K)
+SSFEXCE	   System service exception enable (E)
+SSFEXCS	   System service exception enable (S)
+SSFEXCU	   System service exception enable (U)
+SSRWAIT	   System service resource wait disable
+SUSPEN	   Suspend pending
+WAKEPEN	   Wake pending, skip hibernate
+WALL	   Wait for all events in mask
+BATCH	   Process is a batch job
+NOACNT	   No accounting for process
+NOSUSPEND  Process cannot be suspended
+ASTPEN	   AST pending
+PHDRES	   Process header resident
+HIBER	   Hibernate after initial image activate
+LOGIN	   Login without reading UAF
+NETWRK	   Network connect job
+PWRAST	   Power fail AST
+NODELET	   Cannot delete process
+DISAWS	   Disable automatic WS adjustment
+INTER	   Process is an interactive job
+RECOVER	   Process can recover locks
+SECAUDIT   Mandatory security auditing enabled
+HARDAFF	   Process is bound to particular CPU
+ERDACT	   Exec mode rundown active
+SOFTSUSP   Process is in soft suspend
+PREEMPTED  Hard suspend has preempted soft
+
+
+
+APPENDIX C SYSTEM RESOURCE WAIT STATES
+
+State	Description
+-----	-----------
+RWAST	General-purpose resorce wait for a system or special kernel
+	mode AST. A process/kernel thread is placed into the wait queue
+	specified by the resource number.
+
+	Note: 	Some RWAST states can only be cleared by a system reboot.
+
+RWMBX	Mailbox full. The process has tried to write to a mailbox that is
+	full or has insufficient buffer space.
+
+RWNPG	Wait for nonpaged dynamic memory. Process failed to allocate 
+	the specified amount of nonpaged dynamic memory.
+
+RWPFF	Page file is full. The system paging file (PAGEFILE.SYS) is too small
+	or has not been initialized.
+
+	Note: 	When convenient increase the paging file size and reboot the 
+        system.
+
+	Note: 	See DCL command SHOW MEMORY, Paging File Usage.
+
+RWPAG	Wait for paged dynamic memory. Process failed to allocate the
+	specified amount of paged pool.
+
+RWBRK	Wait for breakthrough (Currently not used).
+
+RWIMG	Wait for image activation lock (Currently not used).
+
+RWQUO	Wait for job pooled quota (Currently not used).
+
+RWLCK	Wait for lock identification database (Currently not used).
+
+RWSWP	Wait for swap file space (Currently not used).
+
+RWMPE	Modified page list empty.  Process is waiting for the modified page
+	writer to signal that it has flushed the modified page list.
+	Only OPCRASH does this to wait prior to stopping the system.
+
+RWMPB	Modified page writer busy.  The process has faulted a modified page out
+	of its working set, and either the modified page list already 
+	contains more pages than MPW_WAITLIMIT, or the modified page list 
+	contains more pages than MPW_LOWLIMIT and the modified page writer
+	is active, writing modified pages.
+
+	Note: 	Processes should not remain in RWMPB for long periods. If they 
+		do, it may be that a page file has become full, or that the 
+		paging disk is extremely busy or has gone into mount 
+		verification.
+
+RWSCS	Distributed lock manager wait. The process is waiting for a
+	response from a remote cluster node that has information about a
+	particular lock resource.
+
+RWCLU	Wait for cluster state transition.  The process has requested a
+	lock on a node that is in transition (being added or removed from
+	the cluster). The process will remain in this state until the
+	cluster membership stabilizes.
+
+RWCAP	Wait for CPU capability. The process is computable, and has requested
+	specific CPU capabilities or affinity that a single active CPU on a
+	SMP system can't offer. The process is rescheduled to run on a CPU
+	that has the right SMP characteristics.
+
+RWCSV	Wait for cluster server process. The limit of outstanding requests
+	from one cluster member to another's server process has been reached,
+	and this process has also requested a service of that node.
+	Also requesting certain clusterwide process system services can place
+	a process into this state until the request completes.
+
+RWSNP	Wait for a system snapshot (Currently not used).
+
+PSXFR	Posix fork creation wait. A kthread/process is in POSIX specific wait
+	state (parent and child process). A kthread will remain in this wait
+	state until the thread is explicitly resumed by calling the
+	EXE$PSX_RESUME[_xxx] routine.
+
+INNER_MODE
+	Indicates a thread in an inner mode semaphore wait. The semaphore 
+	needed for a piggy-back special kernel AST delivery to a thread of a 
+	multithreaded process is owned by another thread.
+
+EXH	Kernel thread in exit handler wait (Currently not used).
+
+
+Appendix D. SAMPLE RUNS
+
+
+D.1 MULTITHREADED PROCESS
+
+$ RUN MWAIT
+
+
+          *** MWAIT /Alpha V2.2 - Process Hang Analyzer ***
+
+Please give target process PID : 21200249
+
+Process name     : _FTA2:              User name      : SALMINEN
+Extended PID     : 21200249            Internal PID   : 00010049
+PCB address      : 813DACC0            Terminal name  : FTA2:
+JIB address      : 813DAB40            Cur/Base prior : 0/0
+PHD address      : 9FE98000
+KTB vector       : 81114640            Threads        : 2
+Thread 00
+---------
+KTB address      : 813DACC0            Running on CPU : 1
+Thread state     : COM                 Compute
+Thread status    : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : 0000000D
+Thread 01
+---------
+KTB address      : 81020400            Running on CPU : 0
+Thread state     : COM                 Compute
+Thread status    : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : 00000000
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :      150 /     150  In use : 0
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :    99552 /   99552  In use : 0
+Byte count/orig. limit     [Bytes] :    99552 /  100000  In use : 448
+File count/limit           [Files] :      198 /     200  In use : 2
+Timer queue count/limit   [Timers] :       64 /      64  In use : 0
+Working set quota/limit [Pagelets] :    76000 /   80000  In use : 4000
+Page file quota/limit      [Pages] :     3722 /    4096  In use : 374
+AST count/limit            [AST's] :      248 /     250  In use : 2
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     ----
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 007DA110 / 007D9DEF / 00000321 [hex] ticks
+Time since last event : 8 seconds 10 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW3B$DRA0:
+0020 8110CC00   0      GDCW3B$DRA2:[USER5.SALMINEN.THREAD]PRIME.EXE;2
+0030 810F9C40   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]PTHREAD$RTL.EXE;1
+0040 811C59C0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBOTS.EXE;1
+0050 811AE780   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0060 811BC300   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;242
+0070 811C5480   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBRTL.EXE;2
+0080 00000000   0      FTA2:
+0090 00000000   0      FTA2:
+00A0 811C6240   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]CMA$TIS_SHR.EXE;1
+00B0 811C72C0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECC$SHR.EXE;2
+00C0 811C69C0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DPML$SHR.EXE;1
+00D0 811B5000   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]SYS$SSISHR.EXE;1
+00E0 00000000   0      FTA2:
+
+Current process registers:
+
+R0   = 00000000 00000FFD  R1   = 00000000 00000FFD  R2   = 00000000 000101C0
+R3   = 00000000 00000001  R4   = 00000000 00000000  R5   = 00000000 00000004
+R6   = 00000000 00001003  R7   = 00000000 000F44F0  R8   = 00000000 00003D09
+R9   = 00000000 000011AE  R10  = 00000000 00007A11  R11  = 00000000 00020004
+R12  = 00000000 00020004  R13  = 00000000 00000001  R14  = 00000000 00000000
+R15  = 00000000 00000000  R16  = 00000000 00007A11  R17  = 00000000 00000000
+R18  = FFFFFE4F 00000007  R19  = 00000000 00000000  R20  = 00000000 00000008
+R21  = 00000000 00000000  R22  = 00000000 00000001  R23  = 00000000 0044D0F8
+R24  = 00000000 01000000  R25  = 00000000 00000001  R26  = 00000000 00030450
+R27  = 00000000 00104010  R28  = FFFFFFFF 8089E4BC  FP   = 00000000 004A7B90
+PC   = 00000000 00030450  PS   = 00000000 0000001B
+
+Current mode     : User
+Previous mode    : User
+Current IPL      : 0
+
+The current PC:        00030450 is in the image:
+PRIME
+Base      End       Image Offset  Psect type
+00010000  000603FF  00030450      MAIN
+
+R26 (Return address):  00030450 is in the image:
+PRIME
+Base      End       Image Offset  Psect type
+00010000  000603FF  00030450      MAIN
+
+******************* Call Frame 1 ***************************************
+
+FP      = 004A7B90
+PDSC    = 000101C0  Stack Frame Procedure Descriptor
+Next FP = 004A7DD0
+
+Procedure Entry: 00030158 is in the image:
+PRIME
+Base      End       Image Offset  Psect type
+00010000  000603FF  00030158      MAIN
+
+Return address:  000AE148 is in the image:
+PTHREAD$RTL
+Base      End       Image Offset  Psect type
+00062000  001035FF  0004C148      GLOBAL
+
+******************* Call Frame 2 ***************************************
+
+FP      = 004A7DD0
+PDSC    = 00065990  Stack Frame Procedure Descriptor
+Next FP = 004A7FE0
+
+Procedure Entry: 000AD818 is in the image:
+PTHREAD$RTL
+Base      End       Image Offset  Psect type
+00062000  001035FF  0004B818      GLOBAL
+
+Return address:  0009F294 is in the image:
+PTHREAD$RTL
+Base      End       Image Offset  Psect type
+00062000  001035FF  0003D294      GLOBAL
+
+******************* Call Frame 3 ***************************************
+
+FP      = 004A7FE0
+PDSC    = 00064178  Stack Frame Procedure Descriptor
+Next FP = 7ED2DA70
+
+Procedure Entry: 0009F27C is in the image:
+PTHREAD$RTL
+Base      End       Image Offset  Psect type
+00062000  001035FF  0003D27C      GLOBAL
+
+Return address:  00000000 is not within a system or user image
+
+******************* Call Frame 4 ***************************************
+
+FP      = 7ED2DA70
+PDSC    = 00062048  Stack Frame Procedure Descriptor
+Next FP = 7ED31B30
+
+Procedure Entry: 00092148 is in the image:
+PTHREAD$RTL
+Base      End       Image Offset  Psect type
+00062000  001035FF  00030148      GLOBAL
+
+Return address:  A503F0D8 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+A5034000  A503F800  000130D8      Paged read only
+
+******************* Call Frame 5 ***************************************
+
+FP      = 7ED31B30
+PDSC    = A5041A90  Stack Frame Procedure Descriptor
+Next FP = 7ED31BB0
+
+Procedure Entry: A503EF60 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+A5034000  A503F800  00012F60      Paged read only
+
+Return address:  7EE40DCC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EDCC      Merged
+
+******************* Call Frame 6 ***************************************
+
+FP      = 7ED31BB0
+PDSC    = 7EE161E0  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 7EE40BDC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBDC      Merged
+
+Return address:  7EE40BC8 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBC8      Merged
+
+
+
+
+D.2 PROCESS WAITING FOR AN EVENT FLAG
+
+Start the example program WAIT on an other terminal and run MWAIT.
+
+$ sho sys
+OpenVMS V7.1  on node GDCW3A  15-MAY-1997 11:28:00.56  Uptime  1 20:23:25
+  Pid    Process Name    State  Pri      I/O       CPU       Page flts  Pages
+21A00275 _FTA16:         LEF      4    12102   0 00:00:29.78      7922     96
+
+
+$ RUN MWAIT
+
+
+          *** MWAIT /Alpha V2.2 - Process Hang Analyzer ***
+
+Please give target process PID : 21200249
+
+Process name     : _FTA2:              User name      : SALMINEN
+Extended PID     : 21200249            Internal PID   : 00010049
+PCB address      : 813DACC0            Terminal name  : FTA2:
+JIB address      : 813DAB40            Cur/Base prior : 4/4
+PHD address      : 9FE98000
+KTB vector       : 813DAFAC            Threads        : 1
+Thread 00
+---------
+KTB address      : 813DACC0            Running on CPU : 1
+Thread state     : LEF                 Local event flag wait
+Thread status    : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : FFFFFFF7  EFN's = 3
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :      150 /     150  In use : 0
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :    99680 /   99680  In use : 0
+Byte count/orig. limit     [Bytes] :    99680 /  100000  In use : 320
+File count/limit           [Files] :      199 /     200  In use : 1
+Timer queue count/limit   [Timers] :       63 /      64  In use : 1
+Working set quota/limit [Pagelets] :    78432 /   80000  In use : 1568
+Page file quota/limit      [Pages] :     3889 /    4096  In use : 207
+AST count/limit            [AST's] :      248 /     250  In use : 2
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     ----
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 007DBF16 / 007DBB75 / 000003A1 [hex] ticks
+Time since last event : 9 seconds 290 milliseconds
+Time since last event : 9 seconds 290 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW3B$DRA2:
+0020 8110CC00   0      GDCW3B$DRA2:[USER5.SALMINEN.MWAIT]WAIT.EXE;1
+0050 811AE780   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0060 811BC300   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;242
+0080 00000000   0      FTA2:
+0090 00000000   0      FTA2:
+
+Current process registers:
+
+R0   = 00000000 00000001  R1   = 00000000 7FFA1F50  R2   = 00000000 7FF48000
+R3   = 00000000 00000008  R4   = 00000000 7FFCF818  R5   = 00000000 7FFCF938
+R6   = 00000000 7FFAC9F0  R7   = 00000000 7FFAC9F0  R8   = 00000000 7FFAC208
+R9   = 00000000 7FFAC410  R10  = 00000000 7FFAD238  R11  = 00000000 7FFCE3E0
+R12  = 00000000 00000000  R13  = FFFFFFFF 9984EA80  R14  = FFFFFFFF 81813C00
+R15  = 00000000 009B440D  R16  = FFFFFFFF 99806318  R17  = FFFFFFFF 81813C00
+R18  = 00000000 00000000  R19  = FFFFFFFF 99805000  R20  = 00000000 00000000
+R21  = FFFFFFFF 99805000  R22  = 00000000 000000C2  R23  = 00000000 7FFAC208
+R24  = 00000000 7FFAC410  R25  = 00000000 00000005  R26  = 00000000 00000FD2
+R27  = FFFFFFFF 9984B260  R28  = FFFFFFFF 81813C00  FP   = 00000000 7ED31A90
+PC   = FFFFFFFF 800DB8A4  PS   = 00000000 0000001B
+
+Current mode     : User
+Previous mode    : User
+Current IPL      : 0
+
+The current PC:        800DB8A4 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0001D8A4      Nonpaged read only
+
+R26 (Return address):  00000FD2 is not within a system or user image
+and is not a return address
+
+******************* Call Frame 1 ***************************************
+
+FP      = 7ED31A90
+PDSC    = 9984EA80  Stack Frame Procedure Descriptor
+Next FP = 7ED31AD0
+
+Procedure Entry: 800DB7D0 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0001D7D0      Nonpaged read only
+
+Return address:  00030074 is in the image:
+WAIT
+Base      End       Image Offset  Psect type
+00010000  000401FF  00030074      MAIN
+
+******************* Call Frame 2 ***************************************
+
+FP      = 7ED31AD0
+PDSC    = 00010000  Stack Frame Procedure Descriptor
+Next FP = 7ED31B30
+
+Procedure Entry: 00030000 is in the image:
+WAIT
+Base      End       Image Offset  Psect type
+00010000  000401FF  00030000      MAIN
+
+Return address:  9F2BF0D8 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+9F2B4000  9F2BF800  000130D8      Paged read only
+
+******************* Call Frame 3 ***************************************
+
+FP      = 7ED31B30
+PDSC    = 9F2C1A90  Stack Frame Procedure Descriptor
+Next FP = 7ED31BB0
+
+Procedure Entry: 9F2BEF60 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+9F2B4000  9F2BF800  00012F60      Paged read only
+
+Return address:  7EE40DCC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EDCC      Merged
+
+******************* Call Frame 4 ***************************************
+
+FP      = 7ED31BB0
+PDSC    = 7EE161E0  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 7EE40BDC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBDC      Merged
+
+Return address:  7EE40BC8 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBC8      Merged
+
+
+
+
+D.2.2 FIND THE CURRENT SOURCE CODE LINE
+
+
+The Call Frame 1 has the first address within the target program WAIT.
+
+Return address:  00030074 is in the image:
+WAIT
+Base      End       Image Offset  Psect type
+00010000  000401FF  00030074      MAIN
+
+
+Find in WAIT.MAP the psect '$CODE$'
+
+
+Psect Name      Module Name       Base     End           Length            Align                 Attributes
+----------      -----------       ----     ---           ------            -----                 ----------
+$LINKAGE                        00010000 0001005F 00000060 (         96.) OCTA  4 NOPIC,CON,REL,LCL,NOSHR,NOEXE,NOWRT,NOVEC,  MOD
+                WAIT            00010000 0001005F 00000060 (         96.) OCTA  4
+$DATA$                          00020000 00020018 00000019 (         25.) LONG  2 NOPIC,CON,REL,LCL,NOSHR,NOEXE,  WRT,NOVEC,  MOD
+                WAIT            00020000 00020018 00000019 (         25.) LONG  2
+$CODE$                          00030000 0003008B 0000008C (        140.) LONG  2   PIC,CON,REL,LCL,  SHR,  EXE,NOWRT,NOVEC,  MOD
+                WAIT            00030000 0003008B 0000008C (        140.) LONG  2
+
+
+
+Find in the Psect $CODE$ the module in which the 'Image Offset' 00030074
+locates. In this case, it is in the module WAIT.
+
+Subtract the module base address 00030000 from the Image Offset 00030074,
+30074 - 30000 = 0074. This is the code offset within the module WAIT.
+
+Find from the WAIT.LIS file (compiled with /LIST/MACHINE_CODE) the
+offset 0074 (always 4 digits) in the generated Alpha code part. From that
+code line go backwards and find at the the end of a line the first semicolon
+followed by a line number. This number is the line number in the original 
+source code.
+
+WAIT.LIS
+========
+
+A74D0040     0060               LDQ     R26, 64(R13)                            ; R26, 64(R13)                              ; 000100
+47E07410     0064               BIS     R31, 3, R16                             ; R31, 3, R16
+A76D0048     0068               LDQ     R27, 72(R13)                            ; R27, 72(R13)
+47E03419     006C               BIS     R31, 1, R25                             ; R31, 1, R25
+6B5A4000     0070               JSR     R26, R26                                ; R26, R26
+             0074       $L2:                                                                                                ; 000107
+47FD041E     0074               MOV     FP, SP                                  ; FP, SP
+
+
+The source code line number is '; 000107'.
+
+
+00000028      100         $WAITFR_S       EFN=#3
+00000031      106
+00000031      107         RET
+
+For low level languages (MACRO) this code line indicates the instruction
+immediately succeeding the one currently executing. 
+
+Thus, in this example the current execution is at line 100, i.e. the call
+to wait for an event flag ($WAITFR_S).
+
+
+D.3 USING SDA TO FIND MODULE NAMES FOR SYSTEM ADDRESSES
+
+The current PC of the target program is 800DB8A4 in the
+image PROCESS_MANAGEMENT.EXE
+
+$ ANALYZE/SYSTEM
+OpenVMS (TM) Alpha system analyzer
+
+SDA>read/executive
+SDA>read sys$loadable_images:sysdef.stb
+
+- Instruction were the program shall continue execution,
+
+SDA> examine/instruction 800DB8A4
+SYS$WAITFR_C+000D4:     BIS             R31,SP,SP
+
+- Previous instructions,
+
+SDA> examine/instruction 800DB8A4-20;24
+SYS$WAITFR_C+000B4:     LDL             R0,(R23)
+SYS$WAITFR_C+000B8:     BIS             R31,R0,R0
+SYS$WAITFR_C+000BC:     BNE             R0,#X000008
+SYS$WAITFR_C+000C0:     LDQ             R26,#X0030(R13)
+SYS$WAITFR_C+000C4:     LDA             R25,#X0001(R31)
+SYS$WAITFR_C+000C8:     LDQ             R27,#X0038(R13)
+SYS$WAITFR_C+000CC:     STQ             R16,#X0010(FP)
+SYS$WAITFR_C+000D0:     JSR             R26,(R26)
+SYS$WAITFR_C+000D4:     BIS             R31,SP,SP
+
+In the previous line the code has made a subroutine call,
+
+SYS$WAITFR_C+000D0:     JSR             R26,(R26)
+
+
+	Note: 	Detailed analysis of calls inside the system code requires the
+		"OpenVMS Alpha Listings CD-ROM Kit and License" for VMS V7.1
+		(order number QB-MT1AB-E8)
+
+
+
+
+Call Frames
+-----------
+
+******************* Call Frame 2 ***************************************
+
+Procedure Entry: 80299AF8 is in the image:
+[SYS$LDR]RMS.EXE
+Base      End       Image Offset  Psect type
+80284000  802F2C00  00015AF8      Nonpaged read only
+
+Return address:  7EE546C0 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE2E000  7EE907FF  000266C0      Merged
+
+
+
+DCL.MAP
+=======
+
+	Image offset 000266C0 is within module READREC
+
+
+Psect Name      Module Name       Base     End           Length            Align                 Attributes
+----------      -----------       ----     ---           ------            -----                 ----------
+$CODE$                          00010000 00010000 00000000 (          0.) OCTA  4   PIC,CON,REL,LCL,NOSHR,  EXE,NOWRT,NOVEC,  MOD
+		...
+		...
+DCL$ZCODE                       00010090 0003ED4B 0002ECBC (     191676.) OCTA  4   PIC,CON,REL,LCL,NOSHR,  EXE,NOWRT,NOVEC,  MOD
+		...
+		...
+
+                CANCEL          00025C88 00025D8F 00000108 (        264.) BYTE  0
+                CONVERT         00025D90 00026573 000007E4 (       2020.) BYTE  0
+                READREC         00026574 000289C3 00002450 (       9296.) BYTE  0
+
+
+Offset:	000266C0-00026574 = 0000014C
+
+READREC.LIS
+===========
+
+00000084     3025 GET_INPUT:
+
+00000099     3032 ; READ THE NEXT INPUT RECORD AND CHECK FOR ERRORS.
+
+000000E5     3189 13$:    $GET    RAB=(R4)                                ;GET NEXT RECORD FROM INPUT FILE
+
+
+
+
+             0134       7_13$:                                                                                              ; 003189
+A74DFFB0     0134               LDQ     R26, -80(R13)                           ; R26, -80(R13)
+47E40410     0138               MOV     R4, R16                                 ; R4, R16
+A76DFFB8     013C               LDQ     R27, -72(R13)                           ; R27, -72(R13)
+43C0953E     0140               SUBQ    SP, 4, SP                               ; SP, 4, SP
+47E03419     0144               BIS     R31, 1, R25                             ; R31, 1, R25
+6B5A4000     0148               JSR     R26, R26                                ; R26, R26
+273F4000     014C               LDAH    R25, 16384(R31)                         ; R25, 16384(R31)                           ; 003190
+
+
+
+
+
+
+D.4 DECTERM PROCESS AWAITING KEYBOARD INPUT
+
+	Note: 	This process is not currently hanging.
+
+$ sho sys
+OpenVMS V7.1  on node GDCW3A  15-MAY-1997 11:28:00.56  Uptime  1 20:23:25
+  Pid    Process Name    State  Pri      I/O       CPU       Page flts  Pages
+21A00275 _FTA16:         LEF      5    12106   0 00:00:29.79      7922     91
+
+$ MC MWAIT 21A00275
+
+
+          *** MWAIT /Alpha V2.4 - Process Hang Analyzer ***
+
+
+Process name     : _FTA16:             User name      : SALMINEN
+Terminal name    : FTA16:              Running on CPU : 1
+Extended PID     : 21A00275            Internal PID   : 00010075
+PCB address      : 81813C00            Cur/Base prior : 4/4
+PHD address      : 9A438000
+JIB address      : 81787E80
+Process state    : LEF                 Local event flag wait
+Process status   : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : DFFFFFFF   EFN's = 29
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :      149 /     150  In use : 1
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :    99424 /   99808  In use : 384
+Byte count/orig. limit     [Bytes] :    99424 /  100000  In use : 576
+File count/limit           [Files] :      200 /     200  In use : 0
+Timer queue count/limit   [Timers] :       64 /      64  In use : 0
+Working set quota/limit [Pagelets] :    78576 /   80000  In use : 1424
+Page file quota/limit      [Pages] :     3896 /    4096  In use : 200
+AST count/limit            [AST's] :      247 /     250  In use : 3
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     ----
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 00F3A97B / 00F3A82C / 0000014F [hex] ticks
+Time since last event : 3 seconds 350 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW3B$DRA0:
+0050 8159C780   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0060 815AA780   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;240
+0080 00000000   1 Busy FTA16:
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 8102B100
+       EFN           : 0000001D  00000029
+       FUNC          : 0000C000  00049152 IO$_NOP
+       IOST1         : 00000000
+       IOSB address  : 7EF548E0
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000100  00000256 Bytes
+       AST address   : 9F514E00           is in the image:
+
+[SYS$LDR]RMS.EXE
+Base      End       Image Offset  Psect type
+9F513C00  9F525000  00075200      Nonpaged read/write
+
+       AST parameter : 7EF548D0  2130004176
+       P1            : 7EF51A00  2129992192
+       P2            : 00000100  00000256
+       P3            : 00000002  00000002
+       P4            : 00000000  00000000
+       P5            : 7FFCF79C  2147284892
+       P6            : 00000018  00000024
+
+0090 00000000   0      FTA16:
+
+Current process registers:
+
+R0   = 00000000 00000001  R1   = 00000000 00000002  R2   = FFFFFFFF 99893CB0
+R3   = 00000000 7FFCF668  R4   = 00000000 0000001D  R5   = 00000000 7FFCF668
+R6   = 00000000 7FFCE4C0  R7   = 00000000 7EE01398  R8   = 00000000 7ED33FB0
+R9   = 00000000 7FFAC410  R10  = 00000000 7FFAD238  R11  = 00000000 7FFCE3E0
+R12  = 00000000 000516F8  R13  = FFFFFFFF 9984ECB0  R14  = FFFFFFFF 81813C00
+R15  = 00000000 009B440D  R16  = FFFFFFFF 99806318  R17  = FFFFFFFF 81813C00
+R18  = 00000000 00000002  R19  = FFFFFFFF 99805000  R20  = 00000000 7FFF0010
+R21  = FFFFFFFD FF7FE000  R22  = FFFFFFFF 800DBA18  R23  = 00000000 7FFA1FC0
+R24  = 00000000 7ED33FB0  R25  = 00000000 00000005  R26  = 00000000 00000FD2
+R27  = FFFFFFFF 9984B260  R28  = 00000000 009B440D  FP   = 00000000 7FFAC280
+PC   = FFFFFFFF 800DBA18  PS   = 00000000 00000012
+
+Current mode     : Supervisor
+Previous mode    : Supervisor
+Current IPL      : 0
+
+The current PC:        800DBA18 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0001DA18      Nonpaged read only
+
+R26 (Return address):  00000FD2 is not within a system or user image
+and is not a return address
+
+******************* Call Frame 1 ***************************************
+
+FP      = 7FFAC280
+PDSC    = 9984ECB0  Stack Frame Procedure Descriptor
+Next FP = 7FFAC2D0
+
+Procedure Entry: 800DB920 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0001D920      Nonpaged read only
+
+Return address:  802FB9FC is in the image:
+[SYS$LDR]RMS.EXE
+Base      End       Image Offset  Psect type
+802E4000  80357E00  000179FC      Nonpaged read only
+
+******************* Call Frame 2 ***************************************
+
+FP      = 7FFAC2D0
+PDSC    = 99893CB0  Stack Frame Procedure Descriptor
+Next FP = 7FFAC320
+
+Procedure Entry: 802FB960 is in the image:
+[SYS$LDR]RMS.EXE
+Base      End       Image Offset  Psect type
+802E4000  80357E00  00017960      Nonpaged read only
+
+Return address:  802FC474 is in the image:
+[SYS$LDR]RMS.EXE
+Base      End       Image Offset  Psect type
+802E4000  80357E00  00018474      Nonpaged read only
+
+******************* Call Frame 3 ***************************************
+
+FP      = 7FFAC320
+PDSC    = 99894030  Stack Frame Procedure Descriptor
+Next FP = 7FFAC410
+
+Procedure Entry: 802FC3D0 is in the image:
+[SYS$LDR]RMS.EXE
+Base      End       Image Offset  Psect type
+802E4000  80357E00  000183D0      Nonpaged read only
+
+Return address:  7EE3AB18 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  00028B18      Merged
+
+******************* Call Frame 4 ***************************************
+
+%MWAIT-F-INVFRAME, Invalid Call Frame:
+Unknown procedure descriptor kind, FP = 7FFAC410, Kind = 04
+
+
+D.5 PROCESS IS HIBERNATED
+
+	Note: 	This process is not hanging.
+
+$ sho sys
+
+OpenVMS V7.1  on node GDCW3A  15-MAY-1997 11:28:00.56  Uptime  1 20:23:25
+  Pid    Process Name    State  Pri      I/O       CPU       Page flts  Pages
+21A00206 CONFIGURE       HIB     10       18   0 00:00:23.99        48     43
+
+
+$ mc mwait 21A00206
+
+
+          *** MWAIT /Alpha V2.4 - Process Hang Analyzer ***
+
+
+Process name     : CONFIGURE           User name      : SYSTEM
+Extended PID     : 20400206            Internal PID   : 00010006
+PCB address      : 81115500            Terminal name  : -Detached-
+JIB address      : 811D8880            Cur/Base prior : 9/8
+PHD address      : 9F5D4000
+KTB vector       : 811157EC            Threads        : 1
+Thread 00
+---------
+KTB address      : 81115500            Running on CPU : 2
+Thread state     : HIB                 Hibernate wait
+Thread status    : 00140001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             LOGIN     Login without reading UAF
+EFN wait cluster : 0
+EFN wait mask    : 998058B0
+
+Direct   I/O count/limit    [IO's] :      200 /     200  In use : 0
+Buffered I/O count/limit    [IO's] :      200 /     200  In use : 0
+Sub-process count/limit    [Procs] :        0 /     200  In use : 0
+Byte count/limit           [Bytes] :    99552 /   99552  In use : 0
+Byte count/orig. limit     [Bytes] :    99552 /  100000  In use : 448
+File count/limit           [Files] :      198 /     200  In use : 2
+Timer queue count/limit   [Timers] :      199 /     200  In use : 1
+Working set quota/limit [Pagelets] :    79312 /   80000  In use : 688
+Page file quota/limit      [Pages] :     3940 /    4096  In use : 156
+AST count/limit            [AST's] :      198 /     200  In use : 2
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     ----
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 00F3E917 / 00F3E857 / 000000C0 [hex] ticks
+Time since last event : 1 seconds 920 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW3B$DRA0:
+0020 815E7EC0   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]CONFIGURE.EXE;1
+0030 815E7C00   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]IOGEN$SHARE.EXE;1
+0040 00000000   0      MBA5: (Buffered I/O Quota available: 1056 bytes)
+
+Current process registers:
+
+R0   = 00000000 00000001  R1   = FFFFFFFF 99840C80  R2   = 00000000 7FFCF880
+R3   = 00000000 7FFCF95C  R4   = FFFFFFFF 81519580  R5   = 00000000 7FF48000
+R6   = FFFFFFFF 9E906E20  R7   = 00000000 00001000  R8   = 00000000 00000000
+R9   = FFFFFFFF 9F1B9358  R10  = 00000000 7FFCF800  R11  = 00000000 7FF1A1A2
+R12  = 00000000 00000000  R13  = FFFFFFFF 9984D480  R14  = 00000000 00000000
+R15  = 00000000 009B4337  R16  = 00000000 00000000  R17  = 00000000 00000000
+R18  = FFFFFFFF 99805000  R19  = 00000000 7FF48000  R20  = 00000000 7FFF0000
+R21  = 00000000 000A0000  R22  = 00000000 00000000  R23  = 00000000 00000000
+R24  = 00000000 00000000  R25  = 00000000 00000000  R26  = FFFFFFFF 800CEAB0
+R27  = FFFFFFFF 9984B260  R28  = 00000000 000A0000  FP   = 00000000 7EE85B00
+PC   = FFFFFFFF 80001924  PS   = 00000000 0000001B
+
+Current mode     : User
+Previous mode    : User
+Current IPL      : 0
+
+The current PC:        80001924 is in the image:
+SYS$PUBLIC_VECTORS.EXE
+Base      End       Image Offset  Psect type
+80000000  80001A00  00001924      Nonpaged read only
+
+R26 (Return address):  800CEAB0 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00010AB0      Nonpaged read only
+
+******************* Call Frame 1 ***************************************
+
+FP      = 7EE85B00
+PDSC    = 9984D480  Stack Frame Procedure Descriptor
+Next FP = 7EE85B20
+
+Procedure Entry: 800CEA00 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00010A00      Nonpaged read only
+
+Return address:  00030380 is in the image:
+CONFIGURE
+Base      End       Image Offset  Psect type
+00010000  000503FF  00030380      MAIN
+
+******************* Call Frame 2 ***************************************
+
+FP      = 7EE85B20
+PDSC    = 00010168  Stack Frame Procedure Descriptor
+Next FP = 7EE85B60
+
+Procedure Entry: 000301C0 is in the image:
+CONFIGURE
+Base      End       Image Offset  Psect type
+00010000  000503FF  000301C0      MAIN
+
+Return address:  000300C4 is in the image:
+CONFIGURE
+Base      End       Image Offset  Psect type
+00010000  000503FF  000300C4      MAIN
+
+******************* Call Frame 3 ***************************************
+
+FP      = 7EE85B60
+PDSC    = 00010000  Stack Frame Procedure Descriptor
+Next FP = 7EE85BA0
+
+Procedure Entry: 00030000 is in the image:
+CONFIGURE
+Base      End       Image Offset  Psect type
+00010000  000503FF  00030000      MAIN
+
+Return address:  9F1A5DCC is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+9F1A4000  9F1B6C00  00031DCC      Paged read only
+
+******************* Call Frame 4 ***************************************
+
+FP      = 7EE85BA0
+PDSC    = 9F1B9250  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 9F1A5C90 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+9F1A4000  9F1B6C00  00031C90      Paged read only
+
+Return address:  9F1A5C7C is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+9F1A4000  9F1B6C00  00031C7C      Paged read only
+
+
+
+
+
+
+D.6 RWMBX: WAITING FOR MAILBOX SPACE
+
+$ SHO SYS
+OpenVMS V7.1  on node GDCW3A  14-MAY-1997 14:32:14.61  Uptime  9 23:27:44
+  Pid    Process Name    State  Pri      I/O       CPU       Page flts  Pages
+21A00257 _FTA7:          RWMBX    4      161   0 00:00:46.34       170    159
+
+$ mc mwait 21A00257
+
+
+          *** MWAIT /Alpha V2.4 - Process Hang Analyzer ***
+
+Process name     : _FTA7:              User name      : SALMINEN
+Extended PID     : 2080024A            Internal PID   : 0001004A
+PCB address      : 810A7C00            Terminal name  : FTA7:
+JIB address      : 81359880            Cur/Base prior : 5/4
+PHD address      : 9FE98000
+KTB vector       : 810A7EEC            Threads        : 1
+Thread 00
+---------
+KTB address      : 810A7C00            Running on CPU : 2
+Thread state     : RWMBX               Mailbox full
+Thread status    : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : 00000002  Process is waiting for Mailbox space
+
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :      150 /     150  In use : 0
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :    99680 /   99680  In use : 0
+Byte count/orig. limit     [Bytes] :    99680 /  100000  In use : 320
+File count/limit           [Files] :      199 /     200  In use : 1
+Timer queue count/limit   [Timers] :       64 /      64  In use : 0
+Working set quota/limit [Pagelets] :    77456 /   80000  In use : 2544
+Page file quota/limit      [Pages] :     3853 /    4096  In use : 243
+AST count/limit            [AST's] :      168 /     250  In use : 82
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ---U
+AST's queued                [KESU] :     ---U
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 00F42830 / 00F42815 / 0000001B [hex] ticks
+Time since last event : 270 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW3B$DRA2:
+0020 8156CE80   0      GDCW3B$DRA2:[USER5.SALMINEN.MWAIT]TEST4.EXE;9
+0030 815B3BC0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBRTL.EXE;1
+0040 815B5B80   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECC$SHR.EXE;1
+0050 8159C780   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0060 815AA780   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;240
+0070 815B5280   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DPML$SHR.EXE;1
+0080 00000000   0      FTA7:
+0090 00000000   0      FTA7:
+00A0 815B4B00   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]CMA$TIS_SHR.EXE;1
+00B0 815B4280   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBOTS.EXE;1
+00C0 00000000   0      MBA132: (Buffered I/O Quota available: 2 bytes)
+00D0 00000000   0      FTA7:
+
+Current process registers:
+
+R0   = 00000000 00000001  R1   = 00000000 7FFAC208  R2   = 00000000 000100A0
+R3   = 00000000 000000C0  R4   = 00000000 7FFCF818  R5   = 00000000 00000000
+R6   = 00000000 7FFAC9F0  R7   = 00000000 7FFAC9F0  R8   = 00000000 7FFAC208
+R9   = 00000000 7FFAC410  R10  = 00000000 7FFAD238  R11  = 00000000 7FFCE3E0
+R12  = 00000000 00000000  R13  = FFFFFFFF 9984E570  R14  = FFFFFFFF 81866640
+R15  = 00000000 009B4351  R16  = 00000000 00000000  R17  = 00000000 000000C0
+R18  = 00000000 00000070  R19  = 00000000 7ED31848  R20  = 00000000 000100A0
+R21  = 00000000 000000C0  R22  = 00000000 009B4351  R23  = 00000000 7ED31840
+R24  = 00000000 7ED31810  R25  = 00000000 0000000C  R26  = 00000000 000301D0
+R27  = 00000000 00000FB2  R28  = FFFFFFFF 81866640  FP   = 00000000 7ED31840
+PC   = FFFFFFFF 800003B4  PS   = 00000000 0000001B
+
+Current mode     : User
+Previous mode    : User
+Current IPL      : 0
+
+The current PC:        800003B4 is in the image:
+SYS$PUBLIC_VECTORS.EXE
+Base      End       Image Offset  Psect type
+80000000  80001A00  000003B4      Nonpaged read only
+
+R26 (Return address):  000301D0 is in the image:
+TEST4
+Base      End       Image Offset  Psect type
+00010000  000401FF  000301D0      MAIN
+
+******************* Call Frame 1 ***************************************
+
+FP      = 7ED31840
+PDSC    = 000100A0  Stack Frame Procedure Descriptor
+Next FP = 7ED31880
+
+Procedure Entry: 00030158 is in the image:
+TEST4
+Base      End       Image Offset  Psect type
+00010000  000401FF  00030158      MAIN
+
+Return address:  800D93A8 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0001B3A8      Nonpaged read only
+
+******************* Call Frame 2 ***************************************
+
+FP      = 7ED31880
+PDSC    = 9984E570  Stack Frame Procedure Descriptor
+Next FP = 7ED31A90
+
+Procedure Entry: 800D6C20 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00018C20      Nonpaged read only
+
+Return address:  0004202B is not within a system or user image
+
+******************* Call Frame 3 ***************************************
+
+FP      = 7ED31A90
+PDSC    = 00010000  Stack Frame Procedure Descriptor
+Next FP = 7ED31B30
+
+Procedure Entry: 00030000 is in the image:
+TEST4
+Base      End       Image Offset  Psect type
+00010000  000401FF  00030000      MAIN
+
+Return address:  9F2BF0D8 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+9F2B4000  9F2BF800  000130D8      Paged read only
+
+******************* Call Frame 4 ***************************************
+
+FP      = 7ED31B30
+PDSC    = 9F2C1A90  Stack Frame Procedure Descriptor
+Next FP = 7ED31BB0
+
+Procedure Entry: 9F2BEF60 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+9F2B4000  9F2BF800  00012F60      Paged read only
+
+Return address:  7EE40DCC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EDCC      Merged
+
+******************* Call Frame 5 ***************************************
+
+FP      = 7ED31BB0
+PDSC    = 7EE161E0  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 7EE40BDC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBDC      Merged
+
+Return address:  7EE40BC8 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBC8      Merged
+
+
+
+
+D.6.1 FIND THE CORRESPONDING SOURCE CODE LINE
+
+The R26 (Return address):  000301D0 is the first address within the
+target program TEST4.
+
+R26 (Return address):  000301D0 is in the image:
+TEST4
+Base      End       Image Offset  Psect type
+00010000  000401FF  000301D0      MAIN
+
+
+Find in TEST4.MAP the psect '$CODE$'
+
+Psect Name      Module Name       Base     End           Length            Align                 Attributes
+----------      -----------       ----     ---           ------            -----                 ----------
+$LINK$                          00010000 000100BF 000000C0 (        192.) OCTA  4 NOPIC,CON,REL,LCL,NOSHR,NOEXE,NOWRT,NOVEC,  MOD
+                TEST4           00010000 000100BF 000000C0 (        192.) OCTA  4
+$DATA$                          00020000 0002002F 00000030 (         48.) OCTA  4 NOPIC,CON,REL,LCL,NOSHR,NOEXE,  WRT,NOVEC,  MOD
+                TEST4           00020000 0002002F 00000030 (         48.) OCTA  4
+$CODE$                          00030000 000301EB 000001EC (        492.) OCTA  4   PIC,CON,REL,LCL,  SHR,  EXE,NOWRT,NOVEC,  MOD
+                TEST4           00030000 000301EB 000001EC (        492.) OCTA  4
+
+
+
+Find in the Psect $CODE$ the module corresponding to the 'Image Offset' 
+000301D0. In this case it is in the module TEST4.
+
+Subtract the module base address 00030000 from the Image Offset 000301D0,
+301D0 - 30000 = 01D0. This is the code offset within the module TEST4.
+
+Find from the TEST4.LIS file (obtained from compilation with 
+/LIS/MACHINE_CODE) the offset 01D0 in the generated Alpha code part. From that 
+code line go backwards and find at the the end of a line the first semicolon 
+followed by a line number. This is the line number of the original source code.
+
+             0188       L$8:                                                                                                ; 003782
+A742FFF0     0188               LDQ     R26, -16(R2)
+43A21012     018C               ADDL    FP, 16, R18
+B65E0000     0190               STQ     R18, (SP)
+47E11412     0194               MOV     8, R18
+B65E0008     0198               STQ     R18, 8(SP)
+43E30011     019C               SEXTL   mbx$w_chan, R17                         ; R3, R17
+A682FFD0     01A0               LDQ     R20, -48(R2)
+43A11013     01A4               ADDL    FP, 8, R19
+A762FFF8     01A8               LDQ     R27, -8(R2)
+43E30015     01AC               SEXTL   mbx$w_chan, R21                         ; R3, R21
+B7FE0010     01B0               STQ     R31, 16(SP)
+47FF0410     01B4               CLR     R16
+B7FE0018     01B8               STQ     R31, 24(SP)
+47EE1412     01BC               MOV     112, R18
+B7FE0020     01C0               STQ     R31, 32(SP)
+47E19419     01C4               MOV     12, R25
+B7FE0028     01C8               STQ     R31, 40(SP)
+6B5A4000     01CC               JSR     R26, SYS$QIO                            ; R26, R26
+F01FFFED     01D0               BLBS    R0, L$8
+
+
+The source code line number is '; 003782'
+For high level language this represents the code line where the program is
+executing, eg. SYS$QIO.
+
+
+3782                 ss_check( SYS$QIO(
+3783                         mbx$l_efn       ,                               /* Use our own event flag               */
+3784                         mbx$w_chan      ,                               /* Channel to use                       */
+3785                         IO$_WRITEVBLK | IO$M_NOW ,                              /* Write console channel           
+3785 */
+3786                         mbx$q_iosb      ,                               /* I/O status block                     */
+3787                         ast_routine     ,                               /* QIO AST address                      */
+3788                         mbx$w_chan      ,                               /* QIO AST parameter                    */
+3789                         mbx$t_buffer    ,                               /* P1 = Message buffer                  */
+3790                         MBX_WRITE_SIZE  ,                               /* P2 = Size of buffer                  */
+3791                         0               ,                               /* P3                                   */
+3792                         0               ,                               /* P4                                   */
+3793                         0               ,                               /* P5                                   */
+3794                         0               ) )                             /* P6                                   */
+3795         }
+
+
+
+
+
+D.7 RWAST: RESOURCE WAIT STATE
+
+The Process has run out of Buffered I/O quota.
+The queued Supervisor mode AST is the result of trying to stop the process
+with CTRL/Y.
+
+$ sho sys
+OpenVMS V7.1  on node GDCW3A  14-MAY-1997 16:16:50.21  Uptime  1 01:12:19
+  Pid    Process Name    State  Pri      I/O       CPU       Page flts  Pages
+21A00258 _FTA8:          RWAST    6      223   0 00:00:14.17       168    158
+
+
+$ mc mwait 21A00258
+
+
+          *** MWAIT /Alpha V2.4 - Process Hang Analyzer ***
+
+ *** The output will be written into file 21A00258.OUT ***
+
+Process name     : _FTA8:              User name      : SALMINEN
+Terminal name    : FTA8:               Running on CPU : 1
+Extended PID     : 21A00258            Internal PID   : 00010058
+PCB address      : 81866E00            Cur/Base prior : 5/4
+PHD address      : 9A25C000
+JIB address      : 8185BF00
+Process state    : RWAST               Wait for AST completion
+Process status   : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : 00000001  Process is waiting for AST event/channel interlock
+
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :        0 /     150  In use : 150
+   *** Process has run out of Buffered I/O quota ***
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :    99680 /   99680  In use : 0
+Byte count/orig. limit     [Bytes] :    99680 /  100000  In use : 320
+File count/limit           [Files] :      199 /     200  In use : 1
+Timer queue count/limit   [Timers] :       64 /      64  In use : 0
+Working set quota/limit [Pagelets] :    77472 /   80000  In use : 2528
+Page file quota/limit      [Pages] :     3854 /    4096  In use : 242
+AST count/limit            [AST's] :      248 /     250  In use : 2
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     --S-
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 00F5597B / 00F5597A / 00000001 [hex] ticks
+Time since last event : 10 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW3B$DRA2:
+0020 8156CF00   0      GDCW3B$DRA2:[USER5.SALMINEN.MWAIT]TEST3.EXE;1
+0030 815B3BC0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBRTL.EXE;1
+0040 815B5B80   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECC$SHR.EXE;1
+0050 8159C780   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0060 815AA780   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;240
+0070 815B5280   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DPML$SHR.EXE;1
+0080 00000000   0      FTA8:
+0090 00000000   0      FTA8:
+00A0 815B4B00   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]CMA$TIS_SHR.EXE;1
+00B0 815B4280   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBOTS.EXE;1
+00C0 00000000 150 Busy MBA132: (Buffered I/O Quota available: 2 bytes)
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 81053240
+       EFN           : 00000000  00000000
+       FUNC          : 00000020  00000032 IO$_WRITELBLK (or IO$_WRITEVBLK)
+       IOST1         : 02000001
+       IOSB address  : 7ED31A98
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000001  00000001 Bytes
+       AST address   : 00000000
+       AST parameter : 00000000  00000000
+       P1            : 7ED31AA0  2127764128
+       P2            : 00000001  00000001
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+       I/O-Packet   2       Hex / Decimal
+       --------------  ------------------
+	. . .
+	. . .
+
+
+       I/O-Packet 149       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 81274940
+       EFN           : 00000000  00000000
+       FUNC          : 00000020  00000032 IO$_WRITELBLK (or IO$_WRITEVBLK)
+       IOST1         : 00000000
+       IOSB address  : 7ED39A98
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000001  00000001 Bytes
+       AST address   : 00000000
+       AST parameter : 00000000  00000000
+       P1            : 7ED39AA0  2127796896
+       P2            : 00000001  00000001
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+00D0 00000000   0      FTA8:
+
+Current process registers:
+
+R0   = 00000000 7FFA1E20  R1   = FFFFFFFF 99835400  R2   = FFFFFFFF 81866EA0
+R3   = 00000000 7FF48000  R4   = FFFFFFFF 81866E00  R5   = FFFFFFFF 81717940
+R6   = 00000000 7FF28160  R7   = 00000000 00000030  R8   = FFFFFFFF 998485B8
+R9   = 00000000 000000C0  R10  = 00000000 00000030  R11  = 00000000 00000003
+R12  = 00000000 00008001  R13  = FFFFFFFF 9982EA38  R14  = 00000000 00000000
+R15  = FFFFFFFF 998460C8  R16  = 00000000 00000001  R17  = FFFFFFFF 9982EFA0
+R18  = 00000000 00000000  R19  = FFFFFFFF 998460C8  R20  = 00000000 00000008
+R21  = 00000000 7FFA1E20  R22  = 00000000 7FFA1E20  R23  = FFFFFFFF 99805000
+R24  = 00000000 7FFA1E20  R25  = 00000000 7FFA1E20  R26  = 00000000 7FFA1E20
+R27  = 00000000 7FFA1E20  R28  = 00000000 7FFA1E20  FP   = 00000000 7FFA1E20
+PC   = FFFFFFFF 8003741C  PS   = 20000000 00000003
+
+Current mode     : Kernel
+Previous mode    : User
+Current IPL      : 0
+
+The current PC:        8003741C is in the image:
+SYSTEM_PRIMITIVES_MIN.EXE
+Base      End       Image Offset  Psect type
+80028000  8005D600  0000F41C      Nonpaged read only
+
+R26 (Return address):  7FFA1E20 is not within a system or user image
+and is not a return address
+
+******************* Call Frame 1 ***************************************
+
+FP      = 7FFA1E20
+PDSC    = 9982EA90  Stack Frame Procedure Descriptor
+Next FP = 7FFA1EC0
+
+Procedure Entry: 800372B0 is in the image:
+SYSTEM_PRIMITIVES_MIN.EXE
+Base      End       Image Offset  Psect type
+80028000  8005D600  0000F2B0      Nonpaged read only
+
+Return address:  8003C24C is in the image:
+SYSTEM_PRIMITIVES_MIN.EXE
+Base      End       Image Offset  Psect type
+80028000  8005D600  0001424C      Nonpaged read only
+
+******************* Call Frame 2 ***************************************
+
+FP      = 7FFA1EC0
+PDSC    = 998460C8  Stack Frame Procedure Descriptor
+Next FP = 7ED31AA0
+
+Procedure Entry: 800AC6C0 is in the image:
+IO_ROUTINES.EXE
+Base      End       Image Offset  Psect type
+80096000  800B9600  000166C0      Nonpaged read only
+
+Return address:  80082D64 is in the image:
+EXCEPTION.EXE
+Base      End       Image Offset  Psect type
+80082000  80095600  00014D64      Nonpaged read only
+
+******************* Call Frame 3 ***************************************
+
+FP      = 7ED31AA0
+PDSC    = 00010000  Stack Frame Procedure Descriptor
+Next FP = 7ED31B30
+
+Procedure Entry: 00020000 is in the image:
+TEST3
+Base      End       Image Offset  Psect type
+00010000  000301FF  00020000      MAIN
+
+Return address:  9F2BF0D8 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+9F2B4000  9F2BF800  000130D8      Paged read only
+
+******************* Call Frame 4 ***************************************
+
+FP      = 7ED31B30
+PDSC    = 9F2C1A90  Stack Frame Procedure Descriptor
+Next FP = 7ED31BB0
+
+Procedure Entry: 9F2BEF60 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+9F2B4000  9F2BF800  00012F60      Paged read only
+
+Return address:  7EE40DCC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EDCC      Merged
+
+******************* Call Frame 5 ***************************************
+
+FP      = 7ED31BB0
+PDSC    = 7EE161E0  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 7EE40BDC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBDC      Merged
+
+Return address:  7EE40BC8 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBC8      Merged
+
+ *** The output was written into file 21A00258.OUT ***
+
+
+
+
+D.8 MUTEX: RESOURCE WAIT STATE
+
+The Process has run out of timer count quota.
+
+$ sho sys
+OpenVMS V7.1  on node GDCW3A  14-MAY-1997 16:16:50.21  Uptime  1 01:12:19
+  Pid    Process Name    State  Pri      I/O       CPU       Page flts  Pages
+20800252 _FTA10:         MUTEX    6       73   0 00:00:06.03       123    111
+
+
+$ mc mwait 20800252
+
+
+          *** MWAIT /Alpha V2.8 - Process Hang Analyzer ***
+
+
+ *** The output will be written into file 20800252.OUT ***
+
+Process name     : _FTA6:              User name      : SALMINEN
+Extended PID     : 20800252            Internal PID   : 00010052
+PCB address      : 8109BD40            Terminal name  : FTA6:
+JIB address      : 8130A8C0            Cur/Base prior : 4/4
+PHD address      : 9FE54000
+KTB vector       : 8109C02C            Threads        : 1
+Thread 00
+---------
+KTB address      : 8109BD40            Running on CPU : 1
+Thread state     : MUTEX               Mutex/resource wait
+Thread status    : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : 815CD3C0  JIB address, waiting on TQCNT
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :      150 /     150  In use : 0
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :    99680 /   99680  In use : 0
+Byte count/orig. limit     [Bytes] :    99680 /  100000  In use : 320
+File count/limit           [Files] :      199 /     200  In use : 1
+Timer queue count/limit   [Timers] :        0 /      64  In use : 64
+   *** Process has run out of Timer count quota ***
+Working set quota/limit [Pagelets] :    78224 /   80000  In use : 1776
+Page file quota/limit      [Pages] :     3887 /    4096  In use : 209
+AST count/limit            [AST's] :      248 /     250  In use : 2
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     ----
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 00FE2651 / 00FE23CE / 00000283 [hex] ticks
+Time since last event : 6 seconds 430 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW3B$DRA2:
+0020 8156CF80   0      GDCW3B$DRA2:[USER5.SALMINEN.MWAIT]TEST1.EXE;2
+0030 815B3BC0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBRTL.EXE;1
+0050 8159C780   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0060 815AA780   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;240
+0080 00000000   0      FTA10:
+0090 00000000   0      FTA10:
+
+Current process registers:
+
+R0   = 00000000 00000001  R1   = 00000000 7FFAC410  R2   = 00000000 00010000
+R3   = 00000000 00018481  R4   = 00000000 7FFCF818  R5   = 00000000 7FFCF938
+R6   = 00000000 7FFAC9F0  R7   = 00000000 7FFAC9F0  R8   = 00000000 7FFAC208
+R9   = 00000000 7FFAC410  R10  = 00000000 7FFAD238  R11  = 00000000 7FFCE3E0
+R12  = 00000000 00000000  R13  = FFFFFFFF 9F2C1A90  R14  = 00000000 00000000
+R15  = 00000000 009B4351  R16  = 00000000 00000000  R17  = 00000000 7ED31AC8
+R18  = 00000000 00000000  R19  = 00000000 00018480  R20  = 00000000 00000000
+R21  = FFFFFFFF 99805000  R22  = 00000000 00000005  R23  = 00000000 00000000
+R24  = 00000000 7ED31AC8  R25  = 00000000 00000005  R26  = 00000000 00020078
+R27  = FFFFFFFF 9984B260  R28  = FFFFFFFF 99805000  FP   = 00000000 7ED31AC0
+PC   = FFFFFFFF 80000454  PS   = 00000000 0000001B
+
+Current mode     : User
+Previous mode    : User
+Current IPL      : 0
+
+The current PC:        80000454 is in the image:
+SYS$PUBLIC_VECTORS.EXE
+Base      End       Image Offset  Psect type
+80000000  80001A00  00000454      Nonpaged read only
+
+R26 (Return address):  00020078 is in the image:
+TEST1
+Base      End       Image Offset  Psect type
+00010000  000301FF  00020078      MAIN
+
+******************* Call Frame 1 ***************************************
+
+FP      = 7ED31AC0
+PDSC    = 00010000  Stack Frame Procedure Descriptor
+Next FP = 7ED31B30
+
+Procedure Entry: 00020000 is in the image:
+TEST1
+Base      End       Image Offset  Psect type
+00010000  000301FF  00020000      MAIN
+
+Return address:  9F2BF0D8 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+9F2B4000  9F2BF800  000130D8      Paged read only
+
+******************* Call Frame 2 ***************************************
+
+FP      = 7ED31B30
+PDSC    = 9F2C1A90  Stack Frame Procedure Descriptor
+Next FP = 7ED31BB0
+
+Procedure Entry: 9F2BEF60 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+9F2B4000  9F2BF800  00012F60      Paged read only
+
+Return address:  7EE40DCC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EDCC      Merged
+
+******************* Call Frame 3 ***************************************
+
+FP      = 7ED31BB0
+PDSC    = 7EE161E0  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 7EE40BDC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBDC      Merged
+
+Return address:  7EE40BC8 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBC8      Merged
+
+ *** The output was written into file 20800252.OUT ***
+
+
+
+
+D.9 WRONG VOLUME MOUNTED
+
+
+$ sho sys
+OpenVMS V7.1  on node GDCW3A  14-MAY-1997 16:16:50.21  Uptime  1 01:12:19
+  Pid    Process Name    State  Pri      I/O       CPU       Page flts  Pages
+21A0025E _FTA12:         LEF      9    10577   0 00:00:19.67      7701    107
+
+
+$ sho dev dk
+
+Device                  Device           Error    Volume         Free  Trans Mnt
+ Name                   Status           Count     Label        Blocks Count Cnt
+$3$DKA600:    (GDCW3A)  WrongVolume          0  AXPVMS070LS2     61680     2   1
+                        mounted alloc
+                        wrtlck
+
+
+$ RUN MWAIT
+
+
+          *** MWAIT /Alpha V2.0 - Process Hang Analyzer ***
+
+Please give target process PID : 21A0025E
+
+Process name     : _FTA12:             User name      : SALMINEN
+Terminal name    : FTA12:              Running on CPU : 0
+Extended PID     : 21A0025E            Internal PID   : 0001005E
+PCB address      : 815078C0            Cur/Base prior : 9/4
+PHD address      : 9A36C000
+JIB address      : 815A9680
+Process state    : LEF                 Local event flag wait
+Process status   : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : BFFFFFFF   EFN's = 30
+
+Direct   I/O count/limit    [IO's] :      149 /     150  In use : 1
+Buffered I/O count/limit    [IO's] :      150 /     150  In use : 0
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :    99616 /   99616  In use : 0
+Byte count/orig. limit     [Bytes] :    99616 /  100000  In use : 384
+File count/limit           [Files] :      199 /     200  In use : 1
+Timer queue count/limit   [Timers] :       64 /      64  In use : 0
+Working set quota/limit [Pagelets] :    78288 /   80000  In use : 1712
+Page file quota/limit      [Pages] :     3801 /    4096  In use : 295
+AST count/limit            [AST's] :      247 /     250  In use : 3
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     ----
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 008A6A01 / 008A5487 / 0000157A [hex] ticks
+Time since last event : 54 seconds 980 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      DKA600:
+0020 8159D180   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DIRECTORY.EXE;1
+0030 815B4280   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBOTS.EXE;1
+0040 815B3BC0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBRTL.EXE;1
+0050 8159C780   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0060 815AA780   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;240
+0070 818586C0   1 Busy DKA600:
+0080 00000000   0      FTA12:
+0090 00000000   0      FTA12:
+
+Current process registers:
+
+R0   = 00000000 00000001  R1   = 00000000 7FFA1F50  R2   = 00000000 7FF48000
+R3   = 00000000 40000000  R4   = 00000000 0000000F  R5   = 00000000 7FFD00E4
+R6   = 00000000 00000001  R7   = 00000000 00000002  R8   = 00000000 00000000
+R9   = 00000000 00000000  R10  = 00000000 7EF4D208  R11  = 00000000 7FFD00B8
+R12  = 00000000 7FFABAC4  R13  = FFFFFFFF 9984EA80  R14  = FFFFFFFF 815078C0
+R15  = 00000000 009B4354  R16  = FFFFFFFF 99806318  R17  = FFFFFFFF 815078C0
+R18  = 00000000 00000000  R19  = FFFFFFFF 99805000  R20  = 00000000 00000000
+R21  = 00000000 40000000  R22  = 00000000 000000C2  R23  = 00000000 00000000
+R24  = 00000000 00000000  R25  = 00000000 00000005  R26  = 00000000 00000FD2
+R27  = FFFFFFFF 9984B260  R28  = FFFFFFFF 815078C0  FP   = 00000000 7FFA5EC0
+PC   = FFFFFFFF 800DB8A4  PS   = 00000000 0000000A
+
+Current mode     : Executive
+Previous mode    : Supervisor
+Current IPL      : 0
+
+The current PC:        800DB8A4 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0001D8A4      Nonpaged read only
+
+R26 (Return address):  00000FD2 is not within a system or user image
+and is not a return address
+
+******************* Call Frame 1 ***************************************
+
+FP      = 7FFA5EC0
+PDSC    = 9984EA80  Stack Frame Procedure Descriptor
+Next FP = 7FFA5F20
+
+Procedure Entry: 800DB7D0 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0001D7D0      Nonpaged read only
+
+Return address:  802FA910 is in the image:
+[SYS$LDR]RMS.EXE
+Base      End       Image Offset  Psect type
+802E4000  80357E00  00016910      Nonpaged read only
+
+******************* Call Frame 2 ***************************************
+
+FP      = 7FFA5F20
+PDSC    = 9989CBA0  Stack Frame Procedure Descriptor
+Next FP = 7FFABB70
+
+Procedure Entry: 802FA518 is in the image:
+[SYS$LDR]RMS.EXE
+Base      End       Image Offset  Psect type
+802E4000  80357E00  00016518      Nonpaged read only
+
+Return address:  80082874 is in the image:
+EXCEPTION.EXE
+Base      End       Image Offset  Psect type
+80082000  80095600  00014874      Nonpaged read only
+
+******************* Call Frame 3 ***************************************
+
+FP      = 7FFABB70
+PDSC    = 7EE16290  Stack Frame Procedure Descriptor
+Next FP = 7ECB13C0
+
+Procedure Entry: 7EE40E8C is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EE8C      Merged
+
+Return address:  8005ACC0 is in the image:
+SYSTEM_PRIMITIVES_MIN.EXE
+Base      End       Image Offset  Psect type
+80028000  8005D600  00032CC0      Nonpaged read only
+
+******************* Call Frame 4 ***************************************
+
+FP      = 7ECB13C0
+PDSC    = 9F2C1768  Stack Frame Procedure Descriptor
+Next FP = 7ECB1410
+
+Procedure Entry: 9F2BE260 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+9F2B4000  9F2BF800  00012260      Paged read only
+
+Return address:  800C99F4 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0000B9F4      Nonpaged read only
+
+******************* Call Frame 5 ***************************************
+
+FP      = 7ECB1410
+PDSC    = 9984C940  Stack Frame Procedure Descriptor
+Next FP = 7ECB1480
+
+Procedure Entry: 800C9970 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0000B970      Nonpaged read only
+
+Return address:  800D93A8 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0001B3A8      Nonpaged read only
+
+******************* Call Frame 6 ***************************************
+
+FP      = 7ECB1480
+PDSC    = 9984E570  Stack Frame Procedure Descriptor
+Next FP = 7ECB15B0
+
+Procedure Entry: 800D6C20 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00018C20      Nonpaged read only
+
+Return address:  00000000 is not within a system or user image
+
+******************* Call Frame 7 ***************************************
+
+FP      = 7ECB15B0
+PDSC    = 9984ECB0  Stack Frame Procedure Descriptor
+Next FP = 7ECB1600
+
+Procedure Entry: 800DB920 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0001D920      Nonpaged read only
+
+Return address:  802FB9FC is in the image:
+[SYS$LDR]RMS.EXE
+Base      End       Image Offset  Psect type
+802E4000  80357E00  000179FC      Nonpaged read only
+
+******************* Call Frame 8 ***************************************
+
+FP      = 7ECB1600
+PDSC    = 99893CB0  Stack Frame Procedure Descriptor
+Next FP = 7ECB1650
+
+Procedure Entry: 802FB960 is in the image:
+[SYS$LDR]RMS.EXE
+Base      End       Image Offset  Psect type
+802E4000  80357E00  00017960      Nonpaged read only
+
+Return address:  802FCD64 is in the image:
+[SYS$LDR]RMS.EXE
+Base      End       Image Offset  Psect type
+802E4000  80357E00  00018D64      Nonpaged read only
+
+******************* Call Frame 9 ***************************************
+
+FP      = 7ECB1650
+PDSC    = 99893E20  Stack Frame Procedure Descriptor
+Next FP = 7ECB1690
+
+Procedure Entry: 802FCCC0 is in the image:
+[SYS$LDR]RMS.EXE
+Base      End       Image Offset  Psect type
+802E4000  80357E00  00018CC0      Nonpaged read only
+
+Return address:  80856D74 is in the image:
+LIBRTL
+Base      End       Image Offset  Psect type
+80800000  8089EC00  00056D74      System Resident Code
+
+******************* Call Frame 10 ***************************************
+
+FP      = 7ECB1690
+PDSC    = 7F01C788  Stack Frame Procedure Descriptor
+Next FP = 7ECB1740
+
+Procedure Entry: 80856A20 is in the image:
+LIBRTL
+Base      End       Image Offset  Psect type
+80800000  8089EC00  00056A20      System Resident Code
+
+Return address:  00032F80 is in the image:
+DIRECTORY
+Base      End       Image Offset  Psect type
+00010000  000605FF  00032F80      MAIN
+
+******************* Call Frame 11 ***************************************
+
+FP      = 7ECB1740
+PDSC    = 00010338  Stack Frame Procedure Descriptor
+Next FP = 7ECB1BB0
+
+Procedure Entry: 00030DA0 is in the image:
+DIRECTORY
+Base      End       Image Offset  Psect type
+00010000  000605FF  00030DA0      MAIN
+
+Return address:  7EE40DCC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EDCC      Merged
+
+******************* Call Frame 12 ***************************************
+
+FP      = 7ECB1BB0
+PDSC    = 7EE161E0  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 7EE40BDC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBDC      Merged
+
+Return address:  7EE40BC8 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBC8      Merged
+
+
+
+D.10 LEF on thread upcall
+
+This ADA program has made a call to the LIB$FIND_IMAGE_SYMBOL (in LIBRTL)
+and the thread upcall does not complete. The program hangs on a $SYNCH call
+(in LIBRTL) waiting for the EFN 128.
+The program has User mode AST's queued and the User mode AST's are disabled.
+
+$ MC MWAIT 21200284
+
+
+          *** MWAIT /Alpha V2.2 - Process Hang Analyzer ***
+
+
+Process name     : _FTA5:              User name      : SALMINEN
+Extended PID     : 21200284            Internal PID   : 00010084
+PCB address      : 814045C0            Terminal name  : FTA5:
+JIB address      : 813C8680            Cur/Base prior : 8/4
+PHD address      : 9FD44000
+KTB vector       : 814048AC            Threads        : 1
+Thread 00
+---------
+KTB address      : 814045C0            Running on CPU : 1
+Thread state     : LEF                 Local event flag wait
+Thread status    : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 4
+EFN wait mask    : DFFFFFFF  EFN = 128, EFN$C_ENF for thread upcall support
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :      148 /     150  In use : 2
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :    96864 /   96864  In use : 0
+Byte count/orig. limit     [Bytes] :    96864 /  100000  In use : 3136
+File count/limit           [Files] :      191 /     200  In use : 9
+Timer queue count/limit   [Timers] :       64 /      64  In use : 0
+Working set quota/limit [Pagelets] :    67152 /   80000  In use : 12848
+Page file quota/limit      [Pages] :     2718 /    4096  In use : 1378
+AST count/limit            [AST's] :      244 /     250  In use : 6
+AST's enabled               [KESU] :     KES-
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     ---U
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 0104570D / 010456F9 / 00000014 [hex] ticks
+Time since last event : 200 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW2Z$DRA2:
+0020 81110240   0      GDCW3B$DRA2:[USER5.SALMINEN]RUN_SHAREABLE_D.EXE;182
+0030 811B9C00   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]MOUNTSHR.EXE;1
+0040 811B7EC0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]INIT$SHR.EXE;1
+0050 811AE780   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0060 811BC300   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;242
+0070 811B66C0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DISMNTSHR.EXE;1
+0080 00000000   0      FTA5:
+0090 00000000   0      FTA5:
+00A0 81342380   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]SECURESHR.EXE;1
+00B0 811C59C0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBOTS.EXE;1
+00C0 811C5480   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBRTL.EXE;2
+00D0 81346000   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]SECURESHRP.EXE;1
+00E0 811BBB80   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]PTD$SERVICES_SHR.EXE;1
+00F0 811CA080   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]CRFSHR.EXE;1
+0100 811C37C0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]ADARTL.EXE;1
+0110 8138C300   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]CMA$RTL.EXE;1
+0120 811C6240   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]CMA$TIS_SHR.EXE;1
+0130 8110C1C0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]PTHREAD$RTL.EXE;1
+0140 811CA800   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]TRACE.EXE;1
+0150 811B5000   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]SYS$SSISHR.EXE;1
+0160 8117CD40   0      GDCW3B$DRA2:[TEST.TMC_BE.RUNTIME_AXP]AUTBE_AUX_RO_SHR.EXE;14
+0170 813AA200   0      GDCW3B$DRA2:[TEST.EXCEPTIONS.RUNTIME_AXP]EXCEPTIONS_CTRL_SHR.EXE;14
+0180 813AD340   0      GDCW3B$DRA2:[TEST.LIBRARY.RUNTIME_AXP]SHRLIB_SHR.EXE;18
+0190 811C8140   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]PAS$RTL.EXE;1
+01A0 811C69C0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DPML$SHR.EXE;1
+01B0 811C72C0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECC$SHR.EXE;2
+01C0 81394800   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]IMG$SHRLIB.EXE;1
+01D0 8137D200   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]XIE$SHRLIB.EXE;1
+01E0 81376A40   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECW$XLIBSHR.EXE;2
+01F0 81375E00   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]CDE$UNIX_ROUTINES.EXE;2
+0200 81342180   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECW$TRANSPORT_COMMON.EXE;1
+0210 8137BC40   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]CDA$ACCESS.EXE;1
+0220 81379100   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECW$XTSHR.EXE;1
+0230 8137A880   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECW$XMLIBSHR.EXE;1
+0240 8137B780   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECW$DXMLIBSHR.EXE;1
+0250 81342300   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LBRSHR.EXE;1
+0260 81378F80   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECW$DWTLIBSHR.EXE;1
+0270 813AFB80   0      GDCW3B$DRA2:[TEST.PRIMITIVES.RUNTIME_AXP]PRIMITIVES_SHR.EXE;19
+0280 8117A980   0      GDCW3B$DRA2:[TEST.PDC.RUNTIME_AXP]PDCAPPLIB_SHR.EXE;31
+0290 811BF580   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]SORTSHR.EXE;1
+02A0 813AE880   0      GDCW3B$DRA2:[TEST.PDR_COMMON.RUNTIME_AXP]PDRCOMMON_SHR.EXE;17
+02B0 813B0440   0      GDCW3B$DRA2:[TEST.RPC.RUNTIME_AXP]RPCLIB_SHR.EXE;14
+02C0 8119DB00   0      GDCW3B$DRA2:[TEST.PDC_COMMON.RUNTIME_AXP]PDCCLIB_SHR.EXE;23
+02D0 8119DD00   0      GDCW3B$DRA2:[TEST.APPL_LIBRARY.RUNTIME_AXP]APPLIB_SHR.EXE;23
+02E0 811D2D00   0      GDCW3B$DRA2:[TEST.PDC.RUNTIME_AXP]PDCLIB_SHR.EXE;31
+02F0 811D4D00   0      GDCW3B$DRA2:[TEST.PDC_COMMON.RUNTIME_AXP]SQLMOD_COMM_SHR.EXE;9
+0300 81389480   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]SQL$INT.EXE;11
+0310 81387B80   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]RDBSHR.EXE;8
+0320 811E1F80   0      GDCW3B$DRA2:[TEST.PDC.RUNTIME_AXP]SQLMOD_SHR.EXE;29
+0330 00000000   1 Busy MBA747: (Buffered I/O Quota available: 570 bytes)
+0340 00000000   1 Busy MBA748: (Buffered I/O Quota available: 570 bytes)
+0350 00000000   0      FTA5:
+
+Current process registers:
+
+R0   = 00000000 00000001  R1   = FFFFFFFF 9F4B9080  R2   = 00000000 00706120
+R3   = 00000000 0257EFC0  R4   = 00000000 00709AA0  R5   = FFFFFFFF 80857D7C
+R6   = 00000000 00000000  R7   = 00000000 0031A440  R8   = 00000000 00000000
+R9   = 00000000 0257F0E0  R10  = 00000000 9F4CECB0  R11  = 00000000 0031A448
+R12  = 00000000 01AB8250  R13  = FFFFFFFF 9F4CECB0  R14  = FFFFFFFF 9F4CECB0
+R15  = 00000000 00000001  R16  = FFFFFFFF 9F486318  R17  = FFFFFFFF 814045C0
+R18  = FFFFFFFF 9F4B9080  R19  = FFFFFFFF 9F485000  R20  = 00000000 7FFF0010
+R21  = FFFFFFFD FF7FE000  R22  = FFFFFFFF 800DBA18  R23  = 00000000 7FFA1FC0
+R24  = 00000000 00000000  R25  = 00000000 00000005  R26  = 00000000 00000FD2
+R27  = FFFFFFFF 9F4CB260  R28  = 00000000 00000001  FP   = 00000000 0257EEE0
+PC   = FFFFFFFF 800DBA18  PS   = 00000000 0000001B
+
+Current mode     : User
+Previous mode    : User
+Current IPL      : 0
+
+The current PC:        800DBA18 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0001DA18      Nonpaged read only
+
+R26 (Return address):  00000FD2 is not within a system or user image
+and is not a return address
+
+******************* Call Frame 1 ***************************************
+
+FP      = 0257EEE0
+PDSC    = 9F4CECB0  Stack Frame Procedure Descriptor
+Next FP = 0257EF30
+
+Procedure Entry: 800DB920 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0001D920      Nonpaged read only
+
+Return address:  006F70A0 is in the image:
+SYS$SSISHR
+Base      End       Image Offset  Psect type
+006E6000  007163FF  000110A0      GLOBAL
+
+******************* Call Frame 2 ***************************************
+
+FP      = 0257EF30
+PDSC    = 007061B0  Stack Frame Procedure Descriptor
+Next FP = 0257EF50
+
+Procedure Entry: 006F6FE0 is in the image:
+SYS$SSISHR
+Base      End       Image Offset  Psect type
+006E6000  007163FF  00010FE0      GLOBAL
+
+Return address:  006F668C is in the image:
+SYS$SSISHR
+Base      End       Image Offset  Psect type
+006E6000  007163FF  0001068C      GLOBAL
+
+******************* Call Frame 3 ***************************************
+
+FP      = 0257EF50
+PDSC    = 00706120  Stack Frame Procedure Descriptor
+Next FP = 0257EFE0
+
+Procedure Entry: 006F6278 is in the image:
+SYS$SSISHR
+Base      End       Image Offset  Psect type
+006E6000  007163FF  00010278      GLOBAL
+
+Return address:  006F7194 is in the image:
+SYS$SSISHR
+Base      End       Image Offset  Psect type
+006E6000  007163FF  00011194      GLOBAL
+
+******************* Call Frame 4 ***************************************
+
+FP      = 0257EFE0
+PDSC    = 0070CAA0  Stack Frame Procedure Descriptor
+Next FP = 0257F030
+
+Procedure Entry: 006F70D0 is in the image:
+SYS$SSISHR
+Base      End       Image Offset  Psect type
+006E6000  007163FF  000110D0      GLOBAL
+
+Return address:  80857D7C is in the image:
+LIBRTL
+Base      End       Image Offset  Psect type
+80800000  8089E000  00057D7C      System Resident Code
+
+******************* Call Frame 5 ***************************************
+
+FP      = 0257F030
+PDSC    = 0030C9B8  Stack Frame Procedure Descriptor
+Next FP = 0257F7A0
+
+Procedure Entry: 80857A78 is in the image:
+LIBRTL
+Base      End       Image Offset  Psect type
+80800000  8089E000  00057A78      System Resident Code
+
+Return address:  01D3E6A0 is in the image:
+SQL$INT
+Base      End       Image Offset  Psect type
+01D08000  01D785FF  000366A0      GLOBAL
+
+******************* Call Frame 6 ***************************************
+
+FP      = 0257F7A0
+PDSC    = 01D080C8  Stack Frame Procedure Descriptor
+Next FP = 0257F7D0
+
+Procedure Entry: 01D3E668 is in the image:
+SQL$INT
+Base      End       Image Offset  Psect type
+01D08000  01D785FF  00036668      GLOBAL
+
+Return address:  01D3B898 is in the image:
+SQL$INT
+Base      End       Image Offset  Psect type
+01D08000  01D785FF  00033898      GLOBAL
+
+******************* Call Frame 7 ***************************************
+
+FP      = 0257F7D0
+PDSC    = 01D08260  Stack Frame Procedure Descriptor
+Next FP = 0257F820
+
+Procedure Entry: 01D3B848 is in the image:
+SQL$INT
+Base      End       Image Offset  Psect type
+01D08000  01D785FF  00033848      GLOBAL
+
+Return address:  01D3B4F4 is in the image:
+SQL$INT
+Base      End       Image Offset  Psect type
+01D08000  01D785FF  000334F4      GLOBAL
+
+******************* Call Frame 8 ***************************************
+
+FP      = 0257F820
+PDSC    = 01D083E0  Stack Frame Procedure Descriptor
+Next FP = 0257FA50
+
+Procedure Entry: 01D3AFE0 is in the image:
+SQL$INT
+Base      End       Image Offset  Psect type
+01D08000  01D785FF  00032FE0      GLOBAL
+
+Return address:  01D38548 is in the image:
+SQL$INT
+Base      End       Image Offset  Psect type
+01D08000  01D785FF  00030548      GLOBAL
+
+******************* Call Frame 9 ***************************************
+
+FP      = 0257FA50
+PDSC    = 01C58C68  Stack Frame Procedure Descriptor
+Next FP = 0257FA90
+
+Procedure Entry: 01C99358 is in the image:
+SQLMOD_COMM_SHR
+Base      End       Image Offset  Psect type
+01C56000  01D067FF  00043358      GLOBAL
+
+Return address:  01C98FC4 is in the image:
+SQLMOD_COMM_SHR
+Base      End       Image Offset  Psect type
+01C56000  01D067FF  00042FC4      GLOBAL
+
+******************* Call Frame 10 ***************************************
+
+FP      = 0257FA90
+PDSC    = 01C58BB8  Stack Frame Procedure Descriptor
+Next FP = 0257FAB0
+
+Procedure Entry: 01C98F74 is in the image:
+SQLMOD_COMM_SHR
+Base      End       Image Offset  Psect type
+01C56000  01D067FF  00042F74      GLOBAL
+
+Return address:  01C99894 is in the image:
+SQLMOD_COMM_SHR
+Base      End       Image Offset  Psect type
+01C56000  01D067FF  00043894      GLOBAL
+
+******************* Call Frame 11 ***************************************
+
+FP      = 0257FAB0
+PDSC    = 01C58D18  Stack Frame Procedure Descriptor
+Next FP = 0257FB10
+
+Procedure Entry: 01C99574 is in the image:
+SQLMOD_COMM_SHR
+Base      End       Image Offset  Psect type
+01C56000  01D067FF  00043574      GLOBAL
+
+Return address:  01B608D4 is in the image:
+PDCLIB_SHR
+Base      End       Image Offset  Psect type
+01A90000  01C553FF  000D08D4      GLOBAL
+
+******************* Call Frame 12 ***************************************
+
+FP      = 0257FB10
+PDSC    = 01AB8070  Stack Frame Procedure Descriptor
+Next FP = 0257FB70
+
+Procedure Entry: 01B60868 is in the image:
+PDCLIB_SHR
+Base      End       Image Offset  Psect type
+01A90000  01C553FF  000D0868      GLOBAL
+
+Return address:  01B60CBC is in the image:
+PDCLIB_SHR
+Base      End       Image Offset  Psect type
+01A90000  01C553FF  000D0CBC      GLOBAL
+
+******************* Call Frame 13 ***************************************
+
+FP      = 0257FB70
+PDSC    = 01AB8250  Stack Frame Procedure Descriptor
+Next FP = 0257FB90
+
+Procedure Entry: 01B60C98 is in the image:
+PDCLIB_SHR
+Base      End       Image Offset  Psect type
+01A90000  01C553FF  000D0C98      GLOBAL
+
+Return address:  004560BC is in the image:
+ADARTL
+Base      End       Image Offset  Psect type
+00436000  004D6FFF  000200BC      GLOBAL
+
+******************* Call Frame 14 ***************************************
+
+FP      = 0257FB90
+PDSC    = 0043C440  Stack Frame Procedure Descriptor
+Next FP = 0257FBC0
+
+Procedure Entry: 00456040 is in the image:
+ADARTL
+Base      End       Image Offset  Psect type
+00436000  004D6FFF  00020040      GLOBAL
+
+Return address:  0045D4DC is in the image:
+ADARTL
+Base      End       Image Offset  Psect type
+00436000  004D6FFF  000274DC      GLOBAL
+
+******************* Call Frame 15 ***************************************
+
+FP      = 0257FBC0
+PDSC    = 004371C0  Stack Frame Procedure Descriptor
+Next FP = 0257FD20
+
+Procedure Entry: 0045C5C0 is in the image:
+ADARTL
+Base      End       Image Offset  Psect type
+00436000  004D6FFF  000265C0      GLOBAL
+
+Return address:  01B610B0 is in the image:
+PDCLIB_SHR
+Base      End       Image Offset  Psect type
+01A90000  01C553FF  000D10B0      GLOBAL
+
+******************* Call Frame 16 ***************************************
+
+FP      = 0257FD20
+PDSC    = 01AB8310  Stack Frame Procedure Descriptor
+Next FP = 0257FD80
+
+Procedure Entry: 01B60F48 is in the image:
+PDCLIB_SHR
+Base      End       Image Offset  Psect type
+01A90000  01C553FF  000D0F48      GLOBAL
+
+Return address:  004613E4 is in the image:
+ADARTL
+Base      End       Image Offset  Psect type
+00436000  004D6FFF  0002B3E4      GLOBAL
+
+******************* Call Frame 17 ***************************************
+
+FP      = 0257FD80
+PDSC    = 00437630  Stack Frame Procedure Descriptor
+Next FP = 7ED2D770
+
+Procedure Entry: 00461258 is in the image:
+ADARTL
+Base      End       Image Offset  Psect type
+00436000  004D6FFF  0002B258      GLOBAL
+
+Return address:  0059E148 is in the image:
+PTHREAD$RTL
+Base      End       Image Offset  Psect type
+00552000  005F35FF  0004C148      GLOBAL
+
+******************* Call Frame 18 ***************************************
+
+FP      = 7ED2D770
+PDSC    = 0043A490  Stack Frame Procedure Descriptor
+Next FP = 7ED2D7B0
+
+Procedure Entry: 004753B0 is in the image:
+ADARTL
+Base      End       Image Offset  Psect type
+00436000  004D6FFF  0003F3B0      GLOBAL
+
+Return address:  0003005C is in the image:
+RUN_SHAREABLE_D
+Base      End       Image Offset  Psect type
+00010000  000605FF  0003005C      MAIN
+
+******************* Call Frame 19 ***************************************
+
+FP      = 7ED2D7B0
+PDSC    = 00010050  Stack Frame Procedure Descriptor
+Next FP = 7ED2D810
+
+Procedure Entry: 00030000 is in the image:
+RUN_SHAREABLE_D
+Base      End       Image Offset  Psect type
+00010000  000605FF  00030000      MAIN
+
+Return address:  000353A4 is in the image:
+RUN_SHAREABLE_D
+Base      End       Image Offset  Psect type
+00010000  000605FF  000353A4      MAIN
+
+******************* Call Frame 20 ***************************************
+
+FP      = 7ED2D810
+PDSC    = 00010BA0  Stack Frame Procedure Descriptor
+Next FP = 7ED2D860
+
+Procedure Entry: 00035500 is in the image:
+RUN_SHAREABLE_D
+Base      End       Image Offset  Psect type
+00010000  000605FF  00035500      MAIN
+
+Return address:  0059E148 is in the image:
+PTHREAD$RTL
+Base      End       Image Offset  Psect type
+00552000  005F35FF  0004C148      GLOBAL
+
+******************* Call Frame 21 ***************************************
+
+FP      = 7ED2D860
+PDSC    = 00555990  Stack Frame Procedure Descriptor
+Next FP = 7ED2DA70
+
+Procedure Entry: 0059D818 is in the image:
+PTHREAD$RTL
+Base      End       Image Offset  Psect type
+00552000  005F35FF  0004B818      GLOBAL
+
+Return address:  00582664 is in the image:
+PTHREAD$RTL
+Base      End       Image Offset  Psect type
+00552000  005F35FF  00030664      GLOBAL
+
+******************* Call Frame 22 ***************************************
+
+FP      = 7ED2DA70
+PDSC    = 00552048  Stack Frame Procedure Descriptor
+Next FP = 7ED31B30
+
+Procedure Entry: 00582148 is in the image:
+PTHREAD$RTL
+Base      End       Image Offset  Psect type
+00552000  005F35FF  00030148      GLOBAL
+
+Return address:  A503F0D8 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+A5034000  A503F800  000130D8      Paged read only
+
+******************* Call Frame 23 ***************************************
+
+FP      = 7ED31B30
+PDSC    = A5041A90  Stack Frame Procedure Descriptor
+Next FP = 7ED31BB0
+
+Procedure Entry: A503EF60 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+A5034000  A503F800  00012F60      Paged read only
+
+Return address:  7EE40DCC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EDCC      Merged
+
+******************* Call Frame 24 ***************************************
+
+FP      = 7ED31BB0
+PDSC    = 7EE161E0  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 7EE40BDC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBDC      Merged
+
+Return address:  7EE40BC8 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBC8      Merged
+
+
+
+D.11 Set Host
+
+$ @show_links
+
+              *****************************
+              *   SHOW_LINKS.COM  V1.3    *
+              *   Show DECnet/OSI Links   *
+              *****************************
+
+
+   This procedure simulates the PHASE IV NCP command
+   SHOW KNOWN LINKS for DECnet/OSI
+
+   Collecting data...
+
+
+    LINK
+ REM     LOC    DIRECTION   LOCAL USER          PID       PROCESS NAME   
+--------------  ---------   ---------------     --------  ---------------
+ 169     75     OUTGOING    [0,0]SALMINEN       20800251  _FTA5:         
+
+
+REMOTE USER                  NODE    PORT
+---------------------------  ------  ---------------
+42                           GDC127  OSI$PORT_0_004B
+
+
+GDCW3A>mc mwait 20800251
+
+
+          *** MWAIT /Alpha V2.4 - Process Hang Analyzer ***
+
+
+Process name     : _FTA5:              User name      : SALMINEN
+Extended PID     : 20800251            Internal PID   : 00010051
+PCB address      : 810A5B80            Terminal name  : FTA5:
+JIB address      : 811042C0            Cur/Base prior : 9/4
+PHD address      : 9FE10000
+KTB vector       : 810A5E6C            Threads        : 1
+Thread 00
+---------
+KTB address      : 810A5B80            Running on CPU : 1
+Thread state     : HIB                 Hibernate wait
+Thread status    : 02040401  RES       Resident, in balance set
+                             SSRWAIT   System service resource wait disable
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : FFFFFFFE
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :      146 /     150  In use : 4
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :    95968 /   96352  In use : 384
+Byte count/orig. limit     [Bytes] :    95968 /  100000  In use : 4032
+File count/limit           [Files] :      199 /     200  In use : 1
+Timer queue count/limit   [Timers] :       64 /      64  In use : 0
+Working set quota/limit [Pagelets] :    77776 /   80000  In use : 2224
+Page file quota/limit      [Pages] :     3864 /    4096  In use : 232
+AST count/limit            [AST's] :      242 /     250  In use : 8
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     ----
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 00065808 / 00064E54 / 000009B4 [hex] ticks
+Time since last event : 24 seconds 840 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW3B$DRA2:
+0020 811B5640   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]RTPAD.EXE;1
+0030 811CFA00   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBOTS.EXE;1
+0040 811CF580   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBRTL.EXE;2
+0050 811B8E40   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0060 811C6D80   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;242
+0070 00000000   1 Busy MBA175: (Buffered I/O Quota available: 1050 bytes)
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 8132C000
+       EFN           : 00000000  00000000
+       FUNC          : 00000021  00000033 IO$_READLBLK (or IO$_READVBLK)
+       IOST1         : 40000001
+       IOSB address  : 00000000
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 000003EB  00001003 Bytes
+       AST address   : 00004B98           is in the image:
+
+RTPAD
+Base      End       Image Offset  Psect type
+00004000  0002C9FF  00004B98      MAIN
+
+       AST parameter : 0000A070  00041072
+       P1            : 0000A09F  00041119
+       P2            : 000003EB  00001003
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0080 00000000   0      FTA5:
+0090 00000000   0      FTA5:
+00A0 00000000   1 Busy FTA5:
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 813EBFC0
+       EFN           : 00000000  00000000
+       FUNC          : 0000C000  00049152 IO$_NOP
+       IOST1         : 00000000
+       IOSB address  : 000404E4
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000100  00000256 Bytes
+       AST address   : 00004B98           is in the image:
+
+RTPAD
+Base      End       Image Offset  Psect type
+00004000  0002C9FF  00004B98      MAIN
+
+       AST parameter : 000404E0  00263392
+       P1            : 0004095C  00264540
+       P2            : 00000100  00000256
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 000411B8  00266680
+       P6            : 00000030  00000048
+
+00B0 00000000   0      FTA5:
+00C0 00000000   0      FTA5:
+00D0 00000000   0      NET85:
+00E0 00000000   1 Busy MBA176: (Buffered I/O Quota available: 1056 bytes)
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 81034740
+       EFN           : 00000000  00000000
+       FUNC          : 00000021  00000033 IO$_READLBLK (or IO$_READVBLK)
+       IOST1         : 00090001
+       IOSB address  : 00009F74
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000028  00000040 Bytes
+       AST address   : 00004B98           is in the image:
+
+RTPAD
+Base      End       Image Offset  Psect type
+00004000  0002C9FF  00004B98      MAIN
+
+       AST parameter : 00009F70  00040816
+       P1            : 00009F98  00040856
+       P2            : 00000028  00000040
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+00F0 81100214   1 Busy NET86:
+Session Control Port : SCL$PORT$1201004A
+OSI Transport Port   : OSI$PORT_0_004B
+
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 812C9EC0
+       EFN           : 00000000  00000000
+       FUNC          : 00000021  00000033 IO$_READLBLK (or IO$_READVBLK)
+       IOST1         : 00140001
+       IOSB address  : 00040D74
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 0000041A  00001050 Bytes
+       AST address   : 00004B98           is in the image:
+
+RTPAD
+Base      End       Image Offset  Psect type
+00004000  0002C9FF  00004B98      MAIN
+
+       AST parameter : 00040D70  00265584
+       P1            : 00040D98  00265624
+       P2            : 0000041A  00001050
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0100 00000000   0      FTA5:
+0110 00000000   0      FTA5:
+0120 00000000   0      FTA5:
+0130 00000000   0      FTA5:
+
+Current process registers:
+
+R0   = 00000000 00000001  R1   = FFFFFFFF 9F4C0C80  R2   = 00000000 00000000
+R3   = 00000000 7EE6B869  R4   = 00000000 7FFCF818  R5   = 00000000 7FFCF944
+R6   = 00000000 00000000  R7   = 00000000 00000001  R8   = 00000000 7FFAC208
+R9   = 00000000 7FFAC410  R10  = 00000000 7FFAD238  R11  = 00000000 7FFCE3E0
+R12  = 00000000 00000000  R13  = FFFFFFFF 9F4CD480  R14  = 00000000 00000000
+R15  = 00000000 009BA7DD  R16  = 00000000 00000003  R17  = 0000FFFE 00007204
+R18  = 00000000 00000000  R19  = FFFFFFFF 9F485000  R20  = 00000000 0000000E
+R21  = 00000000 00000043  R22  = 00000000 00000000  R23  = 00000000 00000003
+R24  = 0000FFFE 00007204  R25  = 00000000 00000000  R26  = FFFFFFFF 800CEAB0
+R27  = FFFFFFFF 9F4CB260  R28  = 00000000 00000043  FP   = 00000000 7ED31B50
+PC   = FFFFFFFF 80001924  PS   = 00000000 0000001B
+
+Current mode     : User
+Previous mode    : User
+Current IPL      : 0
+
+The current PC:        80001924 is in the image:
+SYS$PUBLIC_VECTORS.EXE
+Base      End       Image Offset  Psect type
+80000000  80001A00  00001924      Nonpaged read only
+
+R26 (Return address):  800CEAB0 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00010AB0      Nonpaged read only
+
+******************* Call Frame 1 ***************************************
+
+FP      = 7ED31B50
+PDSC    = 9F4CD480  Stack Frame Procedure Descriptor
+Next FP = 7ED31B70
+
+Procedure Entry: 800CEA00 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00010A00      Nonpaged read only
+
+Return address:  00013428 is in the image:
+RTPAD
+Base      End       Image Offset  Psect type
+00004000  0002C9FF  00013428      MAIN
+
+******************* Call Frame 2 ***************************************
+
+FP      = 7ED31B70
+PDSC    = 00004650  Stack Frame Procedure Descriptor
+Next FP = 7ED31BB0
+
+Procedure Entry: 000133C0 is in the image:
+RTPAD
+Base      End       Image Offset  Psect type
+00004000  0002C9FF  000133C0      MAIN
+
+Return address:  7EE40DCC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EDCC      Merged
+
+******************* Call Frame 3 ***************************************
+
+FP      = 7ED31BB0
+PDSC    = 7EE161E0  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 7EE40BDC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBDC      Merged
+
+Return address:  7EE40BC8 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBC8      Merged
+
+
+
+
+D.12 RLOGIN
+
+
+$ UCX SHO DEV
+                            Port                       Remote
+Device_socket  Type    Local  Remote  Service           Host
+
+  bg3         STREAM     512       0  REXEC            0.0.0.0
+  bg4         STREAM     513       0  RLOGIN           0.0.0.0
+  bg5         STREAM     514       0  RSH              0.0.0.0
+  bg6         STREAM      23       0  TELNET           0.0.0.0
+  bg12        STREAM       1       0  RDBSERVER        0.0.0.0
+  bg13        STREAM    1023     513                   GDCW3A
+  bg14        STREAM     513    1023  RLOGIN           GDCW3A
+
+
+$ MC MWAIT 20800251
+
+
+          *** MWAIT /Alpha V2.4 - Process Hang Analyzer ***
+
+
+Process name     : _FTA5:              User name      : SALMINEN
+Extended PID     : 20800251            Internal PID   : 00010051
+PCB address      : 810A5B80            Terminal name  : FTA5:
+JIB address      : 811042C0            Cur/Base prior : 5/4
+PHD address      : 9FE10000
+KTB vector       : 810A5E6C            Threads        : 1
+Thread 00
+---------
+KTB address      : 810A5B80            Running on CPU : 0
+Thread state     : HIB                 Hibernate wait
+Thread status    : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : FFFFFFFD
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :      148 /     150  In use : 2
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :    98400 /   98528  In use : 128
+Byte count/orig. limit     [Bytes] :    98400 /  100000  In use : 1600
+File count/limit           [Files] :      200 /     200  In use : 0
+Timer queue count/limit   [Timers] :       64 /      64  In use : 0
+Working set quota/limit [Pagelets] :    76928 /   80000  In use : 3072
+Page file quota/limit      [Pages] :     3825 /    4096  In use : 271
+AST count/limit            [AST's] :      246 /     250  In use : 4
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     ----
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 0006C072 / 0006B908 / 0000076A [hex] ticks
+Time since last event : 18 seconds 980 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW3B$DRA0:
+0020 81332740   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]UCX$RLOGIN.EXE;1
+0030 811CFA00   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBOTS.EXE;1
+0040 811CF580   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBRTL.EXE;2
+0050 811B8E40   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0060 811C6D80   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;242
+0070 811D1480   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECC$SHR.EXE;2
+0080 00000000   0      FTA5:
+0090 00000000   0      FTA5:
+00A0 811D0B80   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DPML$SHR.EXE;1
+00B0 811D0400   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]CMA$TIS_SHR.EXE;1
+00C0 81311440   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]UCX$ACCESS_SHR.EXE;1
+00D0 00000000   0      FTA5:
+00E0 00000000   1 Busy FTA5:
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 813AE480
+       EFN           : 00000001  00000001
+       FUNC          : 00000200  00000512 IO$_NOP
+       IOST1         : 00000000
+       IOSB address  : 0015C810
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000001  00000001 Bytes
+       AST address   : 00010F80           is in the image:
+
+UCX$RLOGIN
+Base      End       Image Offset  Psect type
+00010000  000905FF  00010F80      MAIN
+
+       AST parameter : 00000001  00000001
+       P1            : 0015C862  01427554
+       P2            : 00000001  00000001
+       P3            : 00000000  00000000
+       P4            : 0015C85A  01427546
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+00F0 00000000   1 Busy BG13:
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 813DA0C0
+       EFN           : 00000002  00000002
+       FUNC          : 00000021  00000033 IO$_READLBLK (or IO$_READVBLK)
+       IOST1         : 00000001
+       IOSB address  : 0015C808
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000000  00000000 Bytes
+       AST address   : 00010BD0           is in the image:
+
+UCX$RLOGIN
+Base      End       Image Offset  Psect type
+00010000  000905FF  00010BD0      MAIN
+
+       AST parameter : 00000001  00000001
+       P1            : 0015CD7A  01428858
+       P2            : 00001BD9  00007129
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+
+Current process registers:
+
+R0   = 00000000 00000001  R1   = FFFFFFFF 9F4C0C80  R2   = 00000000 000107B8
+R3   = 00000000 0015C808  R4   = 00000000 0015C808  R5   = 00000000 00021030
+R6   = 00000000 000823C0  R7   = 00000000 000824B0  R8   = 00000000 0015C808
+R9   = 00000000 08018079  R10  = 00000000 00000001  R11  = 00000000 00000000
+R12  = 00000000 00082470  R13  = FFFFFFFF 9F4CD480  R14  = 00000000 00000000
+R15  = 00000000 009BA7DD  R16  = 00000000 0016299F  R17  = 00000000 00000000
+R18  = 00000000 0015F97C  R19  = 00000000 00000000  R20  = 00000000 001629B3
+R21  = 00000000 00000000  R22  = 00000000 00000000  R23  = 00000000 0016299F
+R24  = 00000000 00000000  R25  = 00000000 00000000  R26  = FFFFFFFF 800CEAB0
+R27  = FFFFFFFF 9F4CB260  R28  = 00000000 00000000  FP   = 00000000 7ED318B0
+PC   = FFFFFFFF 80001924  PS   = 00000000 0000001B
+
+Current mode     : User
+Previous mode    : User
+Current IPL      : 0
+
+The current PC:        80001924 is in the image:
+SYS$PUBLIC_VECTORS.EXE
+Base      End       Image Offset  Psect type
+80000000  80001A00  00001924      Nonpaged read only
+
+R26 (Return address):  800CEAB0 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00010AB0      Nonpaged read only
+
+******************* Call Frame 1 ***************************************
+
+FP      = 7ED318B0
+PDSC    = 9F4CD480  Stack Frame Procedure Descriptor
+Next FP = 7ED318E0
+
+Procedure Entry: 800CEA00 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00010A00      Nonpaged read only
+
+Return address:  000320A8 is in the image:
+UCX$RLOGIN
+Base      End       Image Offset  Psect type
+00010000  000905FF  000320A8      MAIN
+
+******************* Call Frame 2 ***************************************
+
+FP      = 7ED318E0
+PDSC    = 000107B8  Stack Frame Procedure Descriptor
+Next FP = 7ED319F0
+
+Procedure Entry: 000310A0 is in the image:
+UCX$RLOGIN
+Base      End       Image Offset  Psect type
+00010000  000905FF  000310A0      MAIN
+
+Return address:  000306DC is in the image:
+UCX$RLOGIN
+Base      End       Image Offset  Psect type
+00010000  000905FF  000306DC      MAIN
+
+******************* Call Frame 3 ***************************************
+
+FP      = 7ED319F0
+PDSC    = 00010250  Stack Frame Procedure Descriptor
+Next FP = 7ED31B60
+
+Procedure Entry: 00030080 is in the image:
+UCX$RLOGIN
+Base      End       Image Offset  Psect type
+00010000  000905FF  00030080      MAIN
+
+Return address:  00030050 is in the image:
+UCX$RLOGIN
+Base      End       Image Offset  Psect type
+00010000  000905FF  00030050      MAIN
+
+******************* Call Frame 4 ***************************************
+
+FP      = 7ED31B60
+PDSC    = 000102F0  Stack Frame Procedure Descriptor
+Next FP = 7ED31BB0
+
+Procedure Entry: 00030000 is in the image:
+UCX$RLOGIN
+Base      End       Image Offset  Psect type
+00010000  000905FF  00030000      MAIN
+
+Return address:  7EE40DCC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EDCC      Merged
+
+******************* Call Frame 5 ***************************************
+
+FP      = 7ED31BB0
+PDSC    = 7EE161E0  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 7EE40BDC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBDC      Merged
+
+Return address:  7EE40BC8 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBC8      Merged
+
+
+
+D.13 Mailbox read from another process
+
+
+The process AUDIT_SERVER has a outstanding read to MBA3:.
+
+
+$ MC MWAIT 2080020D
+
+
+          *** MWAIT /Alpha V2.4 - Process Hang Analyzer ***
+
+
+Process name     : OPCOM               User name      : SYSTEM
+Extended PID     : 2080020D            Internal PID   : 0001000D
+PCB address      : 8121B500            Terminal name  : -Detached-
+JIB address      : 8121B840            Cur/Base prior : 8/6
+PHD address      : 9F7F4000
+KTB vector       : 8121B7EC            Threads        : 1
+Thread 00
+---------
+KTB address      : 8121B500            Running on CPU : 2
+Thread state     : HIB                 Hibernate wait
+Thread status    : 00140001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             LOGIN     Login without reading UAF
+EFN wait cluster : 0
+EFN wait mask    : 9F4858B0
+
+Direct   I/O count/limit    [IO's] :      100 /     100  In use : 0
+Buffered I/O count/limit    [IO's] :       99 /     100  In use : 1
+Sub-process count/limit    [Procs] :        0 /      64  In use : 0
+Byte count/limit           [Bytes] :    99680 /   99680  In use : 0
+Byte count/orig. limit     [Bytes] :    99680 /  100000  In use : 320
+File count/limit           [Files] :      199 /     200  In use : 1
+Timer queue count/limit   [Timers] :       63 /      64  In use : 1
+Working set quota/limit [Pagelets] :    79216 /   80000  In use : 784
+Page file quota/limit      [Pages] :     3921 /    4096  In use : 175
+AST count/limit            [AST's] :      198 /     200  In use : 2
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     ----
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 000D2914 / 000CF643 / 000032D1 [hex] ticks
+Time since last event : 2 minutes 10 seconds 90 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW3B$DRA0:
+0020 8121BBC0   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]OPCOM.EXE;1
+0030 00000000   1 Busy MBA2: (Buffered I/O Quota available: 65535 bytes)
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 8132C000
+       EFN           : 00000003  00000003
+       FUNC          : 00000021  00000033 IO$_READLBLK (or IO$_READVBLK)
+       IOST1         : 00720001
+       IOSB address  : 00040A00
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000A00  00002560 Bytes
+       AST address   : 00032E60           is in the image:
+
+OPCOM
+Base      End       Image Offset  Psect type
+00010000  000903FF  00032E60      MAIN
+
+       AST parameter : 00000000  00000000
+       P1            : 000A4AE0  00674528
+       P2            : 00000A00  00002560
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0040 00000000   0      MBA3: (Buffered I/O Quota available: 65535 bytes)
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       Internal PID  : 0001000E           Process name:
+       PID           : 2080020E           AUDIT_SERVER
+       IRP address   : 81102B40
+       EFN           : 00000000  00000000
+       FUNC          : 00000021  00000033 IO$_READLBLK (or IO$_READVBLK)
+       IOST1         : 00000001
+       IOSB address  : 000208D4
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 0000FFFF  00065535 Bytes
+       AST address   : 00011A50           is in the image:
+
+AUDIT_SERVER
+Base      End       Image Offset  Psect type
+00010000  000707FF  00011A50      MAIN
+
+       AST parameter : 000208D4  00133332
+       P1            : 0016A070  01482864
+       P2            : 0000FFFF  00065535
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+
+Current process registers:
+
+R0   = 00000000 00000001  R1   = FFFFFFFF 9F4C0C80  R2   = 00000000 00032FD0
+R3   = 00000000 00037D78  R4   = 00000000 0004006C  R5   = 00000000 000405D8
+R6   = 00000000 00040050  R7   = 00000000 00001000  R8   = 00000000 00000000
+R9   = FFFFFFFF A4F39358  R10  = 00000000 7FFCF800  R11  = 00000000 7FF1A1A2
+R12  = 00000000 00000000  R13  = FFFFFFFF 9F4CD480  R14  = 00000000 00000000
+R15  = 00000000 009BA7D4  R16  = 00000000 00040050  R17  = 0000FFFE 00007204
+R18  = FFFFFFFF 8102BA40  R19  = 00000000 00000001  R20  = 00000000 00000000
+R21  = 00000000 00000011  R22  = 00000000 00000000  R23  = 00000000 00040050
+R24  = 0000FFFE 00007204  R25  = 00000000 00000000  R26  = FFFFFFFF 800CEAB0
+R27  = FFFFFFFF 9F4CB260  R28  = 00000000 00000011  FP   = 00000000 7EE85AF0
+PC   = FFFFFFFF 80001924  PS   = 00000000 0000001B
+
+Current mode     : User
+Previous mode    : User
+Current IPL      : 0
+
+The current PC:        80001924 is in the image:
+SYS$PUBLIC_VECTORS.EXE
+Base      End       Image Offset  Psect type
+80000000  80001A00  00001924      Nonpaged read only
+
+R26 (Return address):  800CEAB0 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00010AB0      Nonpaged read only
+
+******************* Call Frame 1 ***************************************
+
+FP      = 7EE85AF0
+PDSC    = 9F4CD480  Stack Frame Procedure Descriptor
+Next FP = 7EE85B10
+
+Procedure Entry: 800CEA00 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00010A00      Nonpaged read only
+
+Return address:  000501E4 is in the image:
+OPCOM
+Base      End       Image Offset  Psect type
+00010000  000903FF  000501E4      MAIN
+
+******************* Call Frame 2 ***************************************
+
+FP      = 7EE85B10
+PDSC    = 00032FD0  Stack Frame Procedure Descriptor
+Next FP = 7EE85BA0
+
+Procedure Entry: 00050000 is in the image:
+OPCOM
+Base      End       Image Offset  Psect type
+00010000  000903FF  00050000      MAIN
+
+Return address:  A4F25DCC is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+A4F24000  A4F36C00  00031DCC      Paged read only
+
+******************* Call Frame 3 ***************************************
+
+FP      = 7EE85BA0
+PDSC    = A4F39250  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: A4F25C90 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+A4F24000  A4F36C00  00031C90      Paged read only
+
+Return address:  A4F25C7C is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+A4F24000  A4F36C00  00031C7C      Paged read only
+
+
+
+
+D.14 RWMBX, Process waiting for Mailbox space
+
+
+Note: this is a special Mailbox I/O case, because the QIO's are performed with 
+      the I/O modifier IO$M_NOW, the process I/O count will not be charged.
+
+
+$ SHO SYS
+OpenVMS V7.1  on node GDCW2Z  19-SEP-1997 15:25:14.77  Uptime  1 01:38:19
+  Pid    Process Name    State  Pri      I/O       CPU       Page flts  Pages
+20600248 _FTA1:          RWMBX    6      205   0 00:00:09.76       197    154
+
+
+$ MC MWAIT 20600248
+
+
+          *** MWAIT /Alpha V2.8 - Process Hang Analyzer ***
+
+
+ *** The output will be written into file 20600248.OUT ***
+
+Process name     : _FTA1:              User name      : SALMINEN
+Extended PID     : 20600248            Internal PID   : 00010048
+PCB address      : 811D5EC0            Terminal name  : FTA1:
+JIB address      : 8116C3C0            Cur/Base prior : 6/4
+PHD address      : 9FE10000
+KTB vector       : 811D61AC            Threads        : 1
+Thread 00
+---------
+KTB address      : 811D5EC0            Running on CPU : 2
+Thread state     : RWMBX               Mailbox full
+Thread status    : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : 00000002  Process is waiting for Mailbox space
+
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :      150 /     150  In use : 0
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :    99296 /   99296  In use : 0
+Byte count/orig. limit     [Bytes] :    99296 /  100000  In use : 704
+File count/limit           [Files] :      199 /     200  In use : 1
+Timer queue count/limit   [Timers] :       64 /      64  In use : 0
+Working set quota/limit [Pagelets] :    77536 /   80000  In use : 2464
+Page file quota/limit      [Pages] :     3853 /    4096  In use : 243
+AST count/limit            [AST's] :      243 /     250  In use : 7
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ---U
+AST's queued                [KESU] :     ---U
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 00757213 / 007571BD / 00000056 [hex] ticks
+Time since last event : 860 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW3B$DRA2:
+0020 81021A00   0      GDCW3B$DRA2:[USER5.SALMINEN.MWAIT]TEST4.EXE;9
+0030 811B4180   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBRTL.EXE;2
+0040 811B5FC0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECC$SHR.EXE;2
+0050 8119D140   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0060 811AAB40   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;242
+0070 811B56C0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DPML$SHR.EXE;1
+0080 00000000   0      FTA1:
+0090 00000000   0      FTA1:
+00A0 811B4F40   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]CMA$TIS_SHR.EXE;1
+00B0 811B4AC0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBOTS.EXE;1
+00C0 00000000   0      MBA345: (Buffered I/O Quota available: 2 bytes)
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 811BA080
+       EFN           : 00000000  00000000
+       FUNC          : 00000060  00000096 IO$_WRITELBLK (or IO$_WRITEVBLK)
+       IOST1         : 00080001
+       IOSB address  : 7ED31848
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000008  00000008 Bytes
+       AST address   : 000100A0           is in the image:
+
+TEST4
+Base      End       Image Offset  Psect type
+00010000  000401FF  000100A0      MAIN
+
+       AST parameter : 000000C0  00000192
+       P1            : 7ED31850  2127763536
+       P2            : 00000008  00000008
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+       I/O-Packet   2       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 8101DE80
+       EFN           : 00000000  00000000
+       FUNC          : 00000060  00000096 IO$_WRITELBLK (or IO$_WRITEVBLK)
+       IOST1         : 00080001
+       IOSB address  : 7ED31848
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000008  00000008 Bytes
+       AST address   : 000100A0           is in the image:
+
+TEST4
+Base      End       Image Offset  Psect type
+00010000  000401FF  000100A0      MAIN
+
+       AST parameter : 000000C0  00000192
+       P1            : 7ED31850  2127763536
+       P2            : 00000008  00000008
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+       I/O-Packet   3       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 810217C0
+       EFN           : 00000000  00000000
+       FUNC          : 00000060  00000096 IO$_WRITELBLK (or IO$_WRITEVBLK)
+       IOST1         : 00080001
+       IOSB address  : 7ED31848
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000008  00000008 Bytes
+       AST address   : 000100A0           is in the image:
+
+TEST4
+Base      End       Image Offset  Psect type
+00010000  000401FF  000100A0      MAIN
+
+       AST parameter : 000000C0  00000192
+       P1            : 7ED31850  2127763536
+       P2            : 00000008  00000008
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+       I/O-Packet   4       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 8114E180
+       EFN           : 00000000  00000000
+       FUNC          : 00000060  00000096 IO$_WRITELBLK (or IO$_WRITEVBLK)
+       IOST1         : 00080001
+       IOSB address  : 7ED31848
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000008  00000008 Bytes
+       AST address   : 000100A0           is in the image:
+
+TEST4
+Base      End       Image Offset  Psect type
+00010000  000401FF  000100A0      MAIN
+
+       AST parameter : 000000C0  00000192
+       P1            : 7ED31850  2127763536
+       P2            : 00000008  00000008
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+       I/O-Packet   5       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 811D5940
+       EFN           : 00000000  00000000
+       FUNC          : 00000060  00000096 IO$_WRITELBLK (or IO$_WRITEVBLK)
+       IOST1         : 00080001
+       IOSB address  : 7ED31848
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000008  00000008 Bytes
+       AST address   : 000100A0           is in the image:
+
+TEST4
+Base      End       Image Offset  Psect type
+00010000  000401FF  000100A0      MAIN
+
+       AST parameter : 000000C0  00000192
+       P1            : 7ED31850  2127763536
+       P2            : 00000008  00000008
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+00D0 00000000   0      FTA1:
+
+Current process registers:
+
+R0   = 00000000 00000001  R1   = 00000000 7FFAC208  R2   = 00000000 000100A0
+R3   = 00000000 000000C0  R4   = 00000000 7FFCF818  R5   = 00000000 00000000
+R6   = 00000000 7FFAC9F0  R7   = 00000000 7FFAC9F0  R8   = 00000000 7FFAC208
+R9   = 00000000 7FFAC410  R10  = 00000000 7FFAD238  R11  = 00000000 7FFCE3E0
+R12  = 00000000 00000000  R13  = FFFFFFFF 9F4CE570  R14  = FFFFFFFF 811D5EC0
+R15  = 00000000 009BA7EE  R16  = 00000000 00000000  R17  = 00000000 000000C0
+R18  = 00000000 00000070  R19  = 00000000 7ED31848  R20  = 00000000 000100A0
+R21  = 00000000 000000C0  R22  = 00000000 009BA7EE  R23  = 00000000 7ED31840
+R24  = 00000000 7ED31810  R25  = 00000000 0000000C  R26  = 00000000 000301D0
+R27  = 00000000 00000FB2  R28  = FFFFFFFF 811D5EC0  FP   = 00000000 7ED31840
+PC   = FFFFFFFF 800003B4  PS   = 00000000 0000001B
+
+Current mode     : User
+Previous mode    : User
+Current IPL      : 0
+
+The current PC:        800003B4 is in the image:
+SYS$PUBLIC_VECTORS.EXE
+Base      End       Image Offset  Psect type
+80000000  80001A00  000003B4      Nonpaged read only
+
+R26 (Return address):  000301D0 is in the image:
+TEST4
+Base      End       Image Offset  Psect type
+00010000  000401FF  000301D0      MAIN
+
+******************* Call Frame 1 ***************************************
+
+FP      = 7ED31840
+PDSC    = 000100A0  Stack Frame Procedure Descriptor
+Next FP = 7ED31880
+
+Procedure Entry: 00030158 is in the image:
+TEST4
+Base      End       Image Offset  Psect type
+00010000  000401FF  00030158      MAIN
+
+Return address:  800D93A8 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  0001B3A8      Nonpaged read only
+
+******************* Call Frame 2 ***************************************
+
+FP      = 7ED31880
+PDSC    = 9F4CE570  Stack Frame Procedure Descriptor
+Next FP = 7ED31A90
+
+Procedure Entry: 800D6C20 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00018C20      Nonpaged read only
+
+Return address:  7F3310F0 is in the image:
+DECC$SHR
+Base      End       Image Offset  Psect type
+7F32A000  7F3ADFFF  000070F0      GLOBAL
+
+******************* Call Frame 3 ***************************************
+
+FP      = 7ED31A90
+PDSC    = 00010000  Stack Frame Procedure Descriptor
+Next FP = 7ED31B30
+
+Procedure Entry: 00030000 is in the image:
+TEST4
+Base      End       Image Offset  Psect type
+00010000  000401FF  00030000      MAIN
+
+Return address:  A503F0D8 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+A5034000  A503F800  000130D8      Paged read only
+
+******************* Call Frame 4 ***************************************
+
+FP      = 7ED31B30
+PDSC    = A5041A90  Stack Frame Procedure Descriptor
+Next FP = 7ED31BB0
+
+Procedure Entry: A503EF60 is in the image:
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+A5034000  A503F800  00012F60      Paged read only
+
+Return address:  7EE40DCC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EDCC      Merged
+
+******************* Call Frame 5 ***************************************
+
+FP      = 7ED31BB0
+PDSC    = 7EE161E0  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 7EE40BDC is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBDC      Merged
+
+Return address:  7EE40BC8 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0002EBC8      Merged
+
+ *** The output was written into file 20600248.OUT ***
+
+
+
+
+
+D.15 Process with sub-processes
+
+
+The sub-process SALMINEN_1 has sub-processes, the processes are not hanging. 
+
+
+$ MC MWAIT 206018BD
+
+
+          *** MWAIT /Alpha V2.5 - Process Hang Analyzer ***
+
+
+Process name     : SALMINEN_1          User name      : SALMINEN
+Extended PID     : 206018C1            Internal PID   : 000C00C1
+PCB address      : 811E6440            Terminal name  : -Subprocess-
+Master PID       : 206018BD            Master Process : _FTA21:
+Owner PID        : 206018BD            Owner Process  : _FTA21:
+
+Processes in this job:
+Process  1  PID  : 206018BD            Process name   : _FTA21:
+Process  2  PID  : 206018C1    (*)     Process name   : SALMINEN_1
+Process  3  PID  : 206018C2            Process name   : SALMINEN_2
+Process  4  PID  : 20601A89            Process name   : SALMINEN_3
+
+JIB address      : 812FA780            Cur/Base prior : 9/4
+PHD address      : 9FA58000
+KTB vector       : 811E672C            Threads        : 1
+Thread 00
+---------
+KTB address      : 811E6440            Running on CPU : 0
+Thread state     : HIB                 Hibernate wait
+Thread status    : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : 7FFFFFFF
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :      150 /     150  In use : 0
+Sub-process count/limit    [Procs] :        1 /      16  In use : 1
+Byte count/limit           [Bytes] :    95840 /   96032  In use : 192
+Byte count/orig. limit     [Bytes] :    95840 /  100000  In use : 4160
+File count/limit           [Files] :      199 /     200  In use : 1
+Timer queue count/limit   [Timers] :       64 /      64  In use : 0
+Working set quota/limit [Pagelets] :    78624 /   80000  In use : 1376
+Page file quota/limit      [Pages] :     3171 /    4096  In use : 925
+AST count/limit            [AST's] :      247 /     250  In use : 3
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     ----
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 09498CDD / 08F48807 / 005504D6 [hex] ticks
+Time since last event : 15 hours 28 minutes 37 seconds 980 milliseconds
+
+Process active channels:
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW3B$DRA0:
+0020 00000000   0      MBA4596: (Buffered I/O Quota available: 336 bytes)
+0030 8119F900   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0040 00000000   0      FTA21:
+0050 00000000   0      FTA21:
+0060 811AD140   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;243
+0080 00000000   0      MBA4598: (Buffered I/O Quota available: 16 bytes)
+
+Current process registers:
+
+R0   = 00000000 00000001  R1   = FFFFFFFF 9F4C0C80  R2   = 00000000 00000000
+R3   = 00000000 7ED3760D  R4   = 00000000 00000000  R5   = 00000000 00000000
+R6   = 00000000 7ED37570  R7   = 00000000 7ED37650  R8   = 00000000 7FFABE58
+R9   = 00000000 7FFAC410  R10  = 00000000 7FFAD238  R11  = 00000000 7FFCE3E0
+R12  = 00000000 00000000  R13  = FFFFFFFF 9F4CD480  R14  = 00000000 7FFCE140
+R15  = 00000000 7FFCE020  R16  = 00000000 0000001F  R17  = 00000000 7FFABE50
+R18  = 00000000 7FFA1D8C  R19  = FFFFFFFF 9F485000  R20  = FFFFFFFF 813BDA0C
+R21  = FFFFFFFF 9F485B90  R22  = 00000000 00000000  R23  = 00000000 0000001F
+R24  = 00000000 7FFABE50  R25  = 00000000 00000000  R26  = FFFFFFFF 800CEAB0
+R27  = FFFFFFFF 9F4CB260  R28  = FFFFFFFF 9F485B90  FP   = 00000000 7FFABE30
+PC   = FFFFFFFF 80001924  PS   = 00000000 00000012
+
+Current mode     : Supervisor
+Previous mode    : Supervisor
+Current IPL      : 0
+
+The current PC:        80001924 is in the image:
+SYS$PUBLIC_VECTORS.EXE
+Base      End       Image Offset  Psect type
+80000000  80001A00  00001924      Nonpaged read only
+
+R26 (Return address):  800CEAB0 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00010AB0      Nonpaged read only
+
+******************* Call Frame 1 ***************************************
+
+FP      = 7FFABE30
+PDSC    = 9F4CD480  Stack Frame Procedure Descriptor
+Next FP = 7FFAC410
+
+Procedure Entry: 800CEA00 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00010A00      Nonpaged read only
+
+Return address:  7EE31ED4 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  0001FED4      Merged
+
+******************* Call Frame 2 ***************************************
+
+FP      = 7FFAC410
+PDSC    = 7EE12EA0  Stack Frame Procedure Descriptor
+Next FP = 7FFADFC0
+
+Procedure Entry: 7EE22100 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  00010100      Merged
+
+Return address:  800E2584 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00024584      Nonpaged read only
+
+******************* Call Frame 3 ***************************************
+
+FP      = 7FFADFC0
+PDSC    = 7EE12D30  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 7EE22060 is in the image:
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE12000  7EE83DFF  00010060      Merged
+
+Return address:  800E2584 is in the image:
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00024584      Nonpaged read only
+
+
+
+D.16 Process with INETn: and BGn: devices
+
+
+The processes is not hanging. 
+
+
+$ MC MWAIT 22412AC5
+
+
+          *** MWAIT /Alpha V2.8 - Process Hang Analyzer ***
+
+
+ *** The output will be written into file 22412AC5.OUT ***
+
+Process name     : VZ_1_SRV            User name      : KOBE_STARTUP
+Extended PID     : 22412AC5            Internal PID   : 009500C5
+PCB address      : 810C8680            Terminal name  : -Subprocess-   
+Master PID       : 22412AC4            Master Process : SRV_CTRL_VZ_1
+Owner PID        : 22412AC4            Owner Process  : SRV_CTRL_VZ_1
+
+Processes in this job: 
+Process  1  PID  : 22412AC4            Process name   : SRV_CTRL_VZ_1
+Process  2  PID  : 22412AC5    (*)     Process name   : VZ_1_SRV
+Process  3  PID  : 22412AC6            Process name   : VZ_1_B_BCK
+
+JIB address      : 81040840            Cur/Base prior : 6/4
+PHD address      : 84464000
+KTB vector       : 810C896C            Threads        : 1
+Thread 00
+--------- 
+KTB address      : 810C8680            Running on CPU : 2
+Thread state     : HIB                 Hibernate wait
+Thread status    : 00040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set 
+                             PHDRES    Process header resident 
+EFN wait cluster : 0
+EFN wait mask    : 83D058B0
+
+Direct   I/O count/limit    [IO's] :     1246 /    1250  In use : 4
+Buffered I/O count/limit    [IO's] :     3143 /    3150  In use : 7
+Sub-process count/limit    [Procs] :        0 /      10  In use : 0
+Byte count/limit           [Bytes] :   943104 /  975872  In use : 32768
+Byte count/orig. limit     [Bytes] :   943104 /  999616  In use : 56512
+File count/limit           [Files] :      976 /    1000  In use : 24
+Timer queue count/limit   [Timers] :     1186 /    1200  In use : 14
+Working set quota/limit [Pagelets] :   463952 /  524288  In use : 60336
+Page file quota/limit      [Pages] :    47931 /   50000  In use : 2069
+AST count/limit            [AST's] :     4076 /    4096  In use : 20
+AST's enabled               [KESU] :     KESU 
+AST's active                [KESU] :     ---- 
+AST's queued                [KESU] :     ---- 
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 09C38B9D / 09C38B91 / 0000000C [hex] ticks
+Time since last event : 120 milliseconds
+
+Process active channels: 
+
+Chnl  Window  IOC Sts  Device/file accessed
+----  ------  --- ---  --------------------
+0010 00000000   0      GDCW2Z$DRA3:
+0020 80DB7840   0      GDCW3B$DRA0:[SYBASE_1003.SYBASE.BIN]DATASERVER.EXE;5
+0030 81025EC0   0      GDCW2Z$DRA3:[KOBE_RT.LOG]START_VZ_1.OUT;55
+0040 8102DEC0   0      GDCW3B$DRA0:[SYBASE_1003.SYBASE.INSTALL]RUN_VZ_1.COM;12
+0050 80D71B80   0      GDCW3B$DRA0:[VMS$COMMON.SYSEXE]DCL.EXE;1
+0060 80D15B40   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DCLTABLES.EXE;252
+0070 80FCC400   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]SECURESHRP.EXE;1
+0080 80D88400   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBOTS.EXE;1
+0090 80D89340   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DPML$SHR.EXE;1
+00A0 80D88BC0   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]CMA$TIS_SHR.EXE;1
+00B0 80D87E00   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]LIBRTL.EXE;2
+00C0 80D89C40   0      GDCW3B$DRA0:[VMS$COMMON.SYSLIB]DECC$SHR.EXE;2
+00D0 00000000   0      NLA0:
+00E0 80F3C5C0   0      GDCW2Z$DRA1:[VZ_MASTER]MASTER_DB.DAT;1
+00F0 00000000   1 Busy MBA8225: (Buffered I/O Quota available: 3000 bytes)
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 8105E940
+       EFN           : 00000000  00000000
+       FUNC          : 00000021  00000033 IO$_READLBLK (or IO$_READVBLK)
+       IOST1         : 135B001F
+       IOSB address  : 0088C4A0
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000080  00000128 Bytes
+       AST address   : 00012230           is in the image: 
+
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  00012230      MAIN
+
+       AST parameter : 0046FD10  04652304
+       P1            : 0088C4A8  08963240
+       P2            : 00000080  00000128
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0100 00000000   0      NET3196:
+0110 00000000   1 Busy INET441:
+       The CXB is on   BG457:  
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 8114BF40
+       EFN           : 00000000  00000000
+       FUNC          : 000002B2  00000690 IO$_ACCESS, IO$_PSXWRITEVBLK
+       IOST1         : 08000001
+       IOSB address  : 0088C5FC
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000000  00000000 Bytes
+       AST address   : 000523D8           is in the image: 
+
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  000523D8      MAIN
+
+       AST parameter : 00478D00  04689152
+       P1            : 00000000  00000000
+       P2            : 00000000  00000000
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0120 00000000   1 Busy BG457:
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 81149C80
+       EFN           : 00000000  00000000
+       FUNC          : 000000B2  00000178 IO$_ACCESS, IO$_PSXWRITEVBLK
+       IOST1         : 08000001
+       IOSB address  : 8105B97C
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000000  00000000 Bytes
+       AST address   : 8C7F4040           is in the image: 
+
+UCX$INETDRIVER
+Base      End       Image Offset  Psect type
+8C7F4000  8C7F4200  00000040      Paged read/write
+
+       AST parameter : 81059B40  -2130339008
+       P1            : 00000000  00000000
+       P2            : 00000000  00000000
+       P3            : 00000000  00000000
+       P4            : 8105B954  -2130331308
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0130 00000000   1 Busy INET442:
+       The CXB is on   BG458:  
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 81089200
+       EFN           : 00000000  00000000
+       FUNC          : 000002B2  00000690 IO$_ACCESS, IO$_PSXWRITEVBLK
+       IOST1         : 00000001
+       IOSB address  : 0088C758
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000000  00000000 Bytes
+       AST address   : 000523D8           is in the image: 
+
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  000523D8      MAIN
+
+       AST parameter : 0048AD00  04762880
+       P1            : 00000000  00000000
+       P2            : 00000000  00000000
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0140 00000000   1 Busy BG458:
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 8114B500
+       EFN           : 00000000  00000000
+       FUNC          : 000000B2  00000178 IO$_ACCESS, IO$_PSXWRITEVBLK
+       IOST1         : 00000001
+       IOSB address  : 810F133C
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000000  00000000 Bytes
+       AST address   : 8C7F4040           is in the image: 
+
+UCX$INETDRIVER
+Base      End       Image Offset  Psect type
+8C7F4000  8C7F4200  00000040      Paged read/write
+
+       AST parameter : 810EF500  -2129726208
+       P1            : 00000000  00000000
+       P2            : 00000000  00000000
+       P3            : 00000000  00000000
+       P4            : 810F1314  -2129718508
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0150 80DDC680   0      GDCW3B$DRA0:[VMS$COMMON.SYSMSG]SHRIMGMSG.EXE;1
+0160 80D92B00   0      GDCW3B$DRA0:[VMS$COMMON.SYSMSG]DECC$MSG.EXE;1
+0170 00000000   1 Busy INET443:
+       The CXB is on   BG459:  
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 811481C0
+       EFN           : 00000000  00000000
+       FUNC          : 000002B2  00000690 IO$_ACCESS, IO$_PSXWRITEVBLK
+       IOST1         : 00000000
+       IOSB address  : 0088C8B4
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000000  00000000 Bytes
+       AST address   : 000523D8           is in the image: 
+
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  000523D8      MAIN
+
+       AST parameter : 0049CD00  04836608
+       P1            : 00000000  00000000
+       P2            : 00000000  00000000
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0180 00000000   1 Busy BG459:
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 81147BC0
+       EFN           : 00000000  00000000
+       FUNC          : 000000B2  00000178 IO$_ACCESS, IO$_PSXWRITEVBLK
+       IOST1         : 00000000
+       IOSB address  : 8109163C
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000000  00000000 Bytes
+       AST address   : 8C7F4040           is in the image: 
+
+UCX$INETDRIVER
+Base      End       Image Offset  Psect type
+8C7F4000  8C7F4200  00000040      Paged read/write
+
+       AST parameter : 8108F800  -2130118656
+       P1            : 00000000  00000000
+       P2            : 00000000  00000000
+       P3            : 00000000  00000000
+       P4            : 81091614  -2130110956
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0190 8100F240   0      DRA1:[VZ_1_DB]DATA.DAT;1
+01A0 8100B2C0   0      GDCW2Z$DRA1:[VZ_1_LOG]DATA_LOG.DAT;1
+01B0 8100D000   0      GDCW2Z$DRA1:[LOG_DB]VZ_1_LOG_DB.DAT;1
+01C0 80CF8D40   0      DRA1:[VZ_1_DB]STAMM.DAT;1
+01D0 81008100   0      DRA1:[VZ_1_DB]STAMM_2.DAT;1
+01E0 81006D80   0      DRA1:[VZ_1_DB]STAMM_3.DAT;1
+01F0 80D6D240   0      GDCW2Z$DRA1:[VZ_1_LOG]STAMM_LOG.DAT;1
+0200 810043C0   0      GDCW2Z$DRA1:[VZ_1_LOG]STAMM_LOG_2.DAT;1
+0210 80CFAF00   0      GDCW2Z$DRA1:[LOG_DB]TEMPDB.DAT;1
+0220 81002A40   0      GDCW2Z$DRA1:[VZ_MASTER]PROC_DB.DAT;1
+0230 00000000   0      BG460:
+0240 00000000   1 Busy INET576:
+       The CXB is on   BG593:  
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 811EA000
+       EFN           : 00000000  00000000
+       FUNC          : 00000021  00000033 IO$_READLBLK (or IO$_READVBLK)
+       IOST1         : 01580001
+       IOSB address  : 0088CA00
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000200  00000512 Bytes
+       AST address   : 00052158           is in the image: 
+
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  00052158      MAIN
+
+       AST parameter : 0088CAEC  08964844
+       P1            : 03A65150  61231440
+       P2            : 00000200  00000512
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0250 00000000   0      BG462:
+0260 00000000   1 Busy BG593:
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 811ACB40
+       EFN           : 00000000  00000000
+       FUNC          : 00000021  00000033 IO$_READLBLK (or IO$_READVBLK)
+       IOST1         : 00000001
+       IOSB address  : 810F3364
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000000  00000000 Bytes
+       AST address   : 8C7F4040           is in the image: 
+
+UCX$INETDRIVER
+Base      End       Image Offset  Psect type
+8C7F4000  8C7F4200  00000040      Paged read/write
+
+       AST parameter : 810F1500  -2129718016
+       P1            : 03A65150  61231440
+       P2            : 00000200  00000512
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0270 00000000   1 Busy MBA4676: (Buffered I/O Quota available: 256 bytes)
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 81136F80
+       EFN           : 00000000  00000000
+       FUNC          : 00000021  00000033 IO$_READLBLK (or IO$_READVBLK)
+       IOST1         : 00000001
+       IOSB address  : 0088CB6C
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000080  00000128 Bytes
+       AST address   : 00011F70           is in the image: 
+
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  00011F70      MAIN
+
+       AST parameter : 0088CB24  08964900
+       P1            : 0088CB74  08964980
+       P2            : 00000080  00000128
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+0280 80D14894   1 Busy NET1392:
+Session Control Port : SCL$PORT$1214008B 
+OSI Transport Port   : OSI$PORT_0_034A
+
+       I/O-Packet   1       Hex / Decimal
+       --------------  ------------------
+       IRP address   : 811149C0
+       EFN           : 00000000  00000000
+       FUNC          : 00000021  00000033 IO$_READLBLK (or IO$_READVBLK)
+       IOST1         : 003C0001
+       IOSB address  : 0088CB5C
+       IOSB = [hex]  : 00000000.00000000
+       BCNT          : 00000200  00000512 Bytes
+       AST address   : 00011D68           is in the image: 
+
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  00011D68      MAIN
+
+       AST parameter : 0088CC48  08965192
+       P1            : 03A65360  61231968
+       P2            : 00000200  00000512
+       P3            : 00000000  00000000
+       P4            : 00000000  00000000
+       P5            : 00000000  00000000
+       P6            : 00000000  00000000
+
+02B0 00000000   0      BG611:
+
+Current process registers: 
+
+R0   = 00000000 00000001  R1   = FFFFFFFF 83D40C80  R2   = 00000000 0002D208
+R3   = 00000000 00000000  R4   = 00000000 003E7700  R5   = 00000000 0042F9B0
+R6   = 00000000 00000001  R7   = 00000000 0042F9B0  R8   = 00000000 00000000
+R9   = 00000000 00000000  R10  = 00000000 003EBF80  R11  = 00000000 00000000
+R12  = 00000000 00000000  R13  = FFFFFFFF 83D4D480  R14  = 00000000 003E9B60
+R15  = 00000000 000DCD70  R16  = 00000000 008A7320  R17  = 00000000 008A7320
+R18  = 00000000 00000000  R19  = 00000000 00000000  R20  = 00000000 00050005
+R21  = 00000000 0004D648  R22  = 00000000 00000000  R23  = 00000000 008A7320
+R24  = 00000000 008A7320  R25  = 00000000 00000000  R26  = FFFFFFFF 800CEAB0
+R27  = FFFFFFFF 83D4B260  R28  = 00000000 0004D648  FP   = 00000000 00466DE8
+PC   = FFFFFFFF 80001924  PS   = 00000000 0000001B
+
+Current mode     : User      
+Previous mode    : User      
+Current IPL      : 0 
+
+The current PC:        80001924 is in the image: 
+SYS$PUBLIC_VECTORS.EXE
+Base      End       Image Offset  Psect type
+80000000  80001A00  00001924      Nonpaged read only
+
+R26 (Return address):  800CEAB0 is in the image: 
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00010AB0      Nonpaged read only
+
+******************* Call Frame 1 ***************************************
+
+FP      = 00466DE8 
+PDSC    = 83D4D480  Stack Frame Procedure Descriptor
+Next FP = 00466E08
+
+Procedure Entry: 800CEA00 is in the image: 
+PROCESS_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+800BE000  800E2800  00010A00      Nonpaged read only
+
+Return address:  0022E6D4 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  0022E6D4      MAIN
+
+******************* Call Frame 2 ***************************************
+
+FP      = 00466E08 
+PDSC    = 00038898  Stack Frame Procedure Descriptor
+Next FP = 00466E28
+
+Procedure Entry: 0022E6B0 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  0022E6B0      MAIN
+
+Return address:  001E003C is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  001E003C      MAIN
+
+******************* Call Frame 3 ***************************************
+
+FP      = 00466E28 
+PDSC    = 0002D208  Stack Frame Procedure Descriptor
+Next FP = 00466E78
+
+Procedure Entry: 001DFF98 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  001DFF98      MAIN
+
+Return address:  001DFB84 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  001DFB84      MAIN
+
+******************* Call Frame 4 ***************************************
+
+FP      = 00466E78 
+PDSC    = 0002D2C0  Stack Frame Procedure Descriptor
+Next FP = 7ED385B0
+
+Procedure Entry: 001DF550 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  001DF550      MAIN
+
+Return address:  001E012C is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  001E012C      MAIN
+
+******************* Call Frame 5 ***************************************
+
+FP      = 7ED385B0 
+PDSC    = 0002C3F0  Stack Frame Procedure Descriptor
+Next FP = 7ED392A0
+
+Procedure Entry: 001D89B0 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  001D89B0      MAIN
+
+Return address:  001163D8 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  001163D8      MAIN
+
+******************* Call Frame 6 ***************************************
+
+FP      = 7ED392A0 
+PDSC    = 000134F0  Stack Frame Procedure Descriptor
+Next FP = 7ED397C0
+
+Procedure Entry: 00115C30 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  00115C30      MAIN
+
+Return address:  7EE60294 is in the image: 
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE1A000  7EE8BDFF  00046294      Merged
+
+******************* Call Frame 7 ***************************************
+
+FP      = 7ED397C0 
+PDSC    = 7EE1A4A0  Stack Frame Procedure Descriptor
+Next FP = 7ED39800
+
+Procedure Entry: 7EE601EC is in the image: 
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE1A000  7EE8BDFF  000461EC      Merged
+
+Return address:  8005ACC0 is in the image: 
+SYSTEM_PRIMITIVES_MIN.EXE
+Base      End       Image Offset  Psect type
+80028000  8005D600  00032CC0      Nonpaged read only
+
+******************* Call Frame 8 ***************************************
+
+FP      = 7ED39800 
+PDSC    = 7EE20CF8  Stack Frame Procedure Descriptor
+Next FP = 7ED398C0
+
+Procedure Entry: 7EE5B384 is in the image: 
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE1A000  7EE8BDFF  00041384      Merged
+
+Return address:  8005ACC0 is in the image: 
+SYSTEM_PRIMITIVES_MIN.EXE
+Base      End       Image Offset  Psect type
+80028000  8005D600  00032CC0      Nonpaged read only
+
+******************* Call Frame 9 ***************************************
+
+FP      = 7ED398C0 
+PDSC    = 8934C4B0  Stack Frame Procedure Descriptor
+Next FP = 7ED39950
+
+Procedure Entry: 894E2380 is in the image: 
+EXCEPTION.EXE
+Base      End       Image Offset  Psect type
+894E2000  894EF400  00000380      Paged read only
+
+Return address:  003C5DC4 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  003C5DC4      MAIN
+
+******************* Call Frame 10 ***************************************
+
+FP      = 7ED39950 
+PDSC    = 0007ADF8  Stack Frame Procedure Descriptor
+Next FP = 7ED39A50
+
+Procedure Entry: 003C5D30 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  003C5D30      MAIN
+
+Return address:  00115BF8 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  00115BF8      MAIN
+
+******************* Call Frame 11 ***************************************
+
+FP      = 7ED39A50 
+PDSC    = 00013290  Stack Frame Procedure Descriptor
+Next FP = 7ED39AC0
+
+Procedure Entry: 00115AD8 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  00115AD8      MAIN
+
+Return address:  00115AA8 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  00115AA8      MAIN
+
+******************* Call Frame 12 ***************************************
+
+FP      = 7ED39AC0 
+PDSC    = 00013320  Stack Frame Procedure Descriptor
+Next FP = 7ED39B30
+
+Procedure Entry: 00115A50 is in the image: 
+DATASERVER
+Base      End       Image Offset  Psect type
+00010000  003F53FF  00115A50      MAIN
+
+Return address:  896490D8 is in the image: 
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+8963E000  89649800  000130D8      Paged read only
+
+******************* Call Frame 13 ***************************************
+
+FP      = 7ED39B30 
+PDSC    = 8964BA90  Stack Frame Procedure Descriptor
+Next FP = 7ED39BB0
+
+Procedure Entry: 89648F60 is in the image: 
+IMAGE_MANAGEMENT.EXE
+Base      End       Image Offset  Psect type
+8963E000  89649800  00012F60      Paged read only
+
+Return address:  7EE48DCC is in the image: 
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE1A000  7EE8BDFF  0002EDCC      Merged
+
+******************* Call Frame 14 ***************************************
+
+FP      = 7ED39BB0 
+PDSC    = 7EE1E1E0  Stack Frame Procedure Descriptor
+Next FP = 00000000
+
+Procedure Entry: 7EE48BDC is in the image: 
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE1A000  7EE8BDFF  0002EBDC      Merged
+
+Return address:  7EE48BC8 is in the image: 
+DCL.EXE (CLI Image, in P1 Space)
+Base      End       Image Offset  Psect type
+7EE1A000  7EE8BDFF  0002EBC8      Merged
+
+ *** The output was written into file 22412AC5.OUT ***
+
+
+
+D.17 MUTEX: waiting on BYTCNT
+
+This is an example of a hanging process, where you can't read the
+process channels.
+
+
+OpenVMS V7.1  on node GDCW3A  19-AUG-1998 18:09:30.38  Uptime  19 06:16:00
+  Pid    Process Name    State  Pri      I/O       CPU       Page flts  Pages
+2241AE41 _FTA14:         MUTEX    5      175   0 00:00:00.50       270    135
+
+
+$ MC MWAIT 2241AE41
+
+
+          *** MWAIT /Alpha V2.8 - Process Hang Analyzer ***
+
+
+ *** The output will be written into file 2241AE41.OUT ***
+
+Process name     : _FTA14:             User name      : SALMINEN
+Extended PID     : 2241AE41            Internal PID   : 00D70041
+PCB address      : 812168C0            Terminal name  : FTA14:
+JIB address      : 80D9D200            Cur/Base prior : 5/0
+PHD address      : 848A4000
+KTB vector       : 81216BAC            Threads        : 1
+Thread 00
+---------
+KTB address      : 812168C0            Running on CPU : 0
+Thread state     : MUTEX               Mutex/resource wait
+Thread status    : 02040001  ssrwait   System service resource wait enabled
+                             RES       Resident, in balance set
+                             PHDRES    Process header resident
+                             INTER     Process is an interactive job
+EFN wait cluster : 0
+EFN wait mask    : 80D9D200  JIB address, waiting on BYTCNT
+
+Direct   I/O count/limit    [IO's] :      150 /     150  In use : 0
+Buffered I/O count/limit    [IO's] :      102 /     150  In use : 48
+Sub-process count/limit    [Procs] :        0 /      16  In use : 0
+Byte count/limit           [Bytes] :      416 /   99680  In use : 99264
+Byte count/orig. limit     [Bytes] :      416 /  100000  In use : 99584
+File count/limit           [Files] :      199 /     200  In use : 1
+Timer queue count/limit   [Timers] :       10 /      10  In use : 0
+Working set quota/limit [Pagelets] :   522128 /  524288  In use : 2160
+Page file quota/limit      [Pages] :     3857 /    4096  In use : 239
+AST count/limit            [AST's] :      248 /     250  In use : 2
+AST's enabled               [KESU] :     KESU
+AST's active                [KESU] :     ----
+AST's queued                [KESU] :     ----
+Delete pending count (XQP event)   :        0
+
+Absolute/Last event/Delta time     : 09EB5A99 / 09EB2DDE / 00002CBB [hex] ticks
+Time since last event : 1 minutes 54 seconds 510 milliseconds
+%MWAIT-F-NORESPONSE, can not read target process channels
+%SYSTEM-F-TIMEOUT, device timeout
+

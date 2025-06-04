@@ -1,0 +1,1141 @@
+module ppl$vm (					! Virtual memory allocation/deallocation
+		ident = 'V62-002'		! File: PPLVM.B32
+		) =
+begin
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1978, 1980, 1982, 1984, 1986 BY			    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+!
+
+!++
+! FACILITY: PPL (Parallel Processing Library)
+!
+! ABSTRACT:  Dynamic virtual memory allocation and deallocation.
+!
+!	PPL$CREATE_VM_ZONE creates a LIB$VM zone containing storage
+!	that's shared by processes in the PPL application.  It does
+!	this by calling LIB$CREATE_VM_ZONE, and then mapping the storage.
+!
+! ENVIRONMENT: User access mode, Multi-thread reentrant
+!
+! AUTHOR: Peter D Gilbert, CREATION DATE: 11-Nov-1986
+!
+! MODIFIED BY:
+!
+!	1-001	11-Nov-1986 PDG		Original, more or less.
+!
+!	1-002	12-Feb-1987 CMF		Corrected the initialization of
+!					the proto section block.
+!					Comments updated.
+!
+!	1-003	31-JUL-1987 DLR		Handle bad status from other ppl rtns.
+!
+!	V05-001	 6-Jul-1988 WWS		Changed PPL$Create_VM_Zone to return
+!					PPL$ error codes instead of LIB$ codes
+!	V05-002	 6-Jul-1988 WWS		Changed Gen_Routines to return
+!					PPL$_Normal instead of SS$_Normal
+!
+!	V51-001	 9-Sep-1988 WWS 	Replaced uses of CTX[CTX_L_PPLSECT_ADR]
+!					and local PPLSECT by PPL$$GL_PPLSECT
+!					Streamlined gen_routines
+!
+!	V53-001	27-Apr-1989 WWS		Provided for use of system-wide and
+!					permanent global sections
+!
+!	V53-002 30-Jun-1989 WWS		Purged obsolete structure field uses
+!
+!	V53-003	14-Aug-1989 PJC		Removed local CTX declaration, removed
+!					routine ppl$$fini_callback
+!
+!	V53-004 24-Aug-1989 HPO		VM zones are now ppl objects. Opon
+!					creation of a zone, a check is made if
+!					this zone already exists. If it does,
+!					no new zone is generated and the 
+!					zone_id of the appropriate zone is
+!					returned.
+!					
+!	V53-005 30-Nov-1989 PJC		Added ppl$$condition_handler and 
+!					ppl_signal_.
+!
+!	V57-001	12-Nov-1991 PJC		EVMS/Alpha port: convert to work
+!					with varying evax system page
+!					sizes.  Replace VAX run-time generated
+!					code with EVAX bounded descriptors.
+!
+!	V57-001 17-Feb-1992 PJC		Removed reference to sect_v_deleted
+!					in a proto initialization sequence.
+!
+!	V62-001  1-Sep-1994 WWS		Removed race in create-vm-zone where
+!					second process fetches the id after
+!					the look-up but before it is set.
+!
+!	V62-002  1-Sep-1994 WWS		Added ENQ lock synchronization to 
+!					prevent simultaneous creations.
+!--
+
+!
+! SWITCHES:
+!
+
+switches addressing_mode (external = general, nonexternal = word_relative);
+
+!
+! linkages:
+!
+
+!
+! table of contents:
+!
+
+forward routine
+    ppl$create_vm_zone;				! Create a new zone
+
+!
+! INCLUDE FILES:
+!
+
+library	'sys$library:starlet';
+library	'sys$library:xport';
+undeclare %quote $descriptor;
+library	'obj$:ppllib';
+
+require 'rtlin:rtlpsect';			! Define DECLARE_PSECTS macro
+
+!
+! MACROS:
+!
+
+!
+! EQUATED SYSMBOLS:
+!
+
+!
+! PSECT DECLARATIONS:
+!
+
+declare_psects (ppl);				! declare PSECTs PPL$ facility
+
+!
+! OWN AND GLOBAL STORAGE:
+!
+
+!
+! LINKAGE DECLARATIONS
+!
+LINKAGE
+    JSB_R0_R01	= JSB(REGISTER = 0; REGISTER = 0, REGISTER = 1);
+
+!
+! EXTERNAL REFERENCES:
+!
+
+external routine
+	ppl$$allocate,
+	ppl$$deallocate,
+	ppl$$find_sect,
+	ppl$$choose_addresses,
+	ppl$$get_vm_page,
+	ppl$$free_vm_page,
+	ppl$create_shared_memory,
+	ppl$$append_ul:		novalue,
+	ppl$unique_name,
+	ppl$$name_lookup,
+	ppl$$name_search,
+	ppl$$condition_handler,
+%if EVAX
+%then
+	ppl$$jump_code,
+%fi
+	str$analyze_sdesc_r1:	jsb_r0_r01,
+	lib$create_vm_zone,
+	lib$delete_vm_zone,
+	lib$get_vm_page,			! Primitive page allocator
+	lib$free_vm_page;			! Primitive page deallocator
+
+
+
+external
+	ppl$$gl_pplsect:	ref pplsect_block,
+	ppl$$gl_context:	ref ctx_block;	! Our context
+
+global routine ppl$$init_if_zero (
+	xdst:	ref $bblock [init_k_vmp],
+	src
+	): novalue =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine initializes a longword.
+!	The longword is initially zero, some non-zero value
+!	needs to be stored there, and once set to a non-zero
+!	value, it will never change.  This routine accomplishes
+!	this, without sychronization problems, by using a queue
+!	to arbitrate initializations.  The first entry on the
+!	queue decides what non-zero value gets stored there.
+!
+!	DST is the address of an octaword (two quadwords).
+!	SRC is that we'd like to store in the first longword of DST.
+!
+!	The technique is general, but the code is not, since it
+!	relies on PPL$$ALLOCATE to allocate the queue entries.
+!	The code *does* check its appropriateness.
+!
+!	Note that there are actually two different data structures
+!	that are arranged identically.  For clarity, we actually use
+!	different names for the structures.
+!--
+begin	!ppl$$init_if_zero 
+
+    macro
+	dst_l_value = 0,0,%bpval,0 %,
+	dst_q_queue = %qalign,0,0,0 %,
+	dst_l_flink = %qalign,0,%bpval,0 %,
+	dst_l_blink = %qalign+%upval,0,%bpval,0 %;
+
+    literal
+	dst_s_bln = %qalign+2*%upval;
+
+    macro
+	ent_l_value = 0,0,%bpval,0 %,
+	ent_q_queue = %qalign,0,0,0 %,
+	ent_l_flink = %qalign,0,%bpval,0 %,
+	ent_l_blink = %qalign+%upval,0,%bpval,0 %;
+
+    literal
+	ent_s_bln = %qalign+2*%upval;
+
+    local
+	dst:	volatile ref $bblock [dst_s_bln],
+	z:	volatile ref $bblock [ent_s_bln],
+	status;
+
+
+    dst = xdst[base_];
+    if .dst[dst_l_value] neq 0 then return;	! Already set?
+    if dst[dst_q_queue] - ppl$$gl_pplsect[base_]
+	gequ .ppl$$gl_pplsect[pplsect_l_size]
+    then
+	begin
+
+	!+
+	! The destination must be in our section, since that's where
+	! ppl$$allocate gets memory.  This is necessary to ensure that
+	! all the processes will be able to find the first entry queued,
+	! since it's a relative queue, and our section is not in the
+	! same place in all the processes.
+	!-
+
+	ppl_signal_(ppl$_badlogic);
+	end;
+
+    assert_(init_k_vmp geq ent_s_bln)
+    z = ppl$$allocate (ent_s_bln);
+    if .z leq 0 then
+	begin
+
+	!+
+	! What a bummer!  No more mister nice guy --
+	! slam the value in there, and damn the consequences.
+	!-
+
+	if .dst[dst_l_value] eql 0 then dst[dst_l_value] = .src;
+	return;
+	end;
+    z = .z + ppl$$gl_pplsect[base_];
+
+    z[ent_l_value] = .src;
+    while insq_busy_(status = insqti (z[ent_q_queue], dst[dst_q_queue])) do 0;
+    if insq_not1_(.status)
+    then
+	begin
+	while remq_busy_(remqti (dst[dst_q_queue], z)) do 0;
+	z = .z - %fieldexpand_(ent_q_queue,0);
+	z = .z - ppl$$gl_pplsect[base_];
+	ppl$$deallocate (ent_s_bln, .z);
+	end;
+
+    z = first_sr_(dst[dst_q_queue]-%fieldexpand_(ent_l_flink,0), ent_l_flink);
+    dst[dst_l_value] = .z[ent_l_value];
+
+end; !ppl$$init_if_zero 
+
+! These routines are responsible for managing pages of shared memory.
+!
+! These routines are global for use by the RTL is supporting multiprocess C
+!  run-time library memory management functions.
+!
+global routine ppl$$expreg (
+	pagcnt,
+	retadr:		ref vector[2]
+	) =
+    begin
+
+    !+
+    ! Create the specified number of pages.
+    !-
+
+
+    local
+	tmpfns:		$bblock [dsc$c_s_bln],
+	gsdnam:		$bblock [dsc$c_s_bln],
+	buff:		$bblock [%charcount(ppl_x_lib_vm) + 32],
+	proto:		sect_block,
+	csect:		ref sect_block,
+	lsect:		ref sect_block,
+	lenadr:		vector[2],
+	vm_num,
+	flags,
+	status;
+
+
+    if ppl$$gl_context[base_] eql 0 then return ppl$_noinit;
+    if ppl$$gl_pplsect[base_] eql 0 then return ppl$_noinit;
+
+    !+
+    ! Form the 'section' name
+    !-
+
+    gsdnam[dsc_l_length] = %charcount (ppl_x_lib_vm);
+    gsdnam[dsc$a_pointer] = buff[base_];
+    ch$move (%charcount(ppl_x_lib_vm), uplit byte(ppl_x_lib_vm), buff[base_]);
+
+    !+
+    ! We want to choose a unique number.  Use PPL$$ALLOCATE to do this,
+    ! since we *don't* want two calls to ppl$$expreg to return the same
+    ! memory.
+    ! ??? See comments in PPLVMPAGE.MAR about a possible improvement.
+    !-
+
+    vm_num = ppl$$allocate (1);
+    if .vm_num leq 0 then return ppl$_insvirmem;
+    ppl$$append_ul (gsdnam[base_], %allocation(buff), .vm_num);
+
+    tmpfns[dsc_l_length] = %allocation(buff);
+    tmpfns[dsc$a_pointer] = buff[base_];
+    status = ppl$unique_name (gsdnam[base_], tmpfns[base_],
+	tmpfns[dsc$w_length]);
+    if not .status then return .status;
+
+    !+
+    ! Form a prototype section decription.
+    !-
+
+    ch$fill (0, sect_s_bln, proto[base_]);
+    proto[sect_l_start] = 0;		! Starting address
+%if EVAX
+%then
+    proto[sect_l_pages] = (round_((.pagcnt * %uppage),
+                        .ppl$$gl_pplsect[pplsect_l_page_size])) / 512;
+%fi
+%if VAX
+%then 
+    proto[sect_l_pages] = .pagcnt;	! Number of pages
+%fi
+
+    proto[sect_l_status] = ss$_normal;
+    proto[sect_v_we_chose] = true;
+
+    !+
+    ! Set the SECT_V_GETVM flag.  This indicates to PPL$$CHOOSE_ADDRESSES
+    ! that the 'section' must be mapped before we will be able to return.
+    !-
+
+    proto[sect_v_getvm] = true;
+
+    !+
+    ! And look up that section's name.
+    !-
+
+    csect = ppl$$find_sect (ppl$$gl_pplsect[pplsect_q_sects], tmpfns[base_],
+			    true, proto[base_]);
+    if (.csect eql ppl$_insvirmem) or
+	    	    (.csect leq 0 ) then
+	return ppl$_insvirmem;
+
+    !+
+    ! Having set up the common section description with the SECT_V_GETVM
+    ! flag set, we are now able to let PPL$CREATE_SHARED_MEMORY handle
+    ! the rest of the processing.
+    !
+    ! If *any* process was unable to map the section, we want to inform
+    ! our caller -- that's why we check csect[sect_l_status].
+    !-
+
+%if VAX 
+%then
+    lenadr[0] = .pagcnt * %uppage;
+%fi
+%if EVAX
+%then 
+    lenadr[0] = .pagcnt * .ppl$$gl_pplsect[pplsect_l_page_size];
+%fi
+
+    lenadr[1] = 0;
+
+    flags = ppl$m_nouni;
+    if (.ppl$$gl_pplsect[pplsect_l_mem_flags] and ppl$m_perm) nequ 0 then
+	flags = .flags or sec$m_perm;
+    if (.ppl$$gl_pplsect[pplsect_l_mem_flags] and ppl$m_system) nequ 0 then
+	flags = .flags or sec$m_sysgbl;
+
+    status = ppl$create_shared_memory (
+	tmpfns[base_],		! section_name
+	lenadr[0],		! length/address
+	flags,
+	0);			! filename
+    if .status then status = .csect[sect_l_status];
+    if not .status then return .status;
+
+    retadr[0] = .lenadr[1];
+    retadr[1] = .lenadr[1] + .lenadr[0] - 1;
+
+    return ss$_normal;
+
+end; !ppl$$expreg
+
+global routine ppl$$get_page (
+	num_pages:	ref vector[1],
+	blk_adr:	ref vector[1]
+	) =
+    begin
+
+    !+
+    ! First, check whether we've been initialized.
+    !-
+
+    if ppl$$gl_context[base_] eql 0 then return ppl$_noinit;
+    if ppl$$gl_pplsect[base_] eql 0 then return ppl$_noinit;
+
+    !+
+    ! Call a Macro routine to do this.  This is in Macro because
+    ! it was stolen from LIBVMPAGE, which was written in Macro.
+    !-
+
+    return ppl$$get_vm_page (num_pages[0], blk_adr[0],
+	ppl$$gl_pplsect[pplsect_o_page_zone], ppl$$expreg);
+
+end; !ppl$$get_page
+
+global routine ppl$$free_page (
+	num_pages:	ref vector[1],
+	blk_adr:	ref vector[1]
+	) =
+    begin
+
+
+    !+
+    ! First, check whether we've been initialized.
+    !-
+
+    if ppl$$gl_context[base_] eql 0 then return ppl$_noinit;
+    if ppl$$gl_pplsect[base_] eql 0 then return ppl$_noinit;
+
+    !+
+    ! Call a Macro routine to do this.  This is in Macro because
+    ! it was stolen from LIBVMPAGE, which was written in Macro.
+    !-
+
+    return ppl$$free_vm_page (num_pages[0], blk_adr[0],
+	ppl$$gl_pplsect[pplsect_o_page_zone], ppl$$expreg);
+
+end; !ppl$$free_page
+
+
+!++
+!	The following two routines are VAX specific, because
+!	they implement run-time generated code which is not 
+!	allowed by EVAX.
+!--
+
+%if VAX
+%then
+routine do_rei: novalue =
+begin
+    !
+    ! This little routine executes an REI instruction.  This is the only
+    ! architecturally defined way to ensure that code which was written by a
+    ! program is actually available before the instruction prefetch.
+    !
+    linkage link_rei = interrupt: notused(2,3,4,5,6,7,8,9,10,11);
+    routine rei( retpc, retpsl ): link_rei = 0;
+    local newpsl;
+    builtin movpsl;
+    movpsl(newpsl);
+    rei(.newpsl);
+end; !do_rei
+%fi
+
+
+%if EVAX
+%then
+global literal util$$k_gen_routine = 32;	! Size of generated descriptor
+%fi
+
+%if VAX
+%then
+global literal util$$k_gen_routine = 20;	! Size of generated routine
+%fi
+
+global routine util$$gen_routine (
+	dest:		ref $bblock [dsc$c_s_bln],
+	rtn,
+	r0_parm
+	) =
+!++
+!	Generate a routine that does a CALLG to 'RTN', passing 'R0_PARM' in R0.
+!	This routine is generated in the memory described by 'DEST'.
+!--
+
+    begin
+    builtin
+	nullparameter;
+
+%if EVAX
+%then
+    
+    local
+	bound_adr   : ref $bblock [util$$k_gen_routine];
+
+    !++
+    !	Build a bounded procedure descriptor at the specified point
+    !	in memory, such that it can be used to call through to the 
+    !	given routine.
+    !--
+
+    bound_adr = .dest[dsc$a_pointer];
+
+    bound_adr[pdsc$v_kind] = pdsc$k_kind_bound;	! Descriptor kind
+    bound_adr[pdsc$w_flags] = .(.rtn)<4,11,0>;	! Flags
+    bound_adr[pdsc$v_no_jacket] = 1;		! Set NO_JACKET
+    bound_adr[pdsc$v_native] = 1;		! Set NATIVE
+    bound_adr[pdsc$w_rsa_offset] = 0;		! Must be zero
+    bound_adr[pdsc$b_save_fp] = .(.rtn+4)<0,8,0>; ! Register in which return address is
+    bound_adr[pdsc$b_save_ra] = .(.rtn+5)<0,4,0>; ! Function return registers
+    bound_adr[4,12,4,0] = 0;			! Must be zero
+    bound_adr[pdsc$w_signature_offset] = 0;	! Signature offset-must be zero
+    bound_adr[8,0,32,0] = ppl$$jump_code;	! Address of jump code
+    bound_adr[12,0,32,0] = 0;			! zero fill rest of address
+    bound_adr[16,0,32,0] = .rtn;! Proc value
+    bound_adr[20,0,32,0] = 0;			! zero fill rest of address
+ 
+%fi
+
+%if VAX
+%then
+    literal
+	k_gen_rtn_size		= 4+%upval+4+%upval+4;
+	assert_( util$$k_gen_routine geq k_gen_rtn_size )
+
+    macro
+	b4_(a,b,c,d) = ((a)+(b)^8+(c)^16+(d)^24) %;
+
+    local 
+	gen_rtn		: vector[round_(util$$k_gen_routine)/%upval]
+	    initial (
+		b4_(0,0,			! .ENTRY xxx, ^M<>
+		op$_movab,%x'9f'),0,b4_(%x'50',	! MOVAB @#R0_PARM, R0
+		op$_callg,%x'6c',%x'9f'),0,	! CALLG	(AP), @#RTN
+		b4_(op$_ret,0,0,0) ),		! RET
+	status;
+
+    gen_rtn[3] = .rtn;
+    if not nullparameter(r0_parm) then gen_rtn[1] = .r0_parm;
+
+    if .dest[dsc$w_length] lss k_gen_rtn_size then return ppl$_insvirmem;
+    ch$copy (k_gen_rtn_size, gen_rtn[0], 0,
+	.dest[dsc$w_length], .dest[dsc$a_pointer]);
+
+    do_rei ();	!to clear instruction prefetch & guarantee the code we
+		!just created is executable
+%fi
+
+
+    return ss$_normal;
+end; !util$$gen_routine
+
+!++
+! Format of the callback 'section'.  This 'section' is used to hold
+! two small callback routines that are passed from PPL$CREATE_VM_ZONE
+! to LIB$CREATE_VM_ZONE.  These routines must be at the same virtual
+! addresses in all the processes participating in the PPL application,
+! since LIB$CREATE_VM_ZONE will store their addresses in shared memory.
+!
+! These routines are used to get/free pages of virtual memory.  They simply
+! CALLG either PPL$$GET_PAGE or PPL$$FREE_PAGE.  Since PPL$$GET_PAGE
+! and PPL$$FREE_PAGE themselves might not be at the same virtual address in
+! all the processes, the routines that are stored in this 'section' are not PIC,
+! and hence the 'section' CANNOT be shared -- it is not really a section.
+!
+! However, most of the logic for placing shared memory sections at the same
+! virtual addresss for multiple processes (PPL$$CHOOSE_ADDRESSES) can also
+! be used for placing this 'section'.
+!
+! An interesting point is that this 'section' must be initialized (in *all*
+! processes) with the routines *before* the (one) call to PPL$CREATE_VM_ZONE
+! completes.  This is because the processes might call LIB$GET_VM for the
+! zone immediately after the call to LIB$CREATE_VM_ZONE completes, and if
+! the routines aren't there when LIB$VM calls them... Boom!
+!
+! Note that PPL$$CHOOSE_ADDRESSES must exercise care to avoid trashing our
+! initialization with it's use of the memory (to form a list, or whatever).
+!-
+
+$unit_field
+    callback_fields =
+	set
+	callback_a_getpage=	[$bytes(util$$k_gen_routine)],
+	callback_a_freepage=	[$bytes(util$$k_gen_routine)]
+	tes;
+literal	callback_s_bln=	$field_set_units;	! Size in bytes
+macro	callback_block=	$bblock[callback_s_bln] field(callback_fields) %;
+
+global routine ppl$$init_callback (
+	desc:	ref vector[2]		! Length/address of the memory
+	) =
+    begin
+
+    local
+	d:	$bblock [dsc$c_s_bln],
+	p:	ref callback_block,
+	status;
+
+
+    if .desc[0] lss callback_s_bln then return ppl$_insvirmem;
+    p = .desc[1];
+
+    d[dsc_l_length] = util$$k_gen_routine;
+    d[dsc$a_pointer] = p[callback_a_getpage];
+    status = util$$gen_routine (d[base_], ppl$$get_page);
+    if not .status then return .status;
+
+    d[dsc$a_pointer] = p[callback_a_freepage];
+    status = util$$gen_routine (d[base_], ppl$$free_page);
+    if not .status then return .status;
+
+    return ss$_normal;
+
+end; !ppl$$init_callback
+
+routine gen_routines (
+	get_page:	ref vector[1],
+	free_page:	ref vector[1]
+	) =
+    begin
+    literal
+	k_pages = (callback_s_bln+%uppage-1)/%uppage;	! Pages needed (one)
+
+    local
+	gsdnam:		$bblock [dsc$c_s_bln],
+	proto:		sect_block,
+	csect:		ref sect_block,
+	lsect:		ref sect_block,
+	status;
+    !+
+    ! Form the 'section' name.  Note that we don't need to make this unique.
+    !-
+
+    gsdnam[dsc_l_length] = %charcount (ppl_x_lib_callback);
+    gsdnam[dsc$a_pointer] = uplit byte(ppl_x_lib_callback);
+
+    !+
+    ! Form a prototype section decription.
+    !-
+
+    ch$fill (0, sect_s_bln, proto[base_]);
+    proto[sect_l_start] = 0;		! Starting address
+%if EVAX
+%then
+    proto[sect_l_pages] = (round_((k_pages * %uppage), 
+			.ppl$$gl_pplsect[pplsect_l_page_size])) / 512;
+%fi
+%if VAX
+%then
+    proto[sect_l_pages] = k_pages;	! Number of pages
+%fi
+    proto[sect_l_status] = ss$_normal;
+    proto[sect_v_we_chose] = true;
+
+    !+
+    ! Set the SECT_V_CALLBACK flag.  This indicates to PPL$$CHOOSE_ADDRESSES
+    ! that the 'section' must be initialized by a call to PPL$$INIT_CALLBACK
+    ! before a process deems the memory 'acceptable'.
+    !-
+
+    proto[sect_v_callback] = true;	! Store callback routines in this
+
+    !+
+    ! And look up that section's name.
+    !-
+
+    csect = 0;
+    if ppl$$gl_context[base_] eql 0 then return ppl$_noinit;
+    if ppl$$gl_pplsect[base_] eql 0 then return ppl$_noinit;
+
+    csect = ppl$$find_sect (ppl$$gl_pplsect[pplsect_q_sects], gsdnam[base_],
+				true, proto[base_]);
+    if  (.csect eql ppl$_insvirmem) or   !watch for no space
+	(.csect leq 0 )
+    then return ppl$_insvirmem;
+
+    ch$move (sect_s_bln, csect[base_], proto[base_]);   !init the block
+
+    !+
+    ! initialize the proto section block
+    !-
+
+    proto[sect_l_start] = 0;
+    proto[sect_l_count] = 0;
+    proto[sect_v_final] = false;
+    proto[sect_v_perm] = false;
+    proto[sect_v_mapped] = false;
+    !proto[sect_v_we_chose] = stet
+    !proto[sect_v_callback] = stet
+    !proto[sect_v_getvm] = stet
+!    proto[sect_v_didfini] = false;
+
+    !+
+    ! And get a process-private description of the section.
+    !-
+
+    lsect = proto[base_];
+    lsect = ppl$$find_sect (ppl$$gl_context[ctx_q_sects], gsdnam[base_],
+				false, proto[base_]);
+    if  (.lsect eql ppl$_insvirmem) or   !watch out
+	(.lsect leq 0 ) 
+    then return ppl$_insvirmem;
+
+    !+
+    ! Choose the addresses.
+    !-
+
+    status = ppl$$choose_addresses (csect[base_], lsect[base_]);
+    if not .status then return .status;
+
+    !+
+    ! Store the addresses of the routines.
+    !-
+
+    get_page[0] = .lsect[sect_l_start] + %fieldexpand_(callback_a_getpage,0);
+    free_page[0] = .lsect[sect_l_start] + %fieldexpand_(callback_a_freepage,0);
+
+    return ppl$_normal;
+
+end;    !gen_routines
+
+global routine ppl$create_vm_zone (
+
+	zone_adr	: ref vector[,long]	! Address of longword zone pointer
+
+    ) =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Create a new storage zone according to specified parameters.
+!
+! CALLING SEQUENCE:
+!
+!	STATUS.wlc.v = PPL$CREATE_VM_ZONE (ZONE_ADR.wlu.r
+!				[, [ALGORITHM.rl.r]
+!				[, [ALGORITHM_PARAMETER.rl.r]
+!				[, [FLAGS.rl.r]
+!				[, [EXTEND_SIZE.rl.r]
+!				[, [INITIAL_SIZE.rl.r]
+!				[, [BLOCK_SIZE.rl.r]
+!				[, [ALIGNMENT.rl.r]
+!				[, [PAGE_LIMIT.rl.r]
+!				[, [P1.rl.r]
+!				[, [ZONE_NAME.rl.r]
+!				[, [GET_PAGE.rzem.r]
+!				[, [FREE_PAGE.rzem.r] ]]]]]]]]]]]])
+!
+! INPUT PARAMETERS:
+!
+!	ALGORITHM is the address of a longword integer containing the code
+!		for one of the LIB$VM algorithms:
+!
+!		1	LIB$K_VM_FIRST_FIT	First Fit
+!		2	LIB$K_VM_QUICK_FIT	Quick Fit, fixed set of queues
+!		3	LIB$K_VM_FREQ_SIZES	First Fit, with queues for common sizes
+!		4	LIB$K_VM_FIXED		All blocks the same size
+!
+!		If ALGORITHM is not specified, a default of FIRST_FIT is used.
+!
+!	ALGORITHM_PARAMETER is the address of a longword integer containing
+!		a value that is specific to the particular allocation algorithm:
+!
+!			QUICK_FIT	The number of queues used
+!			FREQ_SIZES	The number of cache slots used
+!			FIXED		The fixed request size for each GET or FREE
+!			FIRST_FIT	Not used, may be omitted
+!
+!		ALGORITHM_PARAMETER must be specified for QUICK_FIT, FREQ_SIZES, and FIXED.
+!
+!		For QUICK_FIT, the number of queues must be between 1 and 128.
+!
+!		For FREQ_SIZES, the number of cache slots must be between 1 and 16.
+!
+!		For FIXED, the request size must be greater than 0.
+!
+!	FLAGS is the address of a longword integer containing flag bits
+!		that control various options:
+!
+!		Bit 0	LIB$M_VM_BOUNDARY_TAGS	Boundary tags for faster freeing.
+!						Adds a minimum of 8 bytes to each block.
+!
+!		Bit 1	LIB$M_VM_GET_FILL0	LIB$GET_VM  : fill with bytes of %X'00'
+!		Bit 2	LIB$M_VM_GET_FILL1	LIB$GET_VM  : fill with bytes of %X'FF'
+!		Bit 3	LIB$M_VM_FREE_FILL0	LIB$FREE_VM : fill with bytes of %X'00'
+!		Bit 4	LIB$M_VM_FREE_FILL1	LIB$FREE_VM : fill with bytes of %X'FF'
+!		Bit 5	LIB$M_VM_EXTEND_AREA	Add extents to existing areas if possible
+!
+!		Bits 6:31 are reserved and must be 0.
+!
+!		If FLAGS is omitted, a default of 0 is used: No fill, No tags.
+!
+!	EXTEND_SIZE is the address of a longword integer containing the number of
+!		(512-byte) pages to be added to the zone each time it is extended.
+!
+!		The value of EXTEND_SIZE must be between 1 and 1024.
+!		If EXTEND_SIZE is not specified, a default of 16 pages is used.
+!
+!		Note: EXTEND_SIZE does not limit the size of blocks that
+!		can be allocated from the zone. The actual extension size
+!		is the maximum of EXTEND_SIZE and the number of pages needed
+!		to satisfy the LIB$GET_VM call that caused the extend.
+!
+!	INITIAL_SIZE is the address of a longword integer containing the number of
+!		(512-byte) pages to be allocated for the zone as the zone is created.
+!
+!		The value of INITIAL_SIZE must be between 0 and 1024.
+!
+!		If INITIAL_SIZE is not specified or 0, no pages are allocated when the
+!		zone is created; the first call to LIB$GET_VM for the zone
+!		allocates EXTEND_SIZE pages.
+!
+!	BLOCK_SIZE is the address of a longword integer specifying the
+!		allocation quantum (in bytes) for the zone. All blocks
+!		allocated are rounded up to a multiple of BLOCK_SIZE.
+!
+!		The value of BLOCK_SIZE must be a power of 2, between 8 and 512.
+!		If BLOCK_SIZE is not specified, a default of 8 bytes is used.
+!
+!	ALIGNMENT is the address of a longword integer specifying the
+!		required address alignment (in bytes) for each block allocated.
+!
+!		The value of ALIGNMENT must be a power of 2, between 4 and 512.
+!		If ALIGNMENT is not specified, a default of 8 bytes is used.
+!
+!	PAGE_LIMIT is the address of a longword integer specifying the
+!		maxmimum number of (512-byte) pages that can be allocated for the zone.
+!
+!		The value of PAGE_LIMIT must be between 0 and 32767.
+!		If PAGE_LIMIT is not specified or 0, the only limit is the total
+!		process virtual address space limit imposed by VMS.
+!
+!	P1 is the address of a longword integer specifying the smallest
+!		block size (in bytes) that has a queue for the QUICK_FIT algorithm.
+!
+!		If P1 is not specified, a default of BLOCK_SIZE is used;
+!		that is, queues are provided for the first n multiples of BLOCK_SIZE.
+!
+!	ZONE_NAME is the address of a string descriptor specifying the
+!		name of the zone.
+!
+!	GET_PAGE is the address of a routine to call to allocate pages.
+!
+!	FREE_PAGE is the address of a routine to call to deallocate pages.
+!
+! OUTPUT PARAMETERS:
+!
+!	ZONE_ADR is the address of a longword which is set to the identifier
+!		of the newly created zone.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION STATUS:
+!
+!	PPL$_NORMAL	indicates normal successful completion
+!	PPL$_ELEALREXI  an element of the same name already exists.
+!			(Alternate success status).
+!	PPL$_INCOMPEXI	an incompatible type of element with the same
+!			name already exists
+!	PPL$_INSVIRMEM	indicates lower level page allocation failure
+!	LIB$_INSVIRMEM	indicates page allocation error in lib$ routine
+!	PPL$_INVARG	indicates an invalid parameter
+!	LIB$_INVARG	indicates an invalid parameter
+!	LIB$_INVSTRDES	indicates invalid string descriptor for zone_name
+!
+!	If an error status is returned, the zone is not created.
+!
+! SIDE EFFECTS:
+!
+!	Memory is allocated for the zone control block.
+!
+!--
+begin	!create_vm_zone
+
+literal
+	k_get_page		= 12,		! 12th argument
+	k_zone_name		= 11,		! 11th argument
+	k_free_page		= 13,		! 13th argument
+	k_arg_count		= 13;		! Max number of arguments
+
+local
+    a		: vector[1+k_arg_count, long],	! Copied argument list
+    proto	: vm_block,			! prototype of vm - block
+    vm		: ref vm_block,			! vm ctrl block
+    vm_name	: ref $bblock [dsc$c_s_bln],	! vm_zone- name
+    vm_nam_dsc	: $bblock[dsc$c_s_bln],		! name descriptor
+    lcknam	: $bblock [dsc$c_s_bln],	! VM-lock's non-unique name
+    lckbuf	: $bblock [32],			! Its (VML n-u) buffer
+    lckuni	: $bblock [dsc$c_s_bln],	! VM-lock's unique name
+    lname_buffer : $bblock [32],		! Its (VML) buffer
+    lksb	: lksb_block,
+    index,
+    eid		: unsigned long,
+    status	: unsigned long,
+    ast_status  : unsigned volatile long,
+    top_flag    : unsigned volatile long,
+    mutex_flag  : unsigned volatile long,
+    mutex       : unsigned volatile long;
+
+builtin
+	actualcount, actualparameter, argptr, callg, nullparameter;
+
+macro
+	ppl_x_vm_lock  = %string(ppl_x_facnam, 'VMZ_') %;
+
+bind
+	x_vm_lock =	UPLIT BYTE (%ascic ppl_x_vm_lock),
+	x_facnam =	UPLIT BYTE (%ascic ppl_x_facnam);
+
+external
+	ppl$$gl_system	:   unsigned long;		! System-wide flag
+
+enable		! handler variables are initially zero from volatile def.
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+!+
+! Verify the number of arguments.
+!-
+
+if actualcount() gtr k_arg_count then
+    return ppl$_wronumarg;
+
+if nullparameter(zone_adr) then
+    return ppl$_invarg;
+
+!+
+! Construct an argument list for LIB$CREATE_VM_ZONE, which we'll call
+! with a CALLG.
+!-
+
+%if VAX
+%then
+ch$copy (%upval * actualcount(), zone_adr, 0, %allocation(a)-%upval, a[1]);
+%fi
+
+%if EVAX
+%then
+incr index from 1 to k_arg_count do
+    a[.index] = 0;
+incr index from 1 to actualcount() do
+    a[.index] = actualparameter(.index);
+%fi
+a[0] = k_arg_count;
+
+!+
+! Validate the descriptor and the length
+!-
+
+vm_name = 0;
+
+IF .a[k_zone_name] neq 0 then
+    (
+    vm_nam_dsc[dsc$b_dtype] = dsc$k_dtype_t;
+    vm_nam_dsc[dsc$b_class] = dsc$k_class_s;
+    STR$ANALYZE_SDESC_R1(.a[k_zone_name];
+	vm_nam_dsc[dsc$w_length],
+	vm_nam_dsc[dsc$a_pointer]);
+    vm_name = vm_nam_dsc[base_];
+    );
+
+verify_init_;
+
+!+
+! Create the standard name of the VM zone creation lock, and then get it.
+!-
+ch$copy(ch$rchar(x_vm_lock),	ch$plus(x_vm_lock, 1),
+	.app_lksb[app_l_name_len],	app_lksb[app_a_name_buf],
+	0, %allocation(lckbuf),	lckbuf[base_]);
+
+lcknam[dsc_l_length] = ch$rchar(x_vm_lock) + .app_lksb[app_l_name_len];
+lcknam[dsc$a_pointer] = lckbuf[base_];
+
+lckuni[dsc_l_length] = %allocation (lname_buffer);
+lckuni[dsc$a_pointer] = lname_buffer[base_];
+
+status = ppl$unique_name (lcknam[base_], lckuni[base_], lckuni[dsc$w_length]);
+if not .status then return .status;
+
+!+
+! Seize the VM lock to insure that no other processes try to create this zone 
+! while we're doing it.
+!
+! Loop; enter critical region, try to get the VM lock, if you do not get
+! it exit critical region (to give ASTs a chance to come in) and try again,
+! when you do get the VM lock exit loop continuing inside critical region.
+!-
+
+while true do
+    begin
+    enter_critical_region_;  ! disable asts
+
+    status = $enqw (
+	efn=	.ppl$$gl_context[ctx_l_ef],
+	lkmode=	lck$k_pwmode,		! Write, allowing readers
+	lksb=	lksb[base_],
+	flags=	lck$m_noqueue or	! We want it NOW
+		.ppl$$gl_system,	! Possibly system-wide
+	resnam=	lckuni[base_],		! The lock name
+	parid=	0,
+	astadr=	0,
+	astprm=	0,
+	blkast=	0,
+	acmode=	psl$c_user);
+
+    if .status nequ ss$_notqueued then exitloop;
+
+    leave_critical_region_;     ! Reenable ASTs to let any pending ones in
+    end;
+
+if .status then status = .lksb[lksb_w_status];
+if not .status then
+    begin
+    leave_critical_region_;     ! Enable ASTs
+    return .status;
+    end;
+
+status = ppl$$name_search (vm_name[base_], vm);
+
+!+
+! If the element already existed, be sure it is a vm zone
+! otherwise, it has been created with all fields initted according to proto.
+!-
+
+
+IF (.status eql ppl$_nosuchnam) then
+    (
+!+
+! Find some memory that will be at the same virtual address among all the
+! processes currently participating in the PPL application.  This memory
+! will *not* be shared -- we use it to store a couple small routines.
+! Note that the user cannot specify get/free routines to PPL$CREATE_VM_ZONE,
+! since the *user's* routines might not be at the same virtual
+! addresses in all the processes.
+!-
+    if .a[k_get_page] neq 0 then return ppl$_invarg;
+    if .a[k_free_page] neq 0 then return ppl$_invarg;
+
+    status = gen_routines (a[k_get_page], a[k_free_page]);
+    if not .status then 
+	begin 
+	$deq (lkid= .lksb[lksb_l_lockid]);
+	leave_critical_region_;
+	return .status;
+	end;
+
+!+
+! Now call LIB$CREATE_VM_ZONE.
+!-
+
+    status = callg (a[0], lib$create_vm_zone);
+    if (.status) then
+	(
+	! Prepare proto for creating the name if it does not already exist.
+	proto[vm_l_type] = ppl$k_vm;
+	proto[vm_l_eid] = 0;	! Set by look-up
+	proto[vm_l_zone_id] = .zone_adr[0];
+
+	status = ppl$$name_lookup (vm_name[base_], vm, vm_s_bln, proto);
+	if (.status neq ppl$_created) then
+	    (
+	    if (.status eql ppl$_normal) and (.vm[vm_l_type] eql ppl$k_vm) then
+		ppl_signal_(ppl$_badlogic)  ! We held the lock!
+	    else
+		begin
+		lib$delete_vm_zone (zone_adr[0]);   ! we cannot use this zone!
+		status = ppl$_incompexi;
+		end
+	    )
+	else 
+	    if .status then status = ppl$_normal;
+	)
+    )
+else	    ! .status eql ppl$_normal means it was found, but not created
+    (
+    if .status then 
+	begin
+	if (.vm[vm_l_type] neq ppl$k_vm) then
+	    status = ppl$_incompexi
+	else 
+	    begin
+	    status = ppl$_elealrexi;
+	    zone_adr[0] = .vm[vm_l_zone_id];
+	    end
+	end
+    );
+
+$deq(lkid= .lksb[lksb_l_lockid]);
+leave_critical_region_;
+
+!+
+! ensure that the EID is correctly initialized
+!-
+
+if .status then
+    begin
+    eid = .vm - ppl$$gl_pplsect[base_];
+    if (.vm[vm_l_eid] neq .eid) then
+	(
+	if (.vm[vm_l_eid] eql 0) then
+	    vm[vm_l_eid] = .eid
+	else
+	    ppl_signal_(ppl$_badlogic);
+	);
+    end;    
+
+return .status;
+
+end; !CREATE_VM_ZONE
+
+
+end						! End of PPL$VM module
+eludom

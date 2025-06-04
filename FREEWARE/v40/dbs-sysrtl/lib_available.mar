@@ -1,0 +1,163 @@
+	.title	lib_available
+	.ident	"X1-002"
+
+;+
+; Version:	X1-002
+;
+; Facility:	Library routines.
+;
+; Abstract:	To determine the availability of the calling facility.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	01-Jan-1991, DBS; Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS; Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	This routine will look for a logical of the form xxx_UNAVAILABLE in
+;	the system table.  If it does not exist, we return to the caller and
+;	they can continue.  If it is found, we look for logicals of the form
+;	xxx_WHY_n and use the equivalence strings as output to the user to
+;	explain why this facility is not available - then we exit.
+;
+; Calling Sequence:
+;	call lib_available (identifier)
+;		- or -
+;	pushaq	identifier
+;	calls	#1, g^lib_available
+;
+; Formal Argument(s):
+;	identifier.rt.ds  The address of a string descriptor which is to be
+;			used to locate the xxx_UNAVAILABLE and xxx_WHY_n
+;			logicals.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	As returned by the $trnlnm routine
+;	ss$_cancel	This is returned if the facility IS unavailable but
+;			control is not returned to the caller.
+;
+; Side Effects:
+;	None
+;--
+
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	.external lib$put_output
+
+	$lnmdef
+	$ssdef
+	$stsdef
+	$gblini GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+one_arg=1
+p1=4
+
+logical_table:	.ascid	/LNM$SYSTEM_TABLE/
+who_format:	.ascid	/!AF_UNAVAILABLE/
+why_format:	.ascid	/!AF_WHY_!UL/
+not_available:	.ascid	/This facility is temporarily unavailable./
+
+	alloc_string	logical_name, 256
+	alloc_string	equivalence_name, 256
+
+lnm_items:	.word	equivalence_name_s
+		.word	lnm$_string
+		.address equivalence_name_t
+		.address equivalence_name
+		.long	0		; to end the list
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+lib_available, ^m<r2,r3,r4>
+
+	cmpw	(ap), #one_arg
+	blss	insfarg
+	bgtr	ovrmaxarg
+	tstl	p1(ap)
+	beql	badparam
+	movq	@p1(ap), r2
+	movzwl	r2, r2
+	beql	ivbuflen
+	brb	arg_ok
+
+insfarg:
+	movl	#ss$_insfarg, r0
+	brw	return
+ovrmaxarg:
+	movl	#ss$_ovrmaxarg, r0
+	brw	return
+badparam:
+	movl	#ss$_badparam, r0
+	brw	return
+ivbuflen:
+	movl	#ss$_ivbuflen, r0
+	brw	return
+
+arg_ok:
+	$fao_s	ctrstr=who_format, - ; generate the xxx_unavailable logical
+		outbuf=logical_name_ds, -
+		outlen=logical_name, -
+		p1=r2, -
+		p2=r3
+	jsb	translate_logical
+	blbc	r0, return		; no logical => available
+
+	display	not_available
+
+	clrl	r4			; for the counter
+loop:	incl	r4
+	$fao_s	ctrstr=why_format, - ; generate the xxx_why_n logicals
+		outbuf=logical_name_ds, -
+		outlen=logical_name, -
+		p1=r2, -
+		p2=r3, -
+		p3=r4
+	jsb	translate_logical
+	blbc	r0, 100$
+	display	equivalence_name
+	brb	loop
+
+100$:	$exit_s	code=#ss$_cancel
+
+return:
+	bisl	#sts$m_inhib_msg, r0	; inhibit message, retain $status
+
+	ret
+
+translate_logical: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+	$trnlnm_s -
+		tabnam=logical_table, -
+		lognam=logical_name, -
+		itmlst=lnm_items
+	rsb
+
+	.end

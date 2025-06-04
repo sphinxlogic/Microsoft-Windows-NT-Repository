@@ -1,0 +1,479 @@
+1 FIND
+ FIND [device-name]
+
+ FIND is a utility to allow you to display information about  a  file,
+ based  on  information  stored in the files header.  FIND operates in
+ one of two modes, it either displays information read directly out of
+ the  index file, or it asks the disk ACP to return header information
+ to it.  The first mode of operation is used for general searches, and
+ does  not necessarily return the most current up to date information,
+ as there may be many headers cached in memory, and thus out of  synch
+ with  the  index file.  The second mode of operation is used when you
+ specify a /FILE_ID or /FULLNAME qualifier, giving it an explicit list
+ of  files  to  work  with.  In this case it asks the disk ACP for the
+ headers, thus getting  the  most  current,  up  to  date  information
+ available,  if possible.  Note that in either case, the index file is
+ opened for read acces, thus to use this utility, you must  have  read
+ access  to  the  file  [000000]INDEXF.SYS,  and  if using /FILE_ID or
+ /FULLNAME you must also have read access to the requested files.
+
+ FIND takes one paramater, the name of the device whose index file  is
+ to  be  searched.   If  device-name  is  not specified it defaults to
+ SYS$DISK (your current default disk).  It  correctly  handles  rooted
+ device names, and can handle multi-volume disk sets.
+
+ You may limit what files will be displayed by using  the  appropriate
+ qualifiers.   Most  of  the qualifiers that affect what files will be
+ displayed allow a minimum and maximum value, if you do not specify  a
+ maximum  value,  then  it is assumed you want all things greater than
+ the minimum.  If you want a specific value, than you must enter it as
+ both the minimum and maximum value, i.e.
+      $ FIND/ALLOCATED=(1497,1497)
+ would display all files with exactly 1497 blocks allocated.
+2 Examples
+ The following examples are meant to demonstrate some of the  uses  of
+ FIND.
+3 ACL
+ Suppose you are going delete a user, and you want to be sure that  no
+ one  has  a  file  that  specifically  refers to that user, you could
+ specify:
+      $ FIND/DISPLAY=ACL/ACE=([USER1],[USER2],PROJECT$P001)
+ This would display all files (and their access control  lists)  which
+ had any ACLs that refered to the uic identifiers [USER1], [USER2], or
+ the 'project' identifier PROJECT$P001
+3 Activity
+ Suppose you wanted to get an idea of disk usage, you could generate a
+ report showing all the files created in a specified time period:
+      $ FIND/DISPLAY=(CREATION,ALLOCATED,USED)-
+      $_ /CREATION=(YESTERDAY,TODAY)
+ would display all files created today
+
+ or all the files modified in a specifid time period:
+      $ FIND/DISPLAY=(CREATION,REVISION,ALLOCATED,USED)-
+      $_ /REVISION=(YESTERDAY,TODAY)
+ would display all files revised today
+3 Big_Directories
+ Suppose you want to find all the directory files that are bigger than
+ 50 blocks, you could use:
+      $ FIND/DISPLAY=(USED,ALLOCATED) -
+      $_ /CHARACTERISTICS=DIRECTORY/ALLOCATED=50/MATCH=AND
+ Notice the use of the /MATCH qualifier.  Normally  this  defaults  to
+ OR,  so  that if any one of the conditions are met then the file will
+ be displayed.
+3 FID
+ If you know a file id, you can display the info on that file via:
+      $ FIND/DISPLAY=ALL/FILE_ID=(1,4)
+ This would display INDEXF.SYS [fid = (1,1,0)] and 000000.DIR (4,4,0).
+ Note that only the first number of the File ID should be specified.
+3 Fragmentation
+ Suppose you want to know how badly fragmented the system is:
+      $ FIND/DISPLAY=(EXTENTS,HEADERS)/HEADERS=1
+ would display all the files with more than one extention  header,  of
+ course,  you  needn't wait till your system gets that fragmented, you
+ may have a different idea of what is too fragmented:
+      $ FIND/DISPLAY=(EXTENTS,HEADERS)/EXTENTS=20
+ would display all the files broken into 20 or more peices.
+3 LBN
+ Suppose you have a block go bad, you know the LBN, and  you  want  to
+ know the file which contains it:
+      $ FIND/LBN=19500
+ would display the file containing that LBN.
+
+ Another way (is this cheating?) would  be  to  search  for  any  file
+ marked corrupt:
+      $ FIND/CHARACTERISTICS=FILE_CORRUPT
+
+ Perhaps you want to see what LBNs are in a specific file,
+      $ FIND/DISPLAY=LBN/FULLNAME=EXAMPLE.TXT
+3 TREE
+     As of September of '92, a new display option has been added, which
+ displays a sorted list of all directories and grand totals for the space
+ used both within the directory and within all directories beneath it. You
+ can control the 'depth' of the tree by specifying an integer value, such
+ as FIND/DISPLAY=TREE=3. If you don't specify a value, the entire directory
+ tree will be displayed. Note that any selection criteria will be applied
+ while building the tree, which may give unexpected results!
+3 WASTE
+ If you want to know how many blocks are being wasted (the  difference
+ between used and allocated), you could display it via
+      $ FIND/DISPLAY=WASTED/FULLNAME=EXAMPLE.TXT
+ Or find all files wasting space...
+      $ FIND/DISPLAY=WASTED/WASTED=100
+2 Input_Qualifiers
+ Besides searching through the index file  directly,  you  can  select
+ what  files  will  be  used  (and  still  subject  to  the "selection
+ qualifiers"), via /FILE_ID and /FULLNAME .
+
+ You may search through all the index files in a multiple  volume  set
+ by  specifying /VOLUME.  This is especially usefull in doing searches
+ based on LBN, ACE, and ACL, as one  or  more  of  a  files  extension
+ headers  may  reside  on a separate disk, and extension headers which
+ are on their own would otherwise be ignored.
+/FILE_ID
+      /FILE_ID=(list-of-file-id's)
+
+ This allows you to display selected files  without  the  overhead  of
+ searching  through  the entire index file.  This limits the search to
+ only the  selected  files,  as  indicated  by  their  file-id.   This
+ searches  through the index file to complete the file-id, then if the
+ file-id is valid, it asks the disk acp for the header to  this  file,
+ forcing  the  information to be as accurate as possible.  If the file
+ id is no longer valid, it will display the file header as  stored  in
+ the  index  file,  with an asterisk in front of the file id (if it is
+ being displayed).  Note that if the file id is valid  that  you  will
+ need read access to the file requested, as well as read access to the
+ index file.
+/FULLNAME
+      /FULLNAME=(list-of-full-file-specs)
+
+ This allows you to display selected files  without  the  overhead  of
+ searching  through  the entire index file.  This limits the search to
+ only the selected files.
+
+ This requires read access to the requested files, but does not access
+ the index file.
+/VOLUME
+      /VOLUME
+
+ This forces  FIND  to  search  through  all  the  index  files  in  a
+ multi-volume  disk set.  This is especially usefull in doing searches
+ based on LBN, ACE, and ACL, as one  or  more  of  a  files  extension
+ headers  may  reside  on a separate disk, and extension headers which
+ are on their own would otherwise be ignored.
+
+ For example, suppose that DUA1 and DUA2 are  set  up  as  a  multiple
+ volume  set  called MULTI$DISK.  If the file TEST.DAT were created on
+ DUA1, but half of TEST.DAT was placed on  DUA2,  from  logical  block
+ number 100 through 500, then the command:
+      FIND/LBN=250/DISPLAY=LBN DUA2:
+ would not return any info on TEST.DAT, since the first  file  segment
+ was located on DUA1.  However, the command:
+      FIND/LBN=250/DISPLAY=LBN/VOLUME MULTI$DISK  !   (or  "DUA1",  or
+ "DUA2")
+ would report that DUA1:TEST.DAT contained the LBN 250.  It  may  also
+ report  some  other  files  as containing LBN 250, since each disk is
+ being searched, hence you would want to display the LBN  information,
+ to  be  able  to  determine  which  file  was the one you were really
+ concerned about.
+2 Output_qualifiers
+ You may redirect output to a file, via /OUTPUT, and  you  may  choose
+ what  is to be displayed via /DISPLAY.  By default the full file name
+ is always displayed.  The only way to disable  this  (should  you  so
+ desire) is to select NOFULLNAME as a display option.
+/OUTPUT
+      /OUTPUT[=filename]
+
+ Controls where output will go to.  If qualifier  isn't  present  then
+ all output will be to screen.
+
+ If qualifier is present but a filename  is  not  specified,  it  will
+ default to INDEXF.LIS.
+/DISPLAY
+      /DISPLAY=(list-of-display-keywords)
+
+ Controls what will be displayed from the file header.
+
+ All off the DISPLAY keywords are negatable, so that  you  could  say:
+ /DISPLAY=(ALL,  NOLBN)  to  get  a  listing  including all the header
+ information except for the list of logical block numbers.  By default
+ FULLNAME is always displayed.  If you really don't want to see it you
+ must specify NOFULLNAME.
+    ALL
+      Display everything about the file (except negated items)
+    ACL
+    ACCESS_MODE
+    ACTIVE_RECOVERY_UNITS
+    ALLOCATED
+    ATTRIBUTES
+    BACKUP_DATE
+    BUCKET_SIZE
+    CHARACTERISTICS
+    CREATION_DATE
+    DEFAULT_EXTEND_QUANTITY
+    DIRECTORY_FILE_ID
+    EXPIRATION_DATE
+    EXTENTS
+    FILE_ID
+    FULLNAME (The name as returned by the disk ACP, if possible, otherwise
+              it will return the name in the file header preceded with [?],
+              and on the next line it will display the name of the file that
+              this files backlink points to, if possible)
+    GLOBAL_BUFFER_COUNT
+    HEADERS
+    HIGHWATER_MARK
+    JOURNAL
+    LBN
+    MAXIMUM_RECORD_SIZE
+    NAME (this is the name as it exists in the file header, this name may
+          be different than the name returned by FULLNAME due to multiple
+          links to the same file, esp. when selecting based on /FULLNAME)
+    NUMBER_OF_REVISIONS
+    ORGANIZATION
+    OWNER_UIC
+    PROTECTION
+    RECORD_SIZE
+    REVISION_DATE
+    TREE[=depth] (This displays a directory tree [up to 'depth' levels deep)
+    TYPE
+    USED (displays blocks used, and first free byte)
+    VERSION_LIMIT
+    VFC_SIZE
+    WASTED_BLOCKS
+2 Selection_qualifiers
+/MATCH
+      /MATCH=(match-option)
+
+ Match-option can be AND or OR, and signifies wether a  file  will  be
+ displayed  only  if  all  criterion pass (AND) or if any one criteria
+ passes (OR).  OR matching is used by default.
+
+ example:
+      $ FIND/CHAR=DIR/OWNER=[USER]/MATCH=AND
+ Display all directories owned by [USER].
+
+      $ FIND/WASTED=50/ALLOC=100000/MATCH=OR
+ Is equivalent to:
+      $ FIND/WASTED=50/ALLOC=100000
+ Which displays all files wasting 50 blocks or  more,  or  which  have
+ 100,000 (or more) blocks allocated.
+/ACE
+      /ACE=(list-of-identifiers-or-uics)
+
+ Allows you to select files which have an  identifier  ace  containing
+ one (or more) of the specified ids.
+
+ example:
+      $ FIND/DISPLAY=ACL/ACE=([PROJECTS,P001],[SYSTEM],BATCH)
+ Would display all files that referenced any of those  identifiers  in
+ their ACL.
+/ACL
+      /ACL
+
+ Allows you to display all files that have an ACL of any kind.
+/ATTRIBUTES
+      /ATTRIBUTES=(list-of-attributes-keywords)
+
+ Allows you to specify what record attributes a file must have or  not
+ have, to be displayed.
+
+    FORTRANCC   Fortran carriage control
+    IMPLIEDCC   Implied carriage control
+    PRINTCC     Print carriage control
+    SPAN        Records can span blocks
+ example:
+      $ FIND/DISP=ATTRIBUTES/ATTRIB=(FORTRAN,PRINT)
+ Display all files that have either fortran or print carriage control.
+/CHARACTERISTICS
+      /CHARACTERISTICS=(list-of-characteristics-keywords)
+
+ Allows you to specify what file characteristics a file must  have  or
+ not have, to be displayed.
+
+    ACL_CORRUPT          File contains corrupt ACL
+    BACKUP               File can be backed up
+    BEST_TRY_CONTIGUOUS  Keep file as contiguous as possible
+    CHARGE               File space is charged to owner
+    CONTIGUOUS           File is contiguous
+    DIRECTORY            File is a directory
+    ERASE_ON_DELETE      File is to be erased when deleted
+    FILE_CORRUPT         File contains suspected bad blocks
+    LOCKED               File is deaccess locked
+    MARKED_FOR_DELETE    File is marked for delete
+    SPOOL                File is a spool file
+    READ_VERIFY          Verify all read operations
+    WRITE_BACK           File may be write-back cached
+    WRITE_VERIFY         Verify all write operations
+ example:
+      $ FIND/DISP=(CHAR,FILE_ID)/CHAR=SPOOL
+ Display all spool files..
+
+      $ FIND/DISPL=CHAR/CHAR=(READ_VERIFY,WRITE_VERIFY, -
+      $_ NOFILE_CORRUPT,NOACL_CORRUPT,NOMARKED_FOR_DELETE)
+ This displays all file that are set to either read or  write  verify,
+ but aren't corrupt in any way, nor deleted.
+/JOURNAL
+      /JOURNAL=(list-of-journal-keywords)
+
+ Allows you to specify what journal attributes a file must have or not
+ have, to be displayed.
+
+    JOURNAL    This is a journal file
+    AIJNL      Enable after image journal
+    ATJNL      Enable audit trail journal
+    BIJNL      Enable before image journal
+    RUJNL      Enable recovery unit journal
+    NEVER_RU   File is never accessible in recovery unit
+    ONLY_RU    File is accessible only in recovery unit
+/ORGANIZATION
+      /ORGANIZATION=(list-of-organization-keywords)
+
+ Allows you to specify what file organization a file must have or  not
+ have, to be displayed.
+
+    SEQUENTIAL
+    RELATIVE
+    INDEXED
+    DIRECT
+ example:
+      $ FIND/ORG=INDEX
+ Display all indexed files.
+
+      $ FIND/ORG=NOSEQUENTIAL
+ Display all non-sequential files.
+
+      $ FIND/ORG=(INDEX,RELATIVE)
+ Display all files that are either indexed, or relative.
+/TYPE
+      /TYPE=(list-of-type-keywords)
+
+ Allows you to specify what record type a file must have or not  have,
+ to be displayed.
+
+    UNDEFINED Record type is undefined
+    FIXED     Records have a fixed length
+    VARIABLE  Record have variable length - stored in the file
+              as a 2 byte integer storing the record length, followed
+              by the record, possibly null padded to make next record
+              start on a word boundary.
+    VFC       Variable with fixed control
+    STREAM    Stream format (unix-ish, records? what records?)
+    LFSTREAM  Stream format, records are separated by line feed
+    CRSTREAM  Stream format, records are separated by carriage return
+ example:
+      FIND/DISPL=TYPE/TYPE=(STREAM,LFSTREAM,CRSTREAM)
+ Display files having a stream format of some type.  Note that this is
+ in  effect  an  OR search, a file must have, or not have, only one of
+ the types specified.
+/ACCESS_MODE
+      /ACCESS_MODE=(list-off-access_mode-keywords)
+
+ Allows you to specify what access mode a file must have or not  have,
+ to  be  displayed.   Note that I am not sure if VMS even uses this...
+ As a wild guess I would imagine that if it does use it, it would only
+ be  for  open files, and the header would be cached in memory, not in
+ the index file, so it probably could never be accessed except when an
+ ACP   QIO   function   is   performed   to   get  the  absolute  most
+ current/correct header, as is done  when  /FILE_ID  or  /FULLNAME  is
+ specified.
+
+    USER
+    SUPERVISOR
+    EXECUTIVE
+    KERNEL
+/CREATION_DATE
+      /CREATION_DATE=(min,max)
+
+ Display files created between the 'min' and 'max' dates.
+
+ example:
+      $ FIND/DISPL=CREAT/CREAT=(YESTERDAY,TODAY)
+ Display all files created today.
+/REVISION_DATE
+      /REVISION_DATE=(min,max)
+
+ Display files created between the 'min' and 'max' dates.
+
+ example:
+      $ FIND/DISPL=(CREATION,REVISION)/REVISION=(YESTERDAY,TODAY)
+/EXPIRATION_DATE
+      /EXPIRATION_DATE=(min,max)
+
+ Display files expiring between the 'min' and 'max' dates.
+
+ example:
+      $ FIND/DISPL=(CREATION,EXPIRATION)/EXPIRATION=(YESTERDAY,TODAY)
+/BACKUP_DATE
+      /BACKUP_DATE=(min,max)
+
+ Display files backed up between the 'min' and 'max' dates.
+
+ example:
+      $ FIND/DISPL=(CREATION,BACKUP)/BACKUP=(YESTERDAY,TODAY)
+/ACTIVE_RECOVERY_UNITS
+      /ACTIVE_RECOVERY_UNITS=(min,max)
+
+   1 = by RMS
+   2 = by DBMS
+   3 = by Rdb/VMS
+   4 = by Checkpoint/Restart
+   > 4 = by other recoverable facility
+/ALLOCATED
+      /ALLOCATED=(min,max)
+/BUCKET_SIZE
+      /BUCKET_SIZE=(min,max)
+/DEFAULT_EXTEND_QUANTITY
+      /DEFAULT_EXTEND_QUANTITY=(min,max)
+/DIRECTORY_FILE_ID
+      /DIRECTORY_FILE_ID=(list-of-directory-file-id's)
+
+ You can use this to find  all  files  that  are  (should  be?)  in  a
+ specified  directory,  so  long  as  you  know  the  file-id  of  the
+ directory.
+/EXTENTS
+      /EXTENTS=(min,max)
+/FIRST_FREE_BYTE
+      /FIRST_FREE_BYTE=(min,max)
+/GLOBAL_BUFFER_COUNT
+      /GLOBAL_BUFFER_COUNT=(min,max)
+/HEADERS
+      /HEADERS=(min,max)
+/HIGHWATER_MARK
+      /HIGHWATER_MARK=(min,max)
+/LBN
+      /LBN=(list-of-LBNs)
+/MAXIMUM_RECORD_SIZE
+      /MAXIMUM_RECORD_SIZE=(min,max)
+
+ Maximum allowable record length.  0 means there is no maximum.
+/RECORD_SIZE
+      /RECORD_SIZE=(min,max)
+
+ Longest record length.
+/NAME
+      /NAME=filename
+
+ This allows you to search based on the name  stored  in  the  header.
+ Note  that  this is slower than using /FULLNAME but is usefull if you
+ know the name of a file but not its location.
+/NUMBER_OF_REVISIONS
+      /NUMBER_OF_REVISIONS=(min,max)
+/OWNER_UIC
+      /OWNER_UIC=(list-of-UICs)
+
+ This accepts any valid UIC.  Valid UIC formats include
+    [octal-number,octal-number]
+    <octal-number,octal-number>
+    [identifier,identifier]
+    <identifier,identifier>
+    [identifier]
+    <identifier>
+    %xHexadecimal-number
+/PROTECTION
+      /PROTECTION=(SET=(protection),CLEAR=(protection))
+
+ This  allows  you  to  search  for  all  files  that  have  specified
+ protection bits SET and or CLEAR, for example, to find all files that
+ are world writeable, but not world readable, you could specify :
+      /PROTECTION=(SET=(WORLD=W), CLEAR=(WORLD=R))
+ or just all files that are set to WORLD:RWED, use
+      /PROTECTION=(SET=W:RWED)
+ or all files that are set to owner not readable, use
+      /PROTECTION=(CLEAR=O:R)
+/USED
+      /USED=(min,max)
+/VERSION_LIMIT
+      /VERSION_LIMIT=(min,max)
+
+ Note that this is the directory version limit, i.e.  this is  set  by
+ the command SET DIRECTORY/VERSION=n
+/VFC_SIZE
+      /VFC_SIZE=(min,max)
+/WASTED_BLOCKS
+      /WASTED_BLOCKS=(min,max)
+/PLACEMENT
+      /PLACEMENT=(list-of-placement-keywords)
+
+   EXACT                   Exact placement specified
+   ON_CYLINDER             On cylinder allocation desired
+   RELATIVE_VOLUME_NUMBER  Place on specified RVN
+   LBN_SPECIFIED           Use LBN of next map pointer

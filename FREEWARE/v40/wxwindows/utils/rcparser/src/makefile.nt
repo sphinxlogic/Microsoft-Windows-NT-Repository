@@ -1,0 +1,109 @@
+#
+# File:		makefile.nt
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	Ulrich Leodolter <ulrich@lab1.psy.univie.ac.at>, 1995
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds RC-reading library and example on Windows NT.
+#
+!include <..\..\..\src\ntwxwin.mak>
+
+RCDIR = $(WXDIR)\utils\rcparser
+RCLIB = $(RCDIR)\lib\rcparser.lib
+THISDIR = $(RCDIR)\src
+INC=-I$(WXBASEINC) -I$(WXINC)
+DUMMY=$(WXDIR)\src\msw\dummy.obj
+
+
+OBJECTS = rcparser.obj rcobject.obj curico.obj
+
+all:    $(RCLIB)
+
+test:   test.exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt clean
+        cd $(THISDIR)
+
+$(RCLIB):      $(OBJECTS)
+	-erase $(RCLIB)
+        $(implib) @<<
+-out:$(RCLIB)
+-machine:$(CPU)
+$(OBJECTS)
+<<
+
+test.exe:      $(WXLIB) $(RCLIB) $(DUMMY) test.obj test.def test.res
+	$(link) @<<
+-out:$@
+-machine:$(CPU)
+-subsystem:windows
+$(LINKFLAGS)
+$(DUMMY) test.obj test.res
+$(WXLIB)\wx.lib
+shell32.lib $(guilibs)
+<<
+
+rcparser.obj:      rcparser.h rcobject.h rcparser.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+rcobject.obj:      rcparser.h rcobject.h rcobject.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+curico.obj:      cric_prv.h curico.h wxcurico.h curico.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+test.obj:      test.$(SRCSUFF) $(DUMMY)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+test.res :      test.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(WXDIR)\contrib\fafa /i$(WXDIR)\include\msw test
+
+# Making documents
+docs:   hlp xlp
+hlp:   $(DOCDIR)/wxtree.hlp
+xlp:    $(DOCDIR)/wxtree.xlp
+rtf:    $(DOCDIR)/wxtree.rtf
+
+$(DOCDIR)/wxtree.hlp:         $(DOCDIR)/wxtree.rtf $(DOCDIR)/wxtree.hpj
+        cd $(DOCDIR)
+        -erase wxtree.ph
+        hc wxtree
+        cd $(THISDIR)
+
+$(DOCDIR)/wxtree.rtf:         $(DOCDIR)/manual.tex $(DOCDIR)/classes.tex
+        cd $(DOCDIR)
+        -wx tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\wxtree.rtf -twice -winhelp
+        cd $(THISDIR)
+
+$(DOCDIR)/wxtree.xlp:         $(DOCDIR)/manual.tex $(DOCDIR)/classes.tex
+        cd $(DOCDIR)
+        -wx tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\wxtree.xlp -twice -xlp
+        cd $(THISDIR)
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+        -erase $(RCLIB)
+

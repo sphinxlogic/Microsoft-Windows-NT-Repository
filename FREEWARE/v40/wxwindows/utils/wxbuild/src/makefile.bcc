@@ -1,0 +1,142 @@
+#
+# File:		makefile.bcc
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxHelp for Windows 3.1
+
+!if "$(BCCDIR)" == ""
+!error You must define the BCCDIR variable in autoexec.bat, e.g. BCCDIR=d:\bc4
+!endif
+
+!if "$(WXWIN)" == ""
+!error You must define the WXWIN variable in autoexec.bat, e.g. WXWIN=c:\wx
+!endif
+
+# Change WXDIR to wherever wxWindows is found
+WXDIR   = $(WXWIN)
+!include $(WXDIR)\src\makebcc.env
+
+WXLIB   = $(WXDIR)\lib\wx.lib
+WXINC   = $(WXDIR)\include
+CFG     =$(WXWIN)\src\wxwin.cfg
+INCFILE = includes.cfg
+
+PROLOGDIR = $(WXDIR)\utils\prologio
+PROLOGINC = $(PROLOGDIR)\src
+PROLOGLIB = $(PROLOGDIR)\lib\prologio.lib
+
+TREEDIR = $(WXDIR)\utils\wxtree
+TREEINC = $(TREEDIR)\src
+TREELIB = $(TREEDIR)\lib\wxtree.lib
+
+DIBDIR = $(WXDIR)\utils\dib
+DIBLIB = $(DIBDIR)\dib.lib
+DIBINC = $(DIBDIR)
+
+RCDIR = $(WXDIR)\utils\rcparser
+RCLIB = $(RCDIR)\lib\rcparser.lib
+RCINC = $(RCDIR)\src
+
+WXHELPDIR = $(WXDIR)\utils\wxhelp
+TEX2RTFDIR = $(WXDIR)\utils\tex2rtf
+DOCDIR = $(WXHELPDIR)\docs
+
+OBJECTS = wxbuild.obj bapp.obj bmenu.obj bframe.obj bsubwin.obj bgencpp.obj\
+  namegen.obj bitem1.obj bitem2.obj bwin.obj btoolbar.obj bactions.obj btree.obj\
+  bgdi.obj rcload.obj
+
+LIBS1=$(WXLIB) $(TREELIB) $(RCLIB) $(PROLOGLIB) $(DIBLIB)
+LIBS2=mathwl cwl import
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+# Default is to output RTF for WinHelp
+!ifndef WINHELP
+WINHELP=-winhelp
+!endif
+
+INC=-I$(PROLOGINC)
+
+!if "$(FINAL)" == "0"
+CPPFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG) @$(INCFILE)
+CFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG) @$(INCFILE)
+LINKFLAGS=/v/Vt /Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+!else
+CPPFLAGS=$(OPT) @$(CFG) @$(INCFILE)
+CFLAGS=$(OPT) @$(CFG) @$(INCFILE)
+LINKFLAGS=/Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+!endif
+
+all:    wxbuild.exe
+
+.$(SRCSUFF).obj:
+        bcc $(CPPFLAGS) -c {$< }
+
+bwin.h: bactions.h
+
+bapp.obj: bapp.$(SRCSUFF) bapp.h wxbuild.h bmenu.h bsubwin.h bframe.h namegen.h bwin.h bactions.h btree.h
+wxbuild.obj: wxbuild.$(SRCSUFF) wxbuild.h bapp.h bmenu.h bsubwin.h bframe.h namegen.h bwin.h rcload.h
+bmenu.obj: bmenu.$(SRCSUFF) wxbuild.h bapp.h bmenu.h bframe.h namegen.h bwin.h
+bframe.obj: bframe.$(SRCSUFF) wxbuild.h bapp.h bmenu.h bframe.h bsubwin.h namegen.h bwin.h bactions.h
+bsubwin.obj: bsubwin.$(SRCSUFF) wxbuild.h bapp.h bsubwin.h bframe.h namegen.h bwin.h
+bitem1.obj: bitem1.$(SRCSUFF) wxbuild.h bapp.h bsubwin.h bframe.h namegen.h bitem.h bwin.h bactions.h
+bitem2.obj: bitem2.$(SRCSUFF) wxbuild.h bapp.h bsubwin.h bframe.h namegen.h bitem.h bwin.h bactions.h
+bwin.obj: bwin.$(SRCSUFF) wxbuild.h bwin.h bactions.h bactions.h
+btoolbar.obj: btoolbar.$(SRCSUFF) wxbuild.h bwin.h
+bgencpp.obj: bgencpp.$(SRCSUFF) wxbuild.h bapp.h bframe.h bgencpp.h namegen.h bwin.h
+namegen.obj: namegen.$(SRCSUFF) namegen.h
+bactions.obj: bactions.$(SRCSUFF) bactions.h wxbuild.h bwin.h
+bgdi.obj: bgdi.$(SRCSUFF) bgdi.h wxbuild.h bwin.h
+btree.obj: btree.$(SRCSUFF) btree.h bwin.h wxbuild.h bapp.h
+rcload.obj: rcload.$(SRCSUFF) rcload.h
+
+wxbuild.res :      wxbuild.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(BCCDIR)\include /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa wxbuild
+
+wxbuild.exe:      $(INCFILE) $(WXLIB) $(OBJECTS) wxbuild.def wxbuild.res
+        tlink $(LINKFLAGS) @&&!
+c0wl.obj $(OBJECTS)
+wxbuild
+
+$(LIBS1) $(LIBS2)
+wxbuild.def
+!
+        rc -K wxbuild.res
+
+noname.obj: noname.$(SRCSUFF) noname.h
+
+noname.res :      noname.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(BCCDIR)\include /i$(WXDIR)\include\msw noname
+
+noname.exe:      $(WXLIB) noname.obj noname.def noname.res
+        tlink $(LINKFLAGS) @&&!
+c0wl.obj noname.obj
+noname
+
+$(LIBS1) $(LIBS2)
+noname.def
+!
+        rc -K noname.res
+
+$(INCFILE):	$(MAKEFILENAME)
+	copy &&!
+-I..\..\prologio\src
+-I..\..\rcparser\src
+-I..\..\wxtree\src
+-I..\..\dib
+! $(INCFILE)
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.res
+
+cleanall:	clean
+

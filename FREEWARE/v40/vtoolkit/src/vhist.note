@@ -1,0 +1,771 @@
+vhist.note - VHist widget documentation
+
+*******************************************************************************
+* VToolkit (1995) 	"If it doesn't use VToolkit, it isn't cool!"	      *
+* (c) Steve Klein							      *
+* Unpublished rights reserved under the copyright laws of the United States.  *
+*******************************************************************************
+
+This document describes the VHist widget.
+
++----------------------+
+| Modification History |
++----------------------+
+
+06-Nov-1991 (sjk) Add VHistNunitType resource.
+
+01-Jun-1990 (sjk) Add colored bars.  Incompatible call interface change:
+    a mask is now required on each VHistBar and VHistGrid entry indicating
+    which bar and grid attributes are being supplied by the application.
+    Added VHistNuserData resource as well as closure (user-data) values
+    for each bar and grid entry.  Major editorial regrooving.
+
+12-Apr-1990 (sjk) Add wish-list section to this document.
+
+05-Apr-1990 (sjk) Add support for VHistOrientationBestFit.  This option
+    dynamically chooses either vertical or horizontal orientation depending
+    on the actual window size and other resources.  The bars are drawn in
+    the longest dimension.
+
+22-Feb-1990 (sjk) Clean up packaging.
+
+12-Sep-1989 (sjk) Initial entry.
+
++---------+
+| Preface |
++---------+
+
+This note documents the VHist widget.  The VHist widget can be used by
+Xt-toolkit-based applications to dynamically display numeric data
+in a bar chart (histogram) format.
+
+The VHist widget works under both the DECwindows (XUI) and MOTIF (OSF)
+toolkits.  It is operating-system-portable and has been tested under
+both VMS and ULTRIX.
+
+This documentation is accompanied by C-language widget sources and
+two sample programs.  The following files are provided with this widget:
+
+	vhist.note	- VHist widget documentation (this file)
+
+	vhist.c		- VHist widget sources
+	vhist.h		- C include file for applications using VHist widget
+	vhist.uil	- UIL include file for applications using VHist widget
+
+	testvhist.c	- sample program to demonstrate the VHist widget
+	testvhist.uil	- XUI/UIL sources for testvhist program
+	testvhistm.uil	- MOTIF/UIL sources for testvhist program
+
+	vcountdown.c	- countdown program using the VHist widget
+	vcountdown.uil	- XUI/UIL sources for vcountdown program
+	vcountdownm.uil	- MOTIF/UIL sources for vcountdown program
+
+These other VToolkit files are needed:
+
+	vtoolkit.h	- common VToolkit include file
+	vtkutil.c	- common VToolkit utility routines
+
+
+The testvhist sample program drives the VHist widget with randomly
+generated data, and lets you change various widget resources.  Try it out!
+
+To use the VHist widget in your own application, include vhist.h into
+your C-language files.  Link vhist.obj (vhistm.obj for MOTIF) and
+vtkutil.obj (vtkutilm.obj) into your application's executable image.
+Include vhist.uil into any UIL program that declares a VHist widget.
+Look at the sample programs for more details.
+
+This software is provided as-is with no formal support.  However, I welcome
+suggestions and comments.  Future enhancements may include patterned bars,
+stacked bars, grouped bars, multi-color bars, multi-line labels, and
+plot-by-time.  A wish-list is included at the end of this document.
+
+I hope your find this code useful.
+
+-steve klein-
+
++--------------+
+| Introduction |
++--------------+
+
+The VHist widget presents a dynamic, interactive bar chart (histogram)
+to the user.  The user can select bars by clicking and double-clicking
+with the mouse.  The application can implement popup menus over the
+VHist widget.
+
+Thie VHist widget supports a number of customization resources, including
+orientation, grid lines, labels and colors.  A complete description of
+these resources is included in this documentation.
+
+The VHist widget is optimized to repaint only the necessary portions
+of the widget's window as bar values and labels change.  It is designed
+to be updated by the application as often as 10 times a second to
+give the impression of smooth changes.
+
+Because of the wide variety of labeling needs, the widget does not create
+labels for the bars or grids.  Instead, the application is responsible for
+supplying formatted ASCIZ strings to be used as labels.  The widget makes
+copies of all strings passed to it therefore the application is free
+to deallocate the original copies of the strings immediately after
+calling XtSetValues.
+
+Visually, the VHist widget consists of a window containing four axis
+lines (left, right, top and bottom), four sets of labels (one on each
+side of the graph), a set of grid lines, and a set of bars.
+
+The application can specify a thickness, in pixels, for each of the
+four axis lines.  A thickness of zero prevents a particular axis line
+from being drawn.  The region enclosed by the four axes (whether
+zero-thickness or not) is called the widget's work area, where the
+grid lines and bars are drawn.  The axis lines themselves are not
+included in the work area.
+
+The graph can be oriented either vertically or horizontally.  The orientation
+indicates the direction in which the bars will be drawn.  Label positions
+also depend on the widget's orientation.  Depending on the orientation,
+low and high ends of the grid lines and bars correspond to different sides
+of the widget.
+
+The VHist widget may also be allowed to select an orientation dynamically
+based on the window's actual size.  In this case, bars will be drawn in
+the longest dimension.
+
+Vertical orientation results in vertical bars and horizontal grid lines.  The
+low end of the bar is at the bottom, the high end of the bar is at the top.
+The low end of the grid (for labeling purposes) is at the left and the
+high end of the grid is at the right.
+
+Horizontal orientation results in horizontal bars and vertical grid lines.  The
+low end of the bar is at the left, the high end of the bar is at the right.
+The low end of the grid is at the top and the high end of the grid is at the
+bottom.
+
+Grid and bar values are specified to the widget as integers.  The application
+is responsible for converting internal data to integer form if necessary.
+The boundary conditions can be confusing.  (: Please pay attention.  Beware
+of the fence posts. :)
+
+The widget linearly maps a range of integer values to positions in its work
+area.  The application must specify the range in terms of a minimum and a
+maximum integer value by using the VHistNminValue and VHistNmaxValue
+resources.  Grid and bar values in this (inclusive) range correspond
+to visible positions in the widget's work area.  Values outside this range
+are not visible.  By doing the appropriate transformation, an application
+can map a linear, logarithmic or any other function into the linear, integer
+function expected by the widget.
+
+The application can specify a different color for each bar and grid entry.
+A color is specified by a value called a coloridx.  Depending
+on whether a color list was supplied (with the VHistNcolorList resource),
+the coloridx value is used either as a color index or as a pixel value.
+
+If a color list was supplied, the coloridx is a zero-based index
+into the color list pixmap.  The object (bar or grid line) will be
+displayed in the color of the corresonding color list pixel.  For example,
+a coloridx value of 3 corresponds to the fourth pixel (x=3, y=0) in the
+color list pixmap.  A coloridx value greater than or equal to the width
+(in pixels) of the color list pixmap is reduced in range by a MOD operation.
+
+If a color list was not supplied, the coloridx value supplied by the
+application is directly used as a pixel value rather than as an index into
+the color list.  In this case, the application is responsible for
+allocating or otherwise obtaining the pixel value.
+
+The widget will supply a default color when the application does not
+supply a coloridx value for an object.  If a color list was
+supplied, the default object color is the first color in the list.
+If a color list was not supplied, the default color for grid lines is
+specified by the VHistNforeground resource and the default color for
+bars is specified by the VHistNbarColor resource.
+
+***** ALERT - When the VHist widget is parented by a dialog or attached
+dialog box widget that uses FontUnit positioning (the default), a bug in
+the dialog box code causes the VHist widget to be completely repainted
+each time the bars are changed.  The workaround is to specify PixelUnits
+in the VHist widget's parent dialog box.  See the sample programs' UIL files.
+
++-----------+
+| Resources |
++-----------+
+
+The VHist widget is a subclass of Core and inherits all the Core resources.
+
+The VHist widget has these widget-specific resources:
+
+VHistNbarColor
+VHistNbarCount
+VHistNbars
+VHistNbottomAxisMarginHeight
+VHistNbottomAxisThickness
+VHistNbottomLabelHeight
+VHistNbottomMarginHeight
+VHistNcolorList
+VHistNdoubleClickDelay
+VHistNfont
+VHistNforeground
+VHistNgridCount
+VHistNgrids
+VHistNleftAxisMarginWidth
+VHistNleftAxisThickness
+VHistNleftLabelAlignment
+VHistNleftLabelWidth
+VHistNleftMarginWidth
+VHistNmaxValue
+VHistNminValue
+VHistNorientation
+VHistNrightAxisMarginWidth
+VHistNrightAxisThickness
+VHistNrightLabelAlignment
+VHistNrightLabelWidth
+VHistNrightMarginWidth
+VHistNselectCallback
+VHistNselectConfirmCallback
+VHistNspacingDenominator
+VHistNspacingNumerator
+VHistNtopAxisMarginHeight
+VHistNtopAxisThickness
+VHistNtopLabelHeight
+VHistNtopMarginHeight
+VHistNunitType
+VHistNuserData
+
++----------
+|
+	VHistNforeground (pixel, default = XtDefaultForeground)
+
+This resource specifies the color in which the axes and labels are displayed.
+
+If the VHistNcolorList resource is not supplied, this resource also specifies
+the default color for the grid lines.  (If the VHistNcolorList resource
+is supplied, this resource is ignored and the default color for the grid
+lines is the first color in the supplied color list.)
+
+The application can dynamically specify colors on a per-grid-line basis by
+supplying a coloridx value in a VHistGrid entry.  Axis and label colors
+cannot be specified individually.
+|
++----------
+
++----------
+|
+	VHistNbarColor (pixel, default = XtDefaultForeground)
+
+If the VHistNcolorList resource is not supplied, this resource specifies
+the default color for the histogram bars.  (If the VHistNcolorList resource
+is supplied, this resource is ignored and the default color for the histogram
+bars is the first color in the supplied color list.)
+
+The application can dynamically specify colors on a per-bar basis by
+supplying a coloridx value in a VHistBar entry.
+|
++----------
+
++----------
+|
+	VHistNcolorList (pixmap, default = 0)
+
+This resource specifies the palette of colors available to the VHist widget
+to display bars and grid lines.  To define this color list using UIL, it is
+necessary to create a small pixmap containing one pixel of each color.  Only
+the first row or pixels in this pixmap is used.
+
+If a color list is supplied, any coloridx value specified by the application
+is interpreted as a zero-based index into the list.
+
+If a color list is not supplied, any coloridx value specified by the
+application is directly used as a pixel value rather than as an index
+into the color list.  In this case, the application is responsible for
+allocating or otherwise obtaining a pixel value.
+|
++----------
+
++----------
+|
+	VHistNfont (fontList, default = XtFontDefault)
+
+This resource specifies the font in which the labels are displayed.
+Only the first font in the fontlist is used.  The font is also used
+to convert other resource values from font units to pixels.
+|
++----------
+
++----------
+|
+	VHistNleftMarginWidth (int, default = 10)
+	VHistNrightMarginWidth (int, default = 10
+	VHistNtopMarginHeight (int, default = 8)
+	VHistNbottomMarginHeight (int, default = 8)
+
+These resources specify the distance in font units between the inner edge of
+the widget's window and the left, right, top and bottom labels, respectively.
+|
++----------
+
++----------
+|
+	VHistNleftAxisThickness (int, default = 2)
+	VHistNrightAxisThickness (int, default = 0)
+	VHistNtopAxisThickness (int, default = 0)
+	VHistNbottomAxisThickness (int, default = 2)
+
+These resources specify the thickness in pixels of the left, right, top and
+bottom axis lines, respectively.
+|
++----------
+
++----------
+|
+	VHistNleftLabelWidth (int, default = 10)
+	VHistNrightLabelWidth (int, default = 10)
+	VHistNtopLabelHeight (int, default = 8)
+	VHistNbottomLabelHeight (int, default = 8)
+
+These resources specify, in font units, the widths of the left and right labels
+and the heights of the top and bottom labels, respectively.  If these values
+are not large enough, labels larger than their fields fields overflow and
+are not clipped.
+|
++----------
+
++----------
+|
+	VHistNleftAxisMarginWidth (int, default = 2)
+	VHistNrightAxisMarginWidth (int, default = 2)
+	VHistNtopAxisMarginHeight (int, default = 0)
+	VHistNbottomAxisMarginHeight (int, default = 0)
+
+These resources specify, in font units, the distance between the left, right,
+top and bottom labels and the left, right, top and bottom axes, respectively.
+|
++----------
+
++----------
+|
+	VHistNleftLabelAlignment (int, default = VHistAlignmentRight)
+	VHistNrightLabelAlignment (int, default = VHistAlignmentLeft)
+
+These resources specify the alignment of the left and right side labels,
+respectively.
+
+Allowable values for these resources are:
+
+	VHistAlignmentCenter		- center within label field
+	VHistAlignmentLeft		- left-justify
+	VHistAlignmentRight		- right-justify
+|
++----------
+
++----------
+|
+	VHistNorientation (int, default = VHistOrientationVertical)
+
+This resource specifies the orientation of the histogram.
+
+Allowable values for this resource are:
+
+	VHistOrientationVertical	- draw bars vertically
+	VHistOrientationHorizontal	- draw bars horizontally
+	VHistOrientationBestFit		- draw bars in longest dimension
+
+Using this resource value (and possibly consulting the actual size
+of the widget's window), the widget selects an actual orientation of
+either Vertical or Horizontal.  If Vertical, the bars are drawn
+vertically and the grid lines are drawn horizontally.  If Horizontal,
+the bars are drawn horizontally and the grid lines are drawn vertically.
+|
++----------
+
++----------
+|
+	VHistNdoubleClickDelay (int, default = 250)
+
+This resource specifies the maximum delay (in thousandths of a second)
+between a ButtonRelease and ButtonPress that will arm the double-click
+(selectConfirm) callback.
+|
++----------
+
++----------
+|
+	VHistNspacingNumerator (int, default = 50)
+	VHistNspacingDenominator (int, default = 100)
+
+These resources specify the ratio of the inter-bar spacing width to the
+bar width itself.  It can be used to control the amount of space between
+the bars in a way proportional to the actual size of the window and the
+number of bars being displayed.
+
+For example, if VHistNspacingNumerator is equal to 1 and
+VHistNspacingDenominator is equal to 4, then the space between
+bars will be one fourth (1/4) the width of each bar.
+
+The widget maintains the width of the bars and the inter-bar spacing
+based on the size of the widget's work area and the number of bars being
+displayed.
+
+If VHistNspacingNumerator is equal to zero, bars will be packed into
+the display with no inter-bar spacing.  (VHistNspacingDenominator must
+not be zero.)
+|
++----------
+
++----------
+|
+	VHistNminValue (int, default = 1)
+	VHistNmaxValue (int, default = 100)
+
+These resources specify the minimum and maximum integer values that are to be
+visible within the widget's work area.  The widget's scaling algorithm
+guarantees that a grid or bar value equal to VHistNminValue or VHistNmaxValue
+will correspond to the first or last visible pixel within the work area.
+
+VHistNminValue and VHistNmaxValue must not specify the same value.
+|
++----------
+
++----------
+|
+	VHistNunitType (int, default = dynamic)
+
+This resource is identical to XmNunitType and is implemented for MOTIF only.
+|
++----------
+
++----------
+|
+	VHistNuserData (int, default = 0)
+
+This resource can be used by the application for its own purposes.  The
+value of this resource is ignored by the widget.
+|
++----------
+
++----------
+|
+	VHistNgridCount (int, default = 0)
+	VHistNgrids ((VHistGrid *), default = 0)
+
+These resources specify a list of grid lines to be drawn in the
+widget's work area.  Each grid line is described by a VHistGrid array entry:
+	
+    +----------
+    |
+    
+    typedef struct {
+	int	    mask;		/* mask flags */
+	int	    value;		/* value */
+	int	    dashOn;		/* number of pixels on (or zero) */
+	int	    dashOff;		/* number of pixels off */
+	int	    coloridx;		/* bar color index or pixel value */
+	Opaque	    closure;		/* application-private closure value */
+	char	    *lowLabelP;		/* ASCIZ label at low end of grid */
+	char	    *highLabelP;	/* ASCIZ label at high end of grid */
+    } VHistGrid;
+    
+    |
+    +----------
+
+VHistGrid.mask specifies which attribute values are to be taken from the
+VHistGrid structure and which are to be given default values.  Use of a mask
+supports upward compatible extensions to the VHistGrid structure and a
+uniform mechanism for defaulting.
+
+Defined mask bits and their corresponding fields are:
+
+    VHistGridValueMask		- value
+    VHistGridDashMask		- dashOn and dashOff
+    VHistGridColoridxMask	- coloridx
+    VHistGridClosureMask	- closure
+    VHistGridLowLabelMask	- lowLabelP
+    VHistGridHighLabelMask	- highLabelP
+
+[VHistGrid.value]
+
+    The grid line is drawn, horizontally or vertically, at the position
+    in the workarea corresponding to this value.  The value is scaled
+    linearly with respect to the widget's VHistNminValue and VHistNmaxValue
+    resource values.  If the value is outside the range, the grid line is
+    not drawn, but the grid labels, if any, will be drawn at the corresponding
+    position in the graph's label area.
+
+    The default value for this field is specified by VHistNminValue.
+
+[VHistGrid.dashOn and VHistGrid.dashOff]
+
+    The application can specify a different dash pattern for each grid line
+    by using these fields.
+
+    For example, specifying dashOn of 4 and dashOff of 2 would result
+    in a dashed line with a repeating pattern of 4 pixels of foreground
+    color followed by 2 pixels of background color.
+
+    The application can specify a dashOn value of zero to suppress the
+    drawing of a grid line.  The grid labels (if any) will still be drawn.
+
+    The default value for VHistGrid.dashOn is 3 and VHistGrid.dashOff is 2.
+
+[VHistGrid.coloridx]
+
+    The application can specify a color for each grid line by using this
+    field.
+
+    If VHistNcolorList was supplied, the widget uses the coloridx value to
+    index into the color list to find the color in which the grid line is
+    to be drawn.
+
+    If no color list was supplied, the coloridx value is directly used
+    as the pixel value of the grid line.
+
+    The default value for this field is specified by VHistNforeground.
+
+[VHistGrid.closure]
+
+    This field allows the application to associate an application-private
+    value with each grid line.  The value is ignored by the widget.
+
+    This version of the VHist widget does not provide any way to return
+    this value to the application.
+
+    The default value for this field is zero.
+
+[VHistGrid.lowLabelP and VHistGrid.highLabelP]
+
+    For each grid line, the application can specify ASCIZ text labels
+    to be drawn in the label areas at the ends of the grid lines.
+
+    If the widget's orientation is Vertical, the low grid labels are on
+    the left of the graph and the high grid labels are on the right.
+
+    If the widget's orientation is Horizontal, the low grid labels are drawn
+    on the top of the graph and the high grid labels are drawn on the bottom.
+
+    If no label is supplied by the application, the corresponding grid
+    label is not drawn.
+|
++----------
+
++----------
+|
+    VHistNbarCount (int, default = 0)
+    VHistNbars ((VHistBar *), default = 0)
+
+These resources specify a list of bars to be drawn in the widget's
+work area.  Each bar is described by a VHistBar array entry:
+
+    +----------
+    |
+
+    typedef struct {
+	int	    mask;	    /* mask flags */
+	int	    lowValue;	    /* value for low end of bar */
+	int	    highValue;	    /* value for high end of bar */
+	int	    coloridx;	    /* bar color index or pixel value */
+	int	    stippled;	    /* bar is stippled (1/0) */
+	Opaque	    closure;	    /* application-private closure value */
+	char	    *lowLabelP;	    /* ASCIZ label at low end of bar */
+	char	    *highLabelP;    /* ASCIZ label at high end of bar */
+    } VHistBar;
+
+    |
+    +----------
+
+VHistBar.mask specifies which attribute values are to be taken from the
+VHistBar structure and which are to be given default values.  Use of a mask
+supports upward compatible extensions to the VHistBar structure and a
+uniform mechanism for defaulting.
+
+Defined mask bits and their corresponding fields are:
+
+    VHistBarLowValueMask	- lowValue
+    VHistBarHighValueMask	- highValue
+    VHistBarColoridxMask	- coloridx
+    VHistBarStippledMask	- stippled
+    VHistBarClosureMask		- closure
+    VHistBarLowLabelMask	- lowLabelP
+    VHistBarHighLabelMask	- highLabelP
+
+[VHistBar.lowValue and VHistBar.highValue]
+
+    These values specify the values corresponding to the two ends of
+    each bar.  The widget linearly scales these values using the range
+    specified by VHistNminValue and VHistNmaxValue.
+
+    The widget draws a bar from the position corresponding to lowValue through
+    the position corresponding to highValue.  If lowValue is equal to highValue,
+    a one-pixel long bar will be drawn at the corresponding value.  Since the
+    range is inclusive, the only way to suppress the drawing of a bar is to
+    set the lowValue and highValue to a value outside the range.
+
+    If lowValue is greater than highValue, the widget swaps the two values.
+    The default value for lowValue is specified by VHistNminValue and for
+    highValue by VHistNmaxValue.
+
+[VHistBar.stippled]
+
+    This option is not yet implemented.  When implemented...
+
+    The application can specify whether a bar should be drawn normally
+    or with a 50% stipple pattern by using this field.
+
+    If 1 (true), the bar will be stippled.  If 0 (false), the bar will
+    be drawn normally.  The default value for this field is 0.
+
+[VHistBar.coloridx]
+
+    The application can specify a color for each bar by using this field.
+
+    If a color list was supplied through the VHistNcolorList
+    resource, then the widget uses the coloridx value to index into the
+    color list to find the color in which the bar is to be drawn.
+
+    If no color list was supplied, the coloridx value is directly used
+    as the pixel value of the bar.
+
+    If a color list was supplied, the default value for this field is zero.
+
+    If no color list was supplied, the default value for this field
+    is specified by VHistNbarColor.
+
+[VHistBar.closure]
+
+    This field allows the application to associate an application-private
+    value with each bar.  The value is ignored by the widget.
+
+    When the VHist widget makes an application callback,
+    the closure value of the selected bar can be found in the 
+    VHistSelectCallbackStruct.vBar.closure field.
+
+    The default value for this field is zero.
+
+[VHistBar.lowLabelP and VHistBar.highLabelP]
+
+    For each bar, the application can specify ASCIZ text labels
+    to be drawn in the label areas at the ends of the bar.
+
+    If the widget's orientation is Vertical, the low bar labels are on
+    the bottom of the graph and the high bar labels are on the top.
+
+    If the widget's orientation is Horizontal, the low bar labels are drawn
+    on the left of the graph and the high bar labels are drawn on the right.
+
+    If no label is supplied by the application, the corresponding bar
+    label is not drawn.
+|
++----------
+
++-----------+
+| Callbacks |
++-----------+
+
+The VHist widget supports two application callbacks.
+
+The VHistCRSelect callback (VHistNselectCallback) is called whenever the
+user clicks Button1 on an object in the widget's window.
+
+The VHistCRSelectConfirm callback (VHistNselectConfirmCallback) is called
+whenever the user completes a double-click action on an object in the
+widget's window.
+
+The same callback structure is used for both callbacks:
+
+    +----------
+    |
+
+    typedef struct {
+	int	    reason;	/* VHistCRSelect or VHistCRSelectConfirm */
+	XEvent	    *event;	/* event which caused callback */
+	int	    bar;	/* which bar was selected (or -1) */
+	VHistBar    vBar;	/* bar description (closure may be zero) */
+    } VHistSelectCallbackStruct;
+
+    |
+    +----------
+
+[VHistSelectCallbackStruct.reason]
+
+    This field contains VHistCRSelect or VHistCRSelectConfirm, depending
+    on which callback was made.
+
+[VHistSelectCallbackStruct.event]
+
+    This field contains the address of the XEvent that triggered
+    the callback.
+
+[VHistSelectCallbackStruct.bar]
+
+    This field contains the zero-based index (number) of the bar selected
+    by the user.  If the user was not pointing at a bar (or its labels),
+    this field contains (-1).  
+
+[VHistSelectCallbackStruct.vBar]
+
+    This field contains a copy of the VHistBar entry for the bar selected
+    by the user.  If the user was not pointing at a bar (or its labels),
+    the closure value in this VHistBar entry contains zero (0).
+
++----------+
+| Creation |
++----------+
+
+The VHist widget can be created either through UIL or by program
+calls to XtCreateWidget or VHistCreate.  All changes to the widget
+are done with calls to XtSetValues.
+
++----------
+|
+	void VHistInitializeForDRM()
+
+This routine registers the VHist widget class with the toolkit.
+
+This routine must be called during program initialization by
+UIL-based application programs that use the VHist widget.
+|
++----------
+
++----------
+|
+	Widget VHistCreate(pW, nameP, argsP, argCnt)
+	    Widget pW;		/* parent widget */
+	    char *nameP;	/* widget name */
+	    Arg *argsP;		/* arguments */
+	    int argCnt;		/* argument count */
+
+This routine creates an instance of a VHist widget.
+|
++----------
+
++----------
+|
+	Widget XtCreateWidget(nameP, vhistwidgetclass, pW, argsP, argCnt)
+	    char *nameP;	/* widget name */
+	    Widget pW;		/* parent widget */
+	    Arg *argsP;		/* arguments */
+	    int argCnt;		/* argument count */
+
+This XtCreateWidget call also creates an instance of a VHist widget.
+|
++----------
+
++-----------+
+| Wish List |
++-----------+
+
+The following items are currently on the VHist widget wish list.  If you
+have any ideas that you would like to contribute, let me know.  These
+items are not in any priority order.
+
+(*) Bar tile patterns
+(*) Grouped bars
+(*) Stacked bars
+(*) Outlined bars
+(*) Axis tick marks
+(*) Plot-by-time (scrolling)
+(*) Overflow and underflow indicators
+(*) Option to tuck the high and/or low values under the axes
+(*) Optimize drawing of solid (undashed) grid lines
+
+
+
+
+
+[END]

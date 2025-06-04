@@ -1,0 +1,223 @@
+
+        .title VIOC_RST_CNT-AXP
+        .ident /V1.0/
+;*****************************************************************************
+;                            COPYRIGHT (C) 1994 BY
+;                      DIGITAL EQUIPMENT CORPORATION, MAYNARD
+;                       MASSACHUSETTS.  ALL RIGHTS RESERVED.
+;
+;    THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+;    ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+;    OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+;    THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+;    PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+;
+;    THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+;    SHOULD NOT BE CONSTRUED AS A COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.
+;
+;    DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+;    SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL.
+;
+;    NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+;    ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL EQUIPMENT CORPORATION.
+;
+;    SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY DIGITAL SOFTWARE
+;    PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+;    CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+;
+;****************************************************************************
+;*                                                                          *
+;*      This program is provided AS IS and as such offers no warranty,      *
+;*      implied or otherwise by DIGITAL EQUIPMENT CORPORATION or any        *
+;*      of it's employees.  Any loss of services or damages incurred by     *
+;*      the use of this program are the sole responsibility of those        *
+;*      authorizing it's execution.                                         *
+;*                                                                          *
+;****************************************************************************
+;
+; Reg Hunter - Digital Customer Support Center/Colorado Springs
+; 3-MAR-1995
+;
+; This routine reset the counters that determine the hit% for the VIOC.
+; The location of these counters are an offset from CACHE$ACCESS.
+;
+; The offset value used in OpenVMS ALPHA 6.1 is 1188(hex), for an 
+; *unpatched* version of SYS$VCC.EXE.  Use the following steps to 
+; determine what the correct offset value would be:
+;
+;       $ ANALYZE/SYSTEM
+;       SDA> EVALUATE CACHE$ACCESS-SYS$VCC_NPRW
+;        Hex: 00001188       Dec: 00004488
+;                   ^
+;                   |
+;    *** Use the displayed hexadecimal value in the ***
+;    *** "subl2	#^x<offset>,r2" instruction, in the ***
+;    *** KERNEL mode routine.                       ***
+;
+; Once the routine has been edited with the proper offset value do:
+;
+;      $ MACRO VIOC_RST_CNT-AXP
+;      ( Ignore the AMAC-I-BRANCHBET informational message. )
+;      $ LINK VIOC_RST_CNT-AXP
+;      $ RUN VIOC_RST_CNT-AXP
+;
+;   The counters to be reset are:
+;      (CACHE$ACCESS-<offset>)
+;           + 18 for CACHE$GL_VREAD, the Read IO counter
+;           + 1C for CACHE$GL_READHIT, the Read Hit counter
+;	    + 20 for CACHE$GL_VWRITE, the Write IO counter
+;	    + 24 for CACHE$GL_RRNDMOD, Read IO bypassing VIOC due to 
+;                function counter
+; 	    + 28 CACHE$GL_RRNDSIZ, Read IO bypassing VIOC due to 
+;                size counter
+;	    + 2C CACHE$GL_WRNDMOD, Write IO bypassing VIOC due to 
+;                function counter
+;	    + 30 CACHE$GL_WRNDSIZ, Write IO bypassing VIOC due to 
+;                size counter
+;
+;-------------------------------------------------------------------------------
+.library        /sys$library:lib.mlb/
+.link           /sys$system:sys.stb/
+;
+; USER mode routine to call the KERNEL mode routine which actually
+; does all the work.
+;
+.PSECT  code,exe
+.entry  start,^m<>
+  $cmkrnl_s       routin=reset_counts
+  $exit_s
+;
+; KERNEL mode routine to reset all VIOC statistic counters seen
+; from the SHOW MEMORY/CACHE/FULL command.
+;
+.entry  reset_counts,^m<r2>
+  lock  lockname=MMG           ; lock MMG spinlock(synchronize)
+;
+; In order to find the head of the array that contains the VIOC counters
+; we need to start with a cache global location known to the system.
+; 
+; (There were many to choose from.  I chose CACHE$ACCESS, a global)
+; (address of a routine in SYS$VCC, because I liked the name.     )
+;
+  moval   g^cache$access,r2    ; get value to help locate 
+                               ; vcc database address
+;
+; Once we have the global address we need to fix the pointer to the
+; head of AXPs VIOC array.  This fix is done by subtracting the proper
+; value.
+;
+; The proper <offset> value must be included before this routine will
+; MAC or LINK.
+;
+  subl2 #^x<offset>,r2         ; point to top of array
+;
+; Reset the counters.
+;
+  clrl  ^x18(r2)               ; Reset Read count
+  clrl	^x1c(r2)               ; Reset Read hit
+  clrl	^x20(r2)               ; Reset Write cnt
+  clrl	^x24(r2)               ; Reset rrnd func
+  clrl	^x28(r2)               ; Reset rrnd siz
+  clrl	^x2c(r2)               ; Reset wrnd func
+  clrl	^x30(r2)               ; Reset wrnd siz
+;
+  unlock   lockname=MMG        ; Desynchronize
+  ret
+  .end     start
+============================================================================
+VIOC_RST_CNT-VAX.MAR
+
+        .title VIOC_RST_CNT-VAX
+        .ident /v1.0/
+; *****************************************************************************
+;                            COPYRIGHT (C) 1994 BY
+;                      DIGITAL EQUIPMENT CORPORATION, MAYNARD
+;                       MASSACHUSETTS.  ALL RIGHTS RESERVED.
+;
+;    THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+;    ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+;    OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+;    THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+;    PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+;
+;    THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+;    SHOULD NOT BE CONSTRUED AS A COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.
+;
+;    DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+;    SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL.
+;
+;    NO RESPONSIBILITY IS ASSUMED FOR THE USE OR RELIABILITY OF SOFTWARE
+;    ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL EQUIPMENT CORPORATION.
+;
+;    SUPPORT FOR THIS SOFTWARE IS NOT COVERED UNDER ANY DIGITAL SOFTWARE
+;    PRODUCT SUPPORT CONTRACT, BUT MAY BE PROVIDED UNDER THE TERMS OF THE
+;    CONSULTING AGREEMENT UNDER WHICH THIS SOFTWARE WAS DEVELOPED.
+;
+;****************************************************************************
+;*                                                                          *
+;*      This program is provided AS IS and as such offers no warranty,      *
+;*      implied or otherwise by DIGITAL EQUIPMENT CORPORATION or any        *
+;*      of it's employees.  Any loss of services or damages incurred by     *
+;*      the use of this program are the sole responsibility of those        *
+;*      authorizing it's execution.                                         *
+;*                                                                          *
+;****************************************************************************
+;
+; Reg Hunter - Digital Customer Support Center/Colorado Springs
+; 31-JAN-1995
+;
+; This routine resets the counters that determine the HIT% for the VIOC.
+; The location of these counters are an offset from CACHE$AR_VCC_DATA.
+;
+;   The counters to be reset are:
+;      (CACHE$AR_VCC_DATA)
+;           + 14 for CACHE$GL_VREAD, the Read IO counter
+;           + 18 for CACHE$GL_READHIT, the Read Hit counter
+;           + 1C for CACHE$GL_VWRITE, the Write IO counter
+;           + 24 for CACHE$GL_RRNDMOD, Read IO bypassing VIOC due to
+;                function counter
+;           + 28 CACHE$GL_RRNDSIZ, Read IO bypassing VIOC due to
+;                size counter
+;           + 2C CACHE$GL_WRNDMOD, Write IO bypassing VIOC due to
+;                function counter
+;           + 30 CACHE$GL_WRNDSIZ, Write IO bypassing VIOC due to
+;                size counter
+;
+;-------------------------------------------------------------------------------
+.library      /sys$library:lib.mlb/
+.link         /sys$system:sys.stb/
+;
+; USER mode routine to call the KERNEL mode routine which actually
+; does all the work.
+;
+.entry  start,^m<>
+  $cmkrnl_s       routin=reset_counts
+  $exit_s
+;
+; KERNEL mode routine to reset all VIOC statistic counters seen
+; from the SHOW MEMORY/CACHE/FULL command.
+;
+.entry  reset_counts,^m<r2>
+  lock    lockname=MMG,-                  ; lock MMG spinlock
+          lockipl=IPL$_SYNCH,-            ; raise IPL
+          savipl=-(sp)                    ; save current IPL
+;
+; In order to find the head of the array that contains the VIOC counters
+; we need to start with a cache global location known to the system.
+;
+; CACHE$AR_VCC_DATA, points to the head of the array.
+;
+  movl    g^cache$ar_vcc_data,r2          ; get vcc data base address
+;
+; Reset the counters.
+;
+  clrq    ^x14(r2)                        ; Reset read & hit cntrs
+  clrl    ^x1c(r2)                        ; Reset write cntr
+  clrq    ^x24(r2)                        ; Reset rrnd func & siz
+  clrq    ^x2c(r2)                        ; Reset wrnd func & siz
+;
+  unlock  lockname=MMG,-                  ; Desynchronize
+          newipl=(sp)+
+  ret
+.end    start
+

@@ -1,0 +1,396 @@
+Building and Installing xephem v2.8.
+
+
+Building xephem is intended to be straightforward. The goal is just to
+compile all the *.c files and link with your X, Motif and UNIX libraries to
+form the xephem executable program.
+
+
+Begin by untaring everything into a fresh directory. You will find all the
+source is in one directory. There will also be several subdirectories containing
+other files but these are not important for now.
+
+
+Start by constructing a suitable Makefile. If your system is fully set up for
+using xmkmf or imake with Motif then try the supplied Imakefile by typing:
+    xmkmf
+or something like:
+    imake -I/usr/lib/X11/config -DuseInstalled
+then:
+    make
+
+
+If this doesn't work (which is too often the case in my experience) there is
+also a sample stand-alone Makefile called Makefile.smple; this is what I
+use. Copy it to "makefile" then find and uncomment the group of flags and
+libraries that looks close to the way Motif programs are built on your
+system. Then type "make" which should compile everything with the Motif
+include files and link with the X, Motif and UNIX libraries as you would
+any Motif application. Don't forget the math library, -lm.
+
+If you are on VMS, there is a sample DCL file to build xephem on VMS/DECWindows
+MOTIF at the end of this file. Also, you will want to change the X resource
+XEphem*Print*textString to whatever command can be executed on your system
+which accepts the name of a postscript file as its only arguement and prints it.
+
+
+Here are some additional hints about compiling and linking xephem:
+
+    On systems without ANSI C compilers add -D_NO_PROTO to CFLAGS.
+
+    On older USL/AT&T systems (such as SVR3.2) add -DSYSV to CFLAGS.
+
+    If you get regcmp or regex undefined from libXm on SVR4.2 add "-lgen"
+    to LIBS. Or try the crude replacement, below, for these functions in
+    terms of re_comp and re_exec.
+
+    Setting the timezone from the operating system is only supported if your
+    compiler #defines __STDC__.
+
+    If you get undefines that begin with Xm add "-lXIM" to LIBS right after
+    "-lXm".
+
+    On SPARC systems, if your get dlopen/dlsym/dlclose undefined try
+    fiddling with whether you use static or dynamic libs; best luck seems
+    to be with using all dynamic libs. It appears these three functions are
+    never called, however, since I can `chmod +x xephem' and it seems to
+    run ok.
+
+    On one HP 9000 I found that the X and Motif include files and libs were
+    in /usr/{include,lib}/{X11R4,Motif1.1}. There was no xmkmf or imake so I
+    used the "Stock" entry in Makefile.smple with the following flags:
+	CFLAGS = $(CLDFLAGS) -O -D_NO_PROTO -I/usr/include/X11R4 -I/usr/include/Motif1.1
+	LDFLAGS = $(CLDFLAGS) -L/usr/lib/X11R4 -L/usr/lib/Motif1.1
+
+    I've not had good luck with gcc's math. I know that at least one
+    version I used on a SPARC recently caused the precession algorithm to
+    go badly astray.
+
+    I have searched carefully through the output of running all of xephem
+    through lint and gcc on UnixWare, Linux and SunOS and can rationalize
+    all the warnings, so don't let these bother you too much.
+
+    Avoid Motif 1.2.0; newer versions of 1.2 seem to be ok.
+
+    If xephem does not work well on your color display, or the colormap is
+    out of entries, xephem can be operated using mostly black and white as
+    follows: xephem -fg black -bg white.
+
+    The BackSpace and Delete keys do not work correctly on many Linux systems.
+    The following commands might be helpful (I have them in my .xinitrc):
+	xmodmap -e "keycode 22 = BackSpace"
+	xmodmap -e "keycode 107 = Delete"
+
+    If running under UnixWare 2.0 with mwm, you will get traditional Motif
+    dialog behavior if you set Mwm*secondariesOnTop: True.
+
+
+Xephem v2.7 was known to run on the following systems. Check with the author
+at ecdowney@noao.edy for assistance with porting. Check on iraf.noao.edu in
+contrib/xephem for contributed statically-linked binary executables.
+
+    OS                      CPU                     X
+    -----------             ---------------         ---------------------------
+    SVR3.2/Venix            i486                    Metrolink X11R4/Motif 1.1.3
+    SVR4.0.3/Consensys      i486                    Metrolink X11R5/Motif 1.2
+    Ultrix 4.2              DECstation 5000         DEC's (?)
+    SunOS 4.1.2             Sun 4c                  TeleUSE development system*
+    hpux 8.07               HP 9000/720             X11R4, Motif 1.1.?
+    IRIX 4.0.5              SGI                     X11R4
+    OSF/1 1.2               DEC Alpha               X11R5, Motif 1.1.3
+    AIXv3.2                 IBM RS/6000             AIXwindows
+    VMS                     VAX                     DECwindows
+    SCO v3.2                i486                    ODT 2.0
+    Linux                   i486                    MetroLink 1.2
+    Linux                   i486                    InfoMagic Moo-Tiff 2.0
+    A/UX v3.0               mc68030                 ICS Motif 1.1.4
+
+
+*  requires Sun's X server patch 100444-35.
+
+
+
+Follows is a summary of each of the runtime files used by xephem and, where
+appropriate, the names of the related X resources which define them:
+
+    xephem: executable; put where you want locally installed X programs.
+
+    xephem.hlp: help file; point at it with the resource:
+	XEphem.HELPFILE
+
+    *.edb: sample astronomical databases; put them all in a directory and
+	name it by setting the X resource: XEphem.DBdirectory.
+
+    xephem_sites: sample Earth sites file; point at it with the resource:
+	XEphem.SITESFILE
+
+    xephem.man: nroff source for manual; process the output with something like
+	"nroff -man xephem.man" and place either/both where you want man pages
+	for locally installed X programs.
+
+    fullmoon.fts: FITS file of full moon image; point at it with the resource:
+	XEphem.MoonFile
+
+    moon_db: list of lunar features; point at it with the resource:
+	XEphem.MoonDB
+
+    XEphem.ad: sample resource file; name it XEphem and place it where you
+	want application default resources for locally installed X programs.
+	Or put it in, say, your home directory and set the environment variable
+	XUSERFILESEARCHPATH to $HOME/%N.
+
+    work/xephem.ps: this is the default name of Postscript save file. This is
+	set with the X resource: XEphem*SaveAs*textString. Related, is the
+	command which is issued to print. This command is assumed to accept the
+	name of a postscript file to print as its one and only argument. The
+	name of the command that is issued is in the X resource:
+	XEphem*Print*textString.
+
+
+If you would like to pull out just the astronomical functionality from xephem
+for your own programs, start with obj_cir(). This is basically the dividing
+line between the user interface and the astronomical functions. Also, the
+following files are pretty much just pure transliterations from BASIC into C
+from machine-readable copies of the programs in Duffett-Smith's book.  They
+have nothing to do with the rest of xephem so they may be used for completely
+different applications if so desired. Supporting declations are in astro.h.
+
+    aa_hadec.c anomaly.c astro.h comet.c eq_ecl.c moon.c moonnf.c mjd.c
+    nutation.c obliq.c parallax.c pelement.c plans.c reduce.c refract.c
+    sun.c utc_gst.c
+
+
+
+
+If you get regcmp or regex undefined, you might try the following functions
+which attempt to minimally implement them in terms of re_comp and re_exec.
+The reg* functions historically came from the System V lineage of UNIX, while
+the re_* functions came from the BSD lineage. To try these alternatives, put
+them into a file, say, regcmp.c, and add regcmp.o to the OBJS list n the make
+file and remake.
+
+=============================== regcmp.c ======================================
+
+#include <stdio.h>
+
+extern char *malloc();
+extern char *re_comp();
+extern int re_exec();
+
+/* given an RE:
+ *   compile and return malloced internal form if ok
+ *   else return NULL if fail
+ * N.B. we assume the entire pattern is in the first string.
+ * N.B. we assume the caller has no interest within the returned string.
+ */
+char *
+regcmp (re)
+char *re;
+{
+	/* re_comp() returns NULL if RE compiled ok, else ptr to err message */
+	if (re_comp (re) == NULL)
+	    return (malloc ("Dummy RE"));
+	return (NULL);
+}
+
+/* given compiled RE and subject:
+ *   return ptr to next unmatched char if match found
+ *   else return NULL if no match
+ * N.B. we assume subject does not request any returned values.
+ * N.B. we assume "next unmatched char" is the trailing \0 of subject.
+ */
+char *
+regex (re, subject)
+char *re, *subject;
+{
+	/* re_exec() returns 1 if match found, else 0 */
+	if (re_exec(subject) == 1)
+	    return (subject+strlen(subject));
+	return (NULL);
+}
+
+======================== end of regcmp.c =====================================
+
+
+for VMS users:
+
+I do not currently have access to VMS/DECwindows but the following DCL file,
+courtesy fisica@astrpd.DNET.NASA.GOV (Max Calvani - Italy) should build xephem
+for VMS/DECwindows MOTIF.
+
+In addition, drucker@Csa2.LBL.Gov (Bob Drucker, Berkeley/LBL) writes:
+
+    For VMS users the default settings file can be pointed to in one of
+    two ways.  The default name for the resource file on VMS is
+    SYS$LOGIN:DECW$XDEFAULTS.DAT.  If you don't wish to use this
+    you can define the logical XENVIRONMENT to point to the file (this
+    allows you to keep the file anywhere you want with any name).
+
+$!
+$!	Makefile.com -- Command file to compile and link Xephem
+$!
+$!	A simple-minded command file to compile and link Xephem under VAX/VMS
+$!	and DECwindows MOTIF 
+$!
+$!      when            who                     what
+$!
+$!      2-feb-1992      Ethan VanMatre          original from unix makefile
+$!      13-mar-1993	Max Calvani		updated for xephem v2.4.
+$!      9-sep-1993	Elwood Downey		updated for xephem v2.5.
+$!	9-jan-95	Bob Drucker		updated for new VMS compilers
+$!	21-aug-95	Bob Drucker		updated for xephem 2.7.
+$!	11-sep-95	Elwood Downey		updated for xephem 2.8.
+$!
+$ set ver
+$ cc	aa_hadec/opt/obj
+$ cc	anomaly	/opt/obj
+$ cc	calmenu	/opt/obj
+$ cc	circum	/opt/obj
+$ cc	closemenu/opt/obj
+$ cc	comet	/opt/obj
+$ cc	compiler/opt/obj
+$ cc	constel	/opt/obj
+$ cc	datamenu/opt/obj
+$ cc	db      /opt/obj
+$ cc	dbmenu  /opt/obj
+$ cc	earthmap/opt/obj
+$ cc	earthmenu/opt/obj
+$ cc	earthsat/opt/obj
+$ cc	eq_ecl	/opt/obj
+$ cc	fits	/opt/obj
+$ cc	formats	/opt/obj
+$ cc	helpmenu/opt/obj
+$ cc	jupgrs	/opt/obj
+$ cc	jupmenu	/opt/obj
+$ cc	libration/opt/obj
+$ cc	listmenu/opt/obj
+$ cc	mainmenu/opt/obj
+$ cc	marsmenu/opt/obj
+$ cc    marsmap/opt/obj
+$ cc	misc    /opt/obj
+$ cc	mjd     /opt/obj
+$ cc	moon	/opt/obj
+$ cc	mooncolong	/opt/obj
+$ cc	moonmenu/opt/obj
+$ cc	moonnf	/opt/obj
+$ cc	msgmenu /opt/obj
+$ cc	nutation/opt/obj
+$ cc	objmenu	/opt/obj
+$ cc	obliq	/opt/obj
+$ cc	parallax/opt/obj
+$ cc	pelement/opt/obj
+$ cc	plans	/opt/obj
+$ cc	plot_aux/opt/obj
+$ cc	plotmenu/opt/obj
+$ cc	precess	/opt/obj
+$ cc    preferences/opt/obj
+$ cc	progress/opt/obj
+$ cc	ps	/opt/obj
+$ cc	query	/opt/obj
+$ cc	reduce	/opt/obj
+$ cc	refract	/opt/obj
+$ cc	riset	/opt/obj
+$ cc	riset_cir/opt/obj
+$ cc	satmenu	/opt/obj
+$ cc	sites	/opt/obj
+$ cc	skyhist	/opt/obj
+$ cc	skylist	/opt/obj
+$ cc	skyfiltmenu/opt/obj
+$ cc	skyviewmenu/opt/obj
+$ cc	solsysmenu/opt/obj
+$ cc	srchmenu/opt/obj
+$ cc	sun	/opt/obj
+$ cc	time	/opt/obj
+$ cc	trails	/opt/obj
+$ cc	utc_gst	/opt/obj
+$ cc	versionmenu/opt/obj
+$ cc	xephem	/opt/obj
+$ cc	xmisc	/opt/obj
+$!
+$ LINK	xephem.obj,	-
+	aa_hadec.obj,	-
+	anomaly.obj,	-
+	calmenu.obj,	-
+	circum.obj,	-
+	closemenu.obj,	-
+	comet.obj,	-
+	compiler.obj,	-
+	constel.obj,	-
+	datamenu.obj,	-
+	db.obj,		-
+	dbmenu.obj,	-
+	earthmap.obj,	-
+	earthmenu.obj,	-
+	earthsat.obj,	-
+	eq_ecl.obj,	-
+	fits.obj,	-
+	formats.obj,	-
+	helpmenu.obj,	-
+	jupgrs.obj,	-
+	jupmenu.obj,	-
+	libration.obj,	-
+	listmenu.obj,	-
+	mainmenu.obj,	-
+	marsmenu.obj,	-
+        marsmap.obj,    -
+	misc.obj,	-
+	mjd.obj,	-
+	moon.obj,	-
+	mooncolong.obj,	-
+	moonmenu.obj,	-
+	moonnf.obj,	-
+	msgmenu.obj,	-
+	nutation.obj,	-
+	objmenu.obj,	-
+	obliq.obj,	-
+	parallax.obj,	-
+	pelement.obj,	-
+	plans.obj,	-
+	plot_aux.obj,	-
+	plotmenu.obj,	-
+	precess.obj,	-
+        preferences.obj, -
+	progress.obj,	-
+	ps.obj,		-
+	query.obj,	-
+	reduce.obj,	-
+	refract.obj,	-
+	riset.obj,	-
+	riset_cir.obj,	-
+	satmenu.obj,	-
+	sites.obj,	-
+	skyhist.obj,	-
+	skylist.obj,	-
+	skyfiltmenu.obj,	-
+	skyviewmenu.obj,	-
+	solsysmenu.obj,	-
+	srchmenu.obj,	-
+	sun.obj,	-
+	time.obj,	-
+	trails.obj,	-
+	utc_gst.obj,	-
+	versionmenu.obj,	-
+	xmisc.obj,	-
+$!
+$! Libraries for Motif version 1.1
+$!
+	sys$input/opt
+sys$share:decw$dxmlibshr/share
+sys$share:decw$xmlibshr/share
+sys$share:decw$xlibshr/share
+sys$share:vaxcrtl/share
+$!
+$! Libraries for Motif version 1.2
+$!
+$!	sys$input/opt
+$! sys$share:decw$dxmlibshr12/share
+$! sys$share:decw$xmlibshr12/share
+$! sys$share:decw$xtlibshrr5/share
+$! sys$share:decw$xlibshr/share
+$! sys$library:vaxcrtl/lib
+$!
+$!clean:
+$	purge
+$!
+$ set nover
+

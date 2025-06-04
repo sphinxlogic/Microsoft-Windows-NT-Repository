@@ -1,0 +1,840 @@
+<!-- VDE_GUIDE_012.HTML continuation of VDED$:[VDE.VDEDOC.DOC]VDE_GUIDE.HTML -->
+<html>
+<head>
+<title>VDE</title>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">VDE<br>Guide to Using<br> VDE</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_011.html#bottom_011">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+
+<hr>
+
+<a name="estab_lib_pop_cms"><h2>6.7.2 Getting Source Modules from a CMS Library</h2></a>
+
+<p>
+This section includes a code example that shows the steps involved in 
+the conversion from a major CMS-based project into a project based on a 
+VDE database. The project involves the importation of 
+multiple CMS libraries for the various software units---what 
+VDE calls facilities---into
+<a name="index_x_396"></a>
+VDE. Each facility is organized in a CMS library located 
+under the project-specific root directory DISK$EVMSCMS:[VMS].
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Note</strong></font></center><hr size=1 noshade>
+<font color=black>
+During the execution of the attached example code, <em>no</em> changes 
+to the format of the CMS libraries are made. </font>
+    </td>
+  </tr>
+</table>
+</center>
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Note</strong></font></center><hr size=1 noshade>
+<font color=black>
+Before performing the CREATE FACILITY/FROM_CMS_LIBRARY command, one 
+must create all VDE streams---those streams with the same 
+name as the CMS classes to be uploaded from the CMS library into the 
+VDE database, and one must also specify the /MAIN or /NOMAIN, 
+/PARENT and /SUCCESSOR values correctly. If these operations are not 
+correctly created and configured <em>before</em> issuing the CREATE 
+FACILITY/FROM_CMS_LIBRARY command, CMS generation selection, and the 
+variant and mainline streams will not be correctly configured. </font>
+    </td>
+  </tr>
+</table>
+</center>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ set noon 
+$ 
+$! These logicals will need to be (re)defined in the 
+$! site-specific system startup command procedure. 
+$ 
+$ Define/System/Executive/Nolog VMS$ DISK$EVMSCMS:[VMS.]/Trans=Conceal 
+$ Define/System/Executive/Nolog VSC$DATADISK $10$DKB400: 
+$ Define/System/Executive/Nolog VSC$ROOTDISK $10$DKB400: 
+$ Define/System/Executive/Nolog VSC$SNAPDISK $10$DKB400: 
+$ Define/System/Executive/Nolog VSC$JNLDISK $10$DKB400: 
+$ 
+$ Define/System/Executive/Nolog VSC$DBDATA VSC$DATADISK:[evms.dbdata] 
+$ Define/System/Executive/Nolog VSC$DBROOT VSC$ROOTDISK:[evms.dbroot] 
+$ Define/System/Executive/Nolog VSC$DBSNAP VSC$SNAPDISK:[evms.dbsnap] 
+$ Define/System/Executive/Nolog VSC$DBJNL  VSC$JNLDISK:[evms.dbjnl] 
+$ 
+$ Create/Directory VSC$DBDATA 
+$ Create/Directory VSC$DBROOT 
+$ Create/Directory VSC$DBSNAP 
+$ Create/Directory VSC$DBJNL 
+$ 
+$ VDE 
+create librar VSC$DBROOT /DEFER - 
+ /NAME=EVMS /REMARK="EVMS Source Library" - 
+        /NOAUTO_CONVERT /AUTO_ADD_USER=VMS_SOURCE /AUTO_MAIL - 
+        /ASK_INFO_FILE /ASK_REPL_CAUSE /SHOW_GEN_EXPR - 
+        /NOHISTORY_NOTES /NOALLOW_DELETE /NOWILD_INS_GEN - 
+        /NOCMS_ELEM_HIST /CREATOR="Stephen Hoffman" - 
+        /DEF_PRIVILEGES=(CREMOD,RESREP) - 
+        /AUTH_PRIVILEGES=(CREMOD,RESREP) - 
+ /data=VSC$DBDATA/journ=VSC$DBJNL/snap=VSC$DBSNAP - 
+! 
+SHOW DEFAULTS 
+SHOW LIBRARY/FULL 
+MODIFY CONTEXT/PUBLIC DEFAULT/NOSTREAM/NOFACILITY 
+! 
+SET DIRECTORY/DELTA_FILES VMS$:[000000] 
+SET DIRECTORY/DELTA_FILES/SUBDIRECTORY=VDE$CMS [.CMS] 
+SET DIRECTORY/DELTA_FILES/SUBDIRECTORY=VDE$MARKER [.SRC] 
+MODIFY FACILITY CODE/NAME=AAA_VDE_TEST/REMARK="Test facility for VDE developers" 
+CREATE DIRECTORY_TREE/DELTA_FILES 
+! 
+SHOW DIRECTORY/DELTA_FILES 
+! 
+! Set to the AAA_VDE_TEST facility for use by database administion, 
+! and populate it with a test module or two. 
+! 
+SET FACILITY AAA_VDE_TEST 
+CREATE MODULE/NODELETE/REMARK="VDE test module" LOGIN.COM /INPUT=SYS$LOGIN: 
+CREATE MODULE/NODELETE/REMARK="VDE test module" SYSTARTUP_VMS.COM /INPUT=SYS$STARTUP: 
+! 
+SET DIRECTORY/STAGING disk$common:[vms.stage] 
+CREATE DIRECTORY_TREE/STAGING 
+! 
+! Rename stream MAIN to be MAINLINE.  We will use this stream for a few 
+! selected modules that should always stay on the main development thread 
+! outside the normal development streams. 
+! 
+MODIFY STREAM MAIN/NAME=MAINLINE/REMARK="Mainline thread for selected modules" 
+SHOW STREAM/FULL MAINLINE 
+SET DIRECTORY/STREAM disk$common:[VMSMAINLINE] 
+CREATE DIRECTORY_TREE/STREAM 
+! 
+! Create the V6.1 parent stream to all others streams.  Specification 
+! of /MAIN or /NOMAIN, and /PARENT and /SUCCESSOR are key factors in 
+! the CMS generation selection and the propogation processing.  All 
+! streams must be created prior to specification of CREATE FACILITY 
+! /FROM_CMS_LIBRARY.  See the reference manual for details. 
+! 
+SET STREAM MAINLINE 
+CREATE STREAM/CLOSED/MAIN V6.1/PARENT=MAINLINE/REMARK="create release class" 
+CREATE STREAM/CLOSED/MAIN V6.2/PARENT=V6.1/REMARK="create release class" 
+CREATE STREAM/CLOSED/MAIN V6.3/PARENT=V6.2/REMARK="create release class" 
+! 
+SHOW DIRECTORY/DELTA_FILES 
+! 
+Exit 
+$ SHOW TIME 
+$ VDE 
+create facility ACAS/FROM_CMS/REMARK="ACAS" 
+create facility ACC/FROM_CMS/REMARK="Accounting" 
+create facility ACLEDT/FROM_CMS/REMARK="ACL Editor" 
+.... 
+create facility ZSYSGEN/FROM_CMS/REMARK="ZSYSGEN" 
+create facility ZSYSVER/FROM_CMS/REMARK="ZSYSVER" 
+Exit 
+$ SHOW TIME 
+</pre>
+</font>
+</table>
+
+<a name="index_x_397"></a>
+<a name="index_x_398"></a>
+<a name="index_x_399"></a>
+<a name="index_x_400"></a>
+<a name="index_x_401"></a>
+
+<a name="estab_cms_upload"><h2>6.7.3 Example CMS Upload Procedures</h2></a>
+
+<p>
+VDE includes example command procedures and associated files 
+in VDE$EXAMPLES:, the core example procedure used for uploading an 
+existing CMS library into VDE is VDE$CREATE.COM. Files 
+associated with VDE$CREATE.COM will need to be tailored to local 
+requirements and to the local CMS library directory structure.
+<a name="index_x_402"></a>
+<a name="index_x_403"></a>
+<a name="index_x_404"></a>
+<a name="index_x_405"></a>
+<a name="index_x_406"></a>
+<a name="index_x_407"></a>
+<a name="index_x_408"></a>
+<a name="index_x_409"></a>
+<a name="index_x_410"></a>
+<a name="index_x_411"></a>
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Note</strong></font></center><hr size=1 noshade>
+<font color=black>
+To avoid losing any changes made during any subsequent VDE 
+upgrades, relocate the example command procedures into a 
+non-VDE directory <em>before</em> making any edits. </font>
+    </td>
+  </tr>
+</table>
+</center>
+
+<p>
+Also see <a href="vde_guide_009.html#estab_lib_upload_cmd">Section 6.1.1</a> for information on VDE$UPLOAD, a tool that can 
+directly perform the task of library creation based on a description of 
+the desired VDE database contained in a data file.
+<a name="index_x_412"></a>
+
+<a name="estab_lib_pop_mod"><h2>6.7.4 Adding Individual Source Modules</h2></a>
+
+<p>
+Adding modules into a VDE library is a simple operation.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE„ CREATE MODULE/NODELETE/REMARK="user login module" -
+_VDE„     LOGIN.COM /INPUT=SYS$LOGIN: 
+</pre>
+</font>
+</table>
+
+For further information on the above command and for the available 
+command options, please refer to the <em>VDE Reference Manual</em>.
+<a name="index_x_413"></a>
+<a name="index_x_414"></a>
+<a name="index_x_415"></a>
+<a name="index_x_416"></a>
+
+<p>
+<hr size=5>
+<font color=maroon>
+<a name="maint_oper"><h1>Chapter 7<br>Library Maintenance Operations</h1></a>
+</font>
+
+<p>
+This chapter explains how how to perform various maintenance 
+operations. These operations include clearing deadlocks, performing the 
+source code database backups, creating and maintaining the associated 
+backup procedures, restoring the database after a failure, and 
+recovering lost information in the CMS libraries on a VDE 
+library. Also included are the procedures involved in periodic cleanups 
+of the staging area directories, and one approach toward storage 
+recovery within VDE libraries. Some of these commands and 
+operations will require you to have the OpenVMS SETPRV or SYSPRV 
+privileges.
+<a name="index_x_417"></a>
+<a name="index_x_418"></a>
+<a name="index_x_419"></a>
+<a name="index_x_420"></a>
+
+<p>
+Operations described in this chapter are normally performed only by the 
+maintainers of the OpenVMS VDE libraries, or by those 
+users maintaining their own VDE libraries.
+
+<p>
+The command procedures described in this chapter are located in 
+directory MASD$JNL:[VMS.TOOL] on the journal disk for the 
+OpenVMS VDE libraries. Because these procedures may 
+be needed in case of journal disk failures, they are also stored in the 
+directory VMS$:[TOOLS].
+
+<a name="maint_createsct"><h1><font color=maroon>7.1 Creating SCT Notes Conferences</font></h1></a>
+
+<p>
+For the automatic submission of the SCT note to operate properly, the 
+SCT notes conference must have the correct protections. The following 
+shows the commands necessary to enable the security necessary for the 
+typical SCT notes conference:
+<a name="index_x_421"></a>
+<a name="index_x_422"></a>
+<a name="index_x_423"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ set security/acl=- 
+_$ ((IDENTIFIER=VMS_SOURCE_READ,ACCESS=R+W+E),- 
+_$  (IDENTIFIER=VMS_SOURCE,ACCESS=R+W+E)) - 
+_$ NOTES$LIBRARY:SCT-*.NOTE 
+$ set security/acl=- 
+_$ ((IDENTIFIER=[DECNET,NOTES$SERVER],ACCESS=R+W),- 
+_$  (IDENTIFIER=NETWORK,ACCESS=NONE)) - 
+_$ /PROTECTION=(S:RWED,O:RWED,G:RE,W) - 
+_$ NOTES$LIBRARY:SCT-*.NOTE 
+</pre>
+</font>
+</table>
+
+The above security attributes and resource identifiers can and should 
+be adjusted for site-specific requirements.
+
+<p>
+Failure to correctly set up the security attributes can prevent the 
+creation of SCT entries by VDE.
+
+<a name="maint_offline"><h1><font color=maroon>7.2 Taking VDE Offline</font></h1></a>
+
+<p>
+Depending on requirements, one can use the MODIFY LIBRARY/LOCK command 
+to mark a particular VDE library as read-only to all but 
+privileged VDE users, and one can define the logical name 
+VDE$OFFLINE to take the VDE environment completely offline.
+<a name="index_x_424"></a>
+<a name="index_x_425"></a>
+<a name="index_x_426"></a>
+<a name="index_x_427"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ Define/System/Executive VDE$OFFLINE - 
+_$ "Down for maintenance until 23:00" 
+</pre>
+</font>
+</table>
+
+<p>
+Users with privileges within VDE can override the library 
+lockout; a message indicating that a library lock is being overridden 
+is displayed in this situation. For further information on this 
+particular command, see the <em>VDE Reference Manual</em> manual.
+
+<p>
+Short of deassigning the VDE$OFFLINE logical name, there is no way to 
+override the VDE$OFFLINE lockout---the VDE$_OFFLINE message and the
+<a name="index_x_428"></a>
+ translation of the logical name will be displayed to all users. Once 
+ this privileged logical name has been defined, users cannot invoke the 
+ VDE images, and users already executing VDE will 
+ be unable to invoke any new VDE commands.
+
+<p>
+Note that it can be difficult to debug certain VDE problems 
+when the VDE$OFFLINE lockout is in place, as even the VDE 
+maintainers cannot invoke the VDE images. This lockout is 
+best suited for the protection of Rdb and CMS maintenance 
+operations.
+
+<a name="maint_unsticking"><h1><font color=maroon>7.3 Resolving Database Problems</font></h1></a>
+
+<p>
+Various things have been seen to go wrong within VDE, or 
+within Rdb. Failures include deadlocks, and various 
+Rdb problems that result in process-level and system-level 
+bugcheck dumps.
+
+<p>
+VDE has occasionally been known to deadlock at the 
+Rdb level. This deadlock condition is usually heralded by a 
+series of &quot;VDE is wedged&quot; complaints from various 
+vociferous VDE users.
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Note</strong></font></center><hr size=1 noshade>
+<font color=black>
+Before attempting to clear a &quot;stuck&quot; VDE database, 
+first determine if there is a valid reason for sluggish database 
+access. VDE or Rdb commands executed by another 
+database user. Project leaders use some commands and perform some 
+operations that can potentially be quite time-consuming, while 
+Rdb database backups are notorious for clobbering 
+performance. Any of these can lead to intervals where the 
+VDE database processing is extremely sluggish or various 
+commands are locked out.</font>
+    </td>
+  </tr>
+</table>
+</center>
+
+<a name="maint_stuck"><h2>7.3.1 User Process Deadlocks</h2></a>
+
+<p>
+Process-level deadlocks occur infrequently, and they often involve 
+high-traffic applications such as database backups or they involve a 
+VDE command that was paused via <kbd>[XOFF]</kbd> command, 
+and they can usually be easily and safely cleared using the following 
+command:
+<a name="index_x_429"></a>
+<a name="index_x_430"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ RMU/CLOSE/CLUSTER/ABORT=DELPRC/WAIT-
+_$ VDE$:[ROOTDIR]VDE$DATABASE
+</pre>
+</font>
+</table>
+
+The above RMU command deletes all processes currently connected to the 
+specified database. As most VDE users utilize kept 
+subprocesses, this process deletion is often entirely transparent to 
+users.
+
+<p>
+To use the RMU/CLOSE command, you must possess the OpenVMS 
+SYSPRV or BYPASS privilege, or you must have access via the 
+Rdb database access control list. If the RMU/CLOSE command 
+hangs for an extended interval (it should hang for a while pending 
+cluster-wide closure), see if the &quot;freeze&quot; deadlock mentioned 
+in <a href="vde_guide_012.html#maint_freeze">Section 7.3.2</a> has occured.
+<a name="index_x_431"></a>
+<a name="index_x_432"></a>
+<a name="index_x_433"></a>
+<a name="index_x_434"></a>
+
+<a name="maint_freeze"><h2>7.3.2 Freeze in Rdb</h2></a>
+
+<p>
+It is possible for Rdb processes to deadlock waiting for the 
+Rdb &quot;freeze&quot; resource.
+
+<p>
+When a &quot;freeze&quot; deadlock occurs, one normally finds any 
+attempt to SET LIBRARY to the VDE library or to run various 
+RMU commands---including the RMU/CLOSE command mentioned in 
+<a href="vde_guide_012.html#maint_stuck">Section 7.3.1</a> -- against the library will hang indefinitely. This 
+deadlock can survive the shutdown of all Rdb database 
+monitors, though a shutdown of the node holding the deadlocked recovery 
+process can relieve the deadlock.
+
+<p>
+The following example shows the particular process holding the 
+&quot;freeze&quot; lock:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ RMU/SHOW LOCK/MODE=BLOCKING 
+========================================================================== 
+SHOW LOCKS/BLOCKING Information 
+========================================================================== 
+ 
+-------------------------------------------------------------------------- 
+Resource: freeze 
+ 
+          ProcessID Process Name     Lock ID   System ID Requested Granted 
+          --------- ---------------  --------- --------- --------- ------- 
+Waiting:  224018E0  SHOFFMAN_00E0..  3F00433E  00010002  CW        NL 
+Blocker:  20402DC8  RDM_RB60_1.....  5D00A098  00010002  PR        PR 
+</pre>
+</font>
+</table>
+
+One can use ANALYZE/SYSTEM or similar to attempt to locate the reason 
+the blocking process---RDM_RB60_1 in the above example---in an attempt 
+to resolve the problem.
+<a name="index_x_435"></a>
+<a name="index_x_436"></a>
+<a name="index_x_437"></a>
+<a name="index_x_438"></a>
+<a name="index_x_439"></a>
+
+<a name="maint_dumps"><h2>7.3.3 Rdb process dumps</h2></a>
+
+<p>
+Rdb generates a dump file when it encounters an unexpected 
+condition. Under typical circumstances, Rdb will display a 
+message indicating a dump is being generated.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE&gt; set lib evms 
+Generating bugcheck dump file WORK10:[user]RDSBUGCHK.DMP 
+</pre>
+</font>
+</table>
+
+<p>
+One potential cause is the inability to write to the run-unit journal 
+area, see <a href="vde_guide_012.html#maint_ruj">Section 7.3.4</a> for information for details.
+
+<a name="maint_ruj"><h2>7.3.4 Rdb run-unit journal errors</h2></a>
+
+<p>
+The run-unit journal area is a key component of the Rdb 
+processing, and allows Rdb to rollback incomplete or 
+erroneous database operations. And when an unexpected condition occurs 
+with the run-unit journal, Rdb tends to generate a dump file.
+
+<p>
+Errors involving the run-unit journal have a variety of footprints, 
+including symptoms such as process-level Rdb bugcheck dumps 
+and user process deletions.
+
+<a name="maint_rujmissing"><h3>7.3.4.1 Missing run-unit journal area</h3></a>
+
+<p>
+If the run-unit journal area is entirely messing, one can potentially 
+see an Rdb bugcheck dump generated. By default, the run-unit 
+journal is written to SYS$LOGIN_DEVICE:[RDM$RUJ], but this can be 
+altered via the Rdb RDMS$RUJ logical name.
+<a name="index_x_440"></a>
+<a name="index_x_441"></a>
+<a name="index_x_442"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE&gt; set lib evms 
+Generating bugcheck dump file WORK10:[user]RDSBUGCHK.DMP 
+</pre>
+</font>
+</table>
+
+When the run-unit journal area is entirely messing or or is incorrectly 
+protected, Rdb will generate a process-level bugcheck dump 
+file, and VDE will not operate correctly. (In addition to 
+the above message, it is also possible one may see VDE 
+stack-dumps.
+
+<p>
+For any user seeing these errors, make certain that 
+SYS$LOGIN_DEVICE:[RDM$RUJ] exists and is owned by [SYSTEM]. If it does 
+not exist, create it. (Note that the directory is actually based on the 
+device from SYS$LOGIN:, not from the SYS$LOGIN_DEVICE: specification.)
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ create/directory work10:[rdm$ruj]/owner=[system]
+$ set security/owner=[system] -
+_$ work10:[000000]rdm$ruj.dir,[rdm$ruj]*.*.*
+$ run sys$system:sysman
+SYSMAN&gt; DISKQUTA ADD [SYSTEM] -
+_SYSMAN&gt; /DEVICE=WORK10/PERM=100000/OVER=1000
+SYSMAN&gt; <kbd>[CTRL/Z]</kbd>
+</pre>
+</font>
+</table>
+
+If [SYSTEM] already has a quota entry for WORK10:, use the SYSMAN 
+command DISKQUTA MODIFY in place of DISKQUOTA ADD.
+<a name="index_x_443"></a>
+<a name="index_x_444"></a>
+<a name="index_x_445"></a>
+<a name="index_x_446"></a>
+<a name="index_x_447"></a>
+<a name="index_x_448"></a>
+<a name="index_x_449"></a>
+<a name="index_x_450"></a>
+
+<p>
+Based on Rdb documentation, one can also redirect the 
+location of the SYS$LOGIN_DEVICE:[RDM$RUJ] directory via the 
+Rdb RDMS$RUJ logical name. (Note that Rdb does 
+not actually use SYS$LOGIN_DEVICE:, it appears to parse SYS$LOGIN:.)
+
+<p>
+This particular error is more common on volumes that were not 
+initialized with [SYSTEM] ownership:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ INITIALIZE work10: work10/SYSTEM
+</pre>
+</font>
+</table>
+
+<p>
+Also see <a href="vde_guide_012.html#maint_rujdiskquota">Section 7.3.4.2</a> for a related problem.
+
+<a name="maint_rujdiskquota"><h3>7.3.4.2 Rdb run-unit journal diskquota errors</h3></a>
+
+<p>
+Rdb requires the creation of a run-unit journal file. By 
+default, this is in the user's login device, in the directory 
+[RDM$RUJ], and this location can be altered using the logical name 
+RDMS$RUJ. If this creation operation fails or due to insufficient 
+quota, one can see the following errors:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ vde/library=evms 
+%RDB-F-SYS_REQUEST, error from system services request 
+-RDMS-F-FILACCERR, error creating run-unit journal file 
+WORK1:[RDM$RUJ]VDE$DATABASE$0099C91EC6BCC945.RUJ;1 
+-RMS-E-CRE, ACP file create failed 
+-SYSTEM-F-EXDISKQUOTA, disk quota exceeded 
+</pre>
+</font>
+</table>
+
+<a name="index_x_451"></a>
+<a name="index_x_452"></a>
+<a name="index_x_453"></a>
+<a name="index_x_454"></a>
+<a name="index_x_455"></a>
+To resolve this particular error for the quotas present on device 
+WORK1:, issue the following commands:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ set security/owner=[system] -
+_$ work1:[000000]rdm$ruj.dir,[rdm$ruj]*.*.*
+$ run sys$system:sysman
+SYSMAN&gt; DISKQUTA ADD [SYSTEM] -
+_SYSMAN&gt; /DEVICE=WORK1/PERM=100000/OVER=1000
+SYSMAN&gt; <kbd>[CTRL/Z]</kbd>
+</pre>
+</font>
+</table>
+
+<a name="index_x_456"></a>
+<a name="index_x_457"></a>
+<a name="index_x_458"></a>
+<a name="index_x_459"></a>
+<a name="index_x_460"></a>
+<a name="index_x_461"></a>
+<a name="index_x_462"></a>
+<a name="index_x_463"></a>
+<a name="index_x_464"></a>
+<a name="index_x_465"></a>
+<a name="index_x_466"></a>
+<a name="index_x_467"></a>
+If [SYSTEM] already has a quota entry for WORK1:, use the SYSMAN 
+command DISKQUTA MODIFY in place of DISKQUOTA ADD.
+
+<p>
+Also see <a href="vde_guide_012.html#maint_dumps">Section 7.3.3</a> for a related situation.
+
+<a name="maint_recoverydumps"><h3>7.3.4.3 Rdb recovery process dumps</h3></a>
+
+<p>
+Rdb generates a dump file when the recovery process 
+encounters an unexpected condition. (See <a href="vde_guide_012.html#maint_rujawol">Section 7.3.4.4</a> for one example 
+of an unexpected condition.) There may or may not be any indication 
+this dump is being written---in one particular case, the process that 
+was triggering the failing recovery process was being logged off the 
+system.
+<a name="index_x_468"></a>
+
+<p>
+Under typical circumstances, the recovery process dump file is written 
+to SYS$SYSTEM:RDMDBRBUG.DMP. The following is an example of a recovery 
+process dump file:
+<a name="index_x_469"></a>
+<a name="index_x_470"></a>
+<a name="index_x_471"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+================================================================================ 
+          Bugcheck dump SYS$SYSROOT:[SYSEXE]RDMDBRBUG.DMP;17 
+================================================================================ 
+ 
+This file was generated by DEC Rdb V6.0-1 upon detection of a 
+fatal, unexpected, error.  Please return this file, the query or 
+program that produced the bugcheck, the database, monitor log, 
+and any other pertinent information with an SPR. 
+ 
+ 
+Current time is 21-JAN-1997 15:20:21.10 
+ 
+ 3-FEB-1997 16:23:35.84: Linked DBR (RDBVMS) RDMS$ALPHA_V0601:[KODABLD] 
+25-JAN-1997 08:06:24.32: Compiled KOD$DBR (KODA) KOD$ALPHA_V0601R:[DBR] 
+25-JAN-1997 08:06:15.13: Compiled KOD$LIBRARY (KODA) KOD$ALPHA_V0601R:[CODE] 
+================================================================================ 
+          Stack Dump 
+================================================================================ 
+ 
+Saved PC = 001383C0 : STD$DUMP_ALPHA_STACK + 00000090 
+Saved PC = 001212E4 : KOD$BUGCHECK_DUMP + 00000D74 
+Saved PC = 000A1214 : KOD$BUGCHECK_AND_EXIT_HNDLR + 00000094 
+Saved PC = 80895D44 : S0 address 
+Saved PC = 962A62BC : S0 address 
+***** Exception at 0006B930 : DBR$RECOVER + 000009F0 
+%RDMS-F-FILACCERR, error opening run-unit journal file 
+WORK1:[RDM$RUJ]VDE$DATABASE$0099C91EC6BCC945.RUJ;1 
+-SYSTEM-W-ACCONFLICT, file access conflict 
+Saved PC = 0006AB50 : DBR + 00000B90 
+Saved PC = 00057F0C : BLI$CALLG + 000000BC 
+Saved PC = 0005011C : DBR$MAIN + 0000011C 
+Saved PC = 962D3C44 : S0 address 
+[...rest of dump file has been omitted...] 
+</pre>
+</font>
+</table>
+
+<a name="index_x_472"></a>
+<a name="index_x_473"></a>
+<a name="index_x_474"></a>
+<a name="index_x_475"></a>
+<a name="index_x_476"></a>
+<a name="index_x_477"></a>
+The above example clearly points to an access conflict on a run-unit 
+journal file. The above recovery process failure was cleared by 
+deleting the processes that were holding open run-unit journal, and 
+restarting the recovery process.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ run sys$system:sysman
+SYSMAN&gt; set environment/cluster
+SYSMAN&gt; set profile/privilege=all
+SYSMAN&gt; do show device/file/nosystem work1:
+SYSMAN&gt; <kbd>[CTRL/Z]</kbd>
+</pre>
+</font>
+</table>
+
+<a name="maint_rujawol"><h3>7.3.4.4 Missing run-unit journal files</h3></a>
+
+<p>
+A recovery-process dump similar to <a href="vde_guide_012.html#maint_recoverydumps">Section 7.3.4.3</a> can also be seen when 
+the RUJ file is missing. This can be a result in user process deletions 
+and failed RMU backups, as well as other nasty behaviour.
+<a name="index_x_478"></a>
+
+<p>
+One sees the following in an RMU/DUMP:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+Active user with process ID 38810DD3 
+    Stream ID is 1 
+    Monitor ID is 2 
+    Transaction ID is 16 
+    Recovery journal filename is "WORK300:[RDM$RUJ]VDE$DATABASE$009A486CCA4B098E.RUJ; 
+    Read/write transaction in progress 
+    Transaction sequence number is 183093 
+</pre>
+</font>
+</table>
+
+and one sees the following in SYS$SYSTEM:RDMDBRBUG.DMP:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+***** Exception at 000253ED : DBR$RECOVER + 000005CB 
+%RDMS-F-FILACCERR, error opening run-unit journal file WORK300:[RDM$RUJ]VDE$DATABASE$009A486CCA4B098E.RUJ;1 
+-RMS-E-FNF, file not found 
+</pre>
+</font>
+</table>
+
+<p>
+There's no good solution to this problem if the file cannot be located, 
+short of locating the missing RUJ, or recovering the database from Rdb 
+BACKUP.
+
+<p>
+The following steps will clear the missing RUJ and will leave the\ 
+database accessable, <em>but the database is now likely corrupt.</em> 
+Recovery from RMU/BACKUP is preferable.
+<a name="index_x_479"></a>
+<a name="index_x_480"></a>
+<a name="index_x_481"></a>
+<a name="index_x_482"></a>
+<a name="index_x_483"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ RMU/ALTER databasename<a href="vde_guide_013.html#call_015">(1)</a>
+RdbAlter&gt; DISPLAY ROOT USER<a href="vde_guide_013.html#call_016">(2)</a>
+RdbAlter&gt; DEPOSIT ROOT USER # RUJ=""<a href="vde_guide_013.html#call_017">(3)</a>
+RdbAlter&gt; COMMIT<a href="vde_guide_013.html#call_018">(4)</a>
+RdbAlter&gt; EXIT
+$ RMU/UNLOAD...<a href="vde_guide_013.html#call_019">(5)</a>
+$ RMU/VERIFY/ALL<a href="vde_guide_013.html#call_020">(6)</a>
+</pre>
+</font>
+</table>
+
+<a name="bottom_012"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_011.html#bottom_011">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vde_guide_013.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+</body>
+</html>

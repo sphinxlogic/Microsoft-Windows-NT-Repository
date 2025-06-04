@@ -1,0 +1,70 @@
+	This uudecode.c is based on NetBSD's, then ported on
+OpenVMS/VAX V6.1, adds a feature to decode multiple encoded segments
+from a single file.
+
+Decoding multiple segments is enabled with "-m" specified, otherwise
+should act as original uudecode, which accepts no options. This may
+found as useful for a rmailout-file or extracted several article into
+a single file. The sequence of segments in a file has to be ordered
+like:
+
+% grep "^Subj" 2
+Subject: - abc.jpg (1/5) "test pattern"
+Subject: - abc.jpg (2/5) "test pattern"
+Subject: - abc.jpg (3/5) "test pattern"
+Subject: - abc.jpg (4/5) "test pattern"
+Subject: - abc.jpg (5/5) "test pattern"
+% uudecode -m 2
+% ls
+2               abc.jpg
+%
+
+Note: uudecode employ attached algorithm to detect a line is encoded
+one or not. Although it could never be perfect, it should work as
+expected more than 90%. If you encounter the case an extracted file
+looks like corrupted, then try with "-v" again. It prints "skipped"
+lines.
+
+Enjoy.
+
+Multiple segments decoding are done as:
+
+	1) Skip line to first "begin " line (same as original)
+	2) Until "end\n" line found: (same as original)
+	2-1) Check the line whether it looks like an encoded
+	     line or not, Check is done as:
+		(a) for encoded by uuencode:
+			/*
+			 * Encoded lines should be:
+			 *	l%4 = 0
+			 *  AND
+			 *	l/4 = n/3 + (n%3 == 0 ? 0 : 1)
+			 *			[l > 0]
+			 *	n = 0		[l = 0, should be "`\n"]
+			 * Where:
+			 *	n = (Char_at_column (0) - 0x20) & 0x3f
+			 *	l = length (line) - 2
+			 *		(1 for column 0 + 1 for tailing \n)
+			 *
+			 * Based on: "$Id: uuencode.c,v 1.5 1993/11/09 01:47:00 jtc Exp $"
+			 */
+		(b) for encoded by an other more sophisticated encoder
+		    which adjusts length of a last line:
+			/*
+			 * Encoded lines should be:
+			 *	l/4 + l%4 = n/3 + n%3 + (n%3 == 0 ? 0 : 1)
+			 *			[l > 4]
+			 *	l = n + 1	[0 < l <= 4]
+			 *	n = 0		[l = 0, should be "`\n"]
+			 * Where:
+			 *	l = Char_at_column (0) - 0x20
+			 *	n = length (line) - 2
+			 *		(1 for column 0 + 1 for tailing \n)
+			 */
+	2-2) If not, skip the line. If "-v" is specified then
+	     skipping line is printed to ``stderr''
+	2-3) If yes, then process as an encoded line
+	3) If not EOF, then goto 1)
+
+/* Ported to VMS and added a feature, enabled with "-m", to extract multiple
+ encoded segments from a single file, by matsunaw@jrd.dec.com, Nov 1994. */

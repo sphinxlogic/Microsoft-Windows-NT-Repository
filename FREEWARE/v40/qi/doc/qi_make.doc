@@ -1,0 +1,125 @@
+QI_MAKE.DOC
+
+QI_MAKE is a program that reads fixed-field files and creates an input file
+for QI_BUILD.
+
+
+The command to run MAKE read the file <input> and write the file <output> is
+MAKE := $device:[path]QI_MAKE.EXE
+MAKE <input> <output> [<sequence>]
+
+The format of the output file is described in WHAT.DOC.  The only important
+parts as far as QI_MAKE is concerned are the identifier and field number.
+The identifier is simply a nine digit number that uniquely identifies a
+nameserver entry.  The field number is used to map (via the database
+configuration file) what kind of information is in a nameserver field.  If
+the identifier is not specified in the .QI_MAKE file, you can give the base
+identifier in the <sequence> command line argument.  This base number
+(default is 0) will be incremented for each nameserver entry written.
+
+The heart of the conversion process is the extraction, manipulation and
+mapping of input file fields to nameserver fields.  This is described with
+a QI_MAKE configuration file named <input>.QI_MAKE.
+
+The format of <input>.QI_MAKE is one line of comma-separated set of values
+per field.  Comment lines have a "#" in column one.  Blank lines are
+ignored.
+
+A field definition has its values in the following order:
+start column, length, field number, capitalize, blank on zero, format, args
+
+* start column is the position of the first character of the field
+* length is the length of the field
+* field number is a real or virtual field number (described below)
+* capitalize is 0, 1, 2 or 3.
+	0 (the default) means do not capitalize
+	1 means apply a capitalization algorithm to the field
+	2 means force all characters to upper case
+	3 means force all characters to lower case
+* blank when zero will omit the field if it contains only zeros
+* format is a printf-style format string
+	place a %s (and only "%s") where each variable string would go
+* args are virtual field numbers that apply to the format string
+
+Empty trailing values may be omitted.
+Fields that are blank are not written.
+
+A real field number refers to the field numbers in your .CNF file (i.e.
+1 for name, etc.) and associates a nameserver field with some columns of
+input file and/or virtual fields and/or constants.  A virtual field is a
+temporary variable that holds one or more virtual fields and/or constants.
+A real field number is positive (1 through 99) and a virtual field is
+negative (-2 through -99).  Fields 0 and -1 are special: field number 0
+refers to the current field number (see below); field -1 specified the
+identifier base.
+
+Here are several examples:
+
+# columns 1-20 contain a person's name (.CNF file field 1)
+# The name is correctly capitalized, no manipulation needs to be performed,
+# so we can omit trailing empty values
+
+1,20,1
+
+
+# columns 21-35, is the user's email address (.CNF file field 4)
+# we want to force the email name to lowercase and add "@OUR.DOMAIN" to
+# the end.  Remember that field 0 refers to this field (columns 21-35).
+
+21,15,4,3,0,%S@OUR.DOMAIN,0
+
+
+# columns 36-45 contain a fax number (.CNF field 13)
+# unfortunately, the format is aaabbbcccc and we would like (aaa) bbb-cccc
+# so we split the telephone number into 3 virtual fields (-2, -3 and -4)
+
+36,3,-2
+39,3,-3
+42,4,-4
+
+# and then reformat them into field 13.  Note that the 'start' and 'size'
+# fields are 0.
+
+0,0,13,0,0,(%s) %s-%s,-2,-3,-4
+
+
+# columns 83-86, contain a phone (field 10) extension only
+# include a constant string for our PBX
+# an argument list of "0" may be omitted
+# if the field is all zeros, omit the field
+
+83,4,10,0,1,(310) 860-2451 ext %s
+
+
+# our address (field 20) isn't in our input file; use a constant.
+# multi-line fields may be written if separated by "\n"
+# commas can be included in values if they are 'escaped' (i.e. "\,")
+
+0,0,20,0,0,Cerritos College\n11110 Alondra Blvd.\nNorwalk\, CA 90650
+
+
+# columns 50-55 contain our employee number
+# creating a unique ID field is better than letting things default to
+# and arbitrary identifier
+
+50,6,-1
+
+
+# There are no unique identifiers in this file, which is going to be merged
+# into an existing database.  Rather than remember the base ID number for
+# this group of entries each time QI_MAKE is run, we will specify a base
+# number (5000) for field -1 in the format value position.
+
+0,0,-1,0,0,5000
+
+
+Restrictions:
+
+You can only specify up to 10 virtual fields at a time.  If you need more,
+build up intermediate virtual fields 10 at a time.
+
+Problems:
+
+It is easy to blow up qi_make by specifying a formatted field and either
+giving too few arguments or giving non-existant virtual field numbers.
+

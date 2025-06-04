@@ -1,0 +1,339 @@
+FDHSTIMG
+
+  PRELIMINARY VERSION 2
+
+
+The FDHSTIMG program is a "host process" for FDDRV which is
+designed to allow it to pretend to be a disk where the actual
+storage is a physical image backup of a device.
+  Either of two modes are present. The simpler of these assumes
+the tape contains records of n disk blocks long, where n must
+be an integer, and that the disk image is simply present on a
+tape device. In this case, to get VMS to know the disk geometry
+you can simply enter the original device geometry via switches
+to the FDHSTIMG command.
+   THIS MODE IS *NOT* RECOMMENDED since it is highly vulnerable
+to tape position errors which may occur in the heavy forward and
+back skipping this program does. Should the tape hardware report
+an incorrect skip count, this program will believe it and deliver
+incorrect data.
+  The other mode assumes one has done a $BACKUP/PHYSICAL command
+and that the data is in VMS Backup format. This means each tape
+record has information about the disk blocks it represents which
+the program uses. Also, a physical backup has disk geometry information
+which this program will use by default for the geometry of the FD
+device. The initial version of FDHSTIMG lacks CRC checking or ability
+to use the XOR blocks made by VMS Backup (though it recognizes and
+skips them), but can and does check its' positioning and ensures
+that the correct blocks are presented.
+
+  To operate the program, get a process active somehow, use SET COMMAND
+to define the FDHSTIMG verb, and give a command along the lines of
+
+$ fdhstimg fda0: mua0:
+
+where fda0: is the virtual disk which will become available from
+other processes, and mua0: is the tape device name. Any tape
+device may be used if desired.
+
+  A cache is implemented in FDHSTIMG so that the most recent "n"
+(where in the first version n=100) tape blocks are kept in memory
+and used for data. Write requests for FDHSTIMG are politely
+processed and returned as successful, but nothing is actually
+done with them. While it is best to use $MOUNT/NOWRITE on the
+device, forgetting will not lead to any unpleasantness save for
+some thrashing around during the mount. The default cache of 100 tape
+blocks can be reset by the /cache:n switch. Recall however that
+TAPE blocks are allocated; these may hold up to 127 pages each,
+so the max setting (/cache:1000) could mean 127,000 pages are
+needed for that process (and VIRTUALPAGECNT and one's
+PAGEFILQUO). Failure to allocate the requested cache causes the
+program to exit; try again with less if you must.
+
+  An important note: This program assumes an entire volume is
+backed up on ONE tape volume, and lacks the ability to switch
+volumes. There are hooks in the code to allow switching, but to
+a degree this is deliberately NOT included. Disk access patterns
+could VERY easily cause frequent needs to change tapes by hand,
+which would probably drive any user to distraction. On a single
+volume this just slows things down. Where tape swapping by hand
+is needed, this is sufficiently inconvenient as to make the utility
+unusable (and besides most error prone).
+
+  Switches in the FDHSTIMG verb are as follows:
+
+/SKIP:n		Skip n files before starting. In the case of Backup
+		tapes, this becomes 3n+1 EOF marks to get to the nth
+		backup saveset from the beginning of tape.
+/CACHE:n	Allocate n pages (512 bytes each) of cache memory for the
+		volume. The default is 1000 and n may legally range
+		from 1000 to about 64000; it will be silently clamped to this
+		range if values outside it are given. The actual allocation
+		will be some integral number of tape blocks, so will
+		be only approximately what is selected.
+/TCACHE:n	Allocate n tape blocks of cache memory for the
+		volume. The default is 250 and n may legally range
+		from 1 to 1000; it will be silently clamped to this
+		range if values outside it are given. Remember these
+		are TAPE blocks (which may contain up to 127 disk
+		blocks each) so the cache can be made to contain
+		very significant virtual address space. If space cannot
+		be allocated for the desired cache, the FDHSTIMG
+		image tries a smaller cache. If this also fails, the
+		FDHST image exits.
+
+	Note: Do not use both /CACHE and /TCACHE together.
+
+	For both cache settings, if a value too small is given to allow
+	XOR group processing, XOR group processing will be disabled. If
+	process memory cannot be allocated for the specified cache, then
+	enough cache for 10 tape blocks plus what is needed for the XOR
+	group processing will be tried and this will be used if possible.
+	If there is still not sufficient room for this small cache, the
+	program will exit.
+
+    The following switches are used only in /BACKUP mode and have no effect
+	if in /IMAGE mode.
+/IGNCRC		Forces CRC data to be ignored. This is appropriate where
+		a tape may appear to have a valid initial CRC on its first
+		block but this is a fluke and the dataset was created with
+		/NOCRC by Backup or where possibly some Backup bug made
+		invalid CRCs, or as a desperation measure to recover flaky
+		data possibly off a tape-tape copy of the original tape.
+/FRCCRC		Forces CRC data to be used even if the first tape block
+		has apparently invalid CRC data.
+
+    The default action if neither /IGNCRC nor /FRCCRC is seen is to use
+    the first tape block as a test and if it has a valid CRC, to use
+    CRC data in testing validity of other blocks on the tape in BACKUP 
+    mode.
+
+/IGNXOR		Forces XOR data to be ignored, so that FDHSTIMG will
+		never try to recover any bad blocks using XOR information.
+		(XOR blocks are still skipped during processing).
+
+
+	The following switches will be needed only rarely by most sites
+	but allow use of the product with tapes made by other operating
+	systems or by simpler processes than VMS BACKUP/PHYSICAL or HSC
+	Backup.
+
+
+/type:geom	sets device geometry to be that of "type", where this
+		may be any of RX50, RK05, RL01, RL02, RK06, RK07, RM03,
+		RD53, RP04, RM80, RP06, RM05, RA81, RP07, or RA82.
+		The disk image size is derived from this also, so it
+		must be large enough.
+/TRK:n		Number of tracks per cylinder in disk geometry
+/SEC:n		Number of sectors per track in disk geometry
+/CYL:n		Number of cylinders in disk geometry
+
+/IMAGE		VMS Backup format not on tape (back/physical only!). If
+		/IMAGE is specified this means a direct image back-up
+		with no other structure. Some geometry must be given
+		using the /type or /trk, /sec, and /cyl switches if
+		this is done. This mode does not have any way to do
+		error correction, so delivers whatever data the tape
+		hardware can deliver. For this reason it is strongly
+		suggested that it be used only where there is other
+		reason to believe the data will be correct (such as
+		hardware error correction).
+In VMS Backup mode, the CRC is checked on the first block of the tape
+and if found to be correct there, is used on the entire tape as a
+check of data validity.
+
+If the /GROUP switch specifies too long an XOR group (over 20 in
+this version) or the /CACHE switch here specifies less than 20
+blocks of cache, this program will not attempt to use XOR groups
+to recover from otherwise unrecoverable errors. Should there be
+sufficient cache specified, and should the XOR group size be 20
+or less (default is 10) (but not zero) in the original saveset,
+FDHSTIMG will try 10 times to position to the correct record and
+validate it, and should this fail it will attempt to read in the
+entire XOR group corresponding to that record and reconstruct bad
+data in it. Should it succeed here, it will deliver the data.
+
+
+/CLEAR		Attempts to clean up I/O to FD: device.
+		The FD: device can sometimes fail to complete an I/O
+		if sufficiently horrible conditions occur to its host
+		process causing it not to exit properly (and fdhstimg
+		will attempt to do so). Should this happen, a process
+		trying to access FD: can stay locked due to an uncompleted
+		I/O and the FD: device use count can be invalid. The
+		command FDHSTIMG/CLEAR FDAn: will detect if there is
+		any outstanding uncompleted I/O and cause it to
+		terminate with an error status if so. A second command
+		FDHSTIMG/CLEAR FDAn: may be needed to reset use count.
+		Should a large amount of I/O be queued, this may have
+		to be repeated unless the conditional "clslop" is selected
+		in assembling FDDRV. If this conditional is accepted,
+		the driver will block further I/O once it gets the
+		clear, until a new FDHSTIMG command to reuse the
+		device is given.
+
+/NOREWIND	Inhibits rewind of the tape and forces /skip:0
+		so the tape does not move. This means the program
+		assumes that the tape is positioned so that its
+		current block is the start of a Backup/physical
+		saveset or an image dump of a disk with block
+		0 of the disk at the start of the buffer.
+		  Note that where a buffer starts with a header of
+		some integral number of blocks (as happens, for
+		instance, with TAR savesets where a 512 byte header
+		precedes data), you can use this facility to
+		create a pseudo disk "n" blocks longer than the
+		original disk (where "n" covers the size of the
+		header information), and then use VDdriver and
+		ASNVD to create a VD virtual disk on the DT
+		virtual disk, starting at LBN "n" and with size
+		that of the original disk. This is not recommended
+		as a general practice; you should know exactly what
+		you're doing and be prepared to undo it in the
+		right order (undo the VD assignment first after
+		dismounting) but may be useful in special situations.
+
+  Build instructions 
+
+First build fddrv; the commands go something like this
+
+$macro dtdriver
+$link dtdriver+sys$system:sys.stb/sel+sys$input/opt
+base=0
+$! it is normal to see a warning that no user start address exists
+
+Now copy to sys$system 
+
+$copy dtdriver.exe sys$system:
+
+Now load DT
+
+$mcr sysgen
+SYSGEN>CONNECT DTA0:/NOADAPTER/MAXUNIT=2/DRIVER=DTDRIVER
+SYSGEN>^Z
+$!
+
+  **************************************************************
+  *   NOTE:                                                    *
+  *	Be sure that second and later connects for DTAn: are *
+  *of form:                                                    *
+  *                                                            *
+  *SYSGEN>CONNECT DTA1:/NOADAPTER/DRIVER=DTDRIVER              *
+  *                                                            *
+  *since the driver's internal name is DTDRIVER.               *
+  *                                                            *
+  **************************************************************
+
+Now you have a unit DTA0: to use with the program.
+
+Assume your tape is named mua0: and you have a disk named
+dua4: that can be backed up /physical onto one reel of tape
+
+$back/physical dua4: mua0:mytest
+
+Now build fdhstimg
+$macro fdhstimg
+$link fdhstimg+sys$system:sys.stb/sel
+
+Now you need to start a separate process. This is easiest in a
+window system. Multisession monitors like BOSS can be used
+instead if desired though (I can send you BOSS if you need it).
+
+Once a new window is started, enable all privs (or at least
+log_io, phy_io and cmkrnl; I generally turn all but BYPASS on
+for this) in this process. (Eventually the fdhstimg.exe
+image gets installed with privs so it can talk to fddrv with
+physical I/O functions as it must.)
+
+$set proc/priv=(all,nobypass)
+
+Then mount the tape /foreign (just so folks know who has it)
+$mou/for mua0:
+
+Now start the fdhostimg function. A suitable start would be
+
+$fdhstimg/tcache:200 dta0: mua0:
+
+(the /tcache switch can be omitted if desired)
+
+Now in another process, SHO DEV DTA0: will show dta0: ONLINE.
+
+Now you can mount it:
+
+$mount/nowrite dta0: yourlabel
+
+(where "yourlabel" is the disk label; a mount/over would work
+also if you're suitably priv'd.)
+
+And now you can access dta0: as a local disk, e.g.
+$dir/size=all/date dta0:[000000]
+
+or whatever. The /nowrite is not really needed in the MOUNT command
+but prevents VMS from trying to write to dta0:, which wastes
+some time.
+
+	USES
+
+The primary use of FDHSTIMG will be for folks who want to speed
+up their backup operations. Physical backups are considerably
+faster than file oriented ones, stream tape better, and still
+have the XOR and CRC protection to guard data. The disadvantage
+of these has been that there has been no way to extract selected
+files from these backups. FDHSTIMG overcomes this problem and makes
+the access simpler even than normal BACKUP usage (one uses COPY,
+rather than a set of SELECTs), though it may be slower, depending
+on access patterns. Given that normally one does many backups for
+each time one needs to restore data, this need not be a problem.
+Moreover, physical backups of virtual disks (which can be supplied
+with the package) need not be dependent on particular drives where
+a full restoration is to be done; the containers can be placed
+anywhere on the system, giving a very robust strategy for the site
+with limited numbers of drives.
+
+Another use for FDHSTIMG is for folks who own RV20s. The RV20 is a
+WORM drive drom DEC that behaves like a tape drive (but with very
+fast positioning). This host allows one to do physical backups to
+the RV20 and have them appear as disks to the system, where
+it is desired to leave archival volumes online.
+
+Still another use is enabled on systems which are moving older PDP11
+code to VMS. By doing image copies to tape devices such as 4mm or
+8mm tape (which have substantial hardware ECC), they can move
+their data to tape and access it as though on an ODS-1 disk,
+which VMS can access directly.
+
+It should be clear that this system is only usable on single
+volume backups. Where the only available tape device is
+a 9 track tape, the largest such backup will be around 150MB,
+making use of virtual disks necessary to use the system
+for this purpose. On systems equipped with 4mm tape (capacity
+1.3GB) or 8mm tape (capacity 2.3 or 5 GB), essentially any
+disks can be backed up and accessed with this program. There are
+hooks in the code to permit use on multivolume backups, but
+using these would involve humans switching tapes, possibly
+quite frequently, since disk usage patterns could involve many
+tape switches per file when translated into accesses of sequential
+tapes. Obviously, the best performance is obtained on defragmented
+disks, but slow access can be tolerated where no human intervention
+is needed, where it would not be tolerated where constant
+intervention was required.
+
+  Backups are traditionally done for two reasons: to allow recovery
+of a complete volume, and to allow recovery of selected files from
+a volume. Historically, one has used file by file backups to
+accomplish these. However, even with the new VMS Backup, which is
+far faster than the VMS V4 version, a disk with more than a few
+files requires (according to a DEC presentation) over twice the
+time for a physical backup, and with this program, the speedier
+backup technique can still achieve both goals. While slightly
+more tape may be occupied due to backing up unused blocks, this
+space is typically 10 to 20% of a disk (often less), so that the
+penalty is minimal. Logically the result is similar to an
+/IMAGE backup with the /IGNORE=(INTERLOCK,NOBACKUP) switches
+and has the same behavior, except that it is twice as fast on most
+disks. (A volume which contains half a dozen files backs up
+conventionally essentially at the same speed as physical backup,
+but in realistic cases the file processing at least doubles the
+time needed to finish a backup.)
+
+		Glenn Everhart

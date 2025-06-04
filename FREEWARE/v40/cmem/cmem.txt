@@ -1,0 +1,456 @@
+
+     CMEM - A Tool for Debugging 'C' Memory Allocation Routines on OpenVMS
+
+						V1.1 - November 1995
+						OpenVMS VAX/Alpha V6.2
+
+
+No waranties, guarentees or cookies, expressed, implied or baked are provided
+with this software.  Nobody is responsible for anything.
+
+You may freely use and redistribute this software.  If you have some changes,
+send them to me and I'll incorporate them into the "official" distribution.
+
+
+INTRODUCTION
+
+This package provides updated versions of the C run-time library routines
+'malloc', 'calloc', 'realloc', and 'free'.  The new versions provide many
+features to insure the integrity of the C dynamic memory pool.  Programmers
+can use this information to track down routines which improperly access
+dynamic memory.
+
+These routines may be used with either the DEC C compiler (VAX and Alpha) or
+VAX C.
+
+What does this package do for you?
+
+   o	No changes are required to your source code.  You do not need to
+	re-compile, but CMEM is able to display more detailed traceback
+	information if each module is compiled using the /DEBUG qualifier.
+	You do need to re-link the image to access CMEM routines.
+
+   o	The routines work on both VAX and Alpha CPUs.  
+
+   o    CMEM can be configured to allocate memory so that it ends with a page
+	of protected memory.  This will cause an access violation if any
+	instruction attempts to read or write beyond the allocated space.
+
+   o    The page before allocated space can be protected, but there will
+	likely be some space between the allocated memory start and the
+	previous (protected) page.  This will be filled with the 0xAA
+	bit pattern.  If memory is ever released (via 'free') with that
+	pattern changed, an error will be signaled.
+
+   o    You can request that the call stack be recorded when memory is
+	allocated.  This provides a mechanism for determing who allocated
+	memory that was never released.  A CMEM subroutine is provided to
+	display the call stack.  Another routine allows the user to tag all
+	current entries to not be displayed (i.e. the entries represent
+	permanently allocated memory).
+
+   o	An error is reported if an attempt is made to release memory
+	that has not been allocated (or has already been released).
+
+   o    Memory allocated via 'malloc' will have each byte set to 0xAA so
+	that use of uninitialized memory can be detected.  0xAA has the
+	sign bit set which should (hopefully) cause access violations if
+	used as an pointer.  Also, the alternating 10101010 pattern should
+	be easily detected within the debugger.
+
+   o    A user can request that released memory will just have the
+	page protection changed rather than returning it to pool.  This
+	will allow the user to detect use of heap that was previously
+	released.
+
+And just what can't this package do:
+
+   o	Shareable image files have already resolved the external linkages
+	to the C run-time library.  We won't be able to monitor memory
+	allocation requests from within the shareable image.  However, if you
+	are building your own shareable image, you should still be able to
+	test your code with these routines.
+
+   o	I didn't bother to try and protect myself against all the various
+	qualifiers which can be used with DEC C.  Specifically, don't try
+	to get too fancy with the /PREFIX_LIBRARY_ENTRIES qualifier.
+
+
+CHANGES SINCE V1.0
+
+The following updates have been made to the code since V1.0:
+
+   o	Thanks to Lars Forsstrom, the code compiles with DEC C on the
+	VAX.
+
+   o	The DECwindows Debugger can now be used with the package.  The
+	previous version required you to define a job level version of the
+	the DBG$DECW$DISPLAY logical to be a blank string.
+
+   o	You can now override the default set-up by defining logicals.
+
+
+HOW TO USE THESE ROUTINES
+
+Begin by copying the files CMEM.C, CMEM_TRACEBACK.C, CMEM_MESSAGE.MSG, and
+CMEM.OPT from the [.SRC] directory on the CD-ROM.  Compiling the three modules
+as shown below:
+
+	$ CC/DEBUG/NOOPTIMIZE CMEM.C
+	$ CC/DEBUG/NOOPTIMIZE CMEM_TRACEBACK.C
+	$ MESSAGE CMEM_MESSAGE.MSG
+
+I don't bother optimizing the routines as they are intended to be used when
+debugging your programs.
+
+Next, link the resulting object files (CMEM.OBJ, CMEM_TRACEBACK.OBJ, and
+CMEM_MESSAGE.OBJ) into your image.  (The linker option file provided
+lists these three object files).  They should be listed before your link
+command line accesses the C run-time library (or IMAGELIB.OLB).  Be sure to
+link using the /TRACEBACK qualifier so that we can translate addresses to
+source code line numbers.  Also, to control CMEM and display the statistics,
+you will want to link with the debugger (/DEBUG qualifier on the LINK command).
+
+You will get the following messages when you link with DEC C:
+
+	%LINK-W-MULDEF, symbol DECC$FREE multiply defined
+	        in module DECC$SHR file SYS$COMMON:[SYSLIB]DECC$SHR.EXE;
+	%LINK-W-MULDEF, symbol DECC$REALLOC multiply defined
+	        in module DECC$SHR file SYS$COMMON:[SYSLIB]DECC$SHR.EXE;
+	%LINK-W-MULDEF, symbol DECC$MALLOC multiply defined
+	        in module DECC$SHR file SYS$COMMON:[SYSLIB]DECC$SHR.EXE;
+	%LINK-W-MULDEF, symbol DECC$CALLOC multiply defined
+	        in module DECC$SHR file SYS$COMMON:[SYSLIB]DECC$SHR.EXE;
+
+These messages are OK and tell you that we have replaced the standard DEC
+supplied routines.
+
+With VAX C, you will want to link with the VAXCRTL object library.  You
+can't link with the shareable image as the linker will resolve the
+globals from VAXCRTL.EXE rather than from our object modules.  Yep, that's
+just how things work on the VAX.
+
+Next, run the image and type GO at the debugger prompt to get to the main
+routine (if you aren't already there).  Then issue the command 'SET MODULE
+CMEM'.  This provides access to the user interface routines.  You then use
+the debugger CALL command to control CMEM.  The routines you can invoke are:
+
+cmem_collect_stack( state )
+
+   parameter:
+
+	state:		0 - disable recording call stack at allocation
+			1 - enable recording call stack at allocation
+
+   When a block of memory is allocated, we record the call stack.  To improve
+   performance, you can disable collection of this information.  As a result,
+   when you request information about the allocated memory (via the
+   'cmem_show_blocks' routine), we will not be able to display the call
+   stack.
+
+   The default setting is to collect this information.  You can override this
+   by defining the logical CMEM_COLLECT_STACK to have an equivalence string
+   of "1" to enable or "0" to disable.
+
+
+cmem_collect_time( state )
+
+   parameter:
+
+	state:		0 - disable time stamp collection
+			1 - enable time stamp collection
+
+   When a block of memory is allocated, we record the current system time.
+   To improve performance, you can disable collection of this information. 
+   As a result, when you request information about the allocated memory (via
+   the 'cmem_show_blocks' routine), we will not be able to show the allocation
+   time.
+
+   The default setting is to collect this information.  You can override this
+   by defining the logical CMEM_COLLECT_TIME to have an equivalence string
+   of "1" to enable or "0" to disable.
+
+
+
+cmem_boundary_check( state )
+
+   parameter:
+
+	state:		0 - densely pack allocated memory segments
+			1 - place protected memory around allocated blocks
+
+   Sometimes code will write beyond the end of an allocated segment of memory.
+   By enabling boundary check, the attempted write will cause the offending
+   instruction to get an access violation (rather than modifying some other
+   piece of data).
+
+   The unfortunate side effect is that we will devour the available virtual
+   address space very quickly.  For example, if you request 10 bytes of
+   information on an Alpha with an 8 KByte page size, we will need 24 KBytes
+   of virtual address space (1 page to hold the allocated memory and 2
+   for the protected pages before and after).
+
+   The default setting is to NOT use protected pages.  You can override this
+   by defining the logical CMEM_BOUNDARY_CHECK to have an equivalence string
+   of "1" to have guard pages or "0" to disable this feature.
+
+
+
+cmem_protect_freed( state )
+
+   parameter:
+
+	state:		0 - release page table entries
+			1 - protect released memory againt all access
+
+   Poorly designed code may attempt to use memory that has been released by
+   calling the 'C' run-time routine 'free'.  To detect this, the released
+   memory can be protected such that any access will cause an access violation.
+
+   Note that this feature is only available blocks of memory allocated while
+   boundary checking was enabled (see 'cmem_boundary_check').
+
+   The consequence of not releasing memory is that virtual address space
+   utilization will constantly increase.  Eventually you will abort with
+   a VASFULL error.
+
+   The default setting is to allow memory to be reused.  You can override this
+   by defining the logical CMEM_PROTECT_FREED to have an equivalence string
+   of "1" to protect released memory or "0" to release virutal memory.
+
+
+
+cmem_reset_display_flags( )
+
+   no parameters
+
+   When an application starts up, it normally allocates some memory for the
+   life of the image.  You may not wish to have such memory displayed when
+   listing blocks of memory which are in use.  This routine will set a flag
+   indicating that the associated information is not to be displayed when
+   'cmem_show_blocks' is called.
+
+
+cmem_check_address( address )
+
+   parameter:
+
+	address:	Memory address to check to see if it is associated with
+			a allocated segment of memory.
+
+   When boundary checking is enabled, you will get an access violation should
+   someone access memory outside what was allocated.  In that case, it may
+   be desirable to display information about any memory segment associated
+   with the virtual address of the access violation.
+
+   This routine takes an address and will display information about any
+   block (allocated with boundary check enabled) which has the address
+   within a boundary check page.
+
+
+cmem_show_blocks( )
+
+   no parameters
+
+   Displays the current list of allocated blocks of memory.  It displays the
+   address returned by 'malloc', 'calloc', or 'realloc' and the size of the
+   block.  If statistic collection was enabled when the block was allocated,
+   the allocation time and call stack are also displayed.
+
+   Some allocated blocks will not be displayed if the routine
+   'cmem_reset_display_flags' was called after it was allocated.
+
+
+EXAMPLE FILES
+
+The CMEM_TEST.COM file will compile and link the sample program CMEM_TEST.C.
+Look at this file for sample commands to link the CMEM routines into your
+image.
+
+
+DEBUGGING TECHNIQUES
+
+Here are some examples of how this package might be used.
+
+Example 1:
+
+When running, your image keeps using more and more virtual address space and
+it eventually aborts with insufficient virtual memory.  You can't figure out
+which routine is allocating memory and failing to return it to the dynamic
+memory pool.
+
+   1)	Link the image with CMEM and use the /DEBUG qualifier.
+
+	$ LINK/DEBUG mycode,CMEM,CMEM_TRACEBACK,CMEM_MESSAGE
+
+   2)	Start the image and enable statistic collection (which is actually on
+	by default -- but hey, this is an example:
+
+	$ RUN mycode
+
+		OpenVMS Alpha AXP DEBUG Version V6.1-00R
+
+	%DEBUG-I-INITIAL, language is C, module set to <mycode>
+	%DEBUG-I-NOTATMAIN, type GO to get to start of main program
+
+	DBG> GO
+	break at routine <mycode>\main
+	DBG> SET MODULE CMEM
+	DBG> CALL cmem_collect_stack( 1 )
+	%CMEM-I-INIT, malloc/free monitoring has begun
+	%CMEM-I-BNDRYPRTENA, boundary check for newly allocated memory enabled
+	value returned is 144801827
+	DBG> GO
+
+   3)	Let your code run until it has allocated all dynamic memory that it
+	will need.  Stop the run with 'CTRL/Y' and type 'DEBUG' if the
+	DCL prompt appears.  Next, mark all allocated blocks so that they
+	won't be displayed later.
+
+	*INTERRUPT*
+	$ DEBUG
+	DBG> CALL cmem_reset_display_flags
+	nnn blocks currently in use and will not be displayed
+	value returned is 1
+	DBG> GO
+
+   4)	Let your code continue on.  Stop it and check for any newly allocated
+	blocks which have not been released:
+
+	*INTERRUPT*
+	$ DEBUG
+	DBG> CALL cmem_show_blocks
+
+	Allocated blocks of memory:
+
+	001DB800: 12 bytes allocated at  3-MAY-1995 19:15:07.69; call stack:
+	  1: PC = 00030170    <mycode>\main\%LINE 704+20
+	  2: PC = 00030080    <mycode>\__main+128
+	  3: PC = 88E07AD8    no symbolization
+	  4: PC = 7FA202E0    no symbolization
+
+	value returned is 1
+
+   5)	Determining why the block has not yet been released is up to you.
+	You know who requested the allocation.  Now, who was supposed to
+	release it?
+
+
+Example 2:
+
+You want to check and see if you're writing or reading past the end of
+an allocated memory segment.
+
+   1)	Link the image with CMEM and use the /DEBUG qualifier.
+
+	$ LINK/DEBUG mycode,CMEM.OPT/OPT
+
+   2)	Start the image and enable boundary checks.
+
+	$ RUN mycode
+
+		OpenVMS Alpha AXP DEBUG Version V6.1-00R
+
+	%DEBUG-I-INITIAL, language is C, module set to <mycode>
+	%DEBUG-I-NOTATMAIN, type GO to get to start of main program
+
+	DBG> GO
+	break at routine <mycode>\main
+	DBG> SET MODULE CMEM
+	DBG> CALL cmem_boundary_check( 1 )
+	%CMEM-I-INIT, malloc/free monitoring has begun
+	%CMEM-I-BNDRYPRTENA, boundary check for newly allocated memory enabled
+	value returned is 144801827
+	DBG> GO
+
+   3)	Let your code run.  You will get an access violation if you have any
+	problems.
+
+
+RUNNING OUT OF VIRTUAL ADDRESS SPACE
+
+Okay, so you run out of virtual address space.  What's a person to do?  Most
+likely this occurs because you have enabled boundary checks which requires
+lots of memory.  Try the following:
+
+   1)	You most likely have hit your process page file quota.  You can
+	confirm this by comparing the value of "Peak virtual size" from a
+	SHOW PROCESS/ACCOUNTING command to the value of "Paging file quota"
+	from a SHOW PROCESS/QUOTA command.  If the virtual size is close
+	to or greater than the page file quota, have the system manager
+	go into authorize and increase your quota.
+
+	The system manager should make sure that there is sufficient page
+	file space available to support the new quota.  You will also need
+	to log out and back in again to pick up the new quota.
+
+   2)	Make sure that the VIRTUALPAGECNT SYSGEN parameter allows the number
+	of pages you think you will need.  As changing this requires a system
+	reboot, I would tend to increase it in large chunks.  The negative
+	side of increasing this value is that it adds to the size of every
+	process header.
+
+   3)	When boundary checks are enabled, allocating a huge chunk of dynamic
+	memory and then grabbing a piece for static data will eat up virtual
+	address space.  (This is because we use $EXPREG and $DELTVA system
+	services).  Try to allocate "static" type data early in the code and
+	then the dynamic data can come and go without permanently eating up
+	the address space.
+
+
+FILES WHICH MAKE UP THIS PACKAGE
+
+The following files are included in this package:
+
+   CMEM.TXT		This file.
+
+   FREEWARE_README.TXT	Just a quick summary of what this package does.  More
+			details in CMEM.TXT.
+
+   FREEWARE_RELEASE.TXT	Standard release for Freeware CD-ROM.
+
+   [.SRC]CMEM.C		Replacements for C 'malloc', 'calloc', 'realloc', and
+			'free' along with user routines to manipulate several
+			features of the package.
+
+   [.SRC]CMEM.OPT	A linker option file appropriate for user programs.
+
+   [.SRC]CMEM_MESSAGE.MSG
+			VMS messages which we use to display stuff (that's a
+			technical term) to SYS$OUTPUT.
+
+   [.SRC]CMEM_TEST.C	A simple test program to check out the various
+			capabilities of this package.  Used by the file
+			CMEM_TEST.COM.  Note that this file should not be
+			linked with your code.
+
+   [.SRC]CMEM_TEST.COM	A DCL command procedure to build and run the test
+			program.
+
+   [.SRC]CMEM_TRACEBACK.C
+			Provides support for translating addresses to
+			source line numbers.  No, this doesn't manipulate
+			the undocumented debug symbol table -- it uses the
+			VMS debugger in a subprocess.
+
+
+WHAT DOES THE FUTURE HOLD?
+
+There never is enough time to do everything.  I probably won't do any more
+on this package unless people are actually finding it useful (but that's
+what I said with V1.0).  Should you have any comments or suggestions, please
+send e-mail to "hunsaker@eisner.decus.org".
+
+It would be really handy if we could intercept the C RTL calls from pre-built
+shareable images (especially for something like DECwindows).  It shouldn't be
+too hard to build a shareable image that would pass on most calls and just
+divert the dynamic memory management routines.  Hmm, let's see just what
+we can do to trick the image activator...
+
+When enabling boundary checks, you should be able to specify whether the
+allocated segment is positioned such that the protected space is immediately
+before or after the segment.
+
+When allocating without boundary checks enabled, the code should put some
+extra space around the segment and fill it with the 0xAA pattern.  If that
+pattern has been changed when freeing the block, we should signal an error.

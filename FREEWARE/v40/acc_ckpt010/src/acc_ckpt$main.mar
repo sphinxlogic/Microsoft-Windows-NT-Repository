@@ -1,0 +1,121 @@
+	    .if	NDF,EVAX
+EVAX=0
+	    .endc
+	.library	"sys$share:lib.mlb"
+	.link		"sys$system:sys.stb"/se
+	.disable	global
+	.external	LDR$LOAD_IMAGE,LIB$GET_FOREIGN,OTS$CVT_TZ_L
+	$LCKDEF
+	$LDRIMGDEF
+	$SBDEF
+	$SSDEF
+	$SYIDEF
+
+;
+	.psect	$DATA,RD,WRT,NOSHR,NOEXE
+ldr_handle_null:.long	0
+		.long	0
+		.long	0
+ldr_image_name:	.ascid	/SYS$LOADABLE_IMAGES:ACC_CKPT.EXE/
+ldr_flags:
+		.if	NE,EVAX
+	.long	0
+		.iff
+	.long	 LDR_DYN$M_UNL
+		.endc
+;
+lockname:	.ascii	/ACC_CKPT_/
+nodename:	.blkb	SB$S_NODENAME
+nodename_s= .-nodename
+nodename_l:	.blkw	1
+syilist:	.word	nodename_s, SYI$_SCSNODE
+	.address nodename
+	.address nodename_l
+	.long	0
+lock_d:	.long	nodename-lockname
+	.address lockname
+lksb:	.blkl	1
+lkid:	.blkl	1
+valblk:	.blkq	2	; 16 bytes
+reptxt:	.blkb	8
+repbuf:	.long	.-reptxt
+	.address reptxt
+prompt:	.ascid	/Pid: /
+pid:	.blkl	1
+;
+;	called at IPL 2, cannot use system services
+;			 since some of them change IPL to 0, and REI crashes
+;
+	.psect	$CODE,RD,NOWRT,SHR,EXE
+	.entry main,^M<>
+
+	$GETSYI_S	itmlst=syilist
+	blbc	r0,33$
+	movzwl	nodename_l,r0
+1$:	cmpb	<nodename-1>[r0],#^A' '	; remove trailing spaces
+	bneq	10$
+	decl	r0
+	brb	1$
+10$:	addw	r0,lock_d	; removes the trailing '_' if not in cluster
+;
+	clrl -(SP)
+	moval	repbuf,-(SP)
+	moval	prompt,-(SP)
+	moval	repbuf,-(SP)
+	calls	#4,G^LIB$GET_FOREIGN
+	blbc	r0,33$
+	pushal	pid
+	pushal	repbuf
+	calls	#2,G^OTS$CVT_TZ_L
+	blbc	r0,33$
+;
+	$CMKRNL_S	routin=do_the_work
+	blbc	r0,33$		;;
+;
+33$:	ret
+;
+	.entry	do_the_work,^M<>
+	bsbb	get_lock
+	blbc	r0,331$		; ret without unlocking
+	tstl	valblk
+	blss	100$
+	bsbb	free_lock
+	pushal	ldr_handle_null
+	pushal  ldr_flags
+	pushal  ldr_image_name
+	calls	#3,G^LDR$LOAD_IMAGE
+	blbc    r0,33$
+	bsbb	get_lock
+	blbc	r0,33$
+	tstl	valblk
+	bgeq	bug
+;
+;	lock granted;	value block contains system routine address
+;
+100$:	clrl	-(SP)	;	pushal	prcnam_d
+	pushal	pid
+	calls	#2,@valblk
+33$:	movl	r0,-(SP)
+	bsbb	free_lock
+	movl	(SP)+,r0
+331$:	ret
+bug:	movl	#SS$_BUGCHECK,r0
+	ret
+;
+get_lock:
+	.if	NE,EVAX
+	.jsb_entry
+	.endc
+	$ENQW_S	resnam=lock_d,-
+		lkmode=#LCK$K_NLMODE,-
+		lksb=lksb,-
+		flags=#<LCK$M_SYSTEM!LCK$M_NOQUEUE!LCK$M_VALBLK>
+33$:	rsb
+;
+free_lock: 
+	.if	NE,EVAX
+	.jsb_entry
+	.endc
+	$DEQ_S	lkid=lkid
+	rsb
+	.end main

@@ -1,0 +1,69 @@
+
+# Makefile for Motif combobox (UNIX).
+# Change the WXDIR directory, and CPPFLAGS and LDFLAGS, for your system.
+# Usage: $(MAKE) -f makefile.unx motif
+
+WXDIR = ../..
+
+# All common UNIX compiler flags and options are now in
+# this central makefile.
+include $(WXDIR)/src/make.env
+
+COMBOBOXDIR = $(WXDIR)/contrib/combobox
+COMBOBOXLIB = $(COMBOBOXDIR)/libcombobox$(GUISUFFIX).a
+OBJDIR = objects$(GUISUFFIX)
+OBJECTS = $(OBJDIR)/combobox.$(OBJSUFF)
+
+LDFLAGS = $(XLIB) -L$(COMBOBOXDIR)/lib -L$(WXDIR)/lib -L.
+
+MOTIFLDLIBS = -lcombobox_motif -lwx_motif -lXm -lXmu -lXt -lX11 -lm $(COMPLIBS)
+HPLDLIBS = -lcombobox_hp -lwx_hp -lXm -lXt -lX11 -lXmu -lm $(HPCOMPLIBS)
+# Default
+LDLIBS=$(XVIEWLDLIBS)
+
+all:	$(OBJDIR) $(COMBOBOXLIB)
+
+.SUFFIXES:
+
+motif:
+	$(MAKE) -f makefile.unx GUI=-Dwx_motif OPT='$(OPT)' GUISUFFIX=_motif LDLIBS='$(MOTIFLDLIBS)' XVIEW_LINK=
+
+demo:
+	$(MAKE) -f makefile.unx demo_motif GUI=-Dwx_motif OPT='$(OPT)' GUISUFFIX=_motif LDLIBS='$(MOTIFLDLIBS)' XVIEW_LINK=
+
+hp:
+	$(MAKE) -f makefile.unx GUI=-Dwx_motif GUISUFFIX=_hp CC=CC DEBUGFLAGS='' DEBUG='$(DEBUG)' WARN='-w' \
+           XINCLUDE='$(HPXINCLUDE)' XLIB='$(HPXLIB)' XVIEW_LINK='' CCLEX='cc' \
+           LDLIBS='$(HPLDLIBS)'
+
+demo_hp:
+	$(MAKE) -f makefile.unx demo_hp GUI=-Dwx_motif GUISUFFIX=_hp CC=CC DEBUG='$(DEBUG)' DEBUGFLAGS='' WARN='-w' \
+           XINCLUDE='$(HPXINCLUDE)' XLIB='$(HPXLIB)' XVIEW_LINK='' CCLEX='cc' \
+           LDLIBS='$(HPLDLIBS)'
+
+$(OBJDIR):
+	mkdir $(OBJDIR)
+
+$(COMBOBOXLIB): $(OBJECTS)	
+	rm -f $@
+	ar rv $@ $(OBJECTS)
+	$(RANLIB) $@
+
+$(OBJDIR)/combobox.$(OBJSUFF):	combobox.c combobox.h
+	$(CCC) -c $(CFLAGS) -o $@ combobox.c
+
+$(OBJDIR)/demo.$(OBJSUFF):		combobox.h demo.c
+	$(CCC) -c $(CFLAGS) -o $@ demo.c
+
+demo$(GUISUFFIX): $(OBJDIR)/demo.$(OBJSUFF) $(COMBOBOXLIB)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o demo$(GUISUFFIX) $(OBJDIR)/demo.$(OBJSUFF) $(OBJDIR)/combobox.$(OBJSUFF) $(LDLIBS)
+
+cleaneach:
+	rm -f $(OBJECTS) $(IMAGELIB) core
+
+clean_motif:
+	$(MAKE) -f makefile.unx GUISUFFIX=_motif cleaneach 
+
+clean_hp:
+	$(MAKE) -f makefile.unx GUISUFFIX=_hp cleaneach 
+

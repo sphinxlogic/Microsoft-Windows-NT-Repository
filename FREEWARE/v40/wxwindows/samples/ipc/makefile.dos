@@ -1,0 +1,104 @@
+#
+# File:		makefile.dos
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds IPC example (DOS).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+THISDIR = $(WXDIR)\samples\ipc
+WXLIB = $(WXDIR)\lib\wx.lib
+LIBS=$(WXLIB) oldnames ddeml libw llibcew commdlg shell # winsock
+INC=/I$(WXDIR)\include\base /I$(WXDIR)\include\msw
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+# Set this to nothing if using MS C++ 7
+ZOPTION=/Z7
+
+# NB using /Ox makes the IPC demo NOT WORK (tries to connect to '*')
+
+!if "$(FINAL)" == "0"
+CPPFLAGS=/AL /W3 /Zi $(ZOPTION) /G2sw /Od /YuWX_PREC.H $(INC) /Dwx_msw /Fp$(WXDIR)\src\msw\wx.pch
+LINKFLAGS=/NOD /CO /ONERROR:NOEXE /SEG:512
+!else
+CPPFLAGS=/AL /W3 /G2sw /Od /YuWX_PREC.H $(INC) /Dwx_msw /Fp$(WXDIR)\src\msw\wx.pch
+LINKFLAGS=/NOD /ONERROR:NOEXE /SEG:512
+!endif
+
+CLIENT_HEADERS = client.h
+CLIENT_SOURCES = client.$(SRCSUFF)
+CLIENT_OBJECTS = client.obj
+SERVER_HEADERS = server.h
+SERVER_SOURCES = server.$(SRCSUFF)
+SERVER_OBJECTS = server.obj
+
+all:    client.exe server.exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos clean
+        cd $(THISDIR)
+
+
+client.exe:      $(WXDIR)\src\msw\dummy.obj $(WXLIB) client.obj client.def client.res
+        link $(LINKFLAGS) @<<
+$(WXDIR)\src\msw\dummy.obj client.obj,
+client,
+NUL,
+$(LIBS),
+client.def
+;
+<<
+        rc -30 -K client.res
+
+client.obj:      client.h client.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+client.res :      client.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /dFAFA_LIB /i$(WXDIR)\contrib\fafa /i$(WXDIR)\include\msw client
+
+server.exe:      $(WXDIR)\src\msw\dummy.obj $(WXLIB) $(SERVER_OBJECTS) server.def server.res
+        link $(LINKFLAGS) @<<
+$(WXDIR)\src\msw\dummy.obj $(SERVER_OBJECTS),
+server,
+NUL,
+$(LIBS),
+server.def
+;
+<<
+        rc -30 -K server.res
+
+server.obj:      server.h server.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+server.res :      server.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /dFAFA_LIB /i$(WXDIR)\contrib\fafa /i$(WXDIR)\include\msw server
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb

@@ -1,0 +1,439 @@
+!<BLF/REQUIRE'ADABLF_INI'>
+!
+module DEB (					!
+	%require ('PATSWITCH_REQ')
+		ident = '01'
+		) =
+begin
+!
+!			  COPYRIGHT (c) 1982 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:	VAX-11 Ada
+!
+! ABSTRACT:
+!
+!	This file contains a subset of the internal debugger
+!	routines used by the Ada compiler.
+!
+! ENVIRONMENT:	VAX/VMS user mode
+!
+! AUTHOR:  C. Mitchell, CREATION DATE:  19-Feb-80
+!
+! MODIFIED BY:
+!
+! 	, : VERSION
+! 01	-
+!--
+
+!
+! INCLUDE FILES:
+!
+
+require 'PATPROLOG_REQ';
+
+library 'DEB_LIB';
+
+require 'VMS_REQ';				! VMS interface
+
+%if PATBLSEXT_DEBUGGING
+%then
+!
+! TABLE OF CONTENTS OF INTERNAL ROUTINES
+!
+
+forward routine
+    PUT_FAO : novalue,				! Call FAO
+    DO_AUTOEOL : novalue,			! Do automatic end of line processing
+    DEB_SIGNAL_DEBUG : novalue;
+
+!
+! MACROS:
+!
+!
+
+macro
+    LIST_TO_VECTOR (VECTOR_NAME) =
+
+!++
+! FUNCTIONAL DESCRIPTION
+!
+!	This macro converts a parameter list to a local vector
+!	if the list is not empty.  This macro defines both
+!	a declaration and expressions.
+!
+!	For example:
+!
+!		LIST_TO_VECTOR (V, .A, B + 1);
+!
+!	expands to:
+!
+!		local V : vector [2];
+!
+!		V [0] = .A;
+!		V [1] = B + 1;
+!
+!
+!	If the list is empty, VECTOR_NAME is defined as a literal
+!	with value 0.
+!
+! PARAMETERS
+!
+!	VECTOR_NAME	- Name of local to be defined.
+!
+!	%remaining	- List of parameters.
+!--
+
+	%if %length leq 1
+	%then
+
+	    literal
+		VECTOR_NAME = 0;
+
+	%else
+
+	    local
+		VECTOR_NAME : vector [%length - 1];
+
+	    LIST_TO_VECTOR_EXPAND (VECTOR_NAME, %remaining)	!
+	%fi
+
+    %;
+
+macro
+    LIST_TO_VECTOR_EXPAND (VECTOR_NAME) [P] =
+	VECTOR_NAME [%count] = P;
+    %;
+
+macro
+    PUT_FAOM (CTLSTR) =
+	begin
+	LIST_TO_VECTOR (PRMLST, %remaining);
+	PUT_FAO (
+
+	%if %isstring (CTLSTR)
+	%then
+		SD_REF (CTLSTR),
+	%else
+		CTLSTR,
+	%fi
+
+	    PRMLST)
+	end
+    %;
+
+forward routine
+    IOS_TERFAO : novalue,
+    IOS_TEREOL : novalue;
+
+literal
+    MAX_TERLINE = 132;				! Maximum length of a terminal line
+
+global
+    ! Variables for terminal.
+    !
+    IOS_TERRBF : vector [MAX_TERLINE, byte],	! Record buffer
+    IOS_TERDESC : vector [2] initial (MAX_TERLINE, IOS_TERRBF);	! Descriptor for record buffer
+
+own 						! Variables for auto end of line facility
+    DOING_AUTOEOL : initial (FALSE),		! True if outputting end-of-line's automatically
+    NEED_SEPARATOR,				! Used so don't put the separator before the first item
+    INDENT_COUNT,				! Number of spaces to indent when begin a new line
+    AUTOEOL_LEN,				! Length of separator
+    AUTOEOL_PTR;				! Text of separator
+
+bind
+    SPACES = uplit byte( rep 133 of byte (%c' '));
+
+global
+    DEB_EVENT_TRACE : initial (FALSE),
+    DEB_EVENT_BREAK : initial (FALSE);
+
+global routine PUT_EOL : novalue =
+    begin
+    IOS_TEREOL ();
+    end;
+
+routine PUT_FAO (CTLSTR, PRMLST) : novalue =
+    begin
+    IOS_TERFAO (.CTLSTR, .PRMLST);
+    end;
+
+global routine PUT_STRING (REF_VMS_STRING_DESC) : novalue =
+    begin
+
+    map
+	REF_VMS_STRING_DESC : ref block [, byte];
+
+    local
+	LEN;
+
+    LEN = .REF_VMS_STRING_DESC [DSC$W_LENGTH];
+    DO_AUTOEOL (.LEN);				! Do automatic eol processing
+    PUT_FAOM ('!AS', .REF_VMS_STRING_DESC);
+    end;
+
+global routine PUT_NUMBER (NUMBER) : novalue =
+    begin
+
+    literal
+	MAX_FIELD = 10;				! Assume the worst for now
+
+    DO_AUTOEOL (MAX_FIELD);			! Do automatic eol processing
+    PUT_FAOM ('!SL', .NUMBER);
+    end;
+
+global routine PUT_HEX_LONG (ADDR) : novalue =
+    begin
+    DO_AUTOEOL (4);				! Do automatic eol processing
+    PUT_FAOM ('!XL', .ADDR);
+    end;
+
+global routine PUT_LINE_FULL (NUM_CHAR) =
+    begin
+
+    local
+	LIMIT;
+
+    LIMIT = MAX_TERLINE - 80;
+    return .IOS_TERDESC [0] - .NUM_CHAR lss .LIMIT
+    end;
+
+global routine PUT_START_AUTOEOL (INDENT, SEPARATOR_LEN, SEPARATOR_PTR) : novalue =
+    begin
+    DOING_AUTOEOL = TRUE;
+    NEED_SEPARATOR = FALSE;
+    INDENT_COUNT = .INDENT;
+    AUTOEOL_LEN = .SEPARATOR_LEN;
+    AUTOEOL_PTR = .SEPARATOR_PTR;
+    end;
+
+global routine PUT_END_AUTOEOL : novalue =
+    begin
+    DOING_AUTOEOL = FALSE;
+    end;
+
+routine DO_AUTOEOL (LEN) : novalue =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	DO_AUTOEOL handles processing necesary to make automatic end-of-line's
+!	work and should be called by all PUT routines before any output is
+!	done.
+!
+! FORMAL PARAMETERS:
+!
+!	LEN	- Number of bytes in next item to be output.
+!
+! IMPLICIT INPUTS:
+!
+!	DOING_AUTOEOL	- Return immediatedly if not.
+!
+!	NEED_SEPARATOR	- Used so don't put separator before the first
+!			  item output after the call PUT_START_AUTOEOL
+!
+!	INDENT_COUNT	- How much to indent if start a new line.
+!
+!	AUTOEOL_LEN	- Len of separator.
+!
+!	AUTOEOL_PTR	- Text of separator.
+!
+! IMPLICIT OUTPUTS:
+!
+!	NEED_SEPARATOR
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+    begin
+
+    local
+	CK_LEN;
+
+    bind
+	SPACES = uplit byte( rep 133 of byte (%c' '));
+
+    if not .DOING_AUTOEOL then return;
+
+    !+
+    ! Calc. length of new item, including the length of the
+    ! separator unless this is the first thing output since
+    ! PUT_START_AUTOEOL was called.
+    !-
+
+    if .NEED_SEPARATOR
+    then
+	begin
+	PUT_FAOM ('!AD', .AUTOEOL_LEN, .AUTOEOL_PTR);
+	CK_LEN = .LEN + .AUTOEOL_LEN	! Check that have room for both the separator that might follow
+	end
+    else
+	begin
+	NEED_SEPARATOR = TRUE;
+	CK_LEN = .LEN;
+	end;
+
+    !+
+    ! If the new item would overflow the line, end the line and
+    ! indent over in the next line.
+    !-
+
+    if PUT_LINE_FULL (.CK_LEN)
+    then
+	begin
+	PUT_EOL ();
+
+	if .INDENT_COUNT gtr 0 then PUT_FAOM ('!AD', .INDENT_COUNT, SPACES);
+
+	end
+
+    end;
+routine IOS_TERFAO (CTRL, PARM) : novalue =
+
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine calls FAO to format output destined for the SYS$ERROR
+!	file into the line buffer for that file.
+!
+! FORMAL PARAMETERS:
+!
+!	CTRL		- Pointer to an FAO control string.
+!	PARM		- Address of vector of optional FAO parameters
+!			  required by the control string.  As many parameters
+!			  as are required must be specified in the call to
+!			  IOS_TERFAO.
+!
+! IMPLICIT INPUTS:
+!
+!	IOS_TERDESC	- Descriptor for the remaining space in the line buffer
+!
+! IMPLICIT OUTPUTS:
+!
+!	IOS_TERDESC	- Updated to reflect the remaining space in the line buffer
+!	IOS_TERRBF	- Containing the formatted information
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! SIDE EFFECTS:
+!
+!	A fatal error may be reported if errors occurred during $FAOL.
+!
+!--
+
+    begin
+
+    local
+	STATUS,					! Status from $FAOL
+	ACTUAL : word;				! Actual length of converted string
+
+    ! Use FAO to edit the string.
+    !
+    STATUS = $FAOL (CTRSTR = .CTRL, OUTLEN = ACTUAL, OUTBUF = IOS_TERDESC, PRMLST = .PARM);
+    ! Update the descriptor of the record buffer to account for the text we just
+    ! inserted, so that it describes the remaining space in the record buffer.
+    !
+    IOS_TERDESC [0] = .IOS_TERDESC [0] - .ACTUAL;
+    IOS_TERDESC [1] = .IOS_TERDESC [1] + .ACTUAL;
+    end;
+routine IOS_TEREOL : novalue =
+
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine writes a completed line destined for the SYS$ERROR file
+!	to that file.
+!
+! FORMAL PARAMETERS:
+!
+!	NONE
+!
+! IMPLICIT INPUTS:
+!
+!	IOS_TERDESC	- Descriptor for the remaining space in the record buffer
+!	IOS_TERRBF	- Record buffer for the file
+!
+! IMPLICIT OUTPUTS:
+!
+!	IOS_TERDESC	- Reinitialized to describe the complete record buffer
+!
+! ROUTINE VALUE:
+!
+!	NONE
+!
+! SIDE EFFECTS:
+!
+!	Output is produced in the SYS$ERROR file.  A fatal error may be
+!	reported if errors occurred during $PUT.
+!
+!--
+
+    begin
+
+    local
+	MSGVEC : block [4],			! Message vector for $PUTMSG
+	MSGDESC : vector [2],			! Descriptor for $PUTMSG
+	STATUS;					! Status from $PUTMSG
+
+    literal
+	IOS_K_FACILITY = 107;
+
+    macro
+	W0_ =
+	    0, 16, 0 %,
+	W1_ =
+	    16, 16, 0 %,
+	L_ =
+	    0, 32, 0 %;
+
+    MSGVEC [0, W0_] = 3;			! Count of longwords
+    MSGVEC [0, W1_] = %b'0001';			! Flags: include only message text
+    MSGVEC [1, L_] = SHR$_TEXT + IOS_K_FACILITY^16;	! Message ID
+    MSGVEC [2, W0_] = 1;			! FAO count
+    MSGVEC [2, W1_] = 0;			! Message flags
+    MSGVEC [3, L_] = MSGDESC;			! FAO argument = descriptor
+    MSGDESC [0] = MAX_TERLINE - .IOS_TERDESC [0];	! Set up descriptor
+    MSGDESC [1] = IOS_TERRBF;			!     ...
+    STATUS = $PUTMSG (MSGVEC = MSGVEC);
+    IOS_TERDESC [0] = MAX_TERLINE;		! Refresh the descriptor
+    IOS_TERDESC [1] = IOS_TERRBF;		!    ...
+    end;
+
+global routine DEB_SIGNAL_DEBUG : novalue =
+    begin
+    LIB$SIGNAL (SS$_DEBUG)
+    end;
+
+%fi
+
+end						!End of module
+
+eludom

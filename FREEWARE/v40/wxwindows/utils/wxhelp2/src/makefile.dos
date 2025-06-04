@@ -1,0 +1,163 @@
+#
+# File:		makefile.dos
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxHelp 2 for Windows 3.1
+
+# Change WXDIR to wherever wxWindows is found
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+WXINC = $(WXDIR)\include
+
+HYPDIR = $(WXDIR)\utils\wxweb
+HYPINC = $(HYPDIR)\src
+HYPLIB = $(HYPDIR)\lib\wxhtml.lib
+
+WXIMADIR = $(WXDIR)\utils\wximage
+WXIMAINC = $(WXIMADIR)\win
+WXIMALIB = $(WXIMADIR)\lib\wxima.lib
+
+WXHELPDIR = $(WXDIR)\utils\wxhelp2
+TEX2RTFDIR = $(WXDIR)\utils\tex2rtf
+DOCDIR = $(WXHELPDIR)\docs
+
+LIBS=$(WXLIB) $(WXIMALIB) $(HYPLIB) oldnames libw llibcew commdlg ddeml shell mmsystem
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+# Set this to nothing if using MS C++ 7
+ZOPTION=/Z7
+
+# Default is to output RTF for WinHelp
+!ifndef RTFSTYLE
+RTSTYLE=-winhelp
+!endif
+
+INC=/I$(HYPINC) /I$(WXIMAINC) /I$(WXDIR)\include\base /I$(WXDIR)\include\msw
+PRECOMP=/YuWX_PREC.H
+
+!if "$(FINAL)" == "0"
+OPT=/Od
+CPPFLAGS= /AL /W3 /Zi $(ZOPTION) /G2sw $(OPT) $(PRECOMP) /Dwx_msw $(INC) /Fp$(WXDIR)\src\msw\wx.pch /DDEBUG=$(DEBUG) /DUSE_WXIMA=1
+CFLAGS= /AL /W3 /Zi /G2sw /Od /Dwx_msw
+LINKFLAGS=/NOD /CO /SEG:512 /ONERROR:NOEXE
+!else
+OPT=/Ox
+CPPFLAGS= /AL /W3 /G2sw $(OPT) $(PRECOMP) /Dwx_msw $(INC) /Fp$(WXDIR)\src\msw\wx.pch /DDEBUG=$(DEBUG) /DUSE_WXIMA=1
+CFLAGS= /AL /W3 /Od /G2sw /Dwx_msw
+LINKFLAGS=/NOD /SEG:512 /ONERROR:NOEXE
+!endif
+
+all:    wxhtml wxhelp.exe
+
+compact:
+        -wrun clean
+
+wxhtml:
+        cd $(HYPDIR)\src
+        nmake -f makefile.dos $(HYPLIB) FINAL=$(FINAL) OPT=$(OPT)
+        cd $(WXHELPDIR)\src
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos FINAL=$(FINAL) OPT=$(OPT) PRECOMP=$(PRECOMP)
+        cd $(WXHELPDIR)\src
+
+wxhelp.obj: wxhelp.$(SRCSUFF) wxhelp.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+wxhelp.res :      wxhelp.rc $(WXDIR)\include\msw\wx.rc
+    rc /i$(WXDIR)\contrib\fafa /i$(WXDIR)\include\msw -r wxhelp 
+
+wxhelp.exe:      $(WXDIR)\src\msw\dummy.obj $(WXLIB) wxhelp.obj wxhelp.def wxhelp.res $(HYPLIB)
+        link $(LINKFLAGS) @<<
+$(WXDIR)\src\msw\dummy.obj wxhelp.obj
+wxhelp.exe,
+nul,
+$(LIBS),
+wxhelp.def
+<<
+        rc -K wxhelp.res
+
+# Tests out calling wxhelp.exe from an application
+test.obj: test.$(SRCSUFF)
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+test.res :      test.rc $(WXDIR)\include\msw\wx.rc
+    rc /dFAFA_LIB /i$(WXDIR)\contrib\fafa /i$(WXDIR)\include\msw -r test 
+
+test.exe:      $(WXDIR)\src\msw\dummy.obj test.obj test.def test.res $(HYPLIB)
+        link $(LINKFLAGS) @<<
+$(WXDIR)\src\msw\dummy.obj test.obj
+test.exe,
+nul,
+$(LIBS),
+test.def
+<<
+        rc -K test.res
+
+
+# No PostScript production on the PC: just check it goes through Latex
+docs:	dvi hlp xlp htm
+dvi:	$(WXHELPDIR)/docs/manual.dvi
+hlp:	$(WXHELPDIR)/docs/wxhelp.hlp
+rtf:	$(WXHELPDIR)/docs/wxhelp.rtf
+xlp:    $(WXHELPDIR)/docs/wxhelp.xlp
+html:    $(WXHELPDIR)/docs/wxhelp.html
+
+$(WXHELPDIR)/docs/manual.dvi:	$(WXHELPDIR)/docs/manual.tex
+	cd $(WXHELPDIR)/docs
+        latex manual
+        latex manual
+        makeindx manual
+        latex manual
+#        dvips -f -r < manual.dvi > manual.ps
+
+$(WXHELPDIR)/docs/wxhelp.rtf:       $(DOCDIR)/manual.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\wxhelp.rtf -twice $(RTFSTYLE)
+        cd $(WXHELPDIR)/src
+
+$(WXHELPDIR)/docs/wxhelp.hlp:       $(DOCDIR)/wxhelp.rtf
+        cd $(DOCDIR)
+        hc wxhelp
+        cd $(WXHELPDIR)/src
+
+$(WXHELPDIR)/docs/wxhelp.xlp:         $(DOCDIR)/manual.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\wxhelp.xlp -xlp -twice
+        cd $(WXHELPDIR)/src
+
+$(WXHELPDIR)/docs/wxhelp.html:         $(DOCDIR)/manual.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\wxhelp.htm -html -twice
+        cd $(WXHELPDIR)/src
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+
+cleanrtf:
+        cd $(DOCDIR)
+        -erase *.rtf
+        cd $(WXHELPDIR)/src
+
+cleanall:	clean

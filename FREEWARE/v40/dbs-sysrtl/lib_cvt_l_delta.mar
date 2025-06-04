@@ -1,0 +1,126 @@
+	.title	lib_cvt_l_delta
+	.ident	/X1-001/
+
+;+
+; Version:	X1-001
+;
+; Facility:	Library routines.
+;
+; Abstract:	Converts a longword into delta time format.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	17-Dec-1990, DBS, Version X1-001
+; 001 -	Original version.
+;-
+
+;++
+; Functional Description:
+;	This routine will take a longword value (such as that returned by the
+;	$getjpi() system service for the cpu time) and convert it into a
+;	string in delta time format (dddd hh:mm:ss.ss).
+;
+; Calling Sequence:
+;	call lib_cvt_l_delta (result, time_value)
+;		-or-
+;	pushl	time_value
+;	pushaq	result
+;	calls	#2, g^lib_cvt_l_delta
+;	blbc	r0, error
+;
+; Formal Argument(s):
+;	result.wt.ds	Address of a string descriptor to contain the
+;			resultant string.
+;	time_value.rl.v	The longword containing the time to be converted.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_insfarg	No arguments were passed
+;	ss$_ovrmaxarg	More than one argument was passed
+;	Other values as returned by $fao.
+;
+; Side Effects:
+;	None
+;--
+
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	$ssdef
+
+arg_count=2				; we only want one argument
+p1=4					; offset to the string desc address
+p2=8					; offset to the time value
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+delta_fao:	.ascid	"!4UL !2ZL:!2ZL:!2ZL.!2ZL"
+
+	reset_psect
+
+	set_psect _sys_code
+
+        .entry -
+lib_cvt_l_delta, ^m<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+
+	cmpw	(ap), #arg_count	; do we have two arguments ?
+	bgtr	10$			; nope, too many
+	bneq	20$			; now it's not enough
+	tstl	p1(ap)			; check the descriptor address
+	beql	20$			; it's 0, not a real one
+	brb	30$			; go to it...
+
+10$:	movl	#ss$_ovrmaxarg, r0	; say too many arguments
+	brw	90$
+20$:	movl	#ss$_insfarg, r0	; say not enough arguments
+	brw	90$
+
+30$:	clrl	r2			; a temporary value
+	clrl	r3			; to contain the day value
+	clrl	r4			;		 hours
+	clrl	r5			;		 minutes
+	clrl	r6			;		 seconds
+	clrl	r7			;		 hundredths
+
+	movl	p2(ap), r7		; grab the time value
+
+	divl3	#100, r7, r6
+	mull3	#100, r6, r2
+	subl2	r2, r7			; hundredths
+
+	divl3	#60, r6, r5
+	mull3	#60, r5, r2
+	subl2	r2, r6			; seconds
+
+	divl3	#60, r5, r4
+	mull3	#60, r4, r2
+	subl2	r2, r5			; minutes
+
+	divl3	#24, r4, r3		; days
+	mull3	#24, r3, r2
+	subl2	r2, r4			; hours
+
+	$fao_s	ctrstr=delta_fao, -
+		outbuf=@p1(ap), -
+		p1=r3, -
+		p2=r4, -
+		p3=r5, -
+		p4=r6, -
+		p5=r7
+
+90$:	ret
+
+	.end

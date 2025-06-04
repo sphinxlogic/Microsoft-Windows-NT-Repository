@@ -1,0 +1,137 @@
+#
+# File:         makefile.unx
+# Author:       Julian Smart
+# Created:      1993
+# Updated:      
+# Copyright:    (c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile for tree library and example (UNIX).
+# Change the WXDIR directory, and CPPFLAGS and LDFLAGS, for your system.
+
+WXDIR = ../../..
+
+# All common UNIX compiler flags and options are now in
+# this central makefile.
+include $(WXDIR)/src/make.env
+
+CHARTDIR = $(WXDIR)/utils/wxchart
+CHARTINC = $(CHARTDIR)/src
+CHARTLIB = $(CHARTDIR)/lib/libwxchart$(GUISUFFIX).a
+
+OBJECTS = $(OBJDIR)/lbchart.$(OBJSUFF) $(OBJDIR)/dataset.$(OBJSUFF)
+
+TESTOBJECTS = $(OBJDIR)/test.$(OBJSUFF) $(OBJDIR)/shapes.$(OBJSUFF)
+TESTPROGRAM = $(CHARTDIR)/test$(GUISUFFIX)
+
+DOCUTILSDIR = $(WXDIR)/utils/tex2rtf/src
+
+LDFLAGS = $(XLIB) -L$(WXDIR)/lib -L$(CHARTDIR)/lib
+
+XVIEWLDLIBS = -lwxchart_ol -lwx_ol -lxview -lolgx -lX11 -lm $(COMPLIBS)
+MOTIFLDLIBS = -lwxchart_motif -lwx_motif -lXm -lXmu -lXt -lX11 -lm $(COMPLIBS)
+HPLDLIBS = -lwxchart_hp -lwx_hp -lXm -lXmu -lXt -lX11 -lm $(COMPLIBS)
+# Default
+LDLIBS=$(XVIEWLDLIBS)
+
+.SUFFIXES:
+
+all:    $(OBJDIR) $(CHARTLIB)
+
+demo:   $(TESTPROGRAM)
+
+$(CHARTLIB): $(OBJECTS)
+	rm -f $@
+	ar $(AROPTIONS) $@ $(OBJECTS)
+	$(RANLIB) $@
+
+wxmotif:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx motif DEBUG='$(DEBUG)'
+
+wxxview:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx xview DEBUG='$(DEBUG)'
+
+motif:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx motif OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx GUISUFFIX=_motif GUI=-Dwx_motif GUISUFFIX=_motif DEBUG='$(DEBUG)' OPT='$(OPT)' LDLIBS='$(MOTIFLDLIBS)' XVIEW_LINK=
+
+xview:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx xview OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx GUI=-Dwx_xview GUISUFFIX=_ol OPT='$(OPT)' DEBUG='$(DEBUG)'
+
+demo_motif:
+	$(MAKE) -f makefile.unx all test_motif GUI=-Dwx_motif GUISUFFIX=_motif DEBUG='$(DEBUG)' OPT='$(OPT)' LDLIBS='$(MOTIFLDLIBS)' XVIEW_LINK=
+
+demo_ol:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx xview OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx all test_ol GUI=-Dwx_xview OPT='$(OPT)' DEBUG='$(DEBUG)'
+
+hp:
+	$(MAKE) -f makefile.unx GUI=-Dwx_motif GUISUFFIX=_hp CC=CC DEBUG='$(DEBUG)' DEBUGFLAGS='-g' OPT='' WARN='-w' \
+	   XINCLUDE='$(HPXINCLUDE)' XLIB='$(HPXLIB)' XVIEW_LINK='' CCLEX='cc' \
+	   LDLIBS='$(HPLDLIBS)'
+
+demo_hp:
+	$(MAKE) -f makefile.unx all test_hp GUI=-Dwx_motif GUISUFFIX=_hp CC=CC DEBUG='$(DEBUG)' DEBUGFLAGS='-g' OPT='' WARN='-w' \
+	   XINCLUDE='$(HPXINCLUDE)' XLIB='$(HPXLIB)' XVIEW_LINK='' CCLEX='cc' \
+	   LDLIBS='$(HPLDLIBS)'
+
+$(OBJDIR):
+	mkdir $(OBJDIR)
+
+test$(GUISUFFIX): $(TESTOBJECTS) $(WXLIB) $(CHARTLIB)
+	$(CC) $(LDFLAGS) -o test$(GUISUFFIX) $(TESTOBJECTS) $(XVIEW_LINK) $(LDLIBS)
+
+$(OBJDIR)/lbchart.$(OBJSUFF):        lbchart.$(SRCSUFF) lbchart.h
+	$(CC) -c $(CPPFLAGS) -o $@ lbchart.$(SRCSUFF)
+
+$(OBJDIR)/dataset.$(OBJSUFF):        dataset.$(SRCSUFF) dataset.h
+	$(CC) -c $(CPPFLAGS) -o $@ dataset.$(SRCSUFF)
+
+$(OBJDIR)/shapes.$(OBJSUFF):        shapes.$(SRCSUFF) shapes.h
+	$(CC) -c $(CPPFLAGS) -o $@ shapes.$(SRCSUFF)
+
+$(OBJDIR)/test.$(OBJSUFF):        test.$(SRCSUFF) test.h lbchart.h shapes.h
+	$(CC) -c $(CPPFLAGS) -o $@ test.$(SRCSUFF)
+
+HTMLDIR=/home/hardy/html/wx/manuals
+docs:   ps xlp
+ps:     $(CHARTDIR)/docs/wxchart.ps
+xlp:    $(CHARTDIR)/docs/wxchart.xlp
+html:   $(HTMLDIR)/wxchart/wxchart_contents.html
+
+$(CHARTDIR)/docs/wxchart.xlp:     $(CHARTDIR)/docs/wxchart.tex $(CHARTDIR)/docs/classes.tex
+	cd ../docs; tex2rtf wxchart.tex tmp.xlp -xlp -twice
+	sed -e "s/WXHELPCONTENTS/wxChart Manual/g" < $(CHARTDIR)/docs/tmp.xlp > $(CHARTDIR)/docs/wxchart.xlp
+	/bin/rm -f $(CHARTDIR)/docs/tmp.xlp
+
+$(HTMLDIR)/wxchart/wxchart_contents.html:   $(CHARTDIR)/docs/wxchart.tex $(CHARTDIR)/docs/classes.tex
+	cd ../docs; tex2rtf wxchart.tex $(HTMLDIR)/wxchart/wxchart.html -html -twice
+
+$(CHARTDIR)/docs/wxchart.dvi:     $(CHARTDIR)/docs/wxchart.tex $(CHARTDIR)/docs/classes.tex
+	cd $(CHARTDIR)/docs; latex wxchart; latex wxchart; makeindex wxchart; latex wxchart; latex wxchart
+
+$(CHARTDIR)/docs/wxchart.ps:      $(CHARTDIR)/docs/wxchart.dvi
+	cd $(CHARTDIR)/docs; dvips -f -r < wxchart.dvi > wxchart.ps
+
+clean_motif:
+	$(MAKE) -f makefile.unx GUISUFFIX=_motif cleanany
+
+clean_ol:
+	$(MAKE) -f makefile.unx GUISUFFIX=_ol cleanany
+
+clean_hp:
+	$(MAKE) -f makefile.unx GUISUFFIX=_hp cleanany
+
+cleanany:
+	rm -f $(OBJECTS) $(OBJDIR)/*.$(OBJSUFF) test$(GUISUFFIX) $(CHARTLIB) core
+
+wxclean_ol:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx clean_ol
+
+wxclean_motif:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx clean_motif
+
+wxclean_hp:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx clean_hp

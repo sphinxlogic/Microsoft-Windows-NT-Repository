@@ -1,0 +1,746 @@
+	.TITLE	PPL$VM_PAGE Allocate and Deallocate Pages
+	.IDENT	/V62-001/		; File: PPLVMPAGE.MAR Edit: WWS6201
+
+;****************************************************************************
+;*									    *
+;*  COPYRIGHT (c) 1978, 1980, 1982, 1984, 1986 BY			    *
+;*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+;*  ALL RIGHTS RESERVED.						    *
+;* 									    *
+;*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+;*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+;*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+;*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+;*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+;*  TRANSFERRED.							    *
+;* 									    *
+;*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+;*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+;*  CORPORATION.							    *
+;* 									    *
+;*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+;*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+;* 									    *
+;*									    *
+;****************************************************************************
+
+;++
+; FACILITY: Resource allocation library
+;
+; ABSTRACT:  Dynamic virtual memory allocation and deallocation.
+;
+;	PPL$$GET_VM_PAGE and PPL$$FREE_VM_PAGE are procedures that provide low-level
+; 	page allocation and deallocation for LIB$GET_VM and LIB$FREE_VM.
+;	This facility is the only user mode procedure for allocation and
+;	deallocation of pages of virtual memory in P0 space. By having all
+;	higher level allocation procedures use this facility, allocation
+;	conflict is eliminated.
+;
+; ENVIRONMENT: User access mode, Multi-thread reentrant
+;
+; AUTHOR: Richard Grove, 6-February-1984
+;
+; MODIFIED BY:
+;
+;	1-001	 6-Feb-1984	RBG	Original version
+;	1-005	28-Jun-1984	SBL	VAXELN variant
+;	1-006	 2-Oct-1984	RBG	Correct bit-map scanning bug in ALLOC_PAGES
+;	1-007	 3-Oct-1984	RBG	Add LIB$$VAXELN conditional
+;	1-008	28-Feb-1985	RBG	Specify USER mode for $EXPREG
+;	1-009   24-Oct-1986	EGM	Turn ON LIB$$MULTI_CPU for VMS V5.0
+;	1-010	18-Nov-1986	PDG	Turn into PPLVMPAGE.
+;	1-011	10-Feb-1990	PJC	Fixed register corruption in EXPAND_CLUSTER
+;	1-012	12-Nov-1991	PJC	EVAX/Alpha port, rework to cross compile
+;	62-01	31-Aug-1994	WWS	Increased cluster header page count to 8
+;--
+
+	.SBTTL	DECLARATIONS
+;
+; LIBRARY MACRO CALLS:
+;
+	$PSLDEF					; Access mode definitions
+	$SSDEF					; System Status Codes
+;
+; EXTERNAL DECLARATIONS: 
+;
+	.DSABL	GBL
+	.EXTRN	LIB$_BADBLOADR			; Bad block address
+	.EXTRN	LIB$_BADBLOSIZ			; Bad block size
+	.EXTRN	LIB$_FATERRLIB			; Fatal error in library
+	.EXTRN	LIB$_INSVIRMEM			; Insufficient virtual memory
+	.EXTRN	PPL$$ALLOC_BITS
+	.EXTRN	PPL$$DEALLOC_BITS
+;
+; CONDITIONAL ASSEMBLY OPTIONS
+;
+; LIB$$MULTI_CPU
+;	If defined, interlocked instructions (BBCCI, BBSSI, ADAWI) are used
+;	to update the bitmap structures. Interlocked instructions are required
+;	for multi-thread operation, but are not needed on VMS V4 clusters.
+
+LIB$$MULTI_CPU = 1				;Multiprocessor environment
+
+;
+; LIB$$VAXELN
+;	If defined, the VAXELN service KER$ALLOCATE_MEMORY is called to
+;	allocate new pages in P0 space. Otherwise, VAX/VMS $EXPREG is called.
+
+;
+; MACROS:
+;
+
+; Macros for updating control blocks in a suitably interlocked fashion
+
+	.MACRO	BBSSX	POS, BASE, L
+.IF DEFINED LIB$$MULTI_CPU			; Multiprocessor interlocked
+	BBSSI	POS, BASE, L
+.IF_FALSE					; Uniprocessor non-interruptible
+	BBSS	POS, BASE, L
+.ENDC
+	.ENDM
+
+	.MACRO	BBCCX	POS, BASE, L
+.IF DEFINED LIB$$MULTI_CPU			; Multiprocessor interlocked
+	BBCCI	POS, BASE, L
+.IF_FALSE					; Uniprocessor non-interruptible
+	BBCC	POS, BASE, L
+.ENDC
+	.ENDM
+
+	.MACRO	ADDWX	SRC, DST
+.IF DEFINED LIB$$MULTI_CPU			; Multiprocessor interlocked
+	ADAWI	SRC, DST
+.IF_FALSE					; Uniprocessor non-interruptible
+	ADDW2	SRC, DST
+.ENDC
+	.ENDM
+
+; Macro for following an interlocked queue (read-only, no deletions)
+
+	.MACRO	NEXTQ	Q, TEMP, ?L
+.IF DEFINED LIB$$MULTI_CPU			; Multiprocessor interlocked
+L:	MOVL	(Q), TEMP
+	BLBS	TEMP, L
+	ADDL2	TEMP, Q
+.IF_FALSE					; Uniprocessor non-interruptible
+	ADDL2	(Q), Q
+.ENDC
+	.ENDM
+
+; Macro for getting the cluster queue header
+
+	.MACRO	CQHEAD	Q, NOT_FOUND, TEMP, ?L
+	MOVL	@page_zone(AP), TEMP		; Get PAGE_ZONE
+L:	MOVL	(TEMP), Q			; If empty queue
+	BEQL	NOT_FOUND			;    special allocation
+.IF DEFINED LIB$$MULTI_CPU			; Multiprocessor interlocked
+	BLBS	Q, L
+.ENDC
+	ADDL2	TEMP, Q
+	MOVL	8(Q), Q
+	.ENDM
+
+
+;
+; EQUATED SYMBOLS:
+;
+num_pages		= 4			; Parameter list offsets
+blk_adr			= 8
+page_zone		= 12
+expreg			= 16
+
+;ZONE_K_STAT		= 0			; Flag: stats should be kept
+
+; Zone header data structure
+;
+ZONE_L_FORW		= 0			; Queue forward link
+ZONE_L_BACK		= 4			; Queue backward link
+.IF DEFINED ZONE_K_STAT
+ZONE_L_GETPG_C		= 8			; Count of calls to LIB$GET_VM_PAGE
+ZONE_L_FREPG_C		= 12			; Count of calls to LIB$FREE_VM_PAGE
+ZONE_L_PGINUSE		= 16			; Page count allocated to user
+.ENDC
+
+;
+; PSECT DECLARATIONS:
+;
+	.PSECT _PPL$CODE PIC,USR,CON,REL,LCL,SHR,EXE,RD,NOWRT,QUAD
+        .PSECT _PPL$DATA PIC,USR,CON,REL,LCL,NOSHR,NOEXE,RD,WRT,QUAD
+;
+; OWN STORAGE:
+;
+	.PSECT  _PPL$DATA
+
+;
+; GLOBAL STORAGE:
+;
+
+	.PSECT  _PPL$CODE
+
+
+; Cluster structure for page allocator
+;
+; Constraints on the choice of cluster parameters:
+;
+; CLUS_C_PAGCNT (the number of pages per bitmap) must be between 1 and 8.
+; The number of free bits in a bitmap is maintained in the field CLUS_W_BITCNT.
+; This field is updated using ADAWI, so the number of bits must not exceed 32767.
+;
+; The bitmap must have 4 bytes of 0 at the end, so that a 32-bit CMPV for the
+; last valid bit will not go beyond the end of the bitmap. Thus BITMAP_BYTCNT
+; must be chosen to allow room for the header information and for 4 trailing
+; bytes of 0.
+;
+.IF DEFINED LIB$$VAXELN
+
+    CLUS_C_PAGCNT	= 1			; (VAXELN) Pages for cluster header
+    K_EXPREG_QUANTUM	= 32			; (VAXELN) Default P0 quantum
+
+.IF_FALSE
+
+    CLUS_C_PAGCNT	= 8			; (VAX/VMS) Pages for cluster header
+    K_EXPREG_QUANTUM	= 128			; (VAX/VMS) Default P0 quantum
+
+.ENDC
+
+CLUS_L_FORW		= 0			; Queue forward link
+CLUS_L_BACK		= 4			; Queue backward link
+CLUS_L_LOADDR		= 8			; Lowest address mapped by cluster
+CLUS_L_HIADDR		= 12			; Highest address mapped
+CLUS_Q_CLUSTER		= 16			; Reserved for cluster queue header
+CLUS_W_BITCNT		= 24			; Count of 1 bits in cluster
+CLUS_A_BITMAP		= 28			; Base of bitmap
+CLUS_C_BITMAPBIT	= CLUS_A_BITMAP * 8	; Bit offset of bitmap
+CLUS_C_BYTCNT		= CLUS_C_PAGCNT * 512	; Bytes for cluster header
+
+BITMAP_BYTCNT		= CLUS_C_BYTCNT - CLUS_A_BITMAP - 4 ; Bytes of bitmap
+BITMAP_BITCNT		= BITMAP_BYTCNT * 8	; Bits of bitmap
+
+MAX_RELADDR		= 512*BITMAP_BITCNT - 1	; Largest RELATIVE address mapped
+
+	.SBTTL	PPL$$GET_VM_PAGE
+;++
+; FUNCTIONAL DESCRIPTION:
+;
+;	Allocate a block of n contiguous pages of memory in P0 space.
+;	If free pages are not available in the free page bitmap,
+;	additional pages are created by calling the VMS service $EXPREG.
+;
+; CALLING SEQUENCE:
+;
+;	STATUS.wlc.v = PPL$$GET_VM_PAGE (NUM_PAGES.rl.r, BLK_ADR.wa.r,
+;		PAGE_ZONE.mo.r, EXPREG.zem.r)
+;
+; INPUT PARAMETERS:
+;
+;	NUM_PAGES is the address of a longword integer specifying the number
+;		of contiguous pages to be allocated.
+;
+;	PAGE_ZONE is the address of an octaword (see miscellany, below).
+;
+;	EXPREG is the address of a routine that can expand regions.
+;
+; OUTPUT PARAMETERS:
+;
+;	BLK_ADR is the address of a longword which is set to the address
+;		of the first byte of the newly allocated block of pages.
+;
+; IMPLICIT INPUTS:
+;
+;	Dynamically allocated memory is used to keep track
+;	of unallocated pages in the program region.
+;
+; IMPLICIT OUTPUTS:
+;
+;	NONE.
+;
+; COMPLETION STATUS:
+;
+;	SS$_NORMAL	indicates normal successful completion
+;	LIB$_BADBLOSIZ	indicates NUM_PAGES is less than or equal to 0
+;	LIB$_INSVIRMEM	indicates $EXPREG call failed
+;
+; SIDE EFFECTS:
+;
+;	The pages requested are removed from the free page bitmap.
+;
+;	If needed, the P0 region is expanded by calling the $EXPREG system service.
+;	The number of pages requested from $EXPREG is the maximum of NUM_PAGES
+;	and the default extension quantum (K_EXPREG_QUANTUM = 128).
+;
+; MISCELLANY:
+;
+;	For the most part, these routines treat PAGE_ZONE as the address of
+;	a longword that contains the address of a queue header.  However, when
+;	PPL$$GET_VM_PAGE is first called, there *is* no queue header, and that
+;	longword contains a zero.
+;
+;	To initialize it (if it's zero), we call PPL$$INIT_IF_ZERO, which
+;	requires the address of a (quadword-aligned) octaword in our section.
+;	This avoids synchronization problems.
+;
+;	We initialize it with the address of a queue header.  The queue header
+;	must be at the same virtual address in all the processes.  We allocate
+;	an extra quadword in each cluster header (which is at the same virtual
+;	address in each process) to serve as the queue header, if necessary.
+;	Again, we store the address of this using PPL$$INIT_IF_ZERO.
+;--
+
+        .if     defined VAX
+	.ENTRY	PPL$$GET_VM_PAGE, ^M<R2,R3,R4,R5,R6>
+        .endc
+
+        .if     defined EVAX
+PPL$$GET_VM_PAGE::
+        .call_entry     preserve = < r2, r3, r4, r5, r6 >, -
+                        max_args = 4, -
+                        home_args = true
+        .endc
+
+;
+; If the cluster list is empty allocate an initial cluster
+;
+	MOVL	@num_pages(AP), R5		; Get user page count
+	BLEQ	90$				; Error, bad page count
+	MOVL	@page_zone(AP), R4
+	BEQL	60$
+;
+; Allocate requested memory from existing clusters
+;
+20$:	BSBB	ALLOC_PAGES
+	TSTL	R0				; If none found,
+	BEQL	40$				;    get more pages from VMS
+	MOVL	R0, @blk_adr(AP)
+;
+; Update statistics cells and return success status
+;
+30$:
+.IF DEFINED ZONE_K_STAT
+	ADDL2	@num_pages(AP), ZONE_L_PGINUSE(R4)
+	INCL	ZONE_L_GETPG_C(R4)
+.ENDC
+	MOVL	#SS$_NORMAL, R0
+	RET
+;
+; Allocate additional memory by expanding P0 space
+;
+; If the amount requested is less than the zone allocation quantum,
+; expand the region, merge the new pages with the cluster, and then allocate.
+; If the amount requested is larger, allocate just enough to meet the request.
+;
+40$:	MOVZBL	#K_EXPREG_QUANTUM, R0		; Check for "small" or "large"
+	CMPL	R5, R0				; If the amount requested is small,
+	BLSS	50$				;    expand, merge, and allocate
+	MOVL	R5, R0
+	BSBW	EXPAND_REGION			; Allocate requested memory
+	MOVL	R0, @blk_adr(AP)		; Deliver memory to caller
+	MOVL	R1, R0				; R0 = highest address allocated
+	BSBW	EXPAND_CLUSTER			; Extend mapping if necessary
+	BRB	30$				; Common return
+
+50$:	BSBW	EXPAND_REGION			; Allocate K_EXPREG_QUANTUM
+	MOVL	R0, R6				; Save block start address
+	MOVL	R1, R0				; R0 = highest address allocated
+	BSBW	EXPAND_CLUSTER			; Extend mapping if necessary
+	MOVZBL	#K_EXPREG_QUANTUM, R0		; Free the new pages
+	MOVL	R6, R1
+	BSBW	FREE_PAGES
+	BRB	20$				; Allocate requested pages
+
+60$:	; ??? The expand region is so expensive that we should really ask for
+	; additional pages to both create the cluster and satisfy the request.
+	;
+	CLRL	R2
+	BSBW	ALCINIT_CLUSTER			; Allocate/init cluster header
+	BRB	40$				; Allocate pages
+
+90$:	MOVL	#LIB$_BADBLOSIZ, R0		; Bad page count
+	RET
+
+	.SBTTL	ALLOC_PAGES	Allocate pages from bitmap
+
+;++
+; FUNCTIONAL DESCRIPTION:
+;
+;	Allocate n virtually contiguous pages from existing clusters
+;
+; INPUT PARAMETERS:
+;
+;	R4	Zone
+;	R5	Number of pages
+;
+; OUTPUT PARAMETERS:
+;
+;	R0	Address of first page allocated, 0 if not allocated
+;
+; REGISTERS MODIFIED:
+;
+;	R0:R3, R6
+;
+; REGISTER ALLOCATION WITHIN ROUTINE:
+;
+;	R0/R1	Byte count and pointer for scan of bitmap bytes
+;	R2	Bit offset within bit map
+;	R3	Temp
+;	R4	Zone
+;	R5	Number of pages
+;	R6	Current cluster
+
+;PPL$$ALLOC_PAGES::
+ALLOC_PAGES:
+        .if     defined EVAX
+        .jsb32_entry
+        .endc
+
+	MOVL	R4, R6				; R6 = Current cluster
+
+20$:	NEXTQ	R6, TEMP=R2			; Advance to next cluster
+	CMPL	R6, R4
+	BNEQ	10$				; More to scan
+	CLRL	R0				; Return failure
+	RSB
+
+10$:	CMPW	CLUS_W_BITCNT(R6), R5		; If not enough free pages,
+	BLSS	20$				;    try next cluster
+	MOVL	#BITMAP_BYTCNT+1, R0		; Initialize byte pointers
+
+	MOVAB	CLUS_A_BITMAP(R6), R6
+	JSB	G^PPL$$ALLOC_BITS		; Allocate some bits
+	MOVAB	-CLUS_A_BITMAP(R6), R6
+
+	TSTL	R0				; If unsuccessful,
+	BLSS	20$				; Try next cluster
+;
+; Successful allocation - convert bit offset in R0 to page address
+;
+	MNEGL	R5, R1				; Update free page bit count
+	ADDWX	R1, CLUS_W_BITCNT(R6)
+	ASHL	#9, R0, R0			; Convert R0 to page address
+	ADDL2	CLUS_L_LOADDR(R6), R0
+	RSB
+
+	.SBTTL	EXPAND_CLUSTER	Expand cluster map
+
+;++
+; FUNCTIONAL DESCRIPTION:
+;
+;	Expand the cluster mapping to cover all allocated pages
+;
+; INPUT PARAMETERS:
+;
+;	R0	Highest address to be mapped
+;	R4	Zone
+;
+; REGISTERS MODIFIED:
+;
+;	R0:R3
+
+;PPL$$EXPAND_CLUSTER::
+EXPAND_CLUSTER:
+        .if defined EVAX
+        .jsb32_entry
+        .endc
+
+;
+; Scan clusters and determine highest address currently mapped (R2)
+;
+	CLRL	R2				; Initialize high address
+	MOVL	R4, R3				; R3 is cluster pointer
+10$:	NEXTQ	R3, TEMP=R1			; Advance to next cluster
+	CMPL	R3, R4				; Test for end of list
+	BEQL	20$				; All clusters have been scanned
+	CMPL	CLUS_L_HIADDR(R3), R2
+	BLEQU	10$
+	MOVL	CLUS_L_HIADDR(R3), R2		; Update highest mapped
+	BRB	10$				; Continue scan
+;
+; Expand clusters as necessary to map address in R0
+;
+; ??? We should really try to simply grab the pages from our pool,
+; and avoid the (expensive) expand region.
+;
+20$:	MOVL	R0, R3
+30$:	CMPL	R3, R2
+	BLEQU	40$				; Mapping already sufficient
+	INCL	R2				; Round up address
+	BSBB	ALCINIT_CLUSTER			; Allocate/init cluster header
+	BRB	30$				; R2 = new highest mapped
+
+40$:	RSB
+
+	.SBTTL	EXPAND_REGION	Expand P0 Space
+
+;++
+; FUNCTIONAL DESCRIPTION:
+;
+;	Allocate n virtually contiguous pages by calling $EXPREG
+;
+; INPUT PARAMETERS:
+;
+;	R0	Number of pages
+;
+; OUTPUT PARAMETERS:
+;
+;	R0	First byte allocated (page-aligned address)
+;	R1	Last byte of last page allocated
+;
+; REGISTERS MODIFIED:
+;
+;	R0:R1
+;
+; ABNORMAL RETURN:
+;
+;	In the event of error, RET to external caller with LIB$_INSVIRMEM
+
+; ??? It would be nice if the expreg code could return *less* memory than
+; is requested.  The reason is that several processes may simultaneously
+; ask for memory, and each will allocate 128 pages.  Instead, they could
+; decide on a single section, with the 'first' process returning the memory
+; from expreg, and the others returning zilch (but success).  Take note of
+; *two* calls to this routine from PPL$$GET_VM_PAGE.
+
+;PPL$$EXPAND_REGION::
+EXPAND_REGION:
+
+        .if defined EVAX
+        .jsb32_entry
+        .endc
+
+	MOVAQ	-(SP), R1			; RETADR block on stack
+	MOVQ	R0, -(SP)			; Push arguments
+	CALLS	#2, @expreg(AP)			; EXPAND REGION
+
+	BLBC	R0, 10$				; Process errors
+	MOVQ	(SP)+, R0			; Set output parameters
+	RSB
+
+10$:	MOVL	#LIB$_INSVIRMEM, R0
+	RET
+
+	.SBTTL	ALCINIT_CLUSTER	Allocate/Init cluster header
+
+;++
+; FUNCTIONAL DESCRIPTION:
+;
+;	Allocate and initialize storage for a cluster header.
+;
+; INPUT PARAMETERS:
+;
+;	R2	Lowest address for the mapping range
+;	R4	Zone
+;
+; OUTPUT PARAMETERS:
+;
+;	R2	Highest address mapped
+;
+; REGISTERS MODIFIED:
+;
+;	R0:R2
+;
+
+;PPL$$ALCINIT_CLUSTER::
+ALCINIT_CLUSTER:
+        .if     defined EVAX
+        .jsb32_entry
+        .endc
+
+	MOVQ	R2, -(SP)
+	MOVQ	R4, -(SP)
+	;
+	MOVL	#CLUS_C_PAGCNT, R0
+	BSBW	EXPAND_REGION			; Allocate cluster header
+	;
+	SUBL2	R0, R1
+	INCL	R1				; Number of bytes to clear
+	MOVC5	#0, (R1), #0, R1, (R0)
+	SUBL3	R1, R3, R0			; Restore the starting address
+	;
+	MOVQ	(SP)+, R4
+	MOVQ	(SP)+, R2
+	;
+	; ??? We should redetermine the highest address mapped, since the
+	; expand region may've taken so long, it may be quite out-of-date.
+	;
+	MOVL	R2, CLUS_L_LOADDR(R0)		; Fill in address bounds
+	ADDL2	#MAX_RELADDR, R2
+	MOVL	R2, CLUS_L_HIADDR(R0)
+	TSTL	R4
+	BNEQ	10$
+30$:	MOVL	@page_zone(AP), R4
+	BEQL	20$
+10$:	INSQTI	(R0), (R4)			; Add cluster to list
+	BCS	10$				; Loop til appended
+	;
+	RSB
+
+20$:	; There's a small window between that fetch (of zero) and this store,
+	; during which somebody else may change the value.  So, ...
+	;
+;;;;;;;	MOVAB	CLUS_Q_CLUSTER(R0), @page_zone(AP)
+	;
+	; So, we arbitrate access to the longword.
+	;
+	.EXTRN	PPL$$INIT_IF_ZERO
+	PUSHL	R0				; Save R0
+	PUSHAB	CLUS_Q_CLUSTER(R0)		; Value we want to store
+	PUSHAL	@page_zone(AP)			; Address of the longword
+	CALLS	#2, G^PPL$$INIT_IF_ZERO		; Initialize if non-zero
+	MOVL	(SP)+, R0			; Restore R0
+	BRB	30$
+
+
+	.SBTTL	PPL$$FREE_VM_PAGE
+
+;++
+; FUNCTIONAL DESCRIPTION:
+;
+;	Deallocate n contiguous pages starting at the specified address.
+;
+;	Each of the pages specified by NUM_PAGES and BLK_ADR must have been
+;	allocated by a previous call to PPL$$GET_VM_PAGE. However, you need not
+;	free all the pages allocated by a PPL$$GET_VM_PAGE call with a single
+;	corresponding call to PPL$$FREE_VM_PAGE. You can allocate several pages
+;	with a single call, and then free the pages in a piecemeal fashion.
+;
+; CALLING SEQUENCE:
+;
+;	STATUS.wlc.v = PPL$$FREE_VM_PAGE (NUM_PAGES.rl.r, BLK_ADR.ra.r)
+;		PAGE_ZONE.mo.r)
+;
+; INPUT PARAMETERS:
+;
+;	NUM_PAGES is the address of a longword integer specifying the number
+;		of contiguous pages to be deallocated.
+;
+;	BLK_ADR is the address of a longword containing the address
+;	 	of the first byte of the first page to be deallocated.
+;
+;	PAGE_ZONE is the address of an octaword.
+;
+; IMPLICIT INPUTS:
+;
+;
+; IMPLICIT OUTPUTS:
+;
+;	Free page bit maps are updated
+;
+; COMPLETION STATUS:
+;
+;	SS$_NORMAL	indicates normal successful completion
+;	LIB$_BADBLOADR	indicates pages weren't allocated by LIB$GET_VM_PAGE, or
+;			indicates the value of BLK_ADR is not a page boundary
+;	LIB$_BADBLOSIZ	indicates NUM_PAGES is less than or equal to 0
+;
+; SIDE EFFECTS:
+;
+;	Deallocates the pages by marking them as available in the free page bitmap.
+;
+;--
+
+	.if     defined VAX
+	.ENTRY	PPL$$FREE_VM_PAGE, ^M<R2,R3,R4>
+	.endc
+
+        .if     defined EVAX
+PPL$$FREE_VM_PAGE::
+        .CALL_ENTRY     preserve = <R2,R3,R4>, -
+                        max_args = 3, -
+                        home_args = true
+        .endc
+
+	MOVL	@num_pages(AP), R0
+	BLEQ	90$
+	MOVL	@page_zone(AP), R4
+	BEQL	91$
+	MOVL	@blk_adr(AP), R1		; Get first page to free
+	BITW	#^X01FF, R1			; Pages must be page-aligned
+	BNEQ	91$
+
+	BSBB	FREE_PAGES			; Do the deallocation
+
+.IF DEFINED ZONE_K_STAT
+	SUBL2	@num_pages(AP), ZONE_L_PGINUSE(R4)
+	INCL	ZONE_L_FREPG_C(R4)
+.ENDC
+
+	MOVL	#SS$_NORMAL, R0
+	RET
+
+90$:	MOVL	#LIB$_BADBLOSIZ, R0		; Bad page count
+	RET
+
+91$:	MOVL	#LIB$_BADBLOADR, R0		; Bad block
+	RET
+
+	.SBTTL	FREE_PAGES	Mark pages available
+
+;++
+; FUNCTIONAL DESCRIPTION:
+;
+;	Deallocate n virtually contiguous pages
+;
+; INPUT PARAMETERS:
+;
+;	R0	Number of pages
+;	R1	Address of first page
+;	R4	Zone
+;
+; REGISTERS MODIFIED:
+;
+;	R0:R3,R6
+;
+; ABNORMAL RETURN:
+;
+;	In the event of an error, RET to external caller with status in R0
+
+;PPL$$FREE_PAGES::
+FREE_PAGES:
+
+        .if     defined EVAX
+        .jsb32_entry
+        .endc
+
+	PUSHL	R5
+	MOVQ	R0, R2				; Save parameters
+20$:	MOVL	R4, R6				; Start cluster scan at zone header
+;
+; Locate a cluster that maps (some of) the pages being freed
+;
+10$:	NEXTQ	R6, TEMP=R1			; Advance to next cluster
+	CMPL	R6, R4				; If there are no more clusters
+	BEQL	90$				; Block not mapped by any cluster
+	CMPL	R3, CLUS_L_LOADDR(R6)		; Test if address within cluster
+	BLSSU	10$
+	CMPL	R3, CLUS_L_HIADDR(R6)
+	BGTRU	10$
+
+	; Convert the address into a bit offset
+	;
+	SUBL3	CLUS_L_LOADDR(R6), R3, R0	; Convert R3 to a bit offset
+	ASHL	#-9, R0, R0
+
+	; Determine the number of pages to be cleared in this cluster.
+	;
+	SUBL3	R0, #BITMAP_BITCNT, R5		; Remaining bits in bitmap
+	CMPL	R2, R5				; Will this finish it?
+	BGEQ	30$				; If not, go do it
+	MOVL	R2, R5				; Clear everything
+
+30$:	ADDWX	R5, CLUS_W_BITCNT(R6)		; Update free page bit count
+
+	MOVAB	CLUS_A_BITMAP(R6), R6
+	JSB	G^PPL$$DEALLOC_BITS		; Deallocate some bits
+	MOVAB	-CLUS_A_BITMAP(R6), R6
+
+	ASHL	#9, R5, R0			; Convert pages to bytes
+	ADDL2	R0, R3				; Advance the address
+	SUBL2	R5, R2				; Reduce the bits we must clear
+	BGTR	20$				; Continue if more to clear
+
+	MOVL	(SP)+, R5
+	RSB
+
+90$:	MOVL	#LIB$_BADBLOADR, R0		; Bad block address
+	RET
+
+	.END

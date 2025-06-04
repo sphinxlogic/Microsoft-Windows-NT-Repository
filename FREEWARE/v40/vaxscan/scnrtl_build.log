@@ -1,0 +1,538 @@
+$! LOGIN.COM for myself on the SCAN project.
+  12-JUN-1996 17:39:03
+prcnam was BATCH_802
+Running on INFRNO, (BATCH)
+prcnam is BATCH_802
+
+defining scan logicals...
+calling scan login...
+%SCA-S-LIB, your SCA Library is DISK$SCAN:[SCAN.DTM.SCALIB]
+proceeding...
+  12-JUN-1996 17:39:07
+$! end of LOGIN.COM
+$ exit
+$!+
+$!	VAX SCAN Product Build
+$!
+$!	This build procedure is not set up well for maintenace stream yet
+$!-
+$!+
+$! First determine where we are running on the cluster.
+$!-
+$	Node = F$GETSYI("NODENAME")
+$	WRITE SYS$OUTPUT ""
+
+$	WRITE SYS$OUTPUT "	Performing build on node INFRNO"
+	Performing build on node INFRNO
+$	WRITE SYS$OUTPUT "	Starting time: 12-JUN-1996 17:39:08.53"
+	Starting time: 12-JUN-1996 17:39:08.53
+$!
+$	SET NOON                              
+$!+
+$! Now determine whether we are building from sources or incrementally.
+$!-
+$	Complete = ""
+$	Assigned_build = ""
+$	IF p1 .EQS. "Y" THEN -
+		Complete = "/FROM"
+$!+
+$! Determine if we are going to build the ana files.
+$!-
+$	Analysis_build = ""
+$	IF p2 .EQS. "Y" THEN -
+$		Analysis_build = "Y"
+$!+
+$! Determine the type of build we are performing
+$!-
+$	type_build = ""
+$	IF p3 .EQS. "COMPILER"	THEN -
+		type_build = "COMPILER"
+$!+
+$! Determine Build type and Stream (Development or Maintenance)
+$!
+$! Valid build types are:
+$!
+$! DEBUG	Build a debug compiler with dumpers and linked /DEBUG
+$! PROD		Build a compiler without dumpers and linked /NODEB/NOTRACE
+$! PCA		Build a compiler for PCA analysis
+$! SHIP		Build a compiler ready for shipment with Version # set.
+$!-
+$	OPEN/READ/ERROR=No_assignment Assignment_file -
+		SCAN$$DISK:[SCAN.COM]ASSIGNED_BUILD.DAT
+$	READ/END=Empty_file Assignment_file Assigned_build 
+$	Assigned_build = F$EDIT(Assigned_build, "UPCASE")
+$	READ/END=Nostream Assignment_file Build_stream
+$	Build_stream = F$EDIT(Build_stream,"UPCASE")
+$	CLOSE Assignment_file
+$  	GOTO Have_assigned_build
+$ Have_assigned_build:
+$!
+$	WRITE SYS$OUTPUT "	Assigned build is BOTH"
+	Assigned build is BOTH
+$	WRITE SYS$OUTPUT "	Stream is DEVELOPMENT"
+	Stream is DEVELOPMENT
+$!+
+$! Set up the build to perform (we make two passes on the build when
+$! the assigned build is Both.
+$!-
+$	Current_build == Assigned_build
+$	IF Assigned_build .EQS. "BOTH" THEN -
+		Current_build == "DEBUG"
+$!+
+$! Setup the version to use in fetching the MMS description file
+$!-
+$	IF type_build	.NES. "COMPILER"    THEN -
+		goto rtl_build
+$rtl_build:
+$	WRITE SYS$OUTPUT "      SCAN RTL build"
+      SCAN RTL build
+$	version = "SCAN_RTL_V12"
+$	scan_opt = "scnrtl.opt"
+$	IF build_stream .EQS.	"DEVELOPMENT"	THEN -
+		SET DEFAULT SCAN$$DISK:[SCAN.RTL.SRC]
+$	IF build_stream .NES.	"DEVELOPMENT"	THEN -
+		SET DEFAULT SCAN$$DISK:[SCAN.RTL.MSRC]
+$	IF build_stream .eqs.	"DEVELOPMENT"	then -
+		assign scan$$disk:[scan.rtl.src]	scanrtl$library
+$	IF build_stream .nes.	"DEVELOPMENT"	then -
+		assign scan$$disk:[scan.rtl.msrc]	scanrtl$library
+$	IF build_stream .eqs.	"DEVELOPMENT"	then -
+		assign scanrtl$library:switchd.req	switchr_req
+$	IF build_stream .nes.	"DEVELOPMENT"	then -
+		assign scanrtl$library:switchp.req	switchr_req
+$	goto start_actual_build
+$ Start_actual_build:
+$!
+$!
+$	IF Build_stream .EQS. "MAINTENANCE" THEN -
+		Complete="/FROM"
+$	IF Complete .EQS. "/FROM" THEN -
+		WRITE SYS$OUTPUT "	Performing build from sources"
+	Performing build from sources
+$!
+$	WRITE SYS$OUTPUT -
+	"	Default directory for build is SCAN$$DISK:[SCAN.RTL.SRC]"
+	Default directory for build is SCAN$$DISK:[SCAN.RTL.SRC]
+$!
+$	WRITE SYS$OUTPUT ""
+
+$	@SCANCOM$:SETUP_BUILD DEVELOPMENT DEBUG 
+$ set noverify
+%CMS-I-LIBIS, library is DISK$SCAN:[SCAN.RTL.CMS]
+%CMS-S-LIBSET, library set
+  SCAN$$DISK:[SCAN.RTL.SRC]
+%DELETE-I-FILDEL, DISK$SCAN:[SCAN.RTL.DOBJ]SCAN.OLB;1 deleted (102 blocks)
+$	SHOW DEV SCAN$$DISK:
+
+Device                  Device           Error    Volume         Free  Trans Mnt
+ Name                   Status           Count     Label        Blocks Count Cnt
+$1$DUA36:      (LURCH)  Mounted              0  SCAN           1568142    13  10
+$	CMS SHOW LIB
+Your CMS library list consists of:
+   DISK$SCAN:[SCAN.RTL.CMS]
+   
+$	IF type_build	.EQS.	"COMPILER"	THEN -
+ 	MMS/CMS/OVERRIDE/DESCRIPTION=SCAN_RTL_V12.MMS /FROM
+$	IF type_build	.NES.	"COMPILER"	THEN -
+	MMS/CMS/OVERRIDE/DESCRIPTION=SCAN_RTL_V12.MMS /FROM
+DEFINE/USER CMS$LIB DISK$SCAN:[SCAN.RTL.CMS]
+CMS FETCH SCAN_RTL_V12.MMS/OUTPUT=SCAN_RTL_V12.MMS /GEN=1+ ""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCAN_RTL_V12.MMS;27 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCAN_RTL_V12.MMS fetched
+cms fetch strucdef.l32 ""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]STRUCDEF.L32;58 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]STRUCDEF.L32 fetched
+cms fetch machdef.sdl ""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]MACHDEF.SDL;58 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]MACHDEF.SDL fetched
+copy strucdef.l32 rtlml:strucdef.l32
+assign scan$$disk:[scan.rtl.auto]	lib$
+CMS FETCH SCNANSWER.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNANSWER.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNANSWER.B32 fetched
+CMS FETCH SCNDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNDEF.REQ;109 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNDEF.REQ fetched
+CMS FETCH DBGEXT.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]DBGEXT.REQ;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]DBGEXT.REQ fetched
+! STRUCDEF.L32 can't be found !
+bliss/lib=rtl$auto:dbgext.l32 dbgext.req
+copy rtl$auto:dbgext.l32 rtlml:dbgext.l32
+CMS FETCH RTLPSECT.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]RTLPSECT.REQ;109 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]RTLPSECT.REQ fetched
+copy rtlpsect.req rtlin:rtlpsect.req
+CMS FETCH SWITCHD.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SWITCHD.REQ;53 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SWITCHD.REQ fetched
+CMS FETCH SWITCHP.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SWITCHP.REQ;53 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SWITCHP.REQ fetched
+CMS FETCH SCNDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNDEF.REQ;110 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNDEF.REQ fetched
+! MACHDEF.SDL can't be found !
+sdl/language=(blissf=rtl$auto:machdef.r32) machdef.sdl
+copy rtl$auto:machdef.r32 rtlml:machdef.r32
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scnanswer
+library scan$res_obj:scnrtl.olb scan$res_obj:scnanswer.obj
+CMS FETCH SCNCHECK.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNCHECK.MAR;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNCHECK.MAR fetched
+macro /DEBUG /obj=scan$res_obj:/lis=scan$res_lis: scncheck
+library scan$res_obj:scnrtl.olb scan$res_obj:scncheck.obj
+CMS FETCH SCNCONVRT.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNCONVRT.MAR;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNCONVRT.MAR fetched
+macro /DEBUG /obj=scan$res_obj:/lis=scan$res_lis: scnconvrt
+library scan$res_obj:scnrtl.olb scan$res_obj:scnconvrt.obj
+CMS FETCH SCNBITS.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNBITS.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNBITS.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scnbits
+library scan$res_obj:scnrtl.olb scan$res_obj:scnbits.obj
+CMS FETCH SCNDEBUG.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNDEBUG.B32;57 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNDEBUG.B32 fetched
+CMS FETCH TREEDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]TREEDEF.REQ;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]TREEDEF.REQ fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scndebug
+library scan$res_obj:scnrtl.olb scan$res_obj:scndebug.obj
+CMS FETCH SCNDBGEXT.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNDBGEXT.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNDBGEXT.B32 fetched
+CMS FETCH DSTRECRDS.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]DSTRECRDS.REQ;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]DSTRECRDS.REQ fetched
+bliss/lib=RTLML:DSTRECRDS.L32/lis/analysis dstrecrds.req
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scndbgext
+library scan$res_obj:scnrtl.olb scan$res_obj:scndbgext.obj
+CMS FETCH SCNDBGROU.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNDBGROU.MAR;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNDBGROU.MAR fetched
+macro /DEBUG /obj=scan$res_obj:/lis=scan$res_lis: scndbgrou
+library scan$res_obj:scnrtl.olb scan$res_obj:scndbgrou.obj
+CMS FETCH SCNTREDBG.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNTREDBG.B32;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNTREDBG.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scntredbg
+library scan$res_obj:scnrtl.olb scan$res_obj:scntredbg.obj
+CMS FETCH SCNDISPAT.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNDISPAT.B32;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNDISPAT.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scndispat
+library scan$res_obj:scnrtl.olb scan$res_obj:scndispat.obj
+CMS FETCH SCNEPILOG.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNEPILOG.B32;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNEPILOG.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scnepilog
+library scan$res_obj:scnrtl.olb scan$res_obj:scnepilog.obj
+CMS FETCH SCNIO.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNIO.B32;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNIO.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scnio
+library scan$res_obj:scnrtl.olb scan$res_obj:scnio.obj
+CMS FETCH SCNMACRO.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNMACRO.B32;57 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNMACRO.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scnmacro
+library scan$res_obj:scnrtl.olb scan$res_obj:scnmacro.obj
+CMS FETCH SCNMSG.MSG 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNMSG.MSG;57 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNMSG.MSG fetched
+message/obj=scan$res_obj:scnmsgptr/file=scnmsg/lis=scan$res_lis:scnmsgptr scnmsg
+library scan$res_obj:scnrtl.olb scan$res_obj:scnmsgptr.obj
+CMS FETCH SCNOUTPUT.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNOUTPUT.B32;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNOUTPUT.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scnoutput
+library scan$res_obj:scnrtl.olb scan$res_obj:scnoutput.obj
+CMS FETCH SCNPRUNE.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNPRUNE.B32;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNPRUNE.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scnprune
+library scan$res_obj:scnrtl.olb scan$res_obj:scnprune.obj
+CMS FETCH SCNSSINTF.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNSSINTF.MAR;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNSSINTF.MAR fetched
+! MACHDEF.MAR can't be found !
+copy machdef.mar rtl$auto:machdef.mar
+sdl/language=(macro=rtl$auto:machdef.mar) machdef
+lib/macro rtl$auto:scnlib.mlb rtl$auto:machdef.mar
+macro /DEBUG /obj=scan$res_obj:/lis=scan$res_lis: scnssintf+rtl$auto:scnlib/lib
+library scan$res_obj:scnrtl.olb scan$res_obj:scnssintf.obj
+CMS FETCH SCNSTART.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNSTART.B32;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNSTART.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scnstart
+library scan$res_obj:scnrtl.olb scan$res_obj:scnstart.obj
+CMS FETCH SCNTOKEN.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNTOKEN.B32;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNTOKEN.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scntoken
+library scan$res_obj:scnrtl.olb scan$res_obj:scntoken.obj
+CMS FETCH SCNTREE.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNTREE.B32;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNTREE.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scntree
+library scan$res_obj:scnrtl.olb scan$res_obj:scntree.obj
+CMS FETCH SCNTREFND.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNTREFND.B32;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNTREFND.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scntrefnd
+library scan$res_obj:scnrtl.olb scan$res_obj:scntrefnd.obj
+CMS FETCH SCNUTIL.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNUTIL.B32;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNUTIL.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scnutil
+library scan$res_obj:scnrtl.olb scan$res_obj:scnutil.obj
+CMS FETCH SCNERROR.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNERROR.B32;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNERROR.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/DEBUG/OPTIM=LEVEL=0 /obj=scan$res_obj:/lis=scan$res_lis: scnerror
+library scan$res_obj:scnrtl.olb scan$res_obj:scnerror.obj
+CMS FETCH SCNERRINT.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNERRINT.MAR;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNERRINT.MAR fetched
+macro /DEBUG /obj=scan$res_obj:/lis=scan$res_lis: scnerrint+rtl$auto:scnlib/lib
+library scan$res_obj:scnrtl.olb scan$res_obj:scnerrint.obj
+CMS FETCH SCNVECTOR.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNVECTOR.MAR;55 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNVECTOR.MAR fetched
+macro /DEBUG /obj=scan$res_obj:/lis=scan$res_lis: scnvector
+CMS FETCH SCNRTL.OPT 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNRTL.OPT;30 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNRTL.OPT fetched
+libr/compress/output=scan$res_obj:scnrtl.olb scan$res_obj:scnrtl.olb
+assign scancom$:imagelib.olb imagelib
+link/nodebug/notrace/exe=scan$res_obj:scnrtl/share=scnrtl 			/map=scan$res_lis:scnrtl/full/cross  			scanrtl$library:scnrtl.opt/opt
+%LINK-I-DATMISMCH, creation date of 22-APR-1995 00:08 in shareable image SYS$COMMON:[SYSLIB]LIBRTL.EXE;12
+	differs from date of 17-NOV-1989 22:34 in shareable image library DISK$SCAN:[SCAN.COM]IMAGELIB.OLB;15
+deassign imagelib
+purge rtl$auto:*.*
+purge scan$res_obj:*.*
+purge scan$res_lis:*.*
+message/obj=scan$res_obj:/lis=scan$res_lis: scnmsg
+link/exe=scan$res_obj:/share=scnmsg scan$res_obj:scnmsg
+! SCNRTL_PRODUCT can't be found !
+purge rtl$auto:, scan$res_obj:, scan$res_lis:, scanrtl$library
+$	SET NOVERIFY
+The DEBUG build completed at 12-JUN-1996 17:47:53.56
+	Performing build from sources
+	Default directory for build is SCAN$$DISK:[SCAN.RTL.SRC]
+
+%CMS-I-LIBIS, library is DISK$SCAN:[SCAN.RTL.CMS]
+%CMS-S-LIBSET, library set
+-CMS-I-SUPERSEDE, library list superseded
+%DCL-I-SUPERSEDE, previous value of SCAN$RES_OBJ has been superseded
+%DCL-I-SUPERSEDE, previous value of SCAN$RES_LIS has been superseded
+  SCAN$$DISK:[SCAN.RTL.SRC]
+%DELETE-I-FILDEL, DISK$SCAN:[SCAN.RTL.OBJ]SCAN.OLB;1 deleted (102 blocks)
+%DCL-I-SUPERSEDE, previous value of SWITCH_REQ has been superseded
+$	SHOW DEV SCAN$$DISK:
+
+Device                  Device           Error    Volume         Free  Trans Mnt
+ Name                   Status           Count     Label        Blocks Count Cnt
+$1$DUA36:      (LURCH)  Mounted              0  SCAN           1560099    13  10
+$	CMS SHOW LIB
+Your CMS library list consists of:
+   DISK$SCAN:[SCAN.RTL.CMS]
+   
+$	IF type_build	.EQS.	"COMPILER"	THEN -
+ 	MMS/CMS/OVERRIDE/DESCRIPTION=SCAN_RTL_V12.MMS /FROM
+$	IF type_build	.NES.	"COMPILER"	THEN -
+	MMS/CMS/OVERRIDE/DESCRIPTION=SCAN_RTL_V12.MMS /FROM
+DEFINE/USER CMS$LIB DISK$SCAN:[SCAN.RTL.CMS]
+CMS FETCH SCAN_RTL_V12.MMS/OUTPUT=SCAN_RTL_V12.MMS /GEN=1+ ""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCAN_RTL_V12.MMS;28 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCAN_RTL_V12.MMS fetched
+cms fetch strucdef.l32 ""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]STRUCDEF.L32;59 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]STRUCDEF.L32 fetched
+cms fetch machdef.sdl ""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]MACHDEF.SDL;59 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]MACHDEF.SDL fetched
+copy strucdef.l32 rtlml:strucdef.l32
+assign scan$$disk:[scan.rtl.auto]	lib$
+CMS FETCH SCNANSWER.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNANSWER.B32;57 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNANSWER.B32 fetched
+CMS FETCH SCNDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNDEF.REQ;111 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNDEF.REQ fetched
+CMS FETCH DBGEXT.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]DBGEXT.REQ;57 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]DBGEXT.REQ fetched
+! STRUCDEF.L32 can't be found !
+bliss/lib=rtl$auto:dbgext.l32 dbgext.req
+copy rtl$auto:dbgext.l32 rtlml:dbgext.l32
+CMS FETCH RTLPSECT.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]RTLPSECT.REQ;111 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]RTLPSECT.REQ fetched
+copy rtlpsect.req rtlin:rtlpsect.req
+CMS FETCH SWITCHD.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SWITCHD.REQ;54 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SWITCHD.REQ fetched
+CMS FETCH SWITCHP.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SWITCHP.REQ;54 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SWITCHP.REQ fetched
+CMS FETCH SCNDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNDEF.REQ;112 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNDEF.REQ fetched
+! MACHDEF.SDL can't be found !
+sdl/language=(blissf=rtl$auto:machdef.r32) machdef.sdl
+copy rtl$auto:machdef.r32 rtlml:machdef.r32
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scnanswer
+library scan$res_obj:scnrtl.olb scan$res_obj:scnanswer.obj
+CMS FETCH SCNCHECK.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNCHECK.MAR;57 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNCHECK.MAR fetched
+macro  /obj=scan$res_obj:/lis=scan$res_lis: scncheck
+library scan$res_obj:scnrtl.olb scan$res_obj:scncheck.obj
+CMS FETCH SCNCONVRT.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNCONVRT.MAR;57 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNCONVRT.MAR fetched
+macro  /obj=scan$res_obj:/lis=scan$res_lis: scnconvrt
+library scan$res_obj:scnrtl.olb scan$res_obj:scnconvrt.obj
+CMS FETCH SCNBITS.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNBITS.B32;57 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNBITS.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scnbits
+library scan$res_obj:scnrtl.olb scan$res_obj:scnbits.obj
+CMS FETCH SCNDEBUG.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNDEBUG.B32;58 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNDEBUG.B32 fetched
+CMS FETCH TREEDEF.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]TREEDEF.REQ;57 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]TREEDEF.REQ fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scndebug
+library scan$res_obj:scnrtl.olb scan$res_obj:scndebug.obj
+CMS FETCH SCNDBGEXT.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNDBGEXT.B32;57 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNDBGEXT.B32 fetched
+CMS FETCH DSTRECRDS.REQ 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]DSTRECRDS.REQ;57 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]DSTRECRDS.REQ fetched
+bliss/lib=RTLML:DSTRECRDS.L32/lis/analysis dstrecrds.req
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scndbgext
+library scan$res_obj:scnrtl.olb scan$res_obj:scndbgext.obj
+CMS FETCH SCNDBGROU.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNDBGROU.MAR;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNDBGROU.MAR fetched
+macro  /obj=scan$res_obj:/lis=scan$res_lis: scndbgrou
+library scan$res_obj:scnrtl.olb scan$res_obj:scndbgrou.obj
+CMS FETCH SCNTREDBG.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNTREDBG.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNTREDBG.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scntredbg
+library scan$res_obj:scnrtl.olb scan$res_obj:scntredbg.obj
+CMS FETCH SCNDISPAT.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNDISPAT.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNDISPAT.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scndispat
+library scan$res_obj:scnrtl.olb scan$res_obj:scndispat.obj
+CMS FETCH SCNEPILOG.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNEPILOG.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNEPILOG.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scnepilog
+library scan$res_obj:scnrtl.olb scan$res_obj:scnepilog.obj
+CMS FETCH SCNIO.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNIO.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNIO.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scnio
+library scan$res_obj:scnrtl.olb scan$res_obj:scnio.obj
+CMS FETCH SCNMACRO.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNMACRO.B32;58 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNMACRO.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scnmacro
+library scan$res_obj:scnrtl.olb scan$res_obj:scnmacro.obj
+CMS FETCH SCNMSG.MSG 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNMSG.MSG;58 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNMSG.MSG fetched
+message/obj=scan$res_obj:scnmsgptr/file=scnmsg/lis=scan$res_lis:scnmsgptr scnmsg
+library scan$res_obj:scnrtl.olb scan$res_obj:scnmsgptr.obj
+CMS FETCH SCNOUTPUT.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNOUTPUT.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNOUTPUT.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scnoutput
+library scan$res_obj:scnrtl.olb scan$res_obj:scnoutput.obj
+CMS FETCH SCNPRUNE.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNPRUNE.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNPRUNE.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scnprune
+library scan$res_obj:scnrtl.olb scan$res_obj:scnprune.obj
+CMS FETCH SCNSSINTF.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNSSINTF.MAR;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNSSINTF.MAR fetched
+! MACHDEF.MAR can't be found !
+copy machdef.mar rtl$auto:machdef.mar
+sdl/language=(macro=rtl$auto:machdef.mar) machdef
+lib/macro rtl$auto:scnlib.mlb rtl$auto:machdef.mar
+macro  /obj=scan$res_obj:/lis=scan$res_lis: scnssintf+rtl$auto:scnlib/lib
+library scan$res_obj:scnrtl.olb scan$res_obj:scnssintf.obj
+CMS FETCH SCNSTART.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNSTART.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNSTART.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scnstart
+library scan$res_obj:scnrtl.olb scan$res_obj:scnstart.obj
+CMS FETCH SCNTOKEN.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNTOKEN.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNTOKEN.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scntoken
+library scan$res_obj:scnrtl.olb scan$res_obj:scntoken.obj
+CMS FETCH SCNTREE.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNTREE.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNTREE.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scntree
+library scan$res_obj:scnrtl.olb scan$res_obj:scntree.obj
+CMS FETCH SCNTREFND.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNTREFND.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNTREFND.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scntrefnd
+library scan$res_obj:scnrtl.olb scan$res_obj:scntrefnd.obj
+CMS FETCH SCNUTIL.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNUTIL.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNUTIL.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scnutil
+library scan$res_obj:scnrtl.olb scan$res_obj:scnutil.obj
+CMS FETCH SCNERROR.B32	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNERROR.B32;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNERROR.B32 fetched
+bliss /LIST=SCAN$RES_OBJ:/NODEBUG/NOTRACE /obj=scan$res_obj:/lis=scan$res_lis: scnerror
+library scan$res_obj:scnrtl.olb scan$res_obj:scnerror.obj
+CMS FETCH SCNERRINT.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNERRINT.MAR;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNERRINT.MAR fetched
+macro  /obj=scan$res_obj:/lis=scan$res_lis: scnerrint+rtl$auto:scnlib/lib
+library scan$res_obj:scnrtl.olb scan$res_obj:scnerrint.obj
+CMS FETCH SCNVECTOR.MAR 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNVECTOR.MAR;56 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNVECTOR.MAR fetched
+macro  /obj=scan$res_obj:/lis=scan$res_lis: scnvector
+CMS FETCH SCNRTL.OPT 	""
+%CMS-I-FILEXISTS, file already exists, DISK$SCAN:[SCAN.RTL.SRC]SCNRTL.OPT;31 created
+%CMS-S-FETCHED, generation 1 of element DISK$SCAN:[SCAN.RTL.CMS]SCNRTL.OPT fetched
+libr/compress/output=scan$res_obj:scnrtl.olb scan$res_obj:scnrtl.olb
+assign scancom$:imagelib.olb imagelib
+link/nodebug/notrace/exe=scan$res_obj:scnrtl/share=scnrtl 			/map=scan$res_lis:scnrtl/full/cross  			scanrtl$library:scnrtl.opt/opt
+%LINK-I-DATMISMCH, creation date of 22-APR-1995 00:08 in shareable image SYS$COMMON:[SYSLIB]LIBRTL.EXE;12
+	differs from date of 17-NOV-1989 22:34 in shareable image library DISK$SCAN:[SCAN.COM]IMAGELIB.OLB;15
+deassign imagelib
+purge rtl$auto:*.*
+purge scan$res_obj:*.*
+purge scan$res_lis:*.*
+message/obj=scan$res_obj:/lis=scan$res_lis: scnmsg
+link/exe=scan$res_obj:/share=scnmsg scan$res_obj:scnmsg
+! SCNRTL_PRODUCT can't be found !
+purge rtl$auto:, scan$res_obj:, scan$res_lis:, scanrtl$library
+$	SET NOVERIFY
+The PROD build completed at 12-JUN-1996 17:55:36.75
+  SCAN   job terminated at 12-JUN-1996 17:55:36.92
+
+  Accounting information:
+  Buffered I/O count:            2612         Peak working set size:    1460
+  Direct I/O count:               998         Peak page file size:     12154
+  Page faults:                   7779         Mounted volumes:             0
+  Charged CPU time:           0 00:00:16.04   Elapsed time:     0 00:16:36.72

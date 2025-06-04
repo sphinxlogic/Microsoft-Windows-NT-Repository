@@ -1,0 +1,792 @@
+<!-- VDE_MANUAL_022.HTML continuation of VDED$:[VDE.VDEDOC.DOC]VDE_MANUAL.HTML -->
+<html>
+<head>
+<title>VDE</title>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">VDE<br>VDE<br> Reference Manual</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_manual_021.html#bottom_021">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_manual_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_manual_index.html">Index</a>
+</table>
+
+<hr>
+
+<hr>
+<a name="vde_cmd_pop_stream"><h1><font color=maroon>POPULATE STREAM</font></h1></a>
+
+<p>
+<blockquote>
+<a name="index_x_503"></a>
+Populates a development stream with generations from another stream.
+
+<p>
+<strong>Requires PERFREP privilege.</strong>
+<a name="index_x_504"></a>
+</blockquote>
+
+<hr>
+<h2>Format</h2>
+<blockquote>
+<h3>POPULATE STREAM stream-name [, stream-name...] </h3>
+</blockquote>
+
+<hr>
+<h2>Parameter</h2>
+<blockquote>
+<h3>stream-name</h3>
+The name of a target stream to be populated with the module generations 
+from another stream. You can populate more than one stream at a time by 
+using wildcard characters in the stream name. The percent sign (%) in a 
+name matches any single character in the position it occupies and the 
+asterisk (*) matches zero or more characters in the position it 
+occupies. Those streams whose names match the wildcard pattern are 
+populated.
+</blockquote>
+
+<hr>
+<h2>Description</h2>
+<blockquote>
+The POPULATE STREAM command populates a specified development stream 
+(the target stream) with the latest generations from another stream 
+(the source stream). The target stream is specified with a command 
+parameter and the source stream is specified with the /FROM_STREAM 
+qualifier. The latest generation of each module in the source stream is 
+inserted into the target stream and any modules not represented in the 
+source stream are removed from the target stream. After the command 
+completes, the target stream contains exactly the same generations as 
+the source stream.
+
+<p>
+Using the CREATE STREAM command to create a new stream with the same 
+contents as a parent stream can be a time-consuming operation if the 
+VDE library is large. Using the POPULATE STREAM command to 
+update an existing stream whose contents are already close to the 
+desired source stream is generally a much faster way to make a copy of 
+a stream. This command allows you to create new base-level streams by 
+reusing old base-level streams that are no longer needed, thus saving 
+both time and database space.
+
+<p>
+The POPULATE STREAM command updates only the VDE database. 
+It does not insert the updated generations into the CMS class for the 
+stream, not even if the attribute to maintain the CMS class is set for 
+the target stream. Neither does the command update the source 
+directories for the stream. If such operations are needed, they must be 
+done manually outside of VDE. Alternatively you can use the 
+INSERT GENERATION command to insert generations into a stream while 
+maintaining CMS classes and stream source directories. Because it does 
+more work, the INSERT GENERATION command is generally much slower than 
+the POPULATE STREAM command.
+
+<p>
+VDE populates the target streams in three phases. First, it 
+determines what streams to populate using a read-only database 
+transaction. Second, it determines the differences between the source 
+and target streams for one target stream. This step is done using a 
+read-only transaction. Third, VDE loops over the differences 
+it found to update the generation membership of the target stream. This 
+phase gives the target stream the same generation membership as the 
+source stream had during the preceding read-only transaction. During 
+this phase, VDE updates 20 modules at a time (by default), 
+commits the transaction, and repeats the process until all modules are 
+updated. VDE uses multiple short read-write transactions in 
+order not to lock the database against other users more than a few 
+seconds at a time. After the target stream is fully populated, 
+VDE loops to populate the next stream until none remain.
+
+<p>
+You can only populate an open stream if the <strong>populate</strong> 
+attribute is set for the stream. If this attribute is not set, you must 
+set it with the MODIFY STREAM /POPULATE command before you can populate 
+the stream. You can only populate a frozen stream if the 
+<strong>populate</strong> attribute is set and you have the FROZEN 
+privilege. You cannot populate a closed stream.
+<a name="index_x_505"></a>
+</blockquote>
+
+<hr>
+<h2>Qualifiers</h2>
+<blockquote>
+<h3>/COMMIT_LIMIT=number</h3>
+Specifies the maximum number of modules VDE will update in, 
+insert into, or remove from the target stream before committing the 
+database transaction and starting a new transaction. The 
+<strong>number</strong> parameter must be an integer value in the range 
+from 1 to 1,000,000.
+
+<p>
+Specification of a smaller value reduces the interval during which the 
+database is locked, allowing access to the database by other users. 
+Specification of a larger value does reduce the overhead involved with 
+recycling locks and repeated commits, but restricts the access to the 
+database by other users.
+
+<p>
+By default, VDE commits and restarts a read-write 
+transaction for every 20 modules.
+<h3>/CONFIRM</h3>
+<h3>/NOCONFIRM (default)</h3>
+Controls whether VDE asks you to confirm that you want each 
+target stream populated. The /CONFIRM qualifier causes VDE 
+to print a message for each stream asking whether you want that stream 
+populated. If you answer YES (or Y), that stream is populated from the 
+source stream. If you answer NO (or N), the stream is not populated. If 
+you enter a stream name with a wildcard specification, VDE 
+asks you to confirm the populate action for each stream whose name 
+matches the wildcard specification. The /NOCONFIRM qualifier causes 
+VDE to populate the specified streams without asking for 
+confirmation.
+<h3>/FROM_STREAM=stream-name</h3>
+Specifies the source stream from which the target stream is to be 
+populated. VDE makes the generation membership of the target 
+stream identical to that of this source stream. This qualifier is 
+required; if you omit it, VDE prompts you for the name of 
+the source stream.
+<h3>/LOG (default)</h3>
+<h3>/NOLOG</h3>
+Controls whether log messages are printed after each stream has been 
+populated. The /LOG qualifier causes such messages to be printed and 
+the /NOLOG qualifier suppresses them. These messages indicate the 
+number of modules to update, insert, or remove to populate the target 
+stream, that the stream has been populated from the source stream, and 
+that the database transaction has successfully committed.
+</blockquote>
+
+<hr>
+<h2><h3>Examples</H3></h2>
+<blockquote>
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#1</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ POPULATE STREAM BLD_12/FROM_STREAM=BIRCH
+%VDE-I-STRMPOPCOUNT, populate module counts: update 5, insert 2, remove 1
+%VDE-I-STRMPOP, stream BLD_12 populated from stream BIRCH
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+In this example, stream BLD_12 is populated from stream BIRCH. Five 
+module generations in stream BLD_12 are updated, two are inserted, and 
+one is removed to make the generation membership of that stream 
+identical to stream BIRCH. The log messages confirm that the stream was 
+populated and that the database transaction successfully completed.
+</blockquote>
+
+<hr>
+<a name="vde_cmd_rej_repl"><h1><font color=maroon>REJECT REPLACEMENT</font></h1></a>
+
+<p>
+<blockquote>
+<a name="index_x_506"></a>
+Marks a queued replacement as rejected in the VDE database. 
+You can only mark a replacement as rejected if you are a reviewer for 
+that replacement.
+
+<p>
+<strong>Requires RESREP privilege.</strong>
+<a name="index_x_507"></a>
+</blockquote>
+
+<hr>
+<h2>Format</h2>
+<blockquote>
+<h3>REJECT REPLACEMENT rep-name [, rep-name...] ["remark"] </h3>
+</blockquote>
+
+<hr>
+<h2>Parameter</h2>
+<blockquote>
+<h3>rep-name</h3>
+The name of a queued replacement to be marked as rejected. You can 
+reject more than one replacement at a time by using wildcard characters 
+in the replacement name. The percent sign (%) in a name matches any 
+single character in the position it occupies and the asterisk (*) 
+matches zero or more characters in the position it occupies. Those 
+queued replacements whose names match the wildcard pattern are marked 
+as rejected.
+<h3>"remark"</h3>
+Specifies a one-line remark for the replacement. Typically this remark 
+summarizes why you reject the replacement. Specifying the 
+<strong>remark</strong> parameter is equivalent to specifying the 
+/REMARK qualifier after the REJECT REPLACEMENT keywords. This parameter 
+or the /REMARK qualifier is required; if you do not specify either, 
+VDE prompts you for a remark string.
+</blockquote>
+
+<hr>
+<h2>Description</h2>
+<blockquote>
+The REJECT REPLACEMENT command updates the VDE database to 
+record that
+<a name="index_x_508"></a>
+<a name="index_x_509"></a>
+you have reviewed the code changes in a specified queued replacement 
+and that you judge those changes not acceptable for replacement into 
+the VDE library. You must be a reviewer for a replacement in 
+order to mark it as rejected.
+
+<p>
+The REJECT REPLACEMENT command allows you to attach a comment file to 
+the queued replacement. The comment file typically explains why you 
+reject the replacement. If you have already created such a file, use 
+the /INPUT qualifier to copy it to the replacement's staging area. If 
+you omit the /INPUT qualifier, VDE asks you whether you want 
+to edit a comment file for the replacement. If you respond YES (the 
+default answer), VDE invokes your preferred editor to create 
+the comment file. If you specify both the /INPUT and the /EDIT 
+qualifier, VDE copies the input file to the replacement's 
+staging area and then invokes your editor to further modify that file. 
+If you have already created a comment file for the replacement with an 
+earlier ACCEPT or REJECT command, VDE lets you edit that 
+file again. This capability is useful if you change your mind or want 
+to add more information.
+
+<p>
+If you wish to mark a replacement as acceptable, use the ACCEPT 
+REPLACEMENT command. If you wish to see the review status of a queued 
+replacement, use the SHOW REPLACEMENT command.
+</blockquote>
+
+<hr>
+<h2>Qualifiers</h2>
+<blockquote>
+<h3>/CONFIRM</h3>
+<h3>/NOCONFIRM (default)</h3>
+Controls whether VDE asks you to confirm that you want each 
+replacement rejected. The /CONFIRM qualifier causes VDE to 
+print a message for each replacement asking whether you want to reject 
+that replacement. If you answer YES (or Y), that replacement is marked 
+as rejected. If you answer NO (or N), the replacement status is not 
+changed. If you enter a replacement name with a wildcard specification, 
+VDE asks you to confirm the rejection of each replacement 
+whose name matches the wildcard specification. The /NOCONFIRM qualifier 
+causes VDE to mark the specified replacements as rejected 
+without asking for confirmation.
+<h3>/EDIT</h3>
+Specifies that VDE should invoke your preferred editor so 
+that you can edit your comment file for each queued replacement. If 
+such a comment file already exists (due to a previous ACCEPT or REJECT 
+REPLACEMENT command for the same replacement) or if you specify an 
+input file with the /INPUT qualifier, the editor modifies that file. 
+Otherwise, the editor creates a new file in the replacement's staging 
+directory. Its file name is your OpenVMS username and its file 
+extension is VDE$COMMENT. The comment file typically contains comments 
+for the
+<a name="index_x_510"></a>
+author of the replacement and the other reviewers.
+
+<p>
+This qualifier is ignored if you are running in batch mode.
+<h3>/INPUT=file-spec</h3>
+Specifies a comment file for the queued replacement. VDE 
+reads the text file given by the <strong>file-spec</strong> parameter 
+and writes its contents into a new file in the replacement's staging 
+directory. The file name of the new file is your OpenVMS 
+username and its file extension is VDE$COMMENT. The comment file 
+typically contains remarks to the
+<a name="index_x_511"></a>
+author of the replacement or information for the other reviewers.
+<h3>/LOG (default)</h3>
+<h3>/NOLOG</h3>
+Controls whether log messages are printed after each replacement has 
+been marked as rejected. The /LOG qualifier causes such messages to be 
+printed and the /NOLOG qualifier suppresses them. These messages 
+indicate that the replacement has been rejected and that the database 
+transaction has successfully committed.
+<h3>/REMARK="string"</h3>
+Specifies a one-line remark for the replacement. Typically this remark 
+summarizes why you reject the replacement. For longer comments, you may 
+create a comment file with the /INPUT or /EDIT qualifier. The /REMARK 
+qualifier (or the remark parameter at the end of the command) is 
+required; if you do not specify it, VDE prompts you for a 
+remark string.
+<a name="index_x_512"></a>
+<h3>/USERNAME=username</h3>
+Specifies that the replacement be marked as rejected on behalf of 
+another user. The <strong>username</strong> parameter specifies the 
+OpenVMS username of the other user. That user must be a reviewer 
+for the specified replacement. You must have the USERNAME privilege to
+<a name="index_x_513"></a>
+use this qualifier.
+</blockquote>
+
+<hr>
+<h2><h3>Examples</H3></h2>
+<blockquote>
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#1</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ REJECT REPLACEMENT BROWN-3 "Bug found in sort code"
+%VDE-I-REPREJECT, replacement BROWN-3 marked as rejected in database
+%VDE-I-COMMIT, database transaction has successfully committed
+Do you wish to edit a comment file for replacement BROWN-3 ? [Yes]: YES
+ 
+   ...Comment file edited here...
+ 
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This command marks that the current user rejects queued replacement 
+BROWN--3. The remark string indicates the reason for the rejection. 
+Since the /INPUT qualifier is omitted, VDE asks the user 
+whether he or she wants to edit a comment file. The user answers YES 
+and is placed in an editing session.
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#2</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ REJECT REPLACEMENT SMITH-1/INPUT=COMMENT_FILE.TXT
+Please supply required information for replacement SMITH-1:
+Enter a remark for the rejection: Code does not conform to coding conventions
+%VDE-I-REPREJECT, replacement SMITH-1 marked as rejected in database
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+In this example, the user marks replacement SMITH--1 as rejected and 
+provides a comment file that gives additional information to the user 
+who queued the replacement. The comment file may explain, for example, 
+what defects in the code caused it to be rejected. Since the /REMARK 
+qualifier is omitted, VDE prompts for a remark string.
+<a name="index_x_514"></a>
+</blockquote>
+
+<hr>
+<a name="vde_cmd_rem_gen"><h1><font color=maroon>REMOVE GENERATION</font></h1></a>
+
+<p>
+<blockquote>
+<a name="index_x_515"></a>
+Removes a module from a specified development stream so that the module 
+no longer has a latest generation in the stream.
+
+<p>
+<strong>Requires PERFREP privilege. </strong>
+<a name="index_x_516"></a>
+</blockquote>
+
+<hr>
+<h2>Format</h2>
+<blockquote>
+<h3>REMOVE GENERATION mod-name [, mod-name...] </h3>
+</blockquote>
+
+<hr>
+<h2>Parameter</h2>
+<blockquote>
+<h3>mod-name</h3>
+The name of a source module whose latest generation is to be removed 
+from the specified development stream. The module name consists of an 
+optional facility name enclosed in square brackets, a module name, and 
+an optional type name preceded by a period, such as [FACIL]MOD1.MAR. If 
+no facility name is specified, the default facility is assumed. If no 
+type name is specified, the latest generations of all source modules of 
+the specified module name in the given facility are removed.
+
+<p>
+You can remove more than one module from the stream by using wildcard 
+characters in any of the three components of the module name. The 
+percent sign (%) in a name matches any single character in the position 
+it occupies and the asterisk (*) matches zero or more characters in the 
+position it occupies. VDE removes each module whose name 
+matches the wildcard pattern from the stream.
+</blockquote>
+
+<hr>
+<h2>Description</h2>
+<blockquote>
+The REMOVE GENERATION command removes a specified module from a 
+specified development stream so that the module no longer has a latest 
+generation in that stream. The result is that the module no longer 
+&quot;belongs&quot; to that stream and can no longer be fetched, 
+reserved, or built in the stream.
+
+<p>
+The removed generation remains in the VDE database and the 
+VDE library, and it can still be the latest generation of 
+the module for some other stream. The REMOVE GENERATION command thus 
+breaks the association between the module generation and the specified 
+stream but does not delete the generation.
+
+<p>
+If the specified module is currently reserved in the specified stream, 
+VDE terminates that reservation since it is based on a 
+module generation that no longer is the latest generation for the 
+stream. VDE sends a mail message to notify the owner of the 
+reservation that the reservation is lost.
+<a name="index_x_517"></a>
+</blockquote>
+
+<hr>
+<h2>Qualifiers</h2>
+<blockquote>
+<h3>/CONFIRM</h3>
+<h3>/NOCONFIRM (default)</h3>
+Controls whether VDE asks you to confirm that you want each 
+generation removed. The /CONFIRM qualifier causes VDE to 
+print a message for the latest generation of each module giving the 
+name of the generation and asking whether you want to remove the 
+generation. If you answer YES (or Y), the generation is removed. If you 
+answer NO (or N), the generation is not removed. The /NOCONFIRM 
+qualifier causes VDE to remove each generation without 
+asking for confirmation.
+<h3>/LOG (default)</h3>
+<h3>/NOLOG</h3>
+Controls whether log messages are printed after generations are removed 
+from streams. The /LOG qualifier causes such messages to be printed and 
+/NOLOG suppresses them. The messages indicate that the generations have 
+been removed from the specified development stream and that the 
+database transaction has successfully committed.
+<h3>/REMARK="string"</h3>
+Specifies a remark string that explains why you removed the generation 
+from the specified stream. The quoted remark string can be up to 132 
+characters long.
+<h3>/STREAM=stream-name</h3>
+Specifies that the generation be removed from the development stream 
+given by the <strong>stream-name</strong> parameter. If this qualifier 
+is omitted, VDE prompts you for the stream name.
+<a name="index_x_518"></a>
+</blockquote>
+
+<hr>
+<h2><h3>Examples</H3></h2>
+<blockquote>
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#1</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ REMOVE GENERATION [FACIL]MODNAM.C /STREAM=MANGO
+%VDE-I-GENREM, generation [FACIL]MODNAM.C;4(4) removed from stream MANGO
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This example removes the latest generation of module [FACIL]MODNAM.C 
+from stream MANGO. The log message shows that generation 4 had been the 
+latest generation of the module in that stream, and is now removed. 
+After the command has completed, no generation of the module belongs to 
+stream MANGO.
+</blockquote>
+
+<hr>
+<a name="vde_cmd_replace"><h1><font color=maroon>REPLACE</font></h1></a>
+
+<p>
+<blockquote>
+<a name="index_x_519"></a>
+Returns each specified module to the library and creates a new 
+generation of the module. Each module must be a source module 
+previously reserved with the RESERVE command.
+
+<p>
+<strong>Requires RESREP privilege.</strong>
+<a name="index_x_520"></a>
+</blockquote>
+
+<hr>
+<h2>Format</h2>
+<blockquote>
+<h3>REPLACE mod-name [, mod-name...] ["remark"] </h3>
+</blockquote>
+
+<hr>
+<h2>Parameter</h2>
+<blockquote>
+<h3>mod-name</h3>
+Specifies a reserved source module to be replaced into the library. The 
+module name consists of an optional facility name enclosed in square 
+brackets, a module name, and an optional type name preceded by a period 
+(such as [FACIL]MOD1.MAR). If the facility name is omitted, the module 
+is assumed to belong to the default facility. If the type name is 
+omitted, all source modules with the specified module name in the given 
+facility are replaced.
+
+<p>
+You can replace more than one module by using wildcard characters in 
+any of the three components of the module name. The percent sign (%) in 
+a name matches any single character in the position it occupies and the 
+asterisk (*) matches zero or more characters in the position it 
+occupies. VDE replaces the source modules whose names match 
+the wildcard pattern.
+
+<p>
+You can also replace multiple modules by specifying the name of a 
+source group instead of a module name. Source groups are created with 
+the CREATE GROUP command. If you specify a group name, each module that 
+is a member of the group is replaced.
+
+<p>
+If you use the /SESSION qualifier, those reservations that are members 
+of the specified reservation session are replaced. In this case, you 
+must omit the <strong>mod-name</strong> parameters from the command.
+<h3>"remark"</h3>
+Specifies a remark string for the replacement. VDE stores 
+this remark string with each module generation that the REPLACE command 
+creates. Specifying the <strong>remark</strong> parameter is equivalent 
+to specifying the /REMARK qualifier after the REPLACE keyword.
+</blockquote>
+
+<hr>
+<h2>Description</h2>
+<blockquote>
+For each module you have specified, the REPLACE command creates a new 
+generation of the module by transferring a file from your default 
+directory to the current VDE library, possibly by way of an 
+intermediate staging area.
+<a name="index_x_521"></a>
+This new generation becomes the most recent generation of the source 
+module in the default development stream (or the stream specified with 
+the /STREAM qualifier) and receives a new generation number. The new 
+generation number is formed by adding 1 to the number of the previous 
+generation. After creating the new module generation, the REPLACE 
+command terminates the reservation of that module unless you specify 
+the /RESERVE qualifier.
+
+<p>
+After the reserved module is replaced in the VDE library, 
+VDE may delete the file used to create the module (as well 
+as any earlier versions of the file in the same directory). The file is 
+only deleted if the library administrator has defined a NOKEEP script 
+for your VDE library and the specified development stream. 
+If you specify either the /KEEP or the /RESERVE qualifier, 
+VDE does not delete the file even if a NOKEEP script is 
+defined.
+
+<p>
+The file in your default directory normally has the same name as the 
+module in the library. However, you can direct VDE to 
+replace a file with a different name or a file in another directory 
+than your default directory by specifying the /INPUT qualifier.
+
+<p>
+VDE stores the following information about the file that 
+creates the new generation: the creation date and time, the revision 
+date and time, the record format, and other record attributes. When you 
+fetch or reserve a generation of a module from a VDE 
+library, the file that is placed in your directory has the same 
+creation and revision times, record format, and record attributes as 
+the file that was used to create the generation that you are fetching 
+or reserving.
+
+<p>
+If you specify the /QUEUE qualifier or one of the streams that you are 
+replacing the module into has the queued-replacement attribute, then 
+the REPLACE command does not actually perform the replacement of your 
+module. Instead it copies your files to a &quot;staging area&quot; on 
+disk and queues the replacement in the VDE database. An 
+authorized user must then enter a subsequent PERFORM REPLACEMENT 
+command in order to actually perform the replacement. In this case, it 
+is the PERFORM REPLACEMENT command the creates the new module 
+generation and terminates the module reservation.
+
+<p>
+If you have more than one concurrent reservation of a module, you must 
+specify the exact reservation to be replaced using the /IDENTIFICATION 
+qualifier. Use the SHOW RESERVATION command to determine the 
+identification of each reservation.
+
+<p>
+If you or another user has a concurrent reservation for the module 
+being replaced and that reservation covers at least one stream affected 
+by your replacement, then the REPLACE command terminates that 
+reservation. VDE sends a mail message to notify the owner of 
+that reservation that the reservation is lost.
+<a name="index_x_522"></a>
+
+<p>
+To replace another user's reservation, you must have the USERNAME 
+privilege and use the /USERNAME qualifier to specify OpenVMS 
+username of that user.
+<a name="index_x_523"></a>
+<p>
+<a name="vde_cmd_replace_statistics"><strong>Source Tracking and Statistics Collection</strong></a>
+<br>
+
+<p>
+VDE can collect replacement statistics and associated 
+change-related information, including the reason for the change, the 
+project the change is associated with, and can also be asked to add an 
+entry to the source code tracking (SCT) DEC Notes conference 
+describing the change.
+<a name="index_x_524"></a>
+<a name="index_x_525"></a>
+
+<p>
+Statistics collection is enabled or disabled on a library basis. If 
+collection is enabled and the information is not provided via REPLACE 
+qualifiers, VDE will prompt the user for the information 
+during the replacement operation.
+
+<p>
+For further information, see the /FOLD, /OTHER, and /SCT qualifiers, as 
+well as the /PROJECT qualifier.
+<p>
+<a name="vde_cmd_replace_chngprop"><strong>Change Propagation to other Streams</strong></a>
+<br>
+
+<p>
+Replacing a module makes the new module generation the latest 
+generation in the default development stream or the stream specified 
+with the /STREAM qualifier. That generation is thus the generation you 
+get by default in a subsequent FETCH or RESERVE command, and is the 
+generation that is compiled when you build your system in that stream.
+
+<p>
+If the specified stream has successors, the REPLACE command propagates 
+the new module generation to all successor streams. For example, if 
+stream V2 is a successor of stream V1, then any module that is replaced 
+into stream V1 is also replaced in stream V2 automatically. If stream 
+V2 has additional successors (such as stream V3), the new module 
+generation is propagated to those streams, and so on recursively.
+
+<p>
+Propagation works as follows. If the latest generations of the module 
+for the original stream and the successor stream are the same, then the 
+new module generation created by the REPLACE command becomes the latest 
+generation for both streams. Both streams are thus equally up-to-date 
+with respect to the changes made to that module. However, if the latest 
+generations of the module differ for the two streams, which means that 
+the module has diverged between those two streams, VDE does 
+not propagate the new module generation to the successor stream. 
+Instead, it creates a &quot;fold&quot; record in the database to remind 
+the developer that the change made to the module for the first stream 
+must be manually &quot;folded&quot; into the successor stream. 
+Outstanding folds can be displayed with the SHOW FOLD command and a 
+fold record is deleted with the CANCEL FOLD command.
+<p>
+<a name="vde_cmd_replace_histnote"><strong>Replacing a Module with History or Notes  Information</strong></a>
+<br>
+
+<p>
+If you reserve a generation of a module with an embedded history and 
+then replace it, the REPLACE command ignores the history; that is, 
+VDE does not copy the history into your VDE 
+library. If you add text to the file in or above the history (relative 
+to #B), or in or below the history (relative to #H), the REPLACE 
+command issues an error message and the command is not executed.
+
+<p>
+If you reserve a file with embedded notes and then replace it, the 
+REPLACE command does not copy the notes to the VDE library. 
+If, while editing the file, you insert text that looks like an embedded 
+note, that text is deleted when the file is replaced.
+</blockquote>
+
+<hr>
+<h2>Qualifiers</h2>
+<blockquote>
+<h3>/CONFIRM</h3>
+<h3>/NOCONFIRM (default)</h3>
+Controls whether VDE asks you to confirm that you want each 
+module replaced. The /CONFIRM qualifier causes VDE to print 
+a message for each specified module asking whether you want to replace 
+that module into the library. If you answer YES (or Y), it is replaced. 
+If you answer NO (or N), it is not replaced. The /NOCONFIRM qualifier 
+causes VDE to replace each specified module without asking 
+for confirmation.
+<h3>/DEFECTS_CORRECTED=error-count</h3>
+<h3>/NODEFECTS_CORRECTED</h3>
+Specifies the number of defects corrected by this replacement: these 
+defects could due to problems with the specification, design, logic, 
+implementation and/or testing. The <strong>error-count</strong> 
+parameter is a value indicating the number of defects corrected.
+
+<p>
+/NODEFECTS_CORRECTED sets the number of defects corrected to zero.
+
+<p>
+This qualifier is part of the statistics collection component of 
+VDE. Statistics collection is enabled or disabled on a 
+library basis, using the MODIFY LIBRARY/STATISTICS command. If 
+statistics collection is disabled, these qualifiers are ignored and 
+have no adverse effects. This command is <em>required</em> when certain 
+keywords are specified on the /REASONS qualifier; see <a href="vde_manual_023.html#tbl_reasons">Table 3-2</a> 
+for further information.
+<a name="index_x_526"></a>
+<a name="index_x_527"></a>
+<a name="index_x_528"></a>
+
+<p>
+If statistics collection is enabled on the current library and you do 
+not specify the /REASONS qualifier, you will be prompted for the 
+information.
+<h3>/FOLD[=fold-ident]</h3>
+Specifies that a fold record be cancelled when this replacement is 
+performed. The <strong>fold-ident</strong> parameter gives the fold 
+identifier of a fold record for the module being replaced and for the 
+stream in which the replacement takes place. When VDE 
+performs the replacement, it will cancel this fold record from the 
+VDE database. You can omit the <strong>fold-ident</strong> 
+parameter if there is only one fold record for the specified module and 
+stream. You should use the /FOLD qualifier if the current replacement 
+is done to satisfy an existing fold record in the database.
+
+<a name="bottom_022"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_manual_021.html#bottom_021">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vde_manual_023.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_manual_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_manual_index.html">Index</a>
+</table>
+</body>
+</html>

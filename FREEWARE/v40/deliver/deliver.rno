@@ -1,0 +1,724 @@
+.! DELIVER.RNO - Programmable delivery interface for VMS MAIL
+.! Written by Ned Freed, 10-Oct-1985, modified 30-Apr-1986
+.! and again 26-Sep-1986 and again 17-Dec-1986
+.!
+.! RUNOFF operation instructions:
+.!   This file can either produce a printed document or an entry
+.!   for VMS online HELP. Use the command
+.!
+.!     $ RUNOFF/NOBOLD/NOUNDER/OUT=DELIVER.HLP DELIVER.RNO
+.!
+.!   to create the online help entry. DELIVER.HLP can be inserted
+.!   into any VMS help library. Use the command
+.!
+.!     $ RUNOFF/OUT=DELIVER.MEM/VAR=MANUAL DELIVER.RNO
+.!
+.!   To create a document for printing.
+.!
+.if manual
+.!
+.! We set the layout so that running page numbers are on the bottom
+.!
+.lo 1,2
+.st
+.!
+.! Initial right margin - sections should never set it higher than this.
+.! Set page size too.
+.ps 57,67 .rm 67
+.!
+.! Header level setup
+.sthl 6,0,0,8,9,1,1,9,2
+.dhl D,D,lu,d,ll,ll
+.!
+.!
+.flags bold
+.!
+.sk 2
+.c;DELIVER - A Programmable Message Delivery System for VMS MAIL
+.title DELIVER - A Programmable Message Delivery System for VMS MAIL
+.sk 2
+.c;Ned Freed
+.c;Computing Services
+.c;Harvey Mudd College
+.sk 1
+.c;17-Dec-1986
+.sk 3
+.else manual
+.NO NUMBER .NO PAGING .STHL 5,1,1
+.endif manual
+.if manual
+.send toc .ifnot global
+.hl 1 ^*Overview\*
+.send toc .endif global
+.else manual
+.br
+1 DELIVER
+.br
+.endif manual
+DELIVER is an adjunct to VMS MAIL which makes it possible for
+incoming mail messages to be handled and processed automatically based
+on information provided in a user-supplied file. Different actions
+can be taken based on a message's address, subject or contents.
+These actions include delivering the message, forwarding
+the message or even invoking a DCL command script to perform some
+complex operation.
+Any actions taken occur immediately upon receipt of the message; the
+user does not need to log in for DELIVER to operate.
+.s 1
+DELIVER is modelled after the MAILDELIVERY facility of the MMDF mail
+system. DELIVER is, however, completely distinct from MMDF and the
+formats of .MAILDELIVERY files for MMDF and MAIL.DELIVERY files for
+DELIVER are dissimiliar.
+.s 1
+This document assumes that the reader is familiar with the VMS MAIL facility.
+.if manual
+.send toc .ifnot global
+.hl 1 ^*Setting up DELIVER\*
+.send toc .endif global
+.else manual
+.br
+2 Setup
+.br
+.endif manual
+Users can set up DELIVER to handle their incoming mail by
+doing just two things:
+.test page 5
+.s 1 .ls0 .dle "(",ll,")"
+.le;Create a MAIL.DELIVERY file in their accounts' initial default
+directory (SYS$LOGIN). For security reasons
+this file MUST be located in the initial
+default directory -- it cannot be stored anyplace else. The
+format of a MAIL.DELIVERY file is described below.
+.s 1
+.le;Set their mail forwarding address for the account to "DELIVER_%user",
+where "user" is the username associated with the user's account. The MAIL
+command to change or set a forwarding address is SET FORWARD.
+Specifying another user's name in conjunction with "DELIVER_%"
+will perform no useful function -- mail will simply be forwarded and
+handled by that user's MAIL.DELIVERY file, assuming one exists.
+.els 1
+Once these two steps have been taken, DELIVER will
+be invoked automatically to handle all mail as it is delivered.
+For example, suppose user BOB wants to tell DELIVER to handle incoming
+messages. BOB should create a MAIL.DELIVERY file and then type:
+.s 1 .i 4 .test page 4
+$ MAIL
+.i 4
+MAIL_> SET FORWARD DELIVER_%BOB
+.i 4
+MAIL_>
+.if manual
+.send toc .ifnot global
+.hl 1 ^*MAIL.DELIVERY file format\*
+.send toc .endif global
+.else manual
+.br
+2 Format
+.br
+.endif manual
+The MAIL.DELIVERY file controls DELIVER and tells it how to handle
+each message. A MAIL.DELIVERY file consists of a series of directives with
+one directive on each line of the file. Each directive specifies how
+a certain kind of message is to be handled. A particular directive
+may or may not apply to a given message. An attempt is made to apply
+every directive in the MAIL.DELIVERY file to each message, thus
+more than one directive may apply to (and more than
+one action may be the result of) a single message.
+.s 1
+Any line in the file which begins with a semicolon or an exclamation point
+is considered to be a comment and is ignored.
+.s 1
+A directive line consists of the following items in order from left to right:
+.s 1 .i 3
+_<from-pat_> _<to-pat_> _<subject-pat_> _<accept_> _<action_> _<parameter_>
+.s 1
+Items must be delimited by one or more spaces or tabs. Quoted strings
+(use double quotes, not single quotes)
+are allowed as single items; the quotes are removed
+from the items as they are read. A double quote can be obtained by using
+two double quotes with no space between them. This form of quote handling
+is consistent with that of VMS DCL.
+.if manual
+.send toc .ifnot global
+.hl 2 ^*Directive applicability\*
+.send toc .endif global
+.else manual
+.br
+3 Applicability
+.br
+.endif manual
+The _<from-pat_>, _<to-pat_>, _<subject-pat_> and _<accept_> items
+determine whether or not the directive applies to a particular message.
+A string comparison is performed between the patterns _<from-pat_>,
+_<to-pat_> and _<subject-pat_> and the "From:", "To:" and
+"Subject:" fields of the message header respectively.
+The comparison is not case sensitive.
+The usual VMS wildcard characters ("_*" and "_%") can be used in
+the patterns. The pattern "_*" will match anything.
+.s 1
+Once the comparisons have been performed, the _<accept_> item
+determines if the directive should be applied to the message. Only the first
+character of _<accept_> is significant. It should be one
+of the following:
+.s 1 .nf .lm +3 .test page 5
+ A - always apply this directive; ignore the results of
+     the comparisons.
+.test page 2
+ X - never apply this directive; ignore the results of
+     the comparisons.
+.test page 2
+ T - apply this directive if the patterns all matched.
+.test page 2
+ F - apply this directive if the patterns did not all match.
+.test page 2
+ O - apply this directive if the patterns all matched and
+     no previous directive has been applied to the message.
+.test page 2
+ B - apply this directive if a pattern did not match and
+     no previous directive has been applied to the message.
+.test page 2
+ E - this directive applies if all the patterns matched
+     OR no other directive has been applied so far.
+.s 1 .f .lm -3
+Any character whatsoever is legal: Y is the same as T,
+N is the same as F,
+question mark is the same as O, Q is the same as B and all other
+characters are the same as X.
+.s 1
+Directives are tested in the order they appear in the MAIL.DELIVERY file.
+.s 1
+For example, suppose JIM sends a message to BOB. The subject line of
+the message is "Re: Mooses". BOB's MAIL.DELIVERY
+file contains the following lines (the function of the last two columns
+of each line, the _<action_> and _<parameter_> items, is described later):
+.s 1 .lm +4 .nf
+.test page 5
+"FRED _*" _* _*         T Q
+"JIM _*"  _* _*         T A JIM.LOG
+_*        _* _*mooses_*  T A MOOSE.LOG
+_*        _* _*         O A OTHER.LOG
+_*        _* _*         A D
+.s 1 .lm -4 .f
+The first directive in the file does not apply since the message is not
+from FRED. The second and third directives both apply since JIM is the
+sender and the subject line contains the string "mooses". The fourth
+directive's patterns all apply, but a preceeding directive has applied,
+so it does not apply. The final directive applies since it would apply
+to any message. The result is that three directives apply to this
+message, and thus three separate actions are taken in processing the
+message.
+.s 1
+Note: The patterns "FRED _*" and "JIM _*"
+are useful since VMS MAIL lets users set up personal name fields
+which become part of the "From:" field of the message -- the personal
+name is enclosed in quotes and appended to the user name.
+Depending on
+personal name fields for message handling is not a good idea since some
+users have a tendency to change personal names frequently and without warning.
+The use of the space followed by an asterisk will match any personal name
+field a user sets up; the result is a MAIL.DELIVERY file which is
+insensitive to personal names.
+.s 1
+If none of the directives in the file are found to apply to the message,
+the message is just delivered normally. In effect, each MAIL.DELIVERY
+file implicitly ends with the directive:
+.s 1 .i 4
+_* _* _* O D
+.if manual
+.send toc .ifnot global
+.hl 2 ^*Actions\*
+.send toc .endif global
+.else manual
+.br
+3 Actions
+.br
+.endif manual
+The _<action_> and _<parameter_> items specify what action is taken
+when a directive is applied to a message. The first character of
+_<action_> specifies what type of action to take. The legal characters for
+_<action_> and what they do are:
+.s 1 .nf .lm +3
+.test page 6
+ A - append the body (or contents) of the message to a file.
+     The _<parameter_> item specifies the file name. The file
+     must already exist and the recipient must have write access
+     to the file; DELIVER grants the user no special file access
+     privileges.
+.test page 3
+ C - copy the body of the message to a file whose name is
+     _<parameter_>. Write access to the directory where the
+     file is to be created is required.
+.test page 2
+ D - deliver the message normally. The message is placed in
+     the user's NEWMAIL folder. _<parameter_> is ignored.
+.test page 8
+ V - deliver the message normally using system privileges.
+     This action is identical to action "D" above except that
+     the "From:" field of the message header is set to match
+     the name of the original sender instead of the name of
+     the user. This action makes use of the DELIVER foreign
+     mail interface in incoming mode which in turn requires
+     that the user be fully privileged. General users should
+     use action "D" instead.
+.test page 6
+ E - execute the specified command. The DCL command specified
+     by _<parameter_> is executed. The command is executed in
+     the environment of the recipient's own account. Any
+     noninteractive DCL command is valid, including an
+     indirect command file specification. Several DCL symbols
+     can be used in the command to facilitate message
+     processing:
+.s 1
+.test page 3
+     _FROM           - the message's "From:" address.
+     _TO             - the message's "To:" address.
+     _SUBJECT        - the message's "Subject:".
+.test page 3
+     _QFROM          - "From:" with quotes doubled.
+     _QTO            - "To:" with quotes doubled.
+     _QSUBJECT       - "Subject:" with quotes doubled.
+.test page 7
+     MESSAGE__FILE   - the name of the file containing the
+     _                 body of the message. MESSAGE__FILE
+     _                 is always fully qualified.
+     MESSAGE__DELETE - initially set to "YES", if this
+     _                 symbol is set to "NO" no attempt will
+     _                 be made to delete MESSAGE__FILE after
+     _                 all actions are complete.
+.s 1
+.test page 2
+     The "Q" forms are useful if the symbol must be expanded
+     inside a quoted string. The MESSAGE__DELETE flag is useful
+     if MESSAGE__FILE has to be queued for further processing
+     at a later time.
+.test page 2
+ F - forward the message. The message is forwarded to the
+     address specified by _<parameter_>.
+.test page 8
+ W - forward the message using system privileges. This action
+     is identical to action "F" above except that the "From:"
+     field of the message header is set to match the name of
+     the original sender instead of the name of the user. This
+     action makes use of the DELIVER foreign mail interface in
+     incoming mode which in turn requires that the user be
+     fully privileged.  General users should use action "F"
+     instead.
+.test page 5
+ Q - quit; take no action and abort. If this action is taken
+     DELIVER stops scanning the MAIL.DELIVERY file at this
+     point. No subsequent directives will apply after this
+     one. Use this directive with care; it is very easy to
+     lose messages when this action is employed.
+.s 1 .lm -3 .f
+For example, suppose that BOB sends JIM a message. JIM has the
+following (rather complex) MAIL.DELIVERY file:
+.s 1 .nf .lm +4 .test page 6
+! Messages with subject "Loopback" are returned to sender
+"JIM _*"   _* "Loopback" T D
+_*         _* "Loopback" O F """''F$ELEMENT(0,"" "",QFROM)'"""
+_*         _* "Loopback" T Q
+! All other messages are logged
+_*         _* _*          A E @LOGALL.COM
+! Just log messages from TERRY
+.test page 7
+"TERRY _*" _* _*          T Q
+! Just log archive messages from myself
+"JIM _*"   _* "Archives" T Q
+! Save messages from BOB in a special file
+"BOB _*"   _* _*          T A BOB.LOG
+! Then deliver anything that gets this far
+_*         _* _*          A D
+.s 1 .f .lm -4
+JIM's LOGALL.COM contains the following commands:
+.s 1 .nf .lm +4
+.test page 6
+$ from    == "From:    " + from
+$ to      == "To:      " + to
+$ subject == "Subject: " + subject
+$ open/append/error=make__one x message.log
+$ next:
+$ write x ""
+$ write x from
+$ write x to
+$ write x subject
+$ write x ""
+$ close x
+.test page 7
+$ append 'message__file' message.log
+$ exit
+$ !
+$ make__one:
+$ create message.log
+$ open/append x message.log
+$ goto next
+.s 1 .f .lm -4
+If the subject line of BOB's message is not the string "Loopback",
+the message will be logged with a header
+in the file MESSAGE.LOG (located in
+JIM's SYS$LOGIN directory), appended to the file BOB.LOG without
+any header and delivered to JIM's NEWMAIL folder.
+If subject line is the string "Loopback", JIM's MAIL.DELIVERY file
+will bounce the message right back to BOB.
+.s 1
+As another example, if TERRY sends a message to BOB, the message
+is logged only in BOB's MESSAGE.LOG file; BOB never receives any
+notification that the message arrived. Apparently TERRY never
+says anything of importance to BOB.
+.s 1
+It is clear that the ability to execute an arbitrary set of DCL
+commands in response to a message is a very powerful tool. It must,
+however, be used with care, since processing is initiated whenever
+a message is received and operates in a completely unattended
+environment.
+.if manual
+.send toc .ifnot global
+.hl 1 ^*Implementation\*
+.send toc .endif global
+.else manual
+.br
+2 Implementation
+.br
+.endif manual
+Warning: The details in this section are technical in nature and are probably
+of interest only to system managers or programers.
+.s 1
+DELIVER is implemented as foreign interface to VMS MAIL. DELIVER
+is activated when a message addressed to "DELIVER_%user" is
+sent. MAIL invokes DELIVER by loading the DELIVER__MAILSHR shareable image
+and calling a set of routines DELIVER provides to interface to MAIL.
+DELIVER does the following:
+.s 1 .ls 0 .dle "(",d,")"
+.le;The $GETUAI system service is used to validate the address.
+DELIVER will signal an error if an attempt is made to deliver mail
+to someone who does not exist. The recipient's default directory
+is retrieved to use when opening the recipient's MAIL.DELIVERY file.
+.le;DELIVER checks to see that the recipient has a MAIL.DELIVERY file in his or
+her home directory. If this file does not exist DELIVER signals an error.
+If the file exists it is read and parsed.
+.le;DELIVER writes the body of the message to a temporary file in the
+recipient's home directory.
+.le;A command file is constructed to complete the delivery process.
+This file is also created in the recipient's home directory. The
+directives previously read from the MAIL.DELIVERY file are compared
+with the message.  Any directories that match cause commands to be written to
+the command file that implement the requested action.
+.le;After the list of directives is exhausted DELIVER checks to see
+that at least one directive caused an action to be taken. If none
+did, DELIVER writes a default action command to deliver the message
+normally into the command file. Commands to delete the message file
+(unless the MESSAGE__DELETE flag is set to "NO" by one of the actions)
+and the command file itself are written to the command file and the
+command file is closed.
+.le;The command file is queued to the batch queue MAIL$BATCH
+for processing. (SYS$BATCH is used if MAIL$BATCH does not exist.)
+The file is queued so that it will execute just
+as if the recipient had submitted it for processing from his or
+her own account. (Note: This requires
+CMKRNL privilege.) Once the command
+file is submitted DELIVER tidies up, deallocating any storage allocated
+for directive lists, and returns control to MAIL.
+.els 0
+.if manual
+.send toc .ifnot global
+.hl 1 ^*The other half - using DELIVER to send messages\*
+.send toc .endif global
+.else manual
+.br
+2 Sending__messages
+.br
+.endif manual
+Every foreign protocol interface to VMS MAIL has two parts -- one which
+deals with received messages (the outgoing part) and another which
+transfers messages to VMS MAIL (the incoming part). All the functions
+of DELIVER described up to this point are part of the outgoing part.
+Rather than include a null incoming handler in DELIVER, it was decided
+to add a general-purpose message queueing system that might be useful both
+as a simple interface to VMS MAIL and as an example of how this part
+of a foreign protocol interface is constructed.
+.s 1
+The message enqueueing part of DELIVER can be used only by fully privileged
+users since it allows arbitrary settings of "From:" addresses and so
+could violate MAIL security in the hands of general users. Thus, this
+mechanism is of little interest to most users.
+.s 1
+A message is sent via DELIVER to VMS MAIL with a command of the form:
+.s 1 .i 4
+$ MAIL/PROTOCOL=DELIVER__MAILSHR -
+.i 4
+######/SUBJECT="subject"#message-file#to-list
+.s 1
+where "subject" is the subject line for the message, "message-file"
+is the name of a file containing the text of the message and to-list
+is a list of user names (delimited by commas) the message is to be sent to.
+The "From:" address for the message is not specified as part of the command
+line; it is obtained instead by translating the DCL symbol FROM.
+No checking is done on the validity of the translation.
+This mode of MAIL operation roughly corresponds to the "trusted submit"
+mode available in MMDF-II.
+.s 1
+DELIVER sets two DCL symbols to indicate the success or failure of
+its attempt to deliver the message. The symbol DELIVER$STATUS will contain
+the status code of the last error that occurs while the message is being
+sent. If DELIVER$STATUS indicates that some sort of failure occurred, the
+symbol
+DELIVER$MESSAGE will contain the text form of the error message.
+.s 1
+In the event of multiple errors while sending (e.g. two addresses
+in the "to-list" are illegal) only the more recent error status information
+will be returned. This interface is somewhat crude but should prove
+adequate for most applications.
+.s 1
+The incoming side of DELIVER is used by the outgoing side to process
+the "V" and "W" actions, which correspond to "privileged deliver" and
+"privileged forward" operations respectively.
+.if manual
+.send toc .ifnot global
+.hl 1 ^*Availability\*
+.send toc .endif global
+.else manual
+.br
+2 Availability
+.br
+.endif manual
+DELIVER is in the public domain. Copies can be obtained from:
+.s 1 .nf .lm +10 .test page 5
+Ned Freed (ned@ymir.bitnet)
+Computing Services
+Harvey Mudd College
+Claremont, CA 91711
+(714) 621-8006
+.lm -10 .s 1
+Please write, call or send e-mail for additional information.
+.if manual
+.send toc .ifnot global
+.hl 1 ^*Installation\*
+.send toc .endif global
+.else manual
+.br
+2 Installation
+.br
+.endif manual
+This section describes the installation procedure for DELIVER.
+DELIVER must be installed by a system manager or other suitably
+privileged person. If you are not authorized to install privileged
+software on your system, you will have to have your system manager
+do this for you.
+.if manual
+.send toc .ifnot global
+.hl 2 ^*Reading the distribution\*
+.send toc .endif global
+.else manual
+.br
+3 Distribution
+.br
+.endif manual
+DELIVER is available as a standalone system but it is also
+included in the distribution of PMDF -- the Pascal
+Mail Distribution Facility. If you received your copy of DELIVER
+in conjunction with PMDF the installation of PMDF covers the installation
+of DELIVER and you should follow the instructions PMDF provides and not
+the instructions below.
+.s 1
+The first thing to do is to decide where the source,
+examples and documentation for DELIVER are to be stored. This
+installation procedure assumes the directory DISK:[DELIVER] is
+used; you should substitute your own directory wherever DISK:[DELIVER]
+appears.
+.s 1
+DELIVER is distributed either as a VMS BACKUP save set on tape or as
+an archive file. In the case of a tape, a single save set
+must be restored. Issue the following commands:
+.s 1 .i 4
+$ MOUNT/FOREIGN tape:
+.i 4
+$ BACKUP/TRUNCATE/LOG tape:DELIVER.BCK DISK:[DELIVER]
+.s 1
+where "tape" is the name of the tape drive where the DELIVER distribution
+tape is mounted. This process will create the directory for
+DELIVER if it does not already exist.
+.s 1
+In the case of an archive file the directory for DELIVER must be created
+manually. Once this is done
+place the archive file in the directory and execute it as
+a command file.
+.if manual
+.send toc .ifnot global
+.hl 2 ^*Files\*
+.send toc .endif global
+.else manual
+.br
+3 Files
+.br
+.endif manual
+The distribution of DELIVER contains the following files:
+.s 1 .lm +1 .nf .test page 4
+BUILD.COM           Command file to build the DELIVER
+                    shareable image.
+DELIVER.PAS         Main source file for DELIVER.
+DELIVER.RNO         This file.
+DELIVER__ERR.MSG     Error messages for DELIVER.
+DELIVER__MAILSHR.EXE The DELIVER shareable image.
+FORWARD.COM         Companion to FORWARD.DELIVERY.
+FORWARD.DELIVERY    A MAIL.DELIVERY file for people who have
+                    moved to a new address.
+MAILSHR.MAR         Routine interface to VMS MAIL.
+MAILSHR.OPT         LINK options needed to build DELIVER.
+.test page 3
+TRIP.COM            Companion to TRIP.DELIVERY.
+TRIP.DELIVERY       A MAIL.DELIVERY file for people who are
+                    out of town.
+.lm -1 .f .s 1
+Object and executable files corresponding to the various source
+files listed above are also included if the distribution media is a tape.
+.if manual
+.send toc .ifnot global
+.hl 2 ^*Compilation and linking\*
+.send toc .endif global
+.else manual
+.br
+3 Compilation__and__linking
+.br
+.endif manual
+The distribution tape comes with an executable version of
+DELIVER that has already
+been compiled and linked. The archive does not contain such
+an executable image, so DELIVER must be re-compiled from source.
+.s 1
+DELIVER should be recompiled and relinked by executing
+the command file BUILD.COM. This command
+procedure produces the shareable image DELIVER__MAILSHR.EXE.
+.s 1
+CAUTION: DELIVER must be compiled with VAX Pascal version 3.1 or later.
+DELIVER will not run on versions of VMS prior to 4.0.
+.if manual
+.send toc .ifnot global
+.hl 2 ^*File locations\*
+.send toc .endif global
+.else manual
+.br
+3 File__locations
+.br
+.endif manual
+The shareable image for DELIVER must be located on SYS$LIBRARY so
+MAIL can access it (there is a logical name mechanism that allows
+this image to be located in another directory, but this mechanism
+is broken in some versions of VMS, so it is best just to put the
+image in SYS$LIBRARY). Copy the file DELIVER__MAILSHR.EXE to
+SYS$LIBRARY. Make sure the file is owned by [SYSTEM] and has
+world read access.
+.s 1
+DELIVER requires CMKRNL privilege so it can queue batch jobs
+on the behalf of other users. This means that MAIL must be
+installed with CMKRNL privilege and DELIVER
+must be installed. However, MAIL is already
+installed, so to install MAIL with CMKRNL privilege the image
+must be deleted and reinstalled. The following INSTALL
+commands will accomplish this:
+.s 1 .nf .lm +4
+$ MCR INSTALL
+INSTALL_> SYS$LIBRARY:DELIVER__MAILSHR.EXE
+INSTALL_> SYS$SYSTEM:MAIL/DELETE
+INSTALL_> SYS$SYSTEM:MAIL/OPEN/HEADER/SHARE -
+_         /PRIV=(SYSPRV,OPER,WORLD,NETMBX,CMKRNL)
+.s 1 .f .lm -4
+These commands should be placed in the local startup command file
+for the system so they will execute each time the system is booted.
+(If SYS$MANAGER:VMSIMAGES.COM is used, a "!/NOREMOVE" qualifier should
+be added to each of the above commands.)
+.if manual
+.send toc .ifnot global
+.hl 2 ^*Batch queue for DELIVER\*
+.send toc .endif global
+.else manual
+.br
+3 Batch__queues
+.br
+.endif manual
+The last step in installing DELIVER is to define the batch queue
+DELIVER should use for executing delivery command files.
+DELIVER expects to use a queue named MAIL$BATCH. This can be
+an actual batch queue or a logical name equated to some
+existing queue. Either the queue or the logical name should be
+started or set up by the local startup command file.
+A queue with a small job limit (1 or#2)
+and a relatively high priority (3 or#4) is recommended so users
+don't experience long delays in receiving messages.
+.s 1
+If no MAIL$BATCH queue exists DELIVER will try to use the standard
+system batch queue SYS$BATCH instead.
+.s 1
+DELIVER enables SYSPRV as well as CMKRNL while queueing the job,
+so the queue can be protected against normal user submissions if
+desired.
+.s 1
+DELIVER should now be ready to use. Create a
+sample MAIL.DELIVERY file and try it out (or use one of the sample
+files included in the distribution).
+.if manual
+.send toc .ifnot global
+.hl 2 ^*Documentation\*
+.send toc .endif global
+.else manual
+.br
+3 Documentation
+.br
+.endif manual
+The file DELIVER.RNO contains the only documentation for DELIVER.
+(You are reading it right now.) DELIVER.RNO can be
+used either to produce a printed document or a VMS help file entry.
+Use the command
+.s 1 .i 4
+$ RUNOFF/NOBOLD/NOUNDER/OUT=DELIVER.HLP DELIVER.RNO
+.s 1
+to create the online help entry. DELIVER.HLP can be inserted
+into any VMS help library. Use the command
+.s 1 .i 4
+$ RUNOFF/OUT=DELIVER.MEM/VAR=MANUAL DELIVER.RNO
+.s 1
+to create a document for printing.
+.if manual
+.send toc .ifnot global
+.hl 1 ^*Bugs\*
+.send toc .endif global
+.else manual
+.br
+2 Bugs
+.br
+.endif manual
+There are no known bugs in DELIVER at this time. However, there are
+a few minor nuisances which users should be aware of:
+.s 1 .ls 0 .dle "(",d,")"
+.le;DELIVER changes the "From:" address of any message it delivers or
+forwards to the address of the owner of the MAIL.DELIVERY file.
+The original "From:" address is not lost entirely -- it is merged into
+the subject line of the message. This problem arises due to VMS MAIL's
+lack of distinction between a transport address and a header address --
+DELIVER has to set the "From:" address to itself so that authorization
+code in other mailers will see it. Privileged users can circumvent
+this restriction by using the "V" and "W" actions, but no such
+mechanism is available to general users.
+.le;It is difficult to debug MAIL.DELIVERY files since there is no
+way to watch deliver process the file except by enabling debug
+code in DELIVER (which is not an option normal users can exercise).
+Note that output from command files invoked by
+DELIVER can be captured in a file by using the#/OUTPUT qualfier:
+.s 1 .i 4
+! Execute a command file with logging
+.i 4
+_* _* _* A E @DO__SOMETHING.COM/OUTPUT=DO__SOMETHING.LOG
+.s 1
+DELIVER does watch for users sending messages to themselves and then
+tries to be somewhat more informative about any errors it finds
+in MAIL.DELIVERY files.
+.le;Enabling the COPY__SELF feature in MAIL while DELIVER is also set to
+send messages to the user's mailbox may send MAIL into an infinite loop. The
+COPY__SELF facility should not follow forwarding addresses; unfortunately
+it does do this in the present implementation. Thus a message is sent by
+DELIVER to the user's mailbox, which in turn re-activates DELIVER, which
+sends the message to the user's mailbox, and so on.
+.le;Lines in all files processed by DELIVER are limited to, at
+most,#256 characters.
+Individual directive items as well as message "From:", "To:" and "Subject:"
+lines are also limited to#256 characters. (This limit can be changed
+by altering the constant PARAMETER__SIZE in DELIVER.PAS.)
+.els

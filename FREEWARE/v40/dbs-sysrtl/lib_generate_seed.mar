@@ -1,0 +1,82 @@
+	.title	lib_generate_seed
+	.ident	"X1-001"
+
+;+
+; Version:	X1-001
+;
+; Facility:	Library routines.
+;
+; Abstract:	Generate a seed for random number generation.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	19-Aug-1992, DBS, Version X1-001
+; 001 -	Original version.
+;-
+
+;++
+; Functional Description:
+;	This routine uses the system date/time to generate a seed to be used
+;	for random number generation.
+;
+; Calling Sequence:
+;	call lib_generate_seed (seed)
+;
+; Formal Argument(s):
+;	seed.wl.r	Address of a longword to contain the seed.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_normal if ok
+;	ss$_badparam if the wrong number of parameters is passed.
+;
+; Side Effects:
+;	None
+;--
+
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	$ssdef
+	$gblini	GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+	arg_count = 1			; number of arguments
+	seed = 4			; offset to seed
+
+time:	.long	0
+time2:	.long	0
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+lib_generate_seed, ^m<>
+
+	movl	#ss$_badparam, r0	; assume this for now
+	cmpw	#arg_count, (ap)	; how many arguments ?
+	bneq	90$			; no good, bail out
+	$gettim_s timadr=time		; get current system time to use as
+	xorl3	time, time2, @seed(ap)	;  the seed for the random numbers
+	movl	#ss$_normal, r0
+
+90$:	ret
+
+	.end

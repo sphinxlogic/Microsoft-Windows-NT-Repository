@@ -1,0 +1,60 @@
+$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+$! PMDF_DELIVER.COM
+$!
+$! +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+$! +  DSNlink_NEW version V5.2                                               +
+$! +                                                                         +
+$! +  This is a sample file to automate DSNlink_NEW's GET Processing with    +
+$! +  PMDF's DELIVER, or with standalong DELIVER.  PMDF DELIVER is           +
+$! +  incorporated with PMDF, and standalong DELIVER is available via        +
+$! +  Anonymous FTP from Innosoft.COM.  See DSNlink_NEW documentation for    +
+$! +  installation instructions.                                             +
+$! +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+$!
+$!   Your MAIL.DELIVERY file should include the lines:
+$!
+$!+++
+$!      * "*username+GET*" * T L SYS$LOGIN:DSNLINK_NEW_GET.LOG-DELIVER
+$!      * "*username+GET*" * T C SYS$LOGIN:DSNLINK_GET.DAT
+$!      * "*username+GET*" * T E @device:[directory]DELIVER.COM
+$!---
+$!
+$!  (Replace "username" with your username, and replace "device:[directory]"
+$!   with the actual device and directory that you've placed DELIVER.COM
+$!   into.)
+$!
+$!  (Note the first line is necessary for debugging only, and can be removed
+$!   after everything is working.)
+$!
+$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+$
+$  RENAME/LOG SYS$LOGIN:DSNLINK_GET.DAT -
+     SYS$LOGIN:DSNLINK_GET_'F$GETJPI(0,"PID")'.TMP
+$
+$  IF F$SEARCH("SYS$LOGIN:DSNLINK_NEW_GET.LOG-DELIVER;-5") .NES. "" THEN -
+     PURGE/KEEP=3 SYS$LOGIN:DSNLINK_NEW_GET.LOG-DELIVER
+$
+$!!!
+$
+$! strip off the IN% and domain stuff -- we only handle local users
+$  USERNAME = F$EXTRACT(1,-1,F$ELEMENT(1,"%",F$ELEMENT(0,"@",FROM)))
+$
+$  IF F$TRNLNM("DSNLINK_NEW_DIR") .EQS. ""
+$  THEN
+$    DEVICE = F$PARSE(F$ENVIRONMENT("PROCEDURE"),,,"DEVICE")
+$    DIRECTORY = F$PARSE(F$ENVIRONMENT("PROCEDURE"),,,"DIRECTORY")
+$    DEFINE DSNLINK_NEW_DIR 'DEVICE''DIRECTORY'
+$  ENDIF
+$
+$! you may want to do a SUBMIT here so the MAIL* queues aren't kept busy
+$! during the (potentially long) connection to the DSNlink host system.  
+$! See MX_SITE_DELIVER.COM_TEMPLATE for ideas.
+$
+$  @DSNLINK_NEW_DIR:DSNLINK_NEW -
+     "DSNLINK_NEW_DIR:DSNLINK_NEW_CONFIG.DAT" -
+     "$GET$" -
+     "SYS$LOGIN:DSNLINK_GET_''F$GETJPI(0,"PID")'.TMP" -
+     "Specific=''USERNAME'" -
+     'USERNAME'
+$  
+$  EXIT

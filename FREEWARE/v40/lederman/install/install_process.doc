@@ -1,0 +1,302 @@
+
+
+
+
+
+
+                 Normalizing INSTALL LIST/FULL listings
+
+                   for system management and tuning:
+
+          and a comparison of FORTRAN and Datatrieve programs.
+
+
+                             B. Z. Lederman
+
+                        ITT World Communications
+
+                        New York, NY 10004-2464
+
+                                Abstract
+
+          This is, in a sense, a two part article.  The  first
+          part  shows how to get some useful system management
+          information   by    processing    data    from    an
+          INSTALL LIST/FULL   command.   This  first  part  is
+          really quite simple,  and  involves  only  the  most
+          elementary   Datatrieve   commands   and   a  simple
+          sequential  file.   The  second  part  compares  two
+          methods  of  getting  the  INSTALL listing into that
+          sequential file, using the  traditional  programming
+          language   FORTRAN,   and   using  Datatrieve  as  a
+          programming language.
+
+
+       One of the items to check on  a  VMS  system  is  to  see  that
+  commonly  used  images  are  installed (and normally installed open,
+  header-resident, and often shared) so that VMS doesn't  have  to  go
+  "hunting"  for an image when it is requested to run.  Other items to
+  check are how many global sections are being used,  how  often  each
+  image  is used, and how often shared images are really being used by
+  more than one process.  This information can be  obtained  from  the
+  INSTALL  utility,  particularly  if  one allows the system to run in
+  normal  use  for  some  time  (to   collect   the   usage   counts).
+  Unfortunately,  the  output  of the INSTALL LIST/FULL command is not
+  easily processed.  A portion of typical listing looks like this:
+
+  DISK$VAXVMSRL4:<ALLIN1.LIB>.EXE
+     A1;5             Open     Shar Prv
+          Entry access count         = 50
+          Current / Maximum shared   = 0 / 7
+          Global section count       = 5
+          Privileges = SYSNAM GRPNAM TMPMBX WORLD OPER NETMBX SYSPRV
+
+
+
+
+  Normalizing INSTALL LIST/FULL listings                        Page 2
+  B. Z. Lederman ITT World Communications
+
+
+  DISK$VAXVMSRL4:<SYS1.SYSCOMMON.SYSEXE>.EXE
+     ANALIMDMP;1                    Prv
+          Entry access count         = 0
+          Privileges = CMKRNL CMEXEC
+
+     AUTHORIZE;1                    Prv
+          Entry access count         = 4
+          Privileges = CMKRNL
+
+     BACKTRANS;1      Open     Shar Prv
+          Entry access count         = 0
+          Current / Maximum shared   = 0 / 0
+          Global section count       = 3
+          Privileges = GRPNAM PRMGBL
+
+  and so on.  It's rather difficult to scan a  long  listing  such  as
+  this  to  find  the most often used images, or the most often shared
+  images, etc.  It would be much easier to process if the  information
+  looked  like  this (I have squeezed down the directory field to make
+  the report fit the newsletter page):
+
+                                                          MAX
+        DIRECTORY                 IMAGE     QUAL   ENTRY SHARED GLOBAL
+
+  <ALLIN1.LIB>.EXE              A1          O SP        50    7    5
+  <SYS1.SYSCOMMON.SYSEXE>.EXE   ANALIMDMP      P         0    0    0
+  <SYS1.SYSCOMMON.SYSEXE>.EXE   AUTHORIZE      P         4    0    0
+  <SYS1.SYSCOMMON.SYSEXE>.EXE   BACKTRANS   O SP         0    0    3
+  <SYS1.SYSCOMMON.SYSEXE>.EXE   CDU         OH P         2    1    0
+  <SYS1.SYSCOMMON.SYSEXE>.EXE   CMS         O S          0    0    2
+  <SYS1.SYSCOMMON.SYSEXE>.EXE   COPY        OHS         20    2    1
+  <SYS1.SYSCOMMON.SYSEXE>.EXE   DCL         OHS  L  16,859    5    1
+
+  The record definition for this domain is quite simple:
+
+  DEFINE RECORD INSTALL_P_RECORD OPTIMIZE
+  01 INS_P_REC.
+  !
+  ! This matches the records produced from the INSTALL_PROCESS
+  ! program which normalizes the data from an INSTALL LIST/FULL
+  !
+  ! B. Z. Lederman    29-Sep-1987          ITT World Communications
+  !
+      10 DIRECTORY PIC X(64) EDIT_STRING T(48).
+      10 IMAGE PIC X(32) EDIT_STRING T(24).
+      10 QUAL PIC X(8).
+      10 QUALIFIERS REDEFINES QUAL.
+          20 OPEN PIC X.            ! matches INSTALL abbreviations
+          20 HDR PIC X.
+          20 SHAR PIC X.
+          20 PRV PIC X.
+
+
+  Normalizing INSTALL LIST/FULL listings                        Page 3
+  B. Z. Lederman ITT World Communications
+
+
+          20 PROT PIC X.
+          20 LNKBL PIC X.
+          20 CMODE PIC X.
+          20 NOPURG PIC X.
+      10 ENTRY PIC 9(6) EDIT_STRING ZZZ,ZZ9.
+      10 MAX_SHARED PIC 9(6) EDIT_STRING ZZZ,ZZ9.
+      10 GLOBAL PIC 9(6) EDIT_STRING ZZZ,ZZ9.
+  ;
+
+
+                          What can be learned
+
+       Putting the data into a simple domain like this allows  me  to,
+  for  example,  find  the most used images (the highest Entry count),
+  which shared images are actually used by many processes at the  same
+  time,  which are or are not installed Open, Shared, Header resident,
+  protected, etc.  It also allows me to find  installed  images  which
+  are  not used at all (Entry count of zero) so I can save pool by not
+  installing  them.   The  Datatrieve  commands  to  do  this  are  so
+  elementary  (for example, PRINT INSTALL_P SORTED BY DESC ENTRY) that
+  I don't think it's necessary to discuss them  here.   What  is  more
+  important  is  how  I got from the INSTALL listing to the Datatrieve
+  domain.
+
+
+                   Capture the data, write a program
+
+       First, one must capture the  output  of  the  INSTALL  command.
+  This is best done as a batch job.  I use the following file:
+
+  $ INSTALL :== $SYS$SYSTEM:INSTALL/COMMAND
+  $ INSTALL
+  LIST/FULL
+  $ EXIT
+  $!
+  $! This command file is intended to run as a Batch job to extract
+  $! information about installed images into a log file which can
+  $! then be processed to normalize the data.  If done as a
+  $! SET HOST 0::/LOG the program written to process the information
+  $! won't work because SET HOST deliberately inserts nulls at the
+  $! beginning of each record (unless you re-write the program).
+  $!
+  $! Since INSTALL is privileged, it must be submitted from a
+  $! privileged account (though the log file and processing program
+  $! can be anywhere).
+  $!
+  $! B. Z. Lederman        29-Sep-1987     ITT World Communications
+
+
+
+
+  Normalizing INSTALL LIST/FULL listings                        Page 4
+  B. Z. Lederman ITT World Communications
+
+
+       My next step in this process was to  write  a  FORTRAN  program
+  which  extracted  and  normalized  the data.  This took several days
+  because I had a lot of other work  to  do  and  could  only  put  in
+  fragments  of  time  on  the  problem.  From start to finish I would
+  estimate close to but less than one (7-8  hour)  work  day  for  the
+  entire  effort,  including  the  simple Datatrieve record definition
+  shown before.  This included time looking up and figuring out how to
+  use  OTS$  Run  Time  Library  routines to extract and zero-fill the
+  numeric data.  The program is at the end  of  the  article.   It  is
+  definitely  not  portable  FORTRAN,  as it uses VMS RTL routines and
+  character strings:  if  these  features  weren't  available  in  the
+  VAX FORTRAN  compiler,  the  program  would have been very much more
+  difficult and  complicated  as  all  of  the  character  and  string
+  handling  would have to be done in byte arrays, I'd have to write my
+  own routines to find matching strings, etc.   Also,  if  I  couldn't
+  leave  the  numbers as character strings and push all of the strings
+  together I'd have to use a more  complicated  FORMAT  statement  and
+  output would probably be slower.
+
+       The alternative is to do it all in  Datatrieve.   I  have  done
+  processing like this before in Datatrieve, and felt that it would be
+  a reasonable project and a good comparison between  a  "traditional"
+  programming  language  and  Datatrieve,  even  though  this  type of
+  processing is not what one normally associates with a  4GL,  and  is
+  possibly  one  of  the worst to do in Datatrieve if you are going to
+  look at processing speed.  Creating a procedure  that  did  most  of
+  what  I  wanted took about 1 to 1 1/2 hours:  getting it to properly
+  extract the maximum shared count took about the same amount of time,
+  and  was  the  greatest  difficulty  I had with the entire exercise.
+  Both programs write to exactly the same file format.
+
+
+                  Some program development comparisons
+
+       Datatrieve has the advantage that you can invoke the procedure,
+  examine  data,  edit  the procedure, invoke it again, etc., all from
+  within Datatrieve while debugging a new procedure, and  this  helped
+  me during development.  With traditional languages you have to edit,
+  compile, run, examine data, edit,  etc.,  with  different  products,
+  though  the LSE helped some with the FORTRAN program, and running on
+  an unloaded VAX 11/785 let me compile and link relatively quickly.
+
+       Neither the FORTRAN program nor  the  Datatrieve  procedure  is
+  what  I  would call fully polished:  there are certainly sections of
+  code that could be  "collapsed",  or  made  more  efficient.   Also,
+  please  note  that I had to squeeze some of the comments or put them
+  on separate lines to fit the newsletter, so they  look  a  bit  more
+  ragged  then  they  really  are.   If  we are to consider programmer
+  productivity, then they should probably be left as they  are.   This
+  is  an  application  which  is only going to be run occasionally, to
+  check the state of the installed images on a system.  Once you  have
+
+
+  Normalizing INSTALL LIST/FULL listings                        Page 5
+  B. Z. Lederman ITT World Communications
+
+
+  the  most  used  images installed, and have removed any infrequently
+  used images to save  pool  (except  those  that  must  be  installed
+  because  they  are privileged), then you should only have to run the
+  procedure occasionally as a check, or when the  way  the  system  is
+  being  used  has  changed  significantly,  or  after  installing new
+  products.  It doesn't make  much  sense  to  put  a  lot  of  effort
+  optimizing  a  program  which  will  perhaps  be  used once a month:
+  therefore, I stopped  working  as  soon  as  I  had  programs  which
+  functioned  correctly.   The  only  reason  I would put more work on
+  either of these is if I had to extract additional  information  from
+  the  INSTALL  listing,  in  which  case  I  might  also  think about
+  improving the code at the same time.
+
+
+                   Differences in programming "style"
+
+       It is interesting to note some of the differences  between  the
+  two  languages.   With FORTRAN, handling the different qualifiers in
+  one field was simplified by  using  a  type  of  sub-scripting  (for
+  example,  QUAL(2:2) = 'H').   In  Datatrieve,  this can be done more
+  easily in the record definition, where one field  QUAL  is  defined,
+  and  then  re-defined  for  the  individual  characters:  but in the
+  processing procedure, it isn't possible to REDEFINE a DECLAREd field
+  so  the individual characters are handled separately, and this makes
+  the Datatrieve procedure look a little  more  complicated.   Another
+  difference  is  with  handling  varying  format input records.  With
+  Datatrieve, the REDEFINES feature comes in very handy when  defining
+  such  a  multi-format  record  (see  INSTALL_IN_RECORD below):  with
+  FORTRAN a record description is possible  using  extensions  to  the
+  language  but I found it easier to index the input character string.
+  Also, note what has to be done in FORTRAN to extract a numeric value
+  from  an  arbitrary  string  with leading and trailing blanks:  with
+  Datatrieve, all that is necessary is to equate the character  string
+  to  a numeric string in the STORE statement and the conversion takes
+  place automatically.
+
+       Many of the older programming languages  such  as  FORTRAN  and
+  BASIC  have implicit variable assignments:  if you use a variable in
+  a program, it will automatically be assigned  space  and  a  default
+  variable  type.   Many  newer languages, including Datatrieve, don't
+  allow this:  you must explicitely define all variables (in a  record
+  definition  or DECLARE) and identify the type.  Many programmers now
+  favor this approach, and use the IMPLICIT NONE statement in  FORTRAN
+  to  turn  off  implicit  variable assignments.  Similarly, there are
+  many programmers who are opposed to  the  use  of  labels  and  GOTO
+  statements,  and  many who are just as enthusiastic about supporting
+  their use.  I am not a fanatic about the non-use of GOTO,  though  I
+  am  used to using them and it sometimes takes me a while to get used
+  to not using them:  but it should be noted that  it  was  really  no
+  trouble  at  all to write this procedure in Datatrieve, which has no
+  labels and no GOTO statements.
+
+
+  Normalizing INSTALL LIST/FULL listings                        Page 6
+  B. Z. Lederman ITT World Communications
+
+
+                        Program execution speed
+
+       A question often asked concerns the "speed" of  Datatrieve.   I
+  ran  the  procedure  with  FN$INIT_TIMER  and  FN$SHOW_TIMER  at the
+  beginning and end to find out how  it  did:   elapsed  time  was  23
+  seconds.   By  putting the FORTRAN program in a batch procedure with
+  SHOW PROCESS/ACCOUNTING commands just before and after  running  the
+  program,  I  got  an  elapsed time of 2.7 seconds.  Yes, the FORTRAN
+  program is faster:  but for an application like this,  is  it  worth
+  while  taking  the extra programming and development time to cut the
+  run time?  I would say no.  You would have to process a huge  amount
+  of  data to make the extra programming effort worth while.  If these
+  programs  had  to  manipulate  data  in  an  indexed  file,  or  the
+  application  was more like "normal" Datatrieve (if anyone can define
+  what that is anymore) the time difference would probably be less.
+

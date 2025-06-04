@@ -1,0 +1,292 @@
+#
+# File:		makefile.dos
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxHelp for Windows 3.1
+
+# Change WXDIR to wherever wxWindows is found
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+WXINC = $(WXDIR)\include
+
+PROLOGDIR = $(WXDIR)\utils\prologio
+PROLOGINC = $(PROLOGDIR)\src
+PROLOGLIB = $(PROLOGDIR)\lib\prologio.lib
+
+TREEDIR = $(WXDIR)\utils\wxtree
+TREEINC = $(TREEDIR)\src
+TREELIB = $(TREEDIR)\lib\wxtree.lib
+
+DIBDIR = $(WXDIR)\utils\dib
+DIBLIB = $(DIBDIR)\dib.lib
+DIBINC = $(DIBDIR)
+
+RCDIR = $(WXDIR)\utils\rcparser
+RCLIB = $(RCDIR)\lib\rcparser.lib
+RCINC = $(RCDIR)\src
+
+BUILDDIR = $(WXDIR)\utils\wxbuild
+THISDIR = $(WXDIR)\utils\wxbuild\src
+DOCDIR = $(BUILDDIR)\docs
+
+OBJECTS = wxbuild.obj bapp.obj bmenu.obj bframe.obj bsubwin.obj bgencpp.obj\
+  namegen.obj bitem1.obj bitem2.obj bwin.obj btoolbar.obj bactions.obj btree.obj\
+  bgdi.obj rcload.obj # shapes.obj
+
+LIBS1=$(WXLIB) $(PROLOGLIB)
+LIBS2=$(TREELIB) $(RCLIB) oldnames.lib libw llibcew commdlg ddeml shell
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+# Default is to output RTF for WinHelp
+!ifndef RTFSTYLE
+RTFSTYLE=-winhelp
+!endif
+
+INC=/I$(WXDIR)\include\base /I$(WXDIR)\include\msw /I$(PROLOGINC) /I$(DIBINC) /I$(TREEINC) /I$(RCINC)
+PRECOMP=/YuWX_PREC.H
+
+# Set this to nothing if using MS C++ 7
+ZOPTION=/Z7
+
+!if "$(FINAL)" == "0"
+OPT=/Od
+CPPFLAGS= /Gt8 /AL /W4 /Zi $(ZOPTION) /G2sw $(OPT) $(PRECOMP) /Dwx_msw $(INC) /Fp$(WXDIR)\src\msw\wx.pch /DDEBUG=$(DEBUG)
+CFLAGS= /AL /W4 /Zi /G2sw /Od /Dwx_msw
+LINKFLAGS=/NOD /SEG:512 /CO /ONERROR:NOEXE
+!else
+OPT=/Ox
+CPPFLAGS= /Gt8 /AL /W4 /G2sw $(OPT) $(PRECOMP) /Dwx_msw $(INC) /Fp$(WXDIR)\src\msw\wx.pch /DDEBUG=$(DEBUG)
+CFLAGS= /AL /W4 /Od /G2sw /Dwx_msw
+LINKFLAGS=/NOD  /SEG:512 /ONERROR:NOEXE
+!endif
+
+all:    wx prologio dib rcparser wxtree wxbuild.exe
+
+compact:
+        -wrun clean
+
+prologio:
+        cd $(PROLOGDIR)\src
+        nmake -f makefile.dos FINAL=$(FINAL) OPT=$(OPT)
+        cd $(THISDIR)
+
+wxtree:
+        cd $(TREEDIR)\src
+        nmake -f makefile.dos FINAL=$(FINAL) OPT=$(OPT)
+        cd $(THISDIR)
+
+dib:
+        cd $(DIBDIR)
+        nmake -f makefile.dos FINAL=$(FINAL) OPT=$(OPT)
+        cd $(THISDIR)
+
+rcparser:
+        cd $(RCDIR)\src
+        nmake -f makefile.dos FINAL=$(FINAL) OPT=$(OPT)
+        cd $(THISDIR)
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos FINAL=$(FINAL) OPT=$(OPT)
+        cd $(THISDIR)
+
+bwin.h: bactions.h
+
+bapp.obj: bapp.$(SRCSUFF) bapp.h wxbuild.h bmenu.h bsubwin.h bframe.h namegen.h bwin.h bactions.h btree.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+wxbuild.obj: wxbuild.$(SRCSUFF) wxbuild.h bapp.h bmenu.h bsubwin.h bframe.h namegen.h bwin.h\
+  rcload.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+bmenu.obj: bmenu.$(SRCSUFF) wxbuild.h bapp.h bmenu.h bframe.h namegen.h bwin.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+bframe.obj: bframe.$(SRCSUFF) wxbuild.h bapp.h bmenu.h bframe.h bsubwin.h namegen.h bwin.h bactions.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+bsubwin.obj: bsubwin.$(SRCSUFF) wxbuild.h bapp.h bsubwin.h bframe.h namegen.h bwin.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+bitem1.obj: bitem1.$(SRCSUFF) wxbuild.h bapp.h bsubwin.h bframe.h namegen.h bitem.h bwin.h bactions.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+bitem2.obj: bitem2.$(SRCSUFF) wxbuild.h bapp.h bsubwin.h bframe.h namegen.h bitem.h bwin.h bactions.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+bwin.obj: bwin.$(SRCSUFF) wxbuild.h bwin.h bactions.h bactions.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+btoolbar.obj: btoolbar.$(SRCSUFF) wxbuild.h bwin.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+bgencpp.obj: bgencpp.$(SRCSUFF) wxbuild.h bapp.h bframe.h bgencpp.h namegen.h bwin.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+namegen.obj: namegen.$(SRCSUFF) namegen.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+bactions.obj: bactions.$(SRCSUFF) bactions.h wxbuild.h bwin.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+bgdi.obj: bgdi.$(SRCSUFF) bgdi.h wxbuild.h bwin.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+btree.obj: btree.$(SRCSUFF) btree.h bwin.h wxbuild.h bapp.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+#shapes.obj: shapes.$(SRCSUFF) shapes.h
+#	cl @<<
+#$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+#<<
+
+rcload.obj: rcload.$(SRCSUFF) rcload.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+wxbuild.res :      wxbuild.rc $(WXDIR)\include\msw\wx.rc
+    rc /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -r wxbuild 
+
+wxbuild.exe:      $(WXDIR)\src\msw\dummy.obj $(WXLIB) $(OBJECTS) wxbuild.def wxbuild.res $(PROLOGLIB) $(TREELIB)
+        link $(LINKFLAGS) @<<
+$(WXDIR)\src\msw\dummy.obj $(OBJECTS)
+wxbuild.exe,
+nul,
+$(LIBS1)+
+$(LIBS2),
+wxbuild.def
+<<
+        rc -K wxbuild.res
+
+# Test
+noname.obj: noname.$(SRCSUFF) noname.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+noname.res :      noname.rc $(WXDIR)\include\msw\wx.rc
+    rc /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -r noname 
+
+noname.exe:      $(WXDIR)\src\msw\dummy.obj noname.obj noname.def noname.res
+        link $(LINKFLAGS) @<<
+$(WXDIR)\src\msw\dummy.obj noname.obj
+noname.exe,
+nul,
+$(LIBS),
+noname.def
+<<
+        rc -K noname.res
+
+
+# No PostScript production on the PC: just check it goes through Latex
+docs:	dvi hlp xlp htm
+dvi:	$(BUILDDIR)/docs/wxbuild.dvi
+hlp:	$(BUILDDIR)/docs/wxbuild.hlp
+rtf:	$(BUILDDIR)/docs/wxbuild.rtf
+xlp:    $(BUILDDIR)/docs/wxbuild.xlp
+html:    $(BUILDDIR)/docs/wxbuild.html
+
+$(BUILDDIR)/docs/wxbuild.dvi:	$(BUILDDIR)/docs/wxbuild.tex
+	cd $(BUILDDIR)/docs
+        latex wxbuild
+        latex wxbuild
+        makeindx wxbuild
+        latex wxbuild
+#        dvips -f -r < wxbuild.dvi > wxbuild.ps
+
+$(BUILDDIR)/docs/wxbuild.rtf:       $(DOCDIR)/wxbuild.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\wxbuild.tex $(DOCDIR)\wxbuild.rtf -twice $(RTFSTYLE)
+        cd $(BUILDDIR)/src
+
+$(BUILDDIR)/docs/wxbuild.hlp:       $(DOCDIR)/wxbuild.rtf
+        cd $(DOCDIR)
+        hc wxbuild
+        cd $(BUILDDIR)/src
+
+$(BUILDDIR)/docs/wxbuild.xlp:         $(DOCDIR)/wxbuild.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\wxbuild.tex $(DOCDIR)\wxbuild.xlp -xlp -twice
+        cd $(BUILDDIR)/src
+
+$(BUILDDIR)/docs/wxbuild.html:         $(DOCDIR)/wxbuild.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\wxbuild.tex $(DOCDIR)\wxbuild.htm -html -twice
+        cd $(BUILDDIR)/src
+
+proclean:
+        cd $(PROLOGDIR)\src
+        nmake -f makefile.dos clean
+        cd $(THISDIR)
+
+treeclean:
+        cd $(TREEDIR)\src
+        nmake -f makefile.dos clean
+        cd $(THISDIR)
+
+cleanrtf:
+        cd $(DOCDIR)
+        -erase *.rtf
+        cd  $(THISDIR)
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+
+cleanall:	clean
+        cd $(PROLOGDIR)\src
+        nmake -f makefile.dos clean
+        cd $(TREEDIR)\src
+        nmake -f makefile.dos clean
+        cd $(DIBDIR)
+        nmake -f makefile.dos clean
+        cd $(RCDIR)\src
+        nmake -f makefile.dos clean
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos clean
+        cd $(THISDIR)
+

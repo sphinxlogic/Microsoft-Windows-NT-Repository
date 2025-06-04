@@ -1,0 +1,131 @@
+#
+# File:		makefile.nt
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds hyText class library (MS VC++).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+HYDIR = $(WXDIR)\utils\hytext
+THISDIR = $(WXDIR)\utils\hytext\src
+EXTRALIBS=$(HYDIR)\lib\hytext.lib
+DOCDIR=$(WXDIR)\docs
+LOCALDOCDIR=$(WXDIR)\utils\hytext\docs
+
+!include $(WXDIR)\src\ntwxwin.mak
+
+PROGRAM=test
+ 
+OBJECTS = hytext.obj
+PROOBJECTS=test.obj
+LIBTARGET=$(HYDIR)\lib\hytext.lib
+
+all:    $(LIBTARGET)
+
+$(PROGRAM):    $(PROGRAM).exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt FINAL=$(FINAL)
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt clean
+        cd $(THISDIR)
+
+$(LIBTARGET): $(OBJECTS)
+	-erase $(LIBTARGET)
+	$(implib) @<<
+-out:$(LIBTARGET)
+-machine:$(CPU)
+$(OBJECTS)
+<<
+
+$(PROGRAM).exe:      $(DUMMYOBJ) $(WXLIB) $(PROGOBJECTS) $(LIBTARGET) $(PROGRAM).res
+	$(link) @<<
+-out:$(PROGRAM).exe
+$(LINKFLAGS)
+$(DUMMYOBJ) $(PROGOBJECTS) $(PROGRAM).res
+$(LIBS)
+<<
+
+hytext.obj:      hytext.h hytext.$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+test.obj:      test.$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+$(PROGRAM).obj:      $(PROGRAM).h $(PROGRAM).$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+$(PROGRAM).res :      $(PROGRAM).rc $(WXDIR)\include\msw\wx.rc
+    $(rc) -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -fo$@ $(PROGRAM).rc
+
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+        -erase $(LIBTARGET)
+
+DOCSOURCES=$(LOCALDOCDIR)\manual.tex $(LOCALDOCDIR)\classes.tex
+
+html: $(DOCDIR)\html\hytext\hytext.htm
+hlp: $(DOCDIR)\winhelp\hytext.hlp
+ps: $(WXDIR)\docs\ps\hytext.ps
+
+$(DOCDIR)\winhelp\hytext.hlp:         $(LOCALDOCDIR)\hytext.rtf $(LOCALDOCDIR)\hytext.hpj
+        cd $(LOCALDOCDIR)
+        -erase hytext.ph
+        hc hytext
+        move hytext.hlp $(DOCDIR)\winhelp\hytext.hlp
+        move hytext.cnt $(DOCDIR)\winhelp\hytext.cnt
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\hytext.rtf: $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -start /w tex2rtf $(LOCALDOCDIR)\manual.tex $(LOCALDOCDIR)\hytext.rtf -twice -winhelp
+        cd $(THISDIR)
+
+$(DOCDIR)\html\hytext\hytext.htm:         $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -mkdir $(DOCDIR)\html\hytext
+        -start /w tex2rtf $(LOCALDOCDIR)\manual.tex $(DOCDIR)\html\hytext\hytext.htm -twice -html
+        -erase $(DOCDIR)\html\hytext\*.con
+        -erase $(DOCDIR)\html\hytext\*.ref
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\manual.dvi:	$(DOCSOURCES)
+	cd $(LOCALDOCDIR)
+        -latex manual
+        -latex manual
+        -makeindx manual
+        -bibtex manual
+        -latex manual
+        -latex manual
+        cd $(THISDIR)
+
+$(WXDIR)\docs\ps\hytext.ps:	$(LOCALDOCDIR)\manual.dvi
+	cd $(LOCALDOCDIR)
+        -dvips32 -o hytext.ps manual
+        move hytext.ps $(WXDIR)\docs\ps\hytext.ps
+        cd $(THISDIR)
+
+

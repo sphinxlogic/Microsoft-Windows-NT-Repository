@@ -1,0 +1,1528 @@
+module ppl$workq (ident='V62-01', addressing_mode(external=general)) =
+begin
+!
+! COPYRIGHT (c) 1989 BY
+! DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.
+! ALL RIGHTS RESERVED.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+! ONLY  IN  ACCORDANCE  OF  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER
+! COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND  OWNERSHIP OF THE  SOFTWARE IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+
+!++
+! FACILITY:
+! 
+!   PPL Facility of the VAX RTL (Parallel Processing Library)
+! 
+! ABSTRACT:
+! 
+!   This module contains user-visible routines for Work Queue processing.
+! 
+! AUTHORS:
+! 
+!   Hans OSER
+! 
+! CREATION DATE: 9-MAY-1989
+! 
+! MODIFICATION HISTORY:
+!
+!   V053-01	macros frst_que_el_ and nxt_que_el added 25-MAY-89   WWS
+!
+!   V053-02	program review				 26-MAY-89   WWS 
+!
+!   V053-03	debug_msg_ added			 22-JUN-89   HPO
+!
+!   V053-04	Inserted critical regions around mutexes 08-AUG-89   PJC
+!
+!   V053-05	Added ungrab_marker_ to two cases where  12-SEP-89   PJC
+!		on return from $wake a bad status occurred
+!
+!   V053-06	Added ppl$$condition_handler and two	 27-Mar-90   PJC
+!		JSB routines.
+!
+!   V057-01	EVAX/Alpha port.			 12-Nov-91   PJC
+!
+!   V057-02	Fix decrement of a non-existant element	 30-Aug-93   PJC
+!
+!   V057-03	Remove erroneous ENABLEs.  These caused  07-Jun-94   LMP
+!		problems with the V4.7 BLISS compiler,
+!		and would not really work as (possibly)
+!		intended, as they were in JSB routines.
+!   V62-01	Removed the JSB routines (to fix the	 15-Aug-94   WWS
+!		ENABLE problem properly).
+!   V62-02	Fix return status in remove-work-item	 30-Aug-94   WWS
+!--
+
+
+!
+! TABLE OF CONTENTS:
+!
+FORWARD ROUTINE
+    ppl$create_work_queue,
+    ppl$delete_work_queue,
+    ppl$read_work_queue,
+    ppl$insert_work_item,
+    ppl$remove_work_item,
+    ppl$delete_work_item;
+
+!
+! INCLUDE FILES:
+!
+library	'sys$library:starlet';
+library	'sys$library:xport';
+undeclare %quote $descriptor;
+library	'obj$:ppllib';
+require 'rtlin:rtlpsect';
+
+macro
+    frst_que_el_(z, q, l)=
+begin
+!
+! get first queue element either forward or backward
+!
+!   calling sequence:
+!
+!   local start,
+!	  sss	REF sss_block;
+!   
+!   start = rrr[rrr_q_queue] - fieldexpand_(sss_l_flink,0);
+!   sss	= frst_que_el_(.start, sss_l_flink, sss_l_blink);
+!
+
+local zz;
+
+do zz = .$bblock[z,q] while .zz;
+
+.$bblock[z,l] + $bblock[z,q] - %fieldexpand_(q,0)
+
+end %;
+
+
+macro
+    nxt_que_el_(z, q, l)=
+!
+! get next queue element either forward or backward
+!
+!   calling sequence:
+!
+!   local
+!	sss: REF sss_block;
+!
+!   sss = nxt_que_el_(.sss, sss_l_flink, sss_l_blink);
+!
+begin
+
+.$bblock[z,l] +$bblock[z,q] - %fieldexpand_(q,0)
+
+end %;
+
+!
+! LINKAGE DECLARATIONS
+!
+LINKAGE
+    JSB_R0_R01	=   JSB(REGISTER = 0; REGISTER = 0, REGISTER = 1);
+
+!
+! EXTERNAL ROUTINES
+!
+EXTERNAL ROUTINE
+    ppl$$name_mark_delete,
+    ppl$$name_search,
+    ppl$$name_delete,
+    ppl$$name_lookup,
+    ppl$$condition_handler,
+    ppl$$tell,
+    ppl$pid_to_index,
+    str$analyze_sdesc_r1:   jsb_r0_r01,
+    ppl$$hiber:	novalue;
+
+!
+! EXTERNAL REFERENCES:
+!
+external
+    ppl$$gl_context:	ref ctx_block,		! Our context
+    ppl$$gl_pplsect:	ref pplsect_block;	! PPL facility section
+
+!
+! PSECTS:
+!
+DECLARE_PSECTS (PPL);			! Define psects
+
+
+
+%SBTTL 'ROUTINE: PPL$CREATE_WORK_QUEUE'
+GLOBAL ROUTINE PPL$CREATE_WORK_QUEUE
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$CREATE_WORK_QUEUE - Create a Work Queue
+!
+!   The Create a Work Queue routine creates and initializes a work queue, and
+!   returns the work queue identifier.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    queue_id	:   ref vector[1, long, unsigned], 
+    queue_name	:   ref $BBLOCK
+    ) = 
+!
+!             queue-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    write only
+!             mechanism: by reference
+!
+!             The queue identifier. The queue-id argument is the address of an
+!             unsigned longword containing the identifier. Queue-id must be used
+!             in calls to the other work queue routines to identify the queue.
+!
+!
+!             queue-name
+!             VMS Usage: char_string
+!             type:      character string
+!             access:    read only
+!             mechanism: by descriptor
+!
+!             Name of the queue. The optional queue-name argument is the address
+!             of a descriptor pointing to a character string containing the
+!             work queue name (the name is case sensitive). The name of the
+!             work queue is arbitrary. If you do not specify this argument, or
+!             if you specify 0, an anonymous (unnamed) work queue is created.
+!             An arbitrary number of anonymous work queues may be created by a
+!             given application.
+!
+! 
+! IMPLICIT INPUTS:
+! 
+!   The PPL$ global section and Name/Identifier List.
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   The PPL$ Name/Identifier List and the lock structure.
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_ELEALREXI        An elememt of the same name already exists.
+!			    (Alternate success status).
+!
+!   PPL$_INCOMPEXI        Incompatible type of element with the same name
+!			    aready exists.
+!
+!   PPL$_INSVIRMEM        Insufficient virtual memory available.
+!
+!   PPL$_INVELENAM        Invalid element name or illegal character string.
+!
+!   PPL$_INVARG           Invalid argument.
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   none
+!--
+
+BEGIN   ! ppl$create_work_queue
+
+BUILTIN
+	actualcount,
+	nullparameter;
+
+LITERAL
+	min_args = 1,		! Min number of arguments
+	max_args = 2;		! Max number of arguments
+
+LOCAL
+	proto	    : csb_block,		    ! Proto type csb block
+	workq_block : ref csb_block,		    ! work queue ctrl block
+	workq_name  : ref $bblock [dsc$c_s_bln],    ! work queue name
+	wrkqnam_dsc : $bblock [dsc$c_s_bln],	    ! name descriptor
+	eid	    : unsigned long,
+	status	    : unsigned long,
+        ast_status  : unsigned volatile long,
+        top_flag    : unsigned volatile long,
+        mutex_flag  : unsigned volatile long,
+        mutex       : unsigned volatile long;
+
+enable		    ! handler variables are initially zero from volatile def.
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+!+
+! Validate parameters
+!-
+
+if  actualcount () gtr max_args then
+    return ppl$_wronumarg;
+
+if  actualcount () lss min_args then
+    return ppl$_wronumarg;
+
+if  nullparameter (QUEUE_ID) then
+    return ppl$_invarg;
+
+!+
+! Prepare proto for creating the name if does not exist.
+!-
+
+ch$fill(0,csb_s_bln,proto[base_]);
+proto[csb_l_type] = ppl$k_workq;
+
+!+
+! Validate the descriptor and  the length.
+!-
+
+workq_name = 0;
+
+if not nullparameter (queue_name) then 
+    (
+    wrkqnam_dsc[dsc$b_dtype] = dsc$k_dtype_t;
+    wrkqnam_dsc[dsc$b_class] = dsc$k_class_s;
+    str$analyze_sdesc_r1 (queue_name[base_];
+			    wrkqnam_dsc[dsc$w_length],
+			    wrkqnam_dsc[dsc$a_pointer]);
+    workq_name = wrkqnam_dsc[base_];
+    );
+
+verify_init_;   
+
+status = ppl$$name_lookup (workq_name[base_], workq_block, csb_s_bln, proto);
+
+!+
+! If the element already existed, be sure it is a work queue.
+! Otherwise, it has been created with all fields initted according to proto.
+!-
+
+if not .status then return .status;	! presumably, we got PPL$_INSVIRMEM
+
+if .status eql ppl$_created then
+    status = ppl$_normal
+else		! .status eql PPL$_NORMAL means it was found, but not created
+    (
+    if (.workq_block[csb_l_type] neq ppl$k_workq) then
+	return ppl$_incompexi;
+    status = ppl$_elealrexi;
+    );
+!+
+! ensure that the EID is correctly initialized
+!-
+eid = .workq_block - ppl$$gl_pplsect[base_];
+if (.workq_block[csb_l_eid] neq .eid) then
+    (
+    if .workq_block[csb_l_eid] eql 0 then
+	workq_block[csb_l_eid] = .eid
+    else
+	ppl_signal_(ppl$_badlogic);
+    );
+interlock_(workq_block[csb_v_lock]); ! ensure cache consistency
+queue_id[0] = .eid;
+
+debug_msg_(2,'!UL!_Created Work Queue. ID = !XL',
+	    .ppl$$gl_context[ctx_l_my_index], .workq_block[csb_l_eid]);
+
+return .status;
+
+END;    ! ppl$create_work_queue
+
+
+
+%SBTTL 'ROUTINE: PPL$DELETE_WORK_QUEUE'
+GLOBAL ROUTINE PPL$DELETE_WORK_QUEUE
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$DELETE_WORK_QUEUE - Delete a Work Queue
+!
+!   The Delete a Work Queue routine deletes the specified work queue, and
+!   releases any storage associated with it.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    queue_id	:   ref vector[1, long, unsigned], 
+    queue_name	:   ref $BBLOCK, 
+    flags	:   ref vector[1, long, unsigned]
+    ) = 
+!
+!             queue-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             The queue identifier. The optional queue-id argument is the ad-
+!             dress of an unsigned longword containing the identifier.
+!
+!
+!             queue-name
+!             VMS Usage: char_string
+!             type:      character string
+!             access:    read only
+!             mechanism: by descriptor
+!
+!             Name of the queue. The optional queue-name argument is the address
+!             of a descriptor pointing to a character string containing the work
+!             queue name.
+!
+!
+!             flags
+!             VMS Usage: mask_longword
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Specifies options for deleting a work queue. The optional flags
+!             argument is the address of a longword bit mask containing the
+!             flag. Valid values are as follows:
+!
+!             PPL$M_FORCEDEL        Delete the queue regardless of whether it is
+!                                   empty. By default, PPL will return an error
+!                                   if you attempt to delete a non-empty queue.
+!
+!
+! IMPLICIT INPUTS:
+! 
+!   the corresponding nam - and work_queue (csb) - blocks.
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   none
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_DELETED          The specified element was forcibly deleted
+!                           (Alternate success status).
+!
+!   PPL$_ELEINUSE         The specified element is currently in use and may not
+!			    be deleted.
+!
+!   PPL$_INVELEID         Invalid element identifier.
+!
+!   PPL$_INVELENAM        Invalid element name or illegal character string.
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_NOSUCHELE        No such element exists.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   if the flag ppl$forcedel is used, processes are freed without
+!   having a valid work item.
+!--
+
+BEGIN   ! ppl$delete_work_queue
+
+BUILTIN
+	actualcount,
+	nullparameter;
+
+LITERAL
+	min_args = 1,		! Min number of arguments
+	max_args = 3,		! Max number of arguments
+	m_valid_flags = ppl$m_forcedel;
+
+LOCAL
+	proc_mkr    : ref mkr_block,
+	mkr	    : ref mkr_block,
+	workq_block : ref csb_block,		    ! work queue ctrl block
+	workq_name  : ref $bblock [dsc$c_s_bln],  ! work queue name
+	wrkqnam_dsc : $bblock [dsc$c_s_bln],	    ! name descriptor
+	xflags	    : unsigned long,
+	sta	    : unsigned long,
+	index	    : unsigned long,
+	status	    : unsigned long,
+	ast_status  : unsigned volatile long,	    ! used in critical section
+        top_flag    : unsigned volatile long,
+        mutex_flag  : unsigned volatile long,
+        mutex       : unsigned volatile long;
+
+ENABLE		    ! handler variables are initially zero from volatile def.
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate parameters
+!-
+
+if  actualcount () gtr max_args then
+    return ppl$_wronumarg;
+
+if  actualcount () lss min_args then
+    return ppl$_wronumarg;
+
+xflags = 0;
+
+if not nullparameter(flags) then
+    xflags = .flags[0];
+if (.xflags and not m_valid_flags) neq 0 then
+    return ppl$_invarg;
+
+!+
+! Validate the id
+!-
+
+if (ppl$$gl_pplsect[base_] eql 0) then return ppl$_noinit;
+
+workq_name = 0;
+if not nullparameter(queue_name) then
+    (
+    wrkqnam_dsc[dsc$b_dtype] = dsc$k_dtype_t;
+    wrkqnam_dsc[dsc$b_class] = dsc$k_class_s;
+    str$analyze_sdesc_r1 (queue_name[base_];
+			    wrkqnam_dsc[dsc$w_length],
+			    wrkqnam_dsc[dsc$a_pointer]);
+    workq_name = wrkqnam_dsc[base_];
+    status = ppl$$name_search (workq_name[base_], workq_block);
+    if (.status neq ppl$_normal) then return ppl$_invelenam;
+    )
+else
+    (
+    if nullparameter (queue_id) then return ppl$_wronumarg;
+    workq_block = .queue_id[0] + ppl$$gl_pplsect[base_];
+    if (.workq_block[csb_l_eid] neq .queue_id[0]) then return ppl$_inveleid;
+    );
+
+!+
+! Make sure we have the id of a work queue
+!-
+
+if (.workq_block[csb_l_type] neq ppl$k_workq) then return ppl$_inveleid;
+
+
+enter_critical_region_;	    ! disable asts
+
+!+
+! test for empty workq
+!-
+mutex = workq_block[csb_v_lock];
+mutex_flag = 1;
+lock_bit_(workq_block[csb_v_lock]);
+if (.workq_block[csb_w_csval] neq 0) then
+    (
+    if ((.xflags and ppl$m_forcedel) neq 0) then
+	(	    ! queue non empty and forced delete
+	if  testbitssi(workq_block[csb_v_delete])  then
+	    ppl_signal_(ppl$_nosuchele);		! someone else deleted it
+	status = ppl$$name_mark_delete ( workq_block);
+	if not .status then
+	    ppl_signal_(ppl$_nosuchele);	! no element found
+	IF (.workq_block[csb_w_csval] lss 0) then
+	    (   ! processes are waiting free one of them
+	    sta = false;
+	    while not .sta do
+		(
+		status = REMQHI(workq_block[csb_q_queue], proc_mkr);
+		if remq_null_(.status) THEN
+		    ppl_signal_(ppl$_badlogic)
+		else    ! wake up processes; go to sleep as last process
+		    (
+		    proc_mkr = .proc_mkr - %fieldexpand_(mkr_l_flink,0);
+		    testbitssi(proc_mkr[mkr_v_valid]);	!valid wake
+		    sta = $wake(PIDADR = proc_mkr[mkr_l_pid]);
+		    if not .sta then ungrab_marker_(proc_mkr);
+		    );
+		);
+	    grab_marker_(mkr);
+	    INSQTI(mkr[mkr_l_flink],workq_block[csb_q_queue]);
+	    unlock_bit_(workq_block[csb_v_lock]);
+	    mutex_flag = 0;
+	    leave_critical_region_;	    ! enable asts
+	    UNTIL isset_i(mkr[mkr_v_valid]) DO PPL$$HIBER ();
+	    ungrab_marker_(mkr);
+	    )
+	ELSE	    ! there are work items in the queue
+	    (
+	    WHILE NOT remq_null_(REMQHI(workq_block[csb_q_wqueue],mkr)) DO
+		ungrab_marker_(mkr);
+	    unlock_bit_(workq_block[csb_v_lock]);
+	    mutex_flag = 0;
+	    leave_critical_region_;	! enable asts
+	    )
+	)
+    ELSE    ! can't delete a queue with items on it (unless forced)
+	ppl_signal_(PPL$_ELEINUSE);
+    )
+ELSE	! The queue is not in use
+    (
+    IF  testbitssi(workq_block[csb_v_delete])  THEN
+	ppl_signal_(PPL$_NOSUCHELE);   ! someone else deleted it
+    status = ppl$$name_mark_delete ( workq_block);
+    unlock_bit_(workq_block[csb_v_lock]);
+    mutex_flag = 0;
+    leave_critical_region_;	! enable asts
+    IF NOT .status THEN 
+	RETURN PPL$_NOSUCHELE;	! no element found
+    );
+!+
+! now we have a work queue
+!-
+status = ppl$$name_delete (workq_block);
+
+debug_msg_(2,'!UL!_Deleted Work Queue. ID = !XL',
+	    .ppl$$gl_context[ctx_l_my_index], .workq_block[csb_l_eid]);
+
+RETURN .status;
+
+
+
+END;    ! ppl$delete_work_queue
+
+
+%SBTTL 'ROUTINE: PPL$READ_WORK_QUEUE'
+GLOBAL ROUTINE PPL$READ_WORK_QUEUE
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$READ_WORK_QUEUE - Read a Work Queue
+!
+!   The Read a Work Queue routine returns information about a work queue.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    queue_id	:   ref vector[1, long, unsigned], 
+    work_items	:   ref vector[1, long, signed]
+    ) = 
+!
+!             queue-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             The queue identifier. The queue-id argument is the address of an
+!             unsigned longword containing the identifier.
+!
+!
+!             work-items
+!             VMS Usage: longword_signed
+!             type:      longword (signed)
+!             access:    write only
+!             mechanism:  by reference
+!
+!	      IF positive, this specifies the number of items currently in the
+!	      queue. IF negative, this specifies the number of waiting 
+!	      processes.
+!             The work-items argument is the address of a longword which 
+!	      receives the current status of the queue.
+!
+!
+! IMPLICIT INPUTS:
+! 
+!   The Work Queue Block (= CSB - Block)
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   none
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_INVARG           Invalid argument.
+!
+!   PPL$_INVELEID         Invalid element identifier.
+!
+!   PPL$_NOSUCHELE	  No such element, workq is deleted
+!
+!   PPL$_INVELETYP        Invalid element type.
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   none
+!--
+
+BEGIN   ! ppl$read_work_queue
+
+    BUILTIN
+	actualcount;
+
+    LITERAL
+	max_args = 2;
+
+    LOCAL
+	workq_block:	ref csb_block,	! Work queue block
+	status;
+!+
+! Validate number of parameters passed
+!-
+    if	(actualcount () neq max_args) then return ppl$_wronumarg;
+!+
+! Validate the ID.
+!-
+
+    if (ppl$$gl_pplsect[base_] eql 0) then return ppl$_noinit;
+
+    workq_block = .queue_id[0] + ppl$$gl_pplsect[base_];
+
+    if (.workq_block[csb_l_eid] neq .queue_id[0]) then return ppl$_inveleid;
+
+!+
+! Make sure we have the id of a work queue
+!-
+
+    IF (.workq_block[csb_l_type] neq ppl$k_workq) then return ppl$_inveletyp;
+
+!+
+! Acquire the current state of the work queue
+!-
+
+interlock_(workq_block[csb_v_lock]);	!this is to ensure chache cons.
+
+if (.workq_block[csb_v_delete] neq 0) then
+    return ppl$_nosuchele;
+    
+work_items[0] = .workq_block[csb_w_csval];
+return ppl$_normal;
+
+END;    ! ppl$read_work_queue
+
+
+
+%SBTTL 'ROUTINE: PPL$INSERT_WORK_ITEM'
+
+GLOBAL ROUTINE PPL$INSERT_WORK_ITEM
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$INSERT_WORK_ITEM - Insert an Work Queue Item
+!
+!   The Insert a Work Queue Item routine inserts an item into the specified
+!   work queue.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    queue_id	:   ref vector[1, long, unsigned], 
+    work_item	:   unsigned long, 
+    flags	:   ref vector[1, long, unsigned],  
+    priority	:   ref vector[1, long, signed]
+    ) = 
+!
+!             queue-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             The queue identifier. The queue-id argument is the address of an
+!             unsigned longword containing the identifier.
+!
+!
+!             work-item
+!             VMS Usage: user_arg
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by value
+!
+!             An arbitrary value to be entered into the queue. The work-item
+!             argument is an unsigned longword containing this value.
+!
+!
+!             flags
+!             VMS Usage: mask_longword
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Specifies options for inserting an item into a work queue. The
+!             optional flags argument is the address of a longword bit mask
+!             containing the flag. Valid values are as follows:
+!
+!             PPL$M_ATHEAD          Insert item at the head of the priority.
+!                                   By default, items are inserted after other
+!                                   items of the same priority.
+!
+!
+!             priority
+!             VMS Usage: longword_signed
+!             type:      longword (signed)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Specifies the priority of the item being inserted. The optional
+!             priority is an signed longword containing the priority value for
+!             the item to be inserted. If unspecified, this value defaults to
+!             zero. A high numerical value indicates a high priority.
+!
+!
+! IMPLICIT INPUTS:
+! 
+!   The work queue block (= csb - block)
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   The work queue block (= csb - block)
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_INVARG           Invalid argument.
+!
+!   PPL$_INVELEID         Invalid element identifier.
+!
+!   PPL$_INVELETYP        Invalid element type.
+!
+!   PPL$_INSVIRMEM        Insufficient virtual memory available.
+!
+!   PPL$_NOSUCHELE	  No such element, workq is deleted
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   NONE
+!--
+
+BEGIN   ! ppl$insert_work_item
+
+
+BUILTIN
+    actualcount,
+    nullparameter;
+
+LITERAL
+    min_args = 2,
+    max_args = 4,
+    m_valid_flags = ppl$m_athead;
+
+LOCAL
+    ast_status	: volatile unsigned long,	! used in critical section
+    status	: unsigned long,
+    cpriority	: signed long,
+    top_flag    : unsigned volatile long,
+    mutex_flag  : unsigned volatile long,
+    mutex       : unsigned volatile long,
+    mkr		: ref mkr_block,  ! marker to insert into work queue
+    next_mkr	: ref mkr_block,
+    proc_mkr	: ref mkr_block,
+    workq_block	: ref csb_block,  ! work queue block
+    start	: unsigned long,
+    index	: unsigned long,
+    xflags	: unsigned long;
+  
+ENABLE		! handler variables are initially zero from volatile def.
+    ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+!+
+! Validate parameters
+!-
+
+if (actualcount() gtr max_args) or actualcount() lss min_args then
+    return ppl$_wronumarg;
+
+if (nullparameter (QUEUE_ID)) then
+    return ppl$_invarg;
+
+if (nullparameter (flags)) then
+    xflags = 0
+else
+    xflags = .flags[0];
+
+if (nullparameter (priority)) then
+    cpriority = 0
+else
+    cpriority = .priority[0];
+
+if .queue_id eql 0 then
+    return ppl$_invarg;
+
+!+
+! Double check the id
+!-
+
+if (.ppl$$gl_pplsect eql 0 ) then return ppl$_noinit;
+
+
+workq_block = .queue_id[0] + ppl$$gl_pplsect[base_];
+
+IF (.workq_block[csb_l_eid] NEQ .queue_id[0]) THEN RETURN PPL$_INVELEID;
+
+IF (.workq_block[csb_l_type] NEQ ppl$k_workq) THEN RETURN PPL$_INVELETYP;
+
+status = ppl$_normal;
+
+if (.xflags and not m_valid_flags) neq 0 then
+	RETURN PPL$_INVARG;
+
+
+grab_marker_ (mkr);
+
+mkr[mkr_l_param1] = .cpriority;
+mkr[mkr_l_param2] = .work_item;
+
+enter_critical_region_;	    ! disable asts
+
+mutex = workq_block[csb_v_lock];
+mutex_flag = 1;
+lock_bit_(workq_block[csb_v_lock]);
+
+IF (.workq_block[csb_v_delete] NEQ 0) THEN
+    (
+    ungrab_marker_ (mkr);
+    ppl_signal_(PPL$_NOSUCHELE);
+    );
+!+
+! put this work item into work queue
+!-
+IF (.workq_block[csb_w_csval] EQL 0) THEN
+		    !  no processes waiting
+    (
+    INSQTI(mkr[mkr_l_flink],workq_block[csb_l_wqueue_f]);
+    debug_msg_(2,'!UL!_Insert Work Item R3: first item added. ID = !XL',
+	    .ppl$$gl_context[ctx_l_my_index], .workq_block[csb_l_eid]);
+    )
+ELSE    ! now we have to insert somewhere in the middle of the queue
+    (
+    start = workq_block[csb_l_wqueue_f] - %fieldexpand_(mkr_l_flink,0);
+
+    IF ((.xflags AND PPL$M_ATHEAD) NEQ 0) THEN
+	next_mkr = frst_que_el_(.start, mkr_l_flink, mkr_l_flink)
+    ELSE
+	next_mkr = frst_que_el_(.start, mkr_l_flink, mkr_l_blink);
+
+    WHILE (.next_mkr NEQ .start) DO
+	(
+	IF ((.xflags AND PPL$M_ATHEAD) NEQ 0) THEN
+	    (
+	    IF (.next_mkr[mkr_l_param1] LEQ .mkr[mkr_l_param1]) THEN
+		EXITLOOP	! we found the right position
+	    ELSE
+		next_mkr = nxt_que_el_(next_mkr[base_],
+				    mkr_l_flink, mkr_l_flink);
+	    )
+	ELSE
+	    (
+	    IF (.next_mkr[mkr_l_param1] GEQ .mkr[mkr_l_param1]) THEN
+		EXITLOOP	! we found the right position
+	    ELSE
+		next_mkr = nxt_que_el_(next_mkr[base_],
+				    mkr_l_flink, mkr_l_blink);
+	    );
+	);
+    IF ((.xflags AND PPL$M_ATHEAD) NEQ 0) THEN
+	INSQTI(mkr[mkr_l_flink],next_mkr[mkr_l_flink])
+    ELSE
+	INSQHI(mkr[mkr_l_flink],next_mkr[mkr_l_flink]);
+
+    debug_msg_(2,'!UL!_Insert Work Item R3: item added. ID = !XL',
+	    .ppl$$gl_context[ctx_l_my_index], .workq_block[csb_l_eid]);
+
+    );
+
+
+IF ((workq_block[csb_w_csval] = .workq_block[csb_w_csval] + 1) LEQ 0) THEN ! first item in queue - any waiters?
+    begin
+    while not queue_empty_(workq_block[csb_l_queue_f]) do
+	begin
+	status = REMQHI(workq_block[csb_l_queue_f], proc_mkr); ! get process marker
+
+	proc_mkr = .proc_mkr -%FIELDEXPAND_(MKR_L_FLINK,0);
+	testbitssi(proc_mkr[mkr_v_valid]);	! valid wake
+
+	status = $wake(PIDADR = proc_mkr[mkr_l_pid]);
+
+	debug_msg_(3,'!UL!_Insert Work Item R3: wakeup of process. ID = !XL',
+		.ppl$$gl_context[ctx_l_my_index], .workq_block[csb_l_eid]);
+
+	if .status then
+	    exitloop
+	else if .status eql ss$_nonexpr then 
+	    ungrab_marker_(proc_mkr)
+	else
+	    ppl_signal_(ppl$_syserror, 0, .status, 0);
+	end;
+
+    !+
+    ! If we couldn't wake anybody up, then there must be exactly one item in the
+    ! queue, and nobody waiting for it.
+    !-
+    if .status eqlu ss$_nonexpr then
+	workq_block[csb_w_csval] = 1;
+
+    unlock_bit_(workq_block[csb_v_lock]);
+    mutex_flag = 0;
+    leave_critical_region_;
+    end
+ELSE	! not first entry, no processes are waiting!
+    (
+    status = PPL$_NORMAL;
+    unlock_bit_(workq_block[csb_v_lock]);
+    mutex_flag = 0;
+    leave_critical_region_;
+    );
+
+return .status;
+    
+END;    ! ppl$insert_work_item
+
+
+
+%SBTTL 'ROUTINE: PPL$REMOVE_WORK_ITEM'
+GLOBAL ROUTINE PPL$REMOVE_WORK_ITEM
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$REMOVE_WORK_ITEM - Remove a Work Queue Item
+!
+!   The Remove a Work Queue Item routine removes the next item in order from a
+!   work queue.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    queue_id	:   ref vector[1, long, unsigned], 
+    work_item	:   ref vector[1, long, unsigned], 
+    flags	:   ref vector[1, long, unsigned],
+    spin        :   ref vector[1]
+    ) = 
+!
+!             queue-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             The queue identifier. The queue-id argument is the address of an
+!             unsigned longword containing the identifier.
+!
+!
+!             work-item
+!             VMS Usage: user_arg
+!             type:      longword (unsigned)
+!             access:    write only
+!             mechanism: by reference
+!
+!             Receives the value of the item which is removed from the queue.
+!             The work-item argument is the address of an unsigned longword
+!             which receives the value of the item which is removed from the
+!             queue.
+!
+!
+!             flags
+!             VMS Usage: mask_longword
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Specifies options for removing an item from a work queue. The
+!             optional flags argument is the address of a longword bit mask
+!             containing the flag. Valid values are as follows:
+!
+!             PPL$M_NON_BLOCKING    If the specified queue is empty, the routine
+!                                   will return immediately with the PPL$_NOT_
+!                                   AVAILABLE status indicating that no items
+!                                   are available in the queue. By default, the
+!                                   process will hibernate until there is an
+!                                   item available to be removed from the queue.
+!	      PPL$M_FROMTAIL	    The item is taken from the tail of the
+!				    queue.
+!	      PPL$M_SPIN_WAIT       Indicates that the caller is never to
+!		                    block, but rather to always spin while
+!			            waiting at this barrier.
+!	      PPL$M_SPIN_COUNTED    Indicates that the caller wishes to
+!				    spin, for a given amount of instructions,
+!				    and then block.
+!
+!				    DEFAULT:  Block immediately, do not spin
+!					      at all.
+!
+!
+!	    SPIN
+!	    VMS USAGE       :  identifier
+!	    TYPE            :  long ( unsigned )
+!	    ACCESS          :  write only
+!	    MECHANISM       :  by reference
+!
+!	    This value must be specified when using the PPL$M_SPIN_COUNTED flag,
+!	    and is a represents a relative time a process will spins before
+!	    blocking.
+!
+!
+! IMPLICIT INPUTS:
+! 
+!   The work queue block (= csb - block)
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   The work queue block (= csb - block)
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_DELETED          The specified element was forcibly deleted
+!			    (Alternate success status).
+!
+!   PPL$_INVARG           Invalid argument.
+!
+!   PPL$_INVELEID         Invalid element identifier.
+!
+!   PPL$_INVELETYP        Invalid element type.
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_NOSUCHELE	  No such element, workq is deleted
+!
+!   PPL$_NOT_AVAILABLE    Operation cannot be performed immediately; therefore,
+!			    it is not performed.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   none
+!--
+
+BEGIN   ! ppl$remove_work_item
+BUILTIN
+    actualcount,
+    nullparameter;
+
+LITERAL
+    min_args = 2,
+    max_args = 4,
+    m_valid_flags = ppl$m_non_blocking + ppl$m_fromtail;
+
+LOCAL
+    ast_status	: volatile unsigned long,	! Used in critical section
+    status	: unsigned long,
+    top_flag    : unsigned volatile long,
+    mutex_flag  : unsigned volatile long,
+    mutex       : unsigned volatile long,
+    mkr		: REF MKR_BLOCK,  ! marker to read from work queue
+    proc_mkr	: REF MKR_BLOCK,  ! marker to start next process
+    workq_block	: REF CSB_BLOCK,  ! work queue block
+    ispin	: unsigned long,
+    sta		: unsigned long,
+    index	: unsigned long,
+    xflags	: unsigned long;
+
+
+ENABLE		! handler variables are initially zero from volatile def.
+    ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+!+
+! Validate parameters
+!-
+
+if (actualcount() gtr max_args) or actualcount() lss min_args then
+    return ppl$_wronumarg;
+
+if (nullparameter (queue_id)) then
+    return ppl$_invarg;
+
+if (nullparameter (flags)) then
+    xflags = 0
+else
+    xflags = .flags[0];
+
+if .queue_id eql 0 then
+    return ppl$_invarg;
+
+!+
+! Double check the id
+!-
+
+if (.ppl$$gl_pplsect eql 0 ) then return ppl$_noinit;
+
+
+workq_block = .queue_id[0] + ppl$$gl_pplsect[base_];
+
+if (.workq_block[csb_l_eid] neq .queue_id[0]) then return ppl$_inveleid;
+
+if (.workq_block[csb_l_type] neq ppl$k_workq) then return ppl$_inveletyp;
+
+if (.xflags and not m_valid_flags) neq 0 then
+	return ppl$_invarg;
+
+if .work_item eql 0 then 
+    return ppl$_invarg;
+
+enter_critical_region_;	    ! disable asts
+
+mutex = workq_block[csb_v_lock];
+mutex_flag = 1;
+lock_bit_(workq_block[csb_v_lock]);
+
+IF (.workq_block[csb_v_delete] NEQ 0) THEN
+    (
+    unlock_bit_(workq_block[csb_v_lock]);
+    mutex_flag = 0;
+    leave_critical_region_;
+    RETURN PPL$_DELETED;
+    );
+
+IF ((workq_block[csb_w_csval] = .workq_block[csb_w_csval] -1) LSS 0) THEN
+	! there is no item to be read
+    (
+    IF ((.xflags AND  PPL$M_NON_BLOCKING) NEQ 0) THEN
+	    (
+	    workq_block[csb_w_csval] = .workq_block[csb_w_csval]+1; ! correct cnt
+	    unlock_bit_(workq_block[csb_v_lock]);
+	    mutex_flag = 0;
+	    leave_critical_region_;
+	    RETURN PPL$_NOT_AVAILABLE;
+	    );
+
+    debug_msg_(3,'!UL!_Remove Work Item: no item avail.: hibernating. ID = !XL',
+	    .ppl$$gl_context[ctx_l_my_index], .workq_block[csb_l_eid]);
+    
+    grab_marker_(mkr);
+    INSQTI(mkr[mkr_l_flink],workq_block[csb_q_queue]);
+    unlock_bit_(workq_block[csb_v_lock]);
+    mutex_flag = 0;
+    
+
+    leave_critical_region_;
+
+    !+
+    ! Decide how much to spin
+    !-
+
+    if (.xflags eql 0) then
+        ispin = 0
+    else if ((.xflags and ppl$m_spin_wait) neq 0) then
+        ispin = -1
+    else if ((.xflags and ppl$m_spin_counted) neq 0) then
+	(
+	if (nullparameter (spin)) then return(ppl$_invarg);
+        ispin = .spin[0];
+	)
+    else
+        return(ppl$_invarg);
+
+    spin_hiber_(ispin,mkr[mkr_v_valid]);
+
+    ungrab_marker_(mkr);
+    
+    enter_critical_region_;	! disable asts
+
+    mutex_flag = 1;
+    lock_bit_(workq_block[csb_v_lock]);! necessary since following REMQ -
+				       ! instructions do not lock queue
+				       ! header
+    );
+    
+! now we got an item;
+! get the info into the work_item
+!
+IF (.workq_block[csb_v_delete] NEQ 0) THEN  
+    (				! queue deleted, propagate wakeup
+    sta = false;
+    WHILE NOT .sta DO
+	(
+	status = REMQHI(workq_block[csb_q_queue],proc_mkr);
+	IF remq_null_(.status) THEN 
+		ppl_signal_(ppl$_badlogic)
+	ELSE    ! wake up next process
+	    (
+	    debug_msg_(3,'!UL!_Remove Work Item R2: queue del.: probagate wakeup. ID = !XL',
+		    .ppl$$gl_context[ctx_l_my_index], .workq_block[csb_l_eid]);
+	    proc_mkr = .proc_mkr -%FIELDEXPAND_(MKR_L_FLINK,0);
+	    testbitssi(proc_mkr[mkr_v_valid]);	! valid wake
+	    sta = $wake(PIDADR = proc_mkr[mkr_l_pid]);
+	    if .sta eql ss$_nonexpr then 
+		ungrab_marker_(proc_mkr);
+	    );
+	 );   
+    unlock_bit_(workq_block[csb_v_lock]);
+    mutex_flag = 0;
+    leave_critical_region_;	    ! enable asts
+    RETURN PPL$_DELETED;
+    )
+ELSE	    ! remove item from queue
+    (
+    IF ((.xflags AND PPL$M_FROMTAIL) NEQ 0) THEN
+	(
+	status = REMQTI(workq_block[csb_l_wqueue_f],mkr)
+	)
+    ELSE
+	(
+	status = REMQHI(workq_block[csb_l_wqueue_f],mkr);
+	);
+    unlock_bit_(workq_block[csb_v_lock]);
+    mutex_flag = 0;
+    leave_critical_region_;	! enable asts
+    IF remq_null_(.status) THEN
+	ppl_signal_(PPL$_BADLOGIC)
+    ELSE
+	(
+	work_item[0] = .mkr[mkr_l_param2];
+	ungrab_marker_(mkr);
+        debug_msg_(2,'!UL!_Remove Work Item R2: item removed. ID = !XL',
+	    .ppl$$gl_context[ctx_l_my_index], .workq_block[csb_l_eid]);
+
+	);
+    RETURN PPL$_NORMAL;
+    );
+    
+END;   ! ppl$remove_work_item
+
+
+%SBTTL 'ROUTINE: PPL$DELETE_WORK_ITEM'
+GLOBAL ROUTINE PPL$DELETE_WORK_ITEM
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$DELETE_WORK_ITEM - Delete a Work Queue Item
+!
+!   The Delete a Work Queue Item routine deletes the specified item from the
+!   specified work queue.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    queue_id	:   ref vector[1, long, unsigned], 
+    work_item	:   unsigned long, 
+    flags	:   ref vector[1, long, unsigned]
+    ) = 
+!
+!             queue-id
+!             VMS Usage: identifier
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             The queue identifier. The queue-id argument is the address of an
+!             unsigned longword containing the identifier.
+!
+!
+!             work-item
+!             VMS Usage: user_arg
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by value
+!
+!             The value of the item to be deleted from the queue. The work-item
+!             argument is the address of an unsigned longword containing this
+!             value.
+!
+!
+!             flags
+!             VMS Usage: mask_longword
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Specifies options for deleting items from a work queue. The
+!             optional flags argument is the address of a longword bit mask
+!             containing the flag. Valid values are as follows:
+!
+!             PPL$M_DELETEALL       Delete all items in the specified queue
+!                                   whose values match work-item. By default,
+!                                   only the first item encountered is deleted.
+!
+!             PPL$M_TAILFIRST       Begin searching at the tail of the queue and
+!                                   move toward the head. By default, the search
+!                                   begins at the head of the queue and moves
+!                                   toward the tail.
+!
+!
+! IMPLICIT INPUTS:
+! 
+!   workq_block (= csb - block)
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   workq_block (= csb - block)
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_INVARG           Invalid argument.
+!
+!   PPL$_INVELEID         Invalid element identifier.
+!
+!   PPL$_INVELETYP        Invalid element type.
+!
+!   PPL$_NOMATCH          No match for the specified item found.
+!
+!   PPL$_NOSUCHELE	  No such element, workq is deleted
+!
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   PPL$_WRONUMARG        Wrong number of arguments.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   none
+!--
+
+    BEGIN   ! ppl$delete_work_item
+
+BUILTIN
+
+    actualcount,
+    nullparameter;
+
+LITERAL
+    min_args = 2,
+    max_args = 3,
+    m_valid_flags = ppl$m_deleteall+ ppl$m_tailfirst;
+
+LOCAL
+    mkr		: REF MKR_BLOCK,  ! marker to read from work queue
+    next_mkr	: REF MKR_BLOCK,
+    old_mkr	: REF MKR_BLOCK,
+    workq_block	: REF CSB_BLOCK,  ! work queue block
+    ast_status	: volatile unsigned long,	! Used in critical section
+    done	: unsigned long,
+    start	: unsigned long,
+    status	: unsigned long,
+    xflags	: unsigned long,
+    top_flag    : unsigned volatile long,
+    mutex_flag  : unsigned volatile long,
+    mutex       : unsigned volatile long;
+
+
+ENABLE		! handler variables are initially zero from volatile def.
+    ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+!+
+! Validate parameters
+!-
+
+IF (ACTUALCOUNT() GTR MAX_ARGS) OR ACTUALCOUNT() LSS MIN_ARGS THEN
+    RETURN PPL$_WRONUMARG;
+
+IF (NULLPARAMETER (queue_id)) THEN
+    RETURN PPL$_INVARG;
+
+
+
+xflags = 0;
+
+IF NOT NULLPARAMETER (flags) THEN
+    xflags = .flags[0];
+IF (.xflags AND NOT M_VALID_FLAGS) NEQ 0 THEN
+	RETURN PPL$_INVARG;
+
+!+
+! Double check the id
+!-
+
+IF (.PPL$$GL_PPLSECT EQL 0 ) THEN RETURN PPL$_NOINIT;
+
+
+workq_block = .queue_id[0] + PPL$$GL_PPLSECT[BASE_];
+
+IF (.workq_block[csb_l_eid] NEQ .queue_id[0]) THEN RETURN PPL$_INVELEID;
+
+IF (.workq_block[csb_l_type] NEQ ppl$k_workq) THEN RETURN PPL$_INVELETYP;
+
+enter_critical_region_;	    ! disable asts
+
+mutex = workq_block[csb_v_lock];
+mutex_flag = 1;
+lock_bit_(workq_block[csb_v_lock]);
+
+IF (.workq_block[csb_v_delete] NEQ 0) THEN
+    (
+    unlock_bit_(workq_block[csb_v_lock]);
+    mutex_flag = 0;
+    leave_critical_region_;	    ! enable asts
+    return PPL$_NOSUCHELE;
+    );
+
+done = false;
+
+IF (.workq_block[csb_w_csval] GTR 0 ) THEN
+    (  ! search for a maching entry
+    start = workq_block[csb_l_wqueue_f] - %fieldexpand_(mkr_l_flink,0);
+    IF ((.xflags AND PPL$M_TAILFIRST) NEQ 0) THEN
+	next_mkr = frst_que_el_(.start, mkr_l_flink, mkr_l_blink)
+    ELSE 	
+	next_mkr = frst_que_el_(.start, mkr_l_flink, mkr_l_flink);
+    done = false;
+    old_mkr = workq_block[csb_l_wqueue_f];
+    WHILE (.next_mkr NEQ .start) DO
+	(
+	IF (.next_mkr[mkr_l_param2] EQL .work_item) THEN
+	    ( ! we found the right work item
+	    IF ((.xflags AND PPL$M_TAILFIRST) NEQ 0) THEN
+		status = REMQTI(old_mkr[mkr_l_flink],mkr)
+	    ELSE
+		status= REMQHI(old_mkr[mkr_l_flink],mkr);
+	    IF remq_null_(.status) THEN
+		ppl_signal_(ppl$_badlogic)
+	    ELSE
+		(
+		workq_block[csb_w_csval] = .workq_block[csb_w_csval] - 1;
+		ungrab_marker_(mkr);
+		done = true;
+		status = PPL$_NORMAL;
+		IF ((.xflags AND PPL$M_DELETEALL) EQL 0) THEN
+		    EXITLOOP
+		ELSE
+		    (
+		    IF ((.xflags AND PPL$M_TAILFIRST) NEQ 0) THEN
+ 
+			! for completeness, ppl$m_deleteall
+			! should be the only flag set
+
+			next_mkr = nxt_que_el_(old_mkr[mkr_l_flink],
+				 mkr_l_flink, mkr_l_blink)
+		    ELSE    
+			next_mkr = nxt_que_el_(old_mkr[mkr_l_flink],
+				 mkr_l_flink, mkr_l_flink);
+		    );
+		);
+	    )
+	ELSE
+	    (
+	    old_mkr = .next_mkr;
+	    IF ((.xflags AND PPL$M_TAILFIRST) NEQ 0) THEN
+		next_mkr = nxt_que_el_(next_mkr[mkr_l_flink],
+				mkr_l_flink, mkr_l_blink)
+	    ELSE
+		next_mkr = nxt_que_el_(next_mkr[mkr_l_flink],
+				 mkr_l_flink, mkr_l_flink);
+	    );
+	);
+    );
+unlock_bit_(workq_block[csb_v_lock]);
+mutex_flag = 0;
+
+leave_critical_region_;	    ! enable asts
+
+IF NOT .done THEN RETURN PPL$_NOMATCH
+
+ELSE 
+    (
+    debug_msg_(2,'!UL!_Delete Work Item: item(s)  deleted. ID = !XL',
+	    .ppl$$gl_context[ctx_l_my_index], .workq_block[csb_l_eid]);
+
+    RETURN PPL$_NORMAL;
+    )
+
+    
+END;    ! ppl$delete_work_item
+
+end                           ! End of module
+eludom

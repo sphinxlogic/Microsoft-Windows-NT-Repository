@@ -1,0 +1,128 @@
+.!
+.! DEC INTERNAL USE ONLY
+.!
+.! Nmail documentation - ANALYZE QUEUE command
+.!
+.! Dave Porter	17-Aug-1987
+.!
+Sometimes, Nmail control files can be left in the work directory 
+without there being a corresponding entry in the queue.  The
+left-over control files might in some circumstances actually
+correspond to valuable messages which need to be sent.  For example.
+if some disaster occurs involving your VMS system queue file,
+you need a way to recover the lost messages.
+
+In other cases, jobs can be retained in the queue indefinitely,
+due to some fatal system error.  This usually means that some sort
+of cluster failure occurred while Nmail was running.  In any event,
+such jobs need to be explicitly released before Nmail can process
+them further.
+
+The Nmail Queue Repair utility is the tool to use under such
+circumstances.  The command syntax is:
+.bb
+.lit
+
+	$ NMAIL ANALYZE QUEUE [/REPAIR [/NOCONFIRM]]
+			      [/RETURN] [/REASON="text"]
+			      [/HOLD]
+			      [/BEFORE=date] [/SINCE=date]
+.el
+.eb
+
+If you do not specify any qualifiers, then the utility will
+simply report on any inconsistencies it finds, without attempting
+any corrective action.
+
+If you do specify /REPAIR, then the Queue Repair utility will
+attempt to repair the damage.  By default, the utility prompts
+you for confirmation before taking corrective action. You can
+change this behaviour by specifying /NOCONFIRM.
+
+The repair actions that the utility will take include:
+.ls "."
+.le;Resubmitting valid control files to the queue, if they're not
+already in it.  
+.bb
+You can choose to have resubmitted messages marked to be returned to
+the sender by using /RETURN.  In addition,
+you can cause some unqueued files to be skipped on the basis
+of creation date.  Details are given below.
+.eb
+ Mail messages from local users will be submitted under
+the correct user name; messages from remote DECnet users will be submitted
+under the pseudo-username "(network)".
+The username actually has no effect on the delivery of the message.
+.le;Optionally, deleting valid control files that are not entered in the 
+queue. 
+ This action is not available if you specify /NOCONFIRM;
+the utility will always resubmit valid control files.
+.le;Deleting invalid control files found in the work directory, and
+cancelling the corresponding queue job if there is one.
+.le;Cancelling jobs which correspond to invalid control files which are
+in some other directory. 
+ The file is not deleted in this case since
+it could be an important file which somehow got into the Nmail queues.
+.le;Releasing otherwise valid jobs that are stuck in a "retained"
+state; this allows Nmail to resume processing on those jobs.
+ Optionally, a retained job can be cancelled and the control file
+deleted; this choice is not available with /NOCONFIRM in effect.
+.els
+
+All Nmail queues must be fully stopped before the Queue Repair utility
+can be used.  Use NMAIL STOP#QUEUE to stop the queues conveniently.
+
+.bb
+Resubmitted jobs are, by default, reprocessed by Nmail just
+as if they'd never been lost from the queue.  If you specify 
+/RETURN, then no further attempt will be made to send the message,
+which will instead be returned to the sender (exactly as with
+the Nmail command CANCEL#/RETURN).
+ It may be a good idea to use /RETURN if you're not sure
+about the wisdom of resubmitting messages which may be quite old.
+Don't underestimate the confusion that can be caused by sudden 
+delivery of messages that were posted weeks ago!
+ You can use the /REASON qualifier
+to include a line of up to 255 characters of explanatory text with a
+returned message.  If you don't specify /REASON, then
+a standard explanation is supplied, which says that the
+message was returned as a result of a queue repair.
+
+The qualifiers /BEFORE and /SINCE can be used to skip the resubmission
+of certain unqueued messages.  If the original submission
+time of the message lies after the "before" time, or before the "since"
+time, then no further repair action will be attempted for that message.
+This allows you to run the Repair utility twice, applying
+different actions based on the message creation time. For example,
+you may wish to return very old messages to their senders, and
+then resubmit the more recent messages for normal processing.
+.eb
+
+Resubmitted or released
+jobs are normally made available for processing as soon
+as the Nmail queues are restarted. 
+If you specify /HOLD, then 
+resubmitted or released jobs are placed in a holding state, and must be 
+explicitly released before they are available for Nmail processing.
+.bb
+You might choose to use /HOLD if you wish to be able to examine
+the message in more detail, with the Show utility, before
+deciding what to do with it.
+.eb
+
+You can if you wish  release all held jobs by running the Queue
+Repair utility a second time, this time omitting the /HOLD
+qualifier.
+
+The NMAIL ANALYZE#QUEUE command requires that you have SYSPRV and
+OPER privileges.
+Furthermore, the 
+/REPAIR qualifier requires that you have CMKRNL privilege, since
+you will be submitting jobs to execute under other user names.
+
+You can only use the /CONFIRM qualifier (whether explicitly
+specified  or defaulted) in an interactive process.
+If you wish to run the Queue Repair utility in batch and 
+specify /REPAIR, then you must also specify /NOCONFIRM.
+ 
+.! End

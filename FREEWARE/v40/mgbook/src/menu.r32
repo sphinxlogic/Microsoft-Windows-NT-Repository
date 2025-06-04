@@ -1,0 +1,84 @@
+!++
+! MENU.R32
+!
+! Description:
+!
+!	This file contains macro and literal definitions having to do with
+!	menus.
+!
+! Written by:
+!	Darrell Burkhead
+!	Copyright © 1995, MadGoat Software. ALL RIGHTS RESERVED.
+!
+! Modifications:
+!
+!	13-DEC-1994 09:11	Darrell Burkhead
+!		Creation.
+!--
+LIBRARY 'FIELDS';
+
+_DEF(minfo)
+    minfo_l_numents		= _LONG,
+    minfo_l_width		= _LONG,
+    minfo_q_entries		= _QUAD,
+    _OVERLAY(minfo_q_entries)
+	minfo_l_enthead		= _LONG,
+	minfo_l_enttail		= _LONG,
+    _ENDOVERLAY
+    minfo_q_searchstr		= _QUAD,
+    minfo_l_searchdisp		= _LONG,
+    minfo_l_context		= _LONG
+_ENDDEF(minfo);
+
+_DEF(str)
+    str_l_flink		= _LONG,
+    str_l_blink		= _LONG,
+    str_q_text		= _QUAD
+_ENDDEF(str);
+
+_DEF(menent)
+    menent_l_flink	= _LONG,
+    menent_l_blink	= _LONG,
+    menent_q_text	= _QUAD,
+    menent_l_rend	= _LONG,
+    menent_l_level	= _LONG
+_ENDDEF(menent);
+
+MACRO
+    get_str(str_a)=
+	BEGIN
+	REGISTER tmp_status;
+	EXTERNAL ROUTINE g_hat(LIB$GET_VM);
+
+	tmp_status = LIB$GET_VM(%REF(STR_S_STRDEF), str_a);
+	IF .tmp_status
+	THEN BEGIN
+	    BIND _str = .str_a	: STRDEF;
+
+	    $INIT_DYNDESC(_str[STR_Q_TEXT]);	!Set up a dynamic desc
+	    END;				!End of str allocated
+
+	.tmp_status
+	END%,					!End of macro get_str
+    free_str(str_a)=
+	BEGIN
+	BIND _str = .str_a : STRDEF;
+	EXTERNAL ROUTINE g_hat(LIB$FREE_VM, STR$FREE1_DX);
+
+	STR$FREE1_DX(_str[STR_Q_TEXT]);		!Free the string
+	LIB$FREE_VM(%REF(STR_S_STRDEF), str_a);	!Free the entry
+	END%,					!End of macro free_str
+    add_entry(menu_info, entry) =
+	BEGIN
+	BIND
+	    _menu_info	= menu_info		: MINFODEF,
+	    _entry	= entry			: MENENTDEF,
+	    _title	= _entry[MENENT_Q_TEXT]	: $BBLOCK;
+
+	_menu_info[MINFO_L_NUMENTS] = ._menu_info[MINFO_L_NUMENTS] + 1;
+	IF ._title[DSC$W_LENGTH] + ._entry[MENENT_L_LEVEL]
+		GTRU ._menu_info[MINFO_L_WIDTH]
+	THEN _menu_info[MINFO_L_WIDTH] = ._title[DSC$W_LENGTH] +
+					._entry[MENENT_L_LEVEL];
+	INSQUE(entry, ._menu_info[MINFO_L_ENTTAIL]);
+	END%;					!End of macro add_entry

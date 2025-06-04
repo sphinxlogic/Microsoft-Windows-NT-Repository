@@ -1,0 +1,144 @@
+	.title	sys_become_interactive
+	.ident	/X1-003/
+
+;+
+; Version:	X1-003
+;
+; Facility:	General system routines.
+;
+; Abstract:	Make the current process appear to be interactive.
+;
+; Environment:	Kernel mode.
+;
+; History:
+;
+;	22-May-1995, DBS, Version X1-001
+; 001 -	Original version.
+;	04-Sep-1995, DBS; Version X1-002
+; 002 -	Added conditional code for alpha.
+;	05-Feb-1996, DBS; Version X1-003
+; 003 -	Fix problem with SYS$GW_IJOBCNT moving to SYS$GL_IJOBCNT on alpha.
+;-
+
+;++
+; Functional Description:
+;	Makes the current process appear to interactive by setting the
+;	appropriate bit in the PCB and loading a terminal name where it
+;	needs to be.
+;
+; Calling Sequence:
+;	status = sys_become_interactive (terminal)
+;		-or-
+;	pushaq	terminal
+;	calls	#1, g^sys_become_interactive
+;	blbc	r0, error
+;
+; Formal Argument(s):
+;	terminal.rt.ds	Address of a fixed length string descriptor which
+;			points to an counted ascii string containing the
+;			terminal name to use.  Only the length is checked.
+;			If you give it a duff terminal - dunno...
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_ivbuflen	The length of the string was not what it should be.
+;	ss$_insfarg	Insufficient arguments specified in the call.
+;	ss$_normal	Successful completion.
+;	ss$_ovrmaxarg	Too many arguments specified in the call.
+;
+; Side Effects:
+;	It is possible to cause BUGCHECKS or system hangs if this routine
+;	is not used carefully.
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	.ntype	...on_alpha...,R31
+	.iif equal,<...on_alpha...@-4&^XF>-5,alpha=0
+	.iif defined,alpha, .disable flagging
+;jsb_name:: .iif defined,alpha,.jsb_entry input=<R0>,output=<R0>
+
+	$jibdef
+	$pcbdef
+	$ssdef
+
+	.external ctl$gl_pcb
+.if defined alpha
+	.external sys$gl_ijobcnt	; longword on alpha
+.if_false
+	.external sys$gw_ijobcnt	; word on vax
+.endc
+	.external sys$gw_ijoblim
+
+	arg_count = 1			; to see if we have one argument
+	p1 = 4				; offset first argument
+	p1_len = pcb$s_terminal - 1	; to check the length of the terminal
+	address = 4			; offset to the string address
+	space = 32
+
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_code
+
+        .entry -
+sys_become_interactive, ^m<r6,r7>
+	cmpw	(ap), #arg_count	; do we have one argument ?
+	bgtr	10$			; too many, bail out
+	bneq	20$			; nope, not enough, bail out
+	tstl	p1(ap)			; check address of descriptor
+	beql	20$			; not a real argument
+	cmpw	@p1(ap), #pcb$s_terminal ; check the length of the string
+	bneq	30$			; bail out if not the right length
+	movq	@p1(ap), r6		; grab the descriptor
+	movzbl	(r7), r1		; now get the byte count
+	beql	30$			; no good if it's zero
+	cmpb	r1, #p1_len		; is it any good ?
+	bgtr	30$			; no, bail out
+	$cmkrnl_s -
+		routin=sys___become_interactive, -
+		arglst=(ap)
+	brb	40$
+10$:	movl	#ss$_ovrmaxarg, r0
+	brb	40$
+20$:	movl	#ss$_insfarg, r0
+	brb	40$
+30$:	movl	#ss$_ivbuflen, r0
+40$:	ret
+
+	.entry -
+sys___become_interactive, ^m<r2,r3,r4,r5>
+	movl	ctl$gl_pcb, r1		; grab the pcb pointer
+	movl	pcb$l_jib(r1), r2	; grab the jib pointer
+.if defined alpha
+	movb	#jib$c_local, -		; make the job "local"
+		jib$l_jobtype(r2)	;  alpha uses longword for jobtype
+.if_false
+	movb	#jib$c_local, -		; make the job "local"
+		jib$b_jobtype(r2)	;  vax uses byte for jobtype
+.endc
+	bisl	#pcb$m_inter, -		; set the "interactive" bit
+		pcb$l_sts(r1)
+	movc3	#pcb$s_terminal, -	; and load up the terminal name
+		(r7), pcb$t_terminal(r1)
+	movw	#65535, sys$gw_ijoblim	; bump interactive limit to max
+.if defined alpha
+	incl	sys$gl_ijobcnt		; include this process in the count
+.if_false
+	incw	sys$gw_ijobcnt		; include this process in the count
+.endc
+	movl	#ss$_normal, r0
+	ret
+
+sys_become_interactive_end::
+	.iif defined,alpha,.jsb_entry input=<R0>,output=<R0>
+
+	.end

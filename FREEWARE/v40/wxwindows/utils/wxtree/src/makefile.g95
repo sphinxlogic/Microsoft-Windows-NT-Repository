@@ -1,0 +1,77 @@
+#
+# File:		makefile.unx
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile for tree library and example (UNIX).
+# Change the WXDIR directory, and CPPFLAGS and LDFLAGS, for your system.
+
+WXDIR = ../../..
+
+# All common UNIX compiler flags and options are now in
+# this central makefile.
+include $(WXDIR)/src/makeg95.env
+
+TREEDIR = $(WXDIR)/utils/wxtree
+TREEINC = $(TREEDIR)/src
+TREELIB = $(TREEDIR)/lib/libwxtree$(GUISUFFIX).a
+
+OBJECTS = $(OBJDIR)/wxtree.$(OBJSUFF)
+
+TESTOBJECTS = $(OBJDIR)/test.$(OBJSUFF)
+TESTPROGRAM = $(TREEDIR)/src/test$(GUISUFFIX)
+
+DOCUTILSDIR = $(WXDIR)/utils/tex2rtf/src
+
+LDFLAGS =  -Wl,--subsystem,windows -mwindows -L$(WXDIR)/lib -L../lib
+LDLIBS=-lwxtree $(LIBS)
+
+all:	$(OBJDIR) $(TREELIB)
+
+demo:   $(TESTPROGRAM)
+
+$(TREELIB): $(OBJECTS)
+	rm -f $@
+	ar $(AROPTIONS) $@ $(OBJECTS)
+	$(RANLIB) $@
+
+$(OBJDIR):
+	mkdir $(OBJDIR)
+
+test$(GUISUFFIX): $(OBJDIR)/test.$(OBJSUFF) test.$(RSCSUFF) $(WXLIB) $(TREELIB)
+	$(CC) $(LDFLAGS) -o test$(GUISUFFIX) test.$(RSCSUFF) $(OBJDIR)/test.$(OBJSUFF) $(XVIEW_LINK) $(LDLIBS)
+
+$(OBJDIR)/wxtree.$(OBJSUFF):        wxtree.$(SRCSUFF) wxtree.h
+	$(CC) -c $(CPPFLAGS) -o $@ wxtree.$(SRCSUFF)
+
+$(OBJDIR)/test.$(OBJSUFF):        test.$(SRCSUFF) test.h wxtree.h
+	$(CC) -c $(CPPFLAGS) -o $@ test.$(SRCSUFF)
+
+HTMLDIR=/home/hardy/html/wx/manuals
+docs:	ps xlp
+ps:	$(TREEDIR)/docs/manual.ps
+xlp:	$(TREEDIR)/docs/wxtree.xlp
+html:	$(HTMLDIR)/wxtree/wxtree_contents.html
+
+$(TREEDIR)/docs/wxtree.xlp:	$(TREEDIR)/docs/manual.tex $(TREEDIR)/docs/classes.tex
+	cd ../docs; tex2rtf manual.tex tmp.xlp -xlp -twice
+	sed -e "s/WXHELPCONTENTS/wxTree Manual/g" < $(TREEDIR)/docs/tmp.xlp > $(TREEDIR)/docs/wxtree.xlp
+	/bin/rm -f $(TREEDIR)/docs/tmp.xlp
+
+$(HTMLDIR)/wxtree/wxtree_contents.html:	$(TREEDIR)/docs/manual.tex $(TREEDIR)/docs/classes.tex
+	cd ../docs; tex2rtf manual.tex $(HTMLDIR)/wxtree/wxtree.html -html -twice
+
+$(TREEDIR)/docs/manual.dvi:	$(TREEDIR)/docs/manual.tex $(TREEDIR)/docs/classes.tex
+	cd $(TREEDIR)/docs; latex manual; latex manual; makeindex manual; bibtex manual; latex manual; latex manual
+
+$(TREEDIR)/docs/manual.ps:	$(TREEDIR)/docs/manual.dvi
+	cd $(TREEDIR)/docs; dvips -f -r < manual.dvi > manual.ps
+
+test.res:   test.rc
+
+clean:
+	rm -f $(OBJECTS) $(OBJDIR)/*.$(OBJSUFF) test$(GUISUFFIX).exe $(TREELIB) core *.rsc *.res

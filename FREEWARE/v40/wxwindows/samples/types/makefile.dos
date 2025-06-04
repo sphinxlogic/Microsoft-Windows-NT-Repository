@@ -1,0 +1,90 @@
+#
+# File:		makefile.dos
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds Hypertext wxtypes.lib library for Windows 3.1
+
+# Change WXDIR/WXWIN to wherever wxWindows is found
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib $(WXDIR)\contrib\fafa\fafa.lib
+WXINC = $(WXDIR)\include
+
+WXTYPESDIR = $(WXDIR)\samples\types
+WXTYPESINC = $(WXTYPESDIR)
+
+INC = /I$(WXDIR)\include\base /I$(WXDIR)\include\msw
+
+LIBS=$(WXLIB) oldnames libw llibcew commdlg ddeml shell
+
+# Set this to nothing if your compiler is MS C++ 7
+ZOPTION=/Z7
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+# Default is to output RTF for WinHelp
+!ifndef WINHELP
+WINHELP=-winhelp
+!endif
+
+PRECOMP=/YuWX_PREC.H 
+
+!if "$(FINAL)" == "0"
+OPT = /Od
+CPPFLAGS= /AL /Gt4 /W4 /Zi /G2sw $(ZOPTION) $(OPT) /Dwx_msw $(INC) $(PRECOMP) /Fp$(WXDIR)\src\msw\wx.pch
+CFLAGS= /AL /W4 /Zi /G2sw /Od /Dwx_msw
+LINKFLAGS=/NOD /CO /SEG:1024 /ONERROR:NOEXE
+!else
+# /Ox for real FINAL version
+OPT = /Ox
+CPPFLAGS= /AL /Gt4 /W4 /Os /G2sw $(OPT) /Dwx_msw $(INC) $(PRECOMP) /Fp$(WXDIR)\src\msw\wx.pch
+CFLAGS= /AL /W4 /Zi /Os /G2sw /Dwx_msw
+LINKFLAGS=/NOD /SEG:1024 /ONERROR:NOEXE
+!endif
+
+OBJECTS = types.obj
+
+all:    types.exe
+
+wx:
+        cd $(WXDIR)\src
+        nmake -f makefile.dos FINAL=$(FINAL)
+        cd $(WXTYPESDIR)
+
+types.exe:      $(WXDIR)\src\msw\dummy.obj $(WXLIB) types.obj types.def types.res
+        link $(LINKFLAGS) @<<
+types.obj $(WXDIR)\src\msw\dummy.obj,
+types,
+NUL,
+$(LIBS),
+types.def
+;
+<<
+        rc -K types.res
+
+types.obj:      types.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+types.res :      types.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /dFAFA_LIB /i$(WXDIR)\contrib\fafa /i$(WXDIR)\include\msw types
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.sbr
+        -erase *.pdb
+
+cleanall:	clean

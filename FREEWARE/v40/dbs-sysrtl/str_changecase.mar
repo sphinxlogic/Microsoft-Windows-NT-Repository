@@ -1,0 +1,169 @@
+	.title	str_changecase
+	.ident	/X1-002/
+
+;+
+; Version:	X1-002
+;
+; Facility:	String routines.
+;
+; Abstract:	Change a string to upper case or lower case characters.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	27-Sep-1990, DBS, Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS, Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	Scan the source string and convert the characters to upper or lower
+;	case depending on which entry point is chosen.
+;	The two entry points are STR_UPPERCASE and STR_LOWERCASE.  They were
+;	combined in this way due to thw amount of common code.
+;	The parameters are handled in the same way for both routines.
+;
+; Calling Sequence:
+;	status = str_lowercase (destination, source)
+;		-or-
+;	status = str_lowercase (string_to_modify)
+;		-or-
+;	pushaq	source
+;	pushaq	destination
+;	calls	#2, g^str_lowercase
+;	blbc	r0, error
+;		-or-
+;	pushaq	string_to_modify
+;	calls	#1, g^str_lowercase
+;	blbc	r0, error
+;
+; Formal Argument(s):
+;   2 Argument form:
+;	destination.rt.ds  Address of the descriptor of the string that will
+;			contain the converted characters.
+;	source.rt.ds	Address of the descriptor of the string to be
+;			converted.
+;   1 Argument form:
+;	string.mt.ds	Address of the descriptor of the string to modify.
+;			Modification is done in situ.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_badparam	A null argument was passed
+;	ss$_insfarg	No arguments were passed
+;	ss$_ivbuflen	A zero length string was passed
+;	ss$_normal	Successful completion
+;	ss$_ovrmaxarg	Too many arguments were passed
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	$ssdef
+
+one_arg=1				; to see if only one argument
+two_args=2				; to see if we have two arguments
+p1=4					; offset to argument 1, destination
+p2=8					; offset to argument 2, source
+space=32				; used as a filler for the movc5
+upper_a=65				; ascii value of upper case A
+upper_z=90				; ascii value of upper case Z
+lower_a=97				; ascii value of lower case a
+lower_z=122				; ascii value of lower case z
+case_mask=32				; bit to clear/set
+
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_code
+
+        .entry -
+str_lowercase ,^m<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+
+	clrl	r7			; indicates upper to lower
+	brb	changecase
+
+        .entry -
+str_uppercase ,^m<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+
+	movl	#1, r7			; indicates lower to upper
+
+changecase:
+	cmpw	(ap), #one_arg		; do we have one argument ?
+	beql	10$			; yes, check it
+	cmpw	(ap), #two_args		; do we have two arguments ?
+	bgtr	toomany			; too many, bail out
+	bneq	toofew			; nope, we have none, go away
+	tstl	p2(ap)			; check address of arg 2
+	beql	badparam		; no good, bail out
+	movq	@p2(ap), r10		; get the descriptor of the source
+	movzwl	r10, r10		; get rid of the class stuff
+	beql	badlength		; zero length string, forget it
+10$:	tstl	p1(ap)			; check address of arg 1
+	beql	badparam		; no good, bail out
+	movq	@p1(ap), r8		; get the descriptor of the destination
+	movzwl	r8, r8			; get rid of the class stuff
+	beql	badlength		; zero length string, forget it
+	cmpw	(ap), #one_arg		; if it's a one argument call
+	beql	20$			; skip the string copy
+	movc5	r10, (r11), #space, r8, (r9) ; copy the string as is for now
+20$:	movq	r8, r2			; take a work copy of the descriptor
+
+	tstb	r7			; see what we are doing
+	beql	upper_to_lower
+
+lower_to_upper:
+100$:	cmpb	(r3), #lower_a		; is the character less than a
+	blssu	200$			; yes, ignore it
+	cmpb	(r3), #lower_z		; is it greater than z
+	bgtru	200$			; yes, ignore it also
+	bicb2	#case_mask, (r3)	; it's lowercase, make it uppercase
+200$:	incl	r3			; ready for the next character
+	sobgtr	r2, 100$		; see if we have looked at all of them
+	brw	success
+
+upper_to_lower:
+300$:	cmpb	(r3), #upper_a		; is the character less than A
+	blssu	400$			; yes, ignore it
+	cmpb	(r3), #upper_z		; is it greater than Z
+	bgtru	400$			; yes, ignore it also
+	bisb2	#case_mask, (r3)	; it's uppercase, make it lowercase
+400$:	incl	r3			; ready for the next character
+	sobgtr	r2, 300$		; see if we have looked at all of them
+
+success:
+	movl	#ss$_normal, r0
+	brb	return
+toofew:
+	movl	#ss$_insfarg, r0
+	brb	return
+toomany:
+	movl	#ss$_ovrmaxarg, r0
+	brb	return
+badlength:
+	movl	#ss$_ivbuflen, r0
+	brb	return
+badparam:
+	movl	#ss$_badparam, r0
+return:
+	ret
+
+	.end

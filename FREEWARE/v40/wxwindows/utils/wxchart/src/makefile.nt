@@ -1,0 +1,141 @@
+#
+# File:		makefile.nt
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxChart class library (MS VC++).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+WXCHARTDIR = $(WXDIR)\utils\wxchart
+THISDIR = $(WXDIR)\utils\wxchart\src
+EXTRALIBS=$(WXCHARTDIR)\lib\wxchart.lib
+DOCDIR=$(WXDIR)\docs
+LOCALDOCDIR=$(WXDIR)\utils\wxchart\docs
+
+!include $(WXDIR)\src\ntwxwin.mak
+
+PROGRAM=test
+ 
+OBJECTS = lbchart.obj dataset.obj
+PROGOBJECTS = $(PROGRAM).obj shapes.obj
+LIBTARGET=$(WXCHARTDIR)\lib\wxchart.lib
+
+all:    $(LIBTARGET)
+
+$(PROGRAM):    $(PROGRAM).exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt FINAL=$(FINAL)
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt clean
+        cd $(THISDIR)
+
+$(LIBTARGET): $(OBJECTS)
+	-erase $(LIBTARGET)
+	$(implib) @<<
+-out:$(LIBTARGET)
+-machine:$(CPU)
+$(OBJECTS)
+<<
+
+$(PROGRAM).exe:      $(DUMMYOBJ) $(WXLIB) $(PROGOBJECTS) $(LIBTARGET) $(PROGRAM).res
+	$(link) @<<
+-out:$(PROGRAM).exe
+$(LINKFLAGS)
+$(DUMMYOBJ) $(PROGOBJECTS) $(PROGRAM).res
+$(LIBS)
+<<
+
+shapes.obj:      shapes.h shapes.cpp $(DUMMYOBJ)
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+lbchart.obj:    lbchart.h lbchart.cpp $(DUMMYOBJ)
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+chart.obj:    chart.h chart.cpp $(DUMMYOBJ)
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+dataset.obj:      dataset.h dataset.cpp $(DUMMYOBJ)
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+$(PROGRAM).obj:      $(PROGRAM).h $(PROGRAM).cpp $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+$(PROGRAM).res :      $(PROGRAM).rc $(WXDIR)\include\msw\wx.rc
+    $(rc) -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -fo$@ $(PROGRAM).rc
+
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+        -erase $(LIBTARGET)
+
+DOCSOURCES=$(LOCALDOCDIR)\wxchart.tex
+
+html: $(DOCDIR)\html\wxchart\chart.htm
+hlp: $(DOCDIR)\winhelp\wxchart.hlp
+ps: $(WXDIR)\docs\ps\wxchart.ps
+
+$(DOCDIR)\winhelp\wxchart.hlp:         $(LOCALDOCDIR)\wxchart.rtf $(LOCALDOCDIR)\wxchart.hpj
+        cd $(LOCALDOCDIR)
+        -erase wxchart.ph
+        hc wxchart
+        move wxchart.hlp $(DOCDIR)\winhelp\wxchart.hlp
+        move wxchart.cnt $(DOCDIR)\winhelp\wxchart.cnt
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\wxchart.rtf: $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -start /w tex2rtf $(LOCALDOCDIR)\wxchart.tex $(LOCALDOCDIR)\wxchart.rtf -twice -winhelp
+        cd $(THISDIR)
+
+$(DOCDIR)\html\wxchart\chart.htm:         $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -mkdir $(DOCDIR)\html\wxchart
+        -start /w tex2rtf $(LOCALDOCDIR)\wxchart.tex $(DOCDIR)\html\wxchart\chart.htm -twice -html
+        -erase $(DOCDIR)\html\wxchart\*.con
+        -erase $(DOCDIR)\html\wxchart\*.ref
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\wxchart.dvi:	$(DOCSOURCES)
+	cd $(LOCALDOCDIR)
+        -latex wxchart
+        -latex wxchart
+        -makeindx wxchart
+        -bibtex wxchart
+        -latex wxchart
+        -latex wxchart
+        cd $(THISDIR)
+
+$(WXDIR)\docs\ps\wxchart.ps:	$(LOCALDOCDIR)\wxchart.dvi
+	cd $(LOCALDOCDIR)
+        -dvips32 -o wxchart.ps wxchart
+        move wxchart.ps $(WXDIR)\docs\ps\wxchart.ps
+        cd $(THISDIR)
+
+

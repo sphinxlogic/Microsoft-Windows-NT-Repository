@@ -1,0 +1,146 @@
+#
+# File:         makefile.dos
+# Author:       Julian Smart
+# Created:      1993
+# Updated:      
+# Copyright:    (c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxChartLayout library and example (DOS).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+CHARTDIR = $(WXWIN)\utils\wxchart
+CHARTLIB = $(CHARTDIR)\lib\wxchart.lib
+DOCDIR = $(CHARTDIR)\docs
+THISDIR = $(CHARTDIR)\src
+EXTRALIBS=$(CHARTLIB)
+INC=-I$(WXDIR)\include\base -I$(WXDIR)\include\msw
+DUMMY=$(WXDIR)\src\msw\dummy.obj
+
+# Default is to output RTF for WinHelp
+!ifndef RTFSTYLE
+RTFSTYLE=-winhelp
+!endif
+
+HEADERS = lbchart.h dataset.h
+SOURCES = lbchart.cpp dataset.cpp
+OBJECTS = lbchart.obj dataset.obj
+TESTOBJECTS = shapes.obj test.obj
+
+all:    $(CHARTLIB)
+
+test:   test.exe
+
+wx:
+	cd $(WXDIR)\src\msw
+	nmake -f makefile.dos FINAL=$(FINAL)
+	cd $(CHARTDIR)\src
+
+wxclean:
+	cd $(WXDIR)\src\msw
+	nmake -f makefile.dos clean
+	cd $(CHARTDIR)\src
+
+$(CHARTLIB):      $(OBJECTS)
+	-erase $(CHARTLIB)
+	lib /PAGESIZE:128 @<<
+$(CHARTLIB)
+y
+$(OBJECTS)
+nul
+;
+<<
+
+test.exe:      $(DUMMY) $(WXLIB) $(CHARTLIB) $(TESTOBJECTS) test.def test.res
+	link $(LINKFLAGS) @<<
+$(DUMMY) $(TESTOBJECTS),
+test,
+NUL,
+$(LIBS),
+test.def
+;
+<<
+	rc -31 -K test.res
+
+shapes.obj:      shapes.h shapes.cpp $(DUMMY)
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+lbchart.obj:    lbchart.h lbchart.cpp $(DUMMY)
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+chart.obj:    chart.h chart.cpp $(DUMMY)
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+test.obj:      test.h test.cpp $(DUMMY)
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+dataset.obj:      dataset.h dataset.cpp $(DUMMY)
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+
+test.res :      test.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /dFAFA_LIB /i$(WXDIR)\contrib\fafa /i$(WXDIR)\include\msw test
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+	-erase $(CHARTLIB)
+
+# Making documents
+docs:   hlp
+hlp: $(DOCDIR)/wxchart.hlp
+hlp32: $(DOCDIR)/hlp32/wxchart.hlp
+rtf:    $(DOCDIR)/wxchart.rtf
+
+$(DOCDIR)/wxchart.hlp:         $(DOCDIR)/wxchart.rtf $(DOCDIR)/wxchart.hpj
+        cd $(DOCDIR)
+        -erase wxchart.ph
+        hc wxchart
+        cd $(THISDIR)
+
+$(DOCDIR)/hlp32/wxchart.hlp:         $(DOCDIR)/hlp32/wxchart.rtf $(DOCDIR)/hlp32/wxchart.hpj
+        cd $(DOCDIR)/hlp32
+        -erase wxchart.ph
+        start /w hcw /c /e clockwrk.hpj
+        cd $(THISDIR)
+
+$(DOCDIR)/wxchart.rtf:         $(DOCDIR)/classes.tex $(DOCDIR)/wxchart.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)/wxchart.tex $(DOCDIR)/wxchart.rtf -twice $(RTFSTYLE)
+        cd $(THISDIR)
+
+$(DOCDIR)/hlp32/wxchart.rtf:         $(DOCDIR)/classes.tex $(DOCDIR)/wxchart.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)/wxchart.tex $(DOCDIR)/hlp32/wxchart.rtf -twice -winhelp -macros $(DOCDIR)/t2rtf32.ini
+        cd $(THISDIR)
+
+wordrtf: 
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)/wxchart.tex $(DOCDIR)/wxchart.rtf -twice -rtf
+        cd $(THISDIR)
+
+cleanrtf:
+        cd $(DOCDIR)
+        -erase *.rtf
+        cd  $(THISDIR)

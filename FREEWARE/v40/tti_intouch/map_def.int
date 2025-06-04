@@ -1,0 +1,896 @@
+1      !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+       !  Program:  MAP_DEF
+       !  Package:  IBIS
+       !  Author :  Nimpa D. Villarin
+       !  Date   :  December 5, 1986
+       !  Purpose:  The fields of each MAP statement will be
+       !            assigned to their associated fields in a
+       !            define file.
+       ! Modified:  25-FEB-1991 DJS. Change to process multiple maps
+       !                in one source file.  Check to see if the
+       !                definition already exists.  If so, then just
+       !                make new definitions in it.
+       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+        option arithmetic integer
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  M A I N   L O G I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  The main logic section will ask for the desired program
+        !  to use.  After each map statement is found the database
+        !  name is determined and finally the fields which are
+        !  assigned with reserved words are executed separately.
+        !  Each field name will be tested before stored in a
+        !  define file.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        action$ = 'initialize'
+        do
+          select case action$
+            case 'exit' : exit do
+            case else   : dispatch action$
+          end select
+        loop
+
+        stop
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  I N I T I A L I Z E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! 
+        !  This routine sets initial variable values.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine initialize
+
+        ask system : mode mode$
+        def_integer$ = 'WORD'
+        def_real$ = 'SINGLE'
+        fdate$          = "N"
+        fdate_format$   = "YMD"
+        fread_sec$      = "N"
+        fright_just$    = "N"
+        f_ucase$        = "Y"
+        fwrite_sec$     = "N"
+        fzero_fill$     = "N"
+        fzero_supr$     = "N"
+        frame off
+        clear
+        z$ = space$(80)
+        cset z$ = 'BASIC Map to INTOUCH Definition Conversion'
+        print at 1, 1, reverse : z$
+        print at 3, 1 : 'Default integer size  : '
+        print at 5, 1 : 'Default real precision: '
+        print at 7, 1 : 'Source file           : '
+        print at 10, 1 : 'Processing source file: '
+        print at 11, 1: 'Processing map        : '
+        z$ = 'EXIT = Exit                     TTI SALES SYSTEM           ' + &
+             '\ = Back  HELP = Help'
+        print at 24, 1, reverse : z$;
+        ask window : current cleared_screen$
+
+        action$ = 'ask_integer'
+
+        end routine
+
+
+
+        
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   I N T E G E R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! need to find out the precision of integers for this run.  Either
+        ! word or longword
+        !
+        ! Expected:
+        !       def_integer$ = current default for integer size
+        !
+        ! Result  :
+        !       def_integer$ = new default
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_integer
+
+        do
+          if  mode$ <> 'BATCH'  then  &
+                message "Valid integer sizes are WORD or LONG"
+          line input at 21, 1, prompt 'Integer size? ', length 4, &
+                default def_integer$ : u_reply$
+          clear area 21, 1, 21, 80
+          if  _exit or _back  then  
+            action$ = 'exit'
+            exit routine
+          end if
+          u_reply$ = ucase$(u_reply$)
+          if  u_reply$ <> 'WORD' and u_reply$ <> 'LONG'  then
+            message error : "Invalid integer size: " + u_reply$
+            repeat do
+          end if
+        end do
+        def_integer$ = u_reply$
+        print at 3, 25, bold : def_integer$
+        action$ = 'ask_real'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   R E A L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! need to find out the precision of realss for this run.  Either
+        ! single or double
+        !
+        ! Expected:
+        !       def_real$ = current default for real precision
+        !
+        ! Result  :
+        !       def_real$ = new default
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_real
+
+        do
+          if  mode$ <> 'BATCH'  then  &
+                message "Valid real precisions are SINGLE or DOUBLE"
+          line input at 21, 1, prompt 'Real precision? ', length 6, &
+                default def_real$ : u_reply$
+          clear area 21, 1, 21, 80
+          if  _exit  then  
+            action$ = 'exit'
+            exit routine
+          end if
+          if  _back  then
+            action$ = 'ask_integer'
+            exit routine
+          end if
+          u_reply$ = ucase$(u_reply$)
+          if  u_reply$ <> 'SINGLE' and u_reply$ <> 'DOUBLE'  then
+            message error : "Invalid real precision: " + u_reply$
+            repeat do
+          end if
+        end do
+        def_real$ = u_reply$
+        print at 5, 25, bold : def_real$
+        action$ = 'ask_source_file'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   S O U R C E   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! find out which source file(s) to process (wild cards are accepted)
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !       generic_file$ = file name
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_source_file
+
+        do
+          line input at 21, 1, prompt "Program name? " : generic_file$
+          clear area 21, 1, 21, 80
+          if  _exit  then
+            action$ = 'exit'
+            exit routine
+          end if
+          if  _back  then  
+            action$ = 'ask_real'
+            exit routine
+          end if
+          if  generic_file$ = ""  then 
+            message error : "Please enter a file spec or else EXIT"
+            repeat do
+          end if
+        end do
+        generic_file$ = ucase$(generic_file$)
+        z = pos(generic_file$, ']')
+        z1 = pos(generic_file$, '.', z)
+        if  z1 = 0  then  generic_file$ = generic_file$ + '.BAS'
+        print at 7, 25, bold : generic_file$
+        action$ = 'ask_proceed'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   P R O C E E D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! make sure that the user wants to continue
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_proceed
+
+        do
+          line input at 21, 1, prompt 'Proceed (Y/N)? ', length 1 : u_reply$
+          clear area 21, 1, 21, 80
+          if  _exit  then
+            action$ = 'exit'
+            exit routine
+          end if
+          if  _back  then
+            action$ = 'ask_source_file'
+            exit routine
+          end if
+          z$ = ucase$(u_reply$)
+          select case z$
+            case 'Y' : action$ = 'process_source'
+            case 'N' : action$ = 'ask_source_file'
+            case else
+              message error : "Please answer Y or N"
+              repeat do
+          end select
+        end do
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   S O U R C E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! find all of the files that meet the file spec entered and process
+        ! them
+        !
+        ! Expected:
+        !       generic_file$ = file spec
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_source
+
+        ! for each file that matches the user's input
+        filinx = 0
+        do
+          filinx = filinx + 1
+          file$ = findfile$(generic_file$, filinx)
+          if  file$ = ""  then  exit do
+          source_ch = _channel
+          open #source_ch : name file$, access input
+          eof = false
+          clear area 10, 25, 10, 80
+          print at 10, 25, bold : file$
+          gosub process_source_file
+
+          close #source_ch
+        loop
+
+        set window : current cleared_screen$
+        action$ = "ask_integer"
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   S O U R C E   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! search the source file for map statements.  For each map statement
+        ! found, create the definition file and load the field records
+        !
+        ! Expected:
+        !       source_ch = channel source file is opened on
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_source_file
+
+        do
+          gosub read_line
+          if  eof  then  exit do
+          ! result of read is one line that contains all continued source
+          ! lines.  In other words, the whole map statement is in one line
+          if  ucased_line$[1:3] <> 'MAP'  then  repeat do
+          gosub process_map
+        loop
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   M A P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! process the map statement by creating/opening the definition file
+        ! and processing each field
+        !
+        ! Expected:
+        !       database$ = name of def file to process
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_map
+
+        position = 1
+        gosub open_def_file
+        explicit_datatype$ = ''
+        map_line$ = change$(source_line$, '.', '_')
+        max_fields = elements(map_line$, ',')
+        z = pos(map_line$, ')')
+        if  z = 0  then
+          message error : "Invalid map statement - no )"
+          exit routine
+        end if
+        map_line$ = edit$(map_line$[z + 1 : len(map_line$)], 16%)        
+        for field = 1 to max_fields
+          field_text$ = ''
+          z1 = 1
+          do
+            z$ = element$(map_line$, field, ',')
+            field_text$ = field_text$ + z$
+            need_more = false
+            do
+              z = pos(field_text$, '(', z1)
+              if  z = 0  then  exit do ! no more parens got whole field
+              z1 = pos(field_text$, ')', z) 
+              if  z1 = 0 then  
+                field = field + 1
+                z1 = z
+                need_more = true
+                field_text$ = field_text$ + ", "
+                exit do
+              end if
+            loop
+            if  not need_more  then  exit do
+          loop
+          gosub process_field
+        next field
+        close structure def
+        if  mode$ <> 'BATCH'  then  &
+                message ""
+
+        end routine
+
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O P E N   D E F   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! open the def file.  If not found then create one
+        !
+        ! Expected:
+        !       source_line$ = line of source with map name
+        !
+        ! Result  :
+        !       def structure is open
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine open_def_file
+
+        database$ = element$(source_line$, 2, '(')
+        database$ = element$(database$, 1, ')')
+        clear area 11, 25, 11, 80
+        print at 11, 25, bold : database$
+        when exception in
+          open structure def : name 'tti_run:define', &
+                datafile database$ + '.def', access outin
+        use
+          pass 'create/fdl=tti_run:define ' + database$ + '.def'
+        end when
+        if  _error  then  &
+          open structure def : name 'tti_run:define', &
+                datafile database$ + '.def', access outin
+          
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! process an individual field
+        !
+        ! Expected:
+        !       field_text$ = field definition
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_field
+
+        array_found = false
+        equal_found = false
+        field_found = false
+        field_name$ = ''
+        array_occurrence = 0
+        fill_repeat = 0
+        skip_field = false
+        field_scale = 0
+        gosub parse_field
+        gosub check_elements
+        gosub determine_datatype
+        gosub determine_field_attributes
+        if  skip_field  then  exit routine
+        gosub store_field
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! parse the field definition and set up the elements
+        !
+        ! Expected:
+        !       field_text$ = the raw field definition
+        !
+        ! Result  :
+        !       field_name$ = name of field to define
+        !       field_size  = size of field if found
+        !       explicit_datatype$ = datatype if explicitly declared
+        !       array_occurrence   = number of array elements if found
+        !       fill_repeat        = number of times a fill should repeat
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_field
+
+        parsed_def$ = parse$(field_text$)
+        tokens = elements(parsed_def$, ' ')
+        for token_index = 1 to tokens
+          token$ = parse$
+          select case token$
+            case 'STRING'           : explicit_datatype$ = token$
+            case 'INTEGER'          : explicit_datatype$ = def_integer$
+            case 'WORD'             : explicit_datatype$ = token$
+            case 'LONG', 'LONGWORD' : explicit_datatype$ = 'LONG'
+            case 'REAL'             : explicit_datatype$ = def_real$
+            case 'SINGLE'           : explicit_datatype$ = token$
+            case 'DOUBLE'           : explicit_datatype$ = token$
+            case 'BYTE'             : explicit_datatype$ = token$
+            case 'RFA'              : explicit_datatype$ = token$
+            case 'GFLOAT'           : explicit_datatype$ = token$
+            case 'HFLOAT'           : explicit_datatype$ = token$
+            case 'DECIMAL'          : gosub process_decimal_datatype
+            case '('                : array_found = true
+            case ')'
+            case '='                : equal_found = true
+            case else               : gosub process_field_element
+          end select
+        next token_index
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   D E C I M A L   D A T A T Y P E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! found a decimal datatype.  They could have precision and scale 
+        ! following
+        !
+        ! Expected:
+        !       token_index = points to 'DECIMAL'
+        !
+        ! Result  :
+        !       token_index points to ')' if there
+        !       field_size = size of field
+        !       field_scale = scale
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_decimal_datatype
+
+        explicit_datatype$ = 'DECIMAL'
+        z$ = element$(parsed_def$, token_index + 1, ' ')
+        if  z$ <> '(' then
+          last_decimal_size% = (15 / 2) + 1
+          last_decimal_scale = 2
+          exit routine
+        end if
+        token_index = token_index + 2
+        z$ = parse$
+        z$ = parse$
+        if  not valid(z$, 'integer') then
+          message error : "Invalid decimal precision: " + z$  + " in field: " + &
+                field_text$
+          skip_field = true
+          exit routine
+        end if
+        last_decimal_size% = (val(z$) / 2) + 1
+        token_index = token_index + 3
+        z$ = parse$
+        z$ = parse$
+        if  not valid(z$, 'integer') then
+          message error : "Invalid decimal scale: " + z$  + " in field: " + &
+                field_text$
+          skip_field = true
+          exit routine
+        end if
+        last_decimal_scale = val(z$)
+        z$ = parse$
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   F I E L D   E L E M E N T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! have a misc field token.  it should be a field name, repeat value
+        ! (for fills) or field size for strings
+        !
+        ! Expected:
+        !       equal_found = true if an = was found
+        !       array_found = true if a ( was found
+        !       field_found = true if field name already processed
+        !
+        ! Result  :
+        !       depending upon what is set (as described in expected),
+        !       either the field name, field size, array elements or
+        !       fill repeat value will be set
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_field_element
+
+        if  equal_found  then
+          gosub change_token_to_number
+          if  _error  then
+            skip_field = true
+            exit routine
+          end if  
+          field_size = num_value
+          equal_found = false
+          exit routine
+        end if
+        if  array_found  then
+          gosub process_array_dimensions
+          array_occurrence = num_value ! num_value contains the product of &
+                                       ! all dimensions
+          equal_found = false
+          exit routine
+        end if
+        if  field_found  then
+          gosub change_token_to_number
+          if  _error  then
+            skip_field = true
+            exit routine
+          end if  
+          fill_repeat = num_value
+        else
+          field_name$ = token$
+          field_found = true
+        end if
+                  
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H A N G E   T O K E N   T O   N U M B E R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! change a token to a number checking for a valid number
+        !
+        ! Expected:
+        !       token$ = value to change
+        !
+        ! Result  :
+        !       num_value = numeric value
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine change_token_to_number
+
+        z$ = change$(token$, '$%', '')
+        if  not valid(z$, 'integer') then
+          message error : "Expected a number in token: " + token$ + &
+                " in field definition: " + field_text$
+          exit routine
+        end if
+        num_value = val(z$)
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   A R R A Y   D I M E N S I O N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! need to get the product of all dimensions.  Even though INTOUCH
+        ! doesn't support multiple dimensions yet, we can at least allocate
+        ! enough space for the entire array.
+        !
+        ! Expected:
+        !       token$ = points to the first dimension
+        !
+        ! Result  :
+        !       num_value = product of all dimesions
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_array_dimensions
+
+        num_value = 1 ! start at 1 so first mult stmt gives itself as answer
+        do
+          low_bound$ = change$(token$, '$%', '')
+          z1$ = element$(parsed_def$, token_index + 1, ' ')
+          if  ucase$(z1$) = 'TO' then
+            high_bound$ = element$(parsed_def$, token_index + 2, ' ')
+            token_index = token_index + 2
+            token$ = parse$ ! skip "to"
+            token$ = parse$ ! skip high bound
+            array_to_found = true
+          else
+            high_bound$ = low_bound$
+            low_bound$ = '0'
+            array_to_found = false
+          end if
+          if  not valid(low_bound$, 'integer')  then
+            message error : "Invalid dimension value: " + token$ + &
+                " in field: " + field_text$
+            skip_field = true
+            num_value = 0
+            exit routine
+          end if
+          if  not valid(high_bound$, 'integer')  then
+            message error : "Invalid dimension value: " + token$ + &
+                " in field: " + field_text$
+            skip_field = true
+            num_value = 0
+            exit routine
+          end if
+          high_bound = val(high_bound$)
+          low_bound = val(low_bound$)
+          z = high_bound - low_bound + 1
+          num_value = num_value * z  ! change to 1 based
+          do
+            token$ = parse$
+            token_index = token_index + 1
+            if  token$ = ','  then  repeat do
+          end do
+          if  token$ = ')'  then  exit do
+        loop
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   E L E M E N T S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! make sure that everything is present to make a field definition
+        ! need field name
+        !
+        ! Expected:
+        !       field_name$ = field name
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_elements
+
+        if  field_name$ = ''  then
+          message error : "After parsing, field name is blank"
+          halt
+        end if
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D E T E R M I N E   D A T A T Y P E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! determine the datatype.  If the field name ends with $ then
+        ! it is a string.  if ends with % then it is the default integer size
+        ! otherwise, if explicit_datatype is set, then the datatype is that
+        ! otherwise, the datatype is the def_real$
+        !
+        ! Expected:
+        !       field_name$ = field name
+        !       explicit_datatype$ = current explicitly declared datatype
+        !       def_integer$ = default integer size
+        !       def_real$    = default real precision
+        !
+        ! Result  :
+        !       field_datatype$ = datatype
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine determine_datatype
+
+        z$ = right$(field_name$, 1)
+        select case z$
+          case '%' : field_datatype$ = def_integer$
+          case '$' : field_datatype$ = 'STRING'
+          case else
+            if  explicit_datatype$ = ''  then
+              field_datatype$ = def_real$
+            else
+              field_datatype$ = explicit_datatype$
+            end if
+        end select
+        field_name$ = change$(field_name$, '$%', '')
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D E T E R M I N E   F I E L D   A T T R I B U T E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! calculate the length of the field, intouch datatype, attributes
+        !
+        ! Expected:
+        !       field_datatype$ = datatype
+        !       field_size      = field size defined in map (string only)
+        !       fill_repeat     = number of times a fill repeats
+        !       array_occurrence = number of array elements
+        !
+        ! Result  :
+        !       field_length = total size of the field
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine determine_field_attributes
+
+        select case field_datatype$
+          case 'STRING'  
+            intouch_datatype$ = 'CH'
+            num_flag$ = 'N'
+            if  field_size = 0  then
+              field_length = 16
+            else
+              field_length = field_size
+            end if
+          case 'WORD'    
+            field_length = 2
+            intouch_datatype$ = 'IN'
+            num_flag$ = 'Y'
+          case 'LONG'    
+            field_length = 4
+            intouch_datatype$ = 'IN'
+            num_flag$ = 'Y'
+          case 'SINGLE'  
+            field_length = 4
+            intouch_datatype$ = 'FL'
+            num_flag$ = 'Y'
+          case 'DOUBLE'  
+            field_length = 8
+            intouch_datatype$ = 'FL'
+            num_flag$ = 'Y'
+          case 'BYTE'    
+            field_length = 1
+            intouch_datatype$ = 'IN'
+            num_flag$ = 'Y'
+          case 'RFA'
+            field_length = 6
+            intouch_datatype$ = 'UN'
+            num_flag$ = 'N'
+          case 'GFLOAT'
+            field_length = 8
+            intouch_datatype$ = 'UN'
+            num_flag$ = 'N'
+          case 'HFLOAT'
+            field_length = 16
+            intouch_datatype$ = 'UN'
+            num_flag$ = 'N'
+          case 'DECIMAL'
+            field_length = last_decimal_size%
+            field_scale  = last_decimal_scale
+            intouch_datatype$ = 'C3'
+            num_flag$ = 'Y'
+          case else
+            message error : "Unknown datatype in definition: " + field_text$
+            delay 5
+            skip_field = true
+        end select
+        total_length = field_length
+        if  array_occurrence > 0  then  &
+                total_length = field_length * array_occurrence
+        if  fill_repeat > 0  then  &
+                total_length = field_length * fill_repeat
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S T O R E   F I E L D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! check to see if field is a duplicate.  if so just calc new position
+        ! and exit.  Otherwise, add record.
+        !
+        ! Expected:
+        !
+        ! Result  :
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine store_field
+
+        if  mode$ <> 'BATCH'  then  &
+                message "On field: " + field_name$
+        set structure def, field long_name : key field_name$
+        if  _extracted > 0  then
+          position = position + total_length
+          exit routine
+        end if
+
+        if  field_name$ = 'FILL'  then
+          position = position + total_length
+          exit routine
+        end if
+        ! don't write fill fields
+
+        add structure def
+          def(old_name)    = '*'
+          def(desc)        = field_name$
+          def(first)       = position
+          def(len)         = field_length
+          def(dtype)       = intouch_datatype$
+          def(num)         = num_flag$
+          def(date)        = fdate$
+          def(df)          = fdate_format$
+          def(read)        = fread_sec$
+          def(rj)          = fright_just$
+          def(scale)       = lpad$(str$(field_scale), 2, '0')
+          def(uc)          = f_ucase$
+          def(write)       = fwrite_sec$
+          def(zf)          = fzero_fill$
+          def(zs)          = fzero_supr$
+          def(heading)     = field_name$
+          def(prompt)      = field_name$
+          def(name)        = field_name$
+          def(occurrence)  = array_occurrence
+        end add
+        position = position + total_length
+
+        end routine
+       
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E A D   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! read the next line from the source file.
+        ! if the line is a comment  then  skip it
+        !
+        ! Expected:
+        !       source file is open on source_ch
+        !
+        ! Result  :
+        !       source_line$ = raw source line
+        !       ucased_line$ = source line, trimmed and ucased
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine read_line
+
+        source_line$ = ''        
+        do
+          when exception in
+            line input #source_ch: z$
+          use
+            eof = true
+          end when
+          if  eof  then  exit routine
+          z$ = trim$(z$)
+          z1$ = trim$(element$(z$, 1, '!'))
+          if  z1$ = ''  then  repeat do
+          source_line$ = source_line$ + z1$
+          if  right$(z1$, 1) = '&'  then  
+            source_line$(len(source_line$):len(source_line$)] = ''
+            repeat do
+          end if
+          !continued line, so get rid of the & and get next line
+          if  right$(z$, 1) = '&'  then  
+            repeat do
+          end if
+          ! line was continue after the comment.  get next line (& already gone)
+        end do
+        ucased_line$ = ucase$(source_line$)
+
+        end routine
+
+

@@ -1,0 +1,875 @@
+<!-- VDE_GUIDE_014.HTML continuation of VDED$:[VDE.VDEDOC.DOC]VDE_GUIDE.HTML -->
+<html>
+<head>
+<title>VDE</title>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">VDE<br>Guide to Using<br> VDE</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_013.html#bottom_013">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+
+<hr>
+
+<a name="maint_lib_backup_rmu"><h2>7.4.9 Associated Rdb commands</h2></a>
+
+<p>
+The following is the Rdb V6.0 command used to rename a 
+particular journalling file. The version number is required.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ ! Rdb V6.0 journaling  command...
+$ RMU/SET AFTER_JOURNAL LIBDEV$:[PROJ]VDE$DATABASE - 
+_$   /ALTER=(name=aij,FILE=filename.aij;0)
+</pre>
+</font>
+</table>
+
+Use the Rdb V6.0 &quot;RMU/SHOW AFTER_JOURNAL 
+databasename&quot; command to display the current journal file(s) and 
+the current state of journaling on the database.
+
+<p>
+If the journal is inaccessable, use the following sequence to create a 
+new journal file:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ ! Rdb V6.0 journaling  command...
+$ RMU/SET AFTER_JOURNAL LIBDEV$:[PROJ]VDE$DATABASE - 
+_$   /DISABLE
+$ RMU/SET AFTER_JOURNAL LIBDEV$:[PROJ]VDE$DATABASE - 
+_$   /DROP=(name=aij)
+$ RMU/SET AFTER_JOURNAL LIBDEV$:[PROJ]VDE$DATABASE - 
+_$   /ADD=(name=aij,FILE=filename.aij;0)
+$ RMU/SET AFTER_JOURNAL LIBDEV$:[PROJ]VDE$DATABASE - 
+_$   /ENABLE
+</pre>
+</font>
+</table>
+
+<p>
+The following commands are used to relocate various Rdb 
+component files associated with the VDE Rdb 
+database:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$  RMU/ALTER LIBDEV$:[PROJ]VDE$DATABASE
+RdbALTER&gt; deposit file RDB$SYSTEM SNAPSHOT -
+_RdbALTER&gt; SPECIFICATION="LIBDEV_SNAP$:[VDE$ROOT.DB_SNAPSHOT]VDE$DATABASE.SNP;1"
+RdbALTER&gt; deposit file RDB$SYSTEM -
+_RdbALTER&gt; SPECIFICATION="LIBDEV_AREA$:[VDE$ROOT.DB_STORAGE]VDE$DATABASE.RDA;1"
+RdbALTER&gt; deposit root specification="LIBDEV_ROOT$:[VDE$ROOT]VDE$DATABASE.RDB;1"
+RdbALTER&gt; commit
+RdbALTER&gt; ^Z
+</pre>
+</font>
+</table>
+
+Note that RMU/ALTER does <em>not</em> currently support continuation 
+characters such as the hyphen; the hyphen in the above example is used 
+to strictly for readability.
+
+<a name="maint_lib_backup_recover_cms"><h2>7.4.10 Recovering Lost CMS Libraries</h2></a>
+
+<p>
+If the delta files (the CMS libraries) in your VDE library 
+are damaged or lost due to a disk failure or other cause, you must 
+recover as much of its lost contents as possible. The procedure for 
+doing so involves initially restoring or recreating missing files or 
+directories (consisting primarily of CMS libraries) from backup tapes, 
+and then restoring the VDE database from the database backup 
+and journal disk(s), and finally bringing the CMS libraries up-to-date 
+using information from the database and the queued replacement staging 
+area directories.
+<a name="index_x_526"></a>
+<a name="index_x_527"></a>
+
+<p>
+The first step is to determine how much of the VDE library 
+is damaged. If the whole disk is unavailable (due to a head crash, for 
+example), you must restore the whole disk from backup tapes created by 
+the normal nightly backups. If only certain CMS libraries are damaged, 
+you may only need to restore those CMS libraries. Either way, you 
+should wind up with a VDE directory structure that is 
+up-to-date as of the last backup, and thus at most a day out of date.
+
+<p>
+If the VDE database was affected by the failure, the next 
+step is to restore and recover it as explained in <a href="vde_guide_013.html#maint_lib_backup_restore">Section 7.4.7</a>. This 
+operation restores the database from its most recent backup files and 
+then applies the after-image journal files to the restored database, 
+thus rolling the database forward until it is up-to-date as of the last 
+transaction completed before the failure.
+
+<p>
+Because the VDE database is fully up-to-date, information in 
+the database can be used to determine what module generations are 
+missing from the restored CMS libraries (which may be up to a day 
+out-of-date). To determine what generations are missing from the CMS 
+libraries, you can use the following VDE command:
+<a name="index_x_528"></a>
+<a name="index_x_529"></a>
+<a name="index_x_530"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE„ VERIFY GENERATION/SINCE=YESTERDAY [*]*.*
+</pre>
+</font>
+</table>
+
+This command checks all module generations that according to the 
+VDE database were created since midnight yesterday and 
+determines whether each such generation is present in the corresponding 
+CMS library. If not, VDE prints a message for the missing 
+generation.
+
+<p>
+If only a few CMS libraries were restored, you can save time by 
+verifying generations for only those facilities. For example:
+<a name="index_x_531"></a>
+<a name="index_x_532"></a>
+<a name="index_x_533"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE„ VERIFY GENERATION/SINCE=YESTERDAY [FAC1]*,[FAC2]*,[FAC3]*
+</pre>
+</font>
+</table>
+
+<p>
+If the output of the VERIFY GENERATION command indicates that any 
+module generations are missing from the restored CMS libraries, you can 
+usually recover those generations from the VDE staging area 
+directories. The VDE staging area directories contain the 
+original source file for each generation created by a replacement. 
+Missing generations can therefore be restored to a CMS library from 
+those source files. To do so, use the VERIFY GENERATION command with 
+the /RECOVER qualifier. For example:
+<a name="index_x_534"></a>
+<a name="index_x_535"></a>
+<a name="index_x_536"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE„ VERIFY GENERATION/SINCE=YESTERDAY/RECOVER [*]*.*
+</pre>
+</font>
+</table>
+
+This command prints a message for each missing generation, but it also 
+locates the replacement staging area directory containing the file that 
+created the generation. VDE uses that file to insert the 
+missing generation into the CMS library. As a result, all CMS libraries 
+should be fully up-to-date and consistent with the VDE 
+database after this command completes. However, if some generation 
+cannot be recovered, perhaps because the staging area directory has 
+been deleted or because the generation was created without using 
+staging area directories, then VDE prints a message to that 
+effect and the generation is not recovered.
+
+<p>
+Keep in mind that not all module generations are stored in staging area 
+directories. Only queued replacements use staging areas; immediate 
+replacements do not. Also, generations created with the /INPUT or 
+/DIRECTORY qualifier to the CREATE MODULE command are not stored in 
+staging area directories. Because these qualifiers require 
+VDE privileges and are normally used only during initial 
+set-up of the VDE library, recovery of such generations is 
+usually not an issue. However, it is generally wise to always use 
+queued replacements if recovery of lost generations is a concern for 
+your VDE library.
+
+<p>
+In those cases where a missing generation cannot be recovered from its 
+staging area directory but is available from a file elsewhere, you can 
+recover that generation with a separate VERIFY GENERATION command that 
+gives an explicit file location for the generation:
+<a name="index_x_537"></a>
+<a name="index_x_538"></a>
+<a name="index_x_539"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE„ VERIFY GENERATION [FAC1]FOO.C -
+_VDE„ /GENERATION=5A2/RECOVER=DSK$:[MYDIR]FOO.C
+</pre>
+</font>
+</table>
+
+This command recovers generation 5A2 of module FOO.C in facility FAC1 
+from file DSK$:[MYDIR]FOO.C. If you use this form of the command to 
+recover multiple generations for the same module, you must recover the 
+generations in the same order as they were originally created.
+
+<p>
+If you are unable to recover a missing generation, the VDE 
+database will be inconsistent with the affected CMS library. This is 
+highly undesirable because it means that the missing generation (which 
+is likely to be the latest generation of at least one stream) cannot be 
+fetched or reserved. To correct the problem, you must do one of two 
+things. One possibility is to get the creator of the missing generation 
+to recreate it so you can recover it as just described. The other 
+possibility is that you recover the missing generation using a dummy 
+input file and then delete that generation using the VDE 
+DELETE GENERATION command; in this case, the missing generation is 
+permanently lost but the database becomes consistent with the CMS 
+libriary.
+
+<a name="cms_got_bigger"><h2>7.4.11 Moving to Larger CMS Disks</h2></a>
+
+<p>
+This section describes how to move the CMS library to different---and 
+usually larger---disks. The use of a shadow set for the CMS library 
+volume, and the use of VDE in a cluster, is assumed.
+
+<ul>
+  <li>Send out a warning to the users to indicate that Rdb and 
+  the CMS libraries will be unavailable.
+  <li>Enable full privileges with the command SET PROCESS/PRIVILEGE=ALL
+  <li>Shut down all versions of Rdb running on the current 
+  system. This may involve procedures such as RMONSTOP, RMONSTOP41, 
+  RMONSTOP60, etc., as appropriate.
+<a name="index_x_540"></a>
+<a name="index_x_541"></a>
+<a name="index_x_542"></a>
+  <li>If it is in use, modify MSCPMOUNT to remove shadow set mount 
+  including the specifications of the source disk(s), and remove any 
+  reference(s) to the target disk(s).
+  <li>Dismount all members of the CMS shadow set, and dismount all of the 
+  target disk volume(s).
+  <li>If MSCPMOUNT is in use, wait for fifteen minutes, or locate and 
+  remove any and all running MSCPMOUNT jobs that might be lurking 
+  anywhere on any of the cluster members.
+  <li>Set the hardware write-lock on the source disk(s).
+  <li>Mount the source and target disk privately.
+  <li>Perform a disk-to-disk BACKUP, with verification.
+  <li>Dismount the source and target disks.
+  <li>If MSCPMOUNT is in use, modify MSCPMOUNT to include the new disk 
+  volumes using the original shadow set name---do not change the name of 
+  the shadow set. Invoke copies of MSCPMOUNT on one or more nodes, as 
+  appropriate.
+  <li>Perform a cluster-wide MOUNT of the target disk---this disk is the 
+  first or root volume of the shadow set---and then MOUNT additional 
+  members cluster-wide as appropriate. When additional volumes are 
+  mounted, a shadow-copy operate will be initiated.
+  <li>Start Rdb on all cluster nodes using RMONSTART, 
+  RMONSTART60, RMONSTART41, etc., as approrpriate.
+<a name="index_x_543"></a>
+<a name="index_x_544"></a>
+<a name="index_x_545"></a>
+  <li>Test the access to the CMS library from within VDE.
+</ul>
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Note</strong></font></center><hr size=1 noshade>
+<font color=black>
+If you need to remount the source volume of the above copy operation 
+with /SYSTEM or /CLUSTER, you must release the hardware write-lock, 
+mount the volume privately, use the SET VOLUME/LABEL command to alter 
+the volume label, dismount the disk, re-enable the write-lock, and 
+finally mount the volume /SYSTEM or /CLUSTER---duplicate volume labels 
+are not allowed on volumes mounted /SYSTEM or /CLUSTER. </font>
+    </td>
+  </tr>
+</table>
+</center>
+
+<a name="rdb_got_bigger"><h2>7.4.12 Moving to Larger Rdb Disks</h2></a>
+
+<p>
+This section describes how to relocate VDE Rdb 
+database files to other disks, how to deal with device name changes, 
+and how to reset the filenames of the database root, storage area, and 
+snapshot area should the filename(s) stored in the database root file 
+not match the filename(s) of the actual files.
+<a name="index_x_546"></a>
+<a name="index_x_547"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ RMU/CLOSE/CLUSTER/ABORT=DELPRC/WAIT -
+_$   DISK$OLDROOTDISK:[TOOLS.DBROOT]VDE$DATABASE.RDB
+$ RMU/MOVE_AREA/NOAREA/NOONLINE/LOG -
+_$   /dir=DISK$NEWDATADISK:[VDE.TOOLS] -
+_$   DISK$OLDROOTDISK:[TOOLS.DBROOT]VDE$DATABASE.RDB -
+_$   /after=DISK$NEWAIJDISK:[VDE.TOOLS]VDE$DATABASE.AIJ;1 -
+_$   /root=DISK$NEWROOTDISK:[VDE.TOOLS]VDE$DATABASE.RDB;1 -
+_$   /snap=file=DISK$NEWSNPDISK:[VDE.TOOLS]VDE$DATABASE.SNP;1
+</pre>
+</font>
+</table>
+
+<a name="index_x_548"></a>
+<a name="index_x_549"></a>
+This sequence performs a controlled relocation of all areas of the 
+database (specification of /NOAREA indicates all areas are to be 
+moved), the after-image journal, the database root, and the snapshot 
+area, to the specified new area. The above commands will clean up the 
+old area, as well.
+
+<p>
+Once the databases have been moved, be sure to update 
+VDE$SYSTARTUP.COM, and any system device MOUNT procedures, to reflect 
+the new location of the databases. Also perform a full database 
+RMU/BACKUP.
+<a name="index_x_550"></a>
+<a name="index_x_551"></a>
+
+<p>
+If is also possible for this situation to arise unintentionally, should 
+some disks get shuffled around. Should the databases be moved 
+unintentionally, VDE can produce RDMS$_FILACCERR, 
+RDMS$_BADROOTMATCH, and RDB$_DB_CORRUPT errors.
+<a name="index_x_552"></a>
+<a name="index_x_553"></a>
+<a name="index_x_554"></a>
+<a name="index_x_555"></a>
+<a name="index_x_556"></a>
+<a name="index_x_557"></a>
+<a name="index_x_558"></a>
+<a name="index_x_559"></a>
+<a name="index_x_560"></a>
+<a name="index_x_561"></a>
+<a name="index_x_562"></a>
+<a name="index_x_563"></a>
+As part of resolving this, you will want to determine why these files 
+are no longer under the expected filenames---device name changes are 
+one potential cause.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ VDE
+VDE„ SET LIBRARY VMS
+%RDB-F-SYS_REQUEST, error from system services request
+-RDMS-F-FILACCERR, error opening storage area file $11$DUA1010:[VMS.DATABASE]VDE$DATABASE.SNP;1
+-RMS-F-DEV, error in device name or inappropriate device type for operation
+VDE„ <kbd>[CTRL/Z]</kbd>
+$ 
+</pre>
+</font>
+</table>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ VDE
+VDE„ SET LIBRARY VMS
+%RDB-F-DB_CORRUPT, database filename is corrupt
+-RDMS-F-BADROOTMATCH, root file "$22$DUA1010:[VMS.DATABASE]VDE$DATABASE.RDB;1" no longer has its original name "$11$DUA1010:[VMS.DATABASE]VDE$DATABASE.RDB;1"
+VDE„ <kbd>[CTRL/Z]</kbd>
+$ 
+</pre>
+</font>
+</table>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ 
+$ RMU/ALTER $22$DUA1010:[VMS.DATABASE]VDE$DATABASE.RDB
+RdbALTER&gt;  dep file RDB$SYSTEM snapshot speci="$22$DUA1010:[VMS.DATABASE]VDE$DATABASE.SNP;1"
+RdbALTER&gt;  dep file RDB$SYSTEM speci="$22$DUA1010:[VMS.DATABASE]VDE$DATABASE.RDA;1"
+RdbALTER&gt;  dep root specif="$22$DUA1010:[VMS.DATABASE]VDE$DATABASE.RDB;1"
+RdbALTER&gt;  commit
+RdbALTER&gt;  <kbd>[CTRL/Z]</kbd>
+$ 
+</pre>
+</font>
+</table>
+
+<p>
+Once the database has been brought back online or has been relocated, 
+make <em>certain</em> to perform a full database RMU/BACKUP of the 
+database.
+<a name="index_x_564"></a>
+
+<a name="staging_cleanup"><h1><font color=maroon>7.5 Purging the Staging Area Directories</font></h1></a>
+
+<p>
+The staging area directories will grow over time and must be manually 
+cleaned. This operation is performed at site-specific periodic 
+intervals---the intervals are determined by the size of the staging 
+device and the frequency and size of replacements, and by the frequency 
+of the database backups. This section describes the steps used to purge 
+old replacements. For information on utilitizing the staging area 
+directories during VDE database recovery operations, see 
+<a href="vde_guide_014.html#maint_lib_backup_recover_cms">Section 7.4.10</a>.
+<a name="index_x_565"></a>
+
+<p>
+The staging area directories can be located with the command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW LOCATION/STAGING
+</pre>
+</font>
+</table>
+
+<a name="index_x_566"></a>
+This command displays the staging (sub)directory containing all staging 
+area directories.
+
+<p>
+Underneath the staging subdirectory exists three levels of 
+subdirectories. The files associated with a replacement are located in 
+the lowest two levels of the staging heirarchy---all files associated 
+with a particular replacement are located below a unique subdirectory 
+[.VDE$REP_*], in facility-specific subdirectories.
+<a name="index_x_567"></a>
+<a name="index_x_568"></a>
+<a name="index_x_569"></a>
+<a name="index_x_570"></a>
+Located one level above the [.VDE$REP_*] replacement subdirectory is a 
+staging area subdirectory in the form [.VDE$STG_*]. The staging area 
+subdirectory exists solely to reduce the number of files in any single 
+directory. For further details on the stating area directory structure, 
+see <a href="vde_guide_010.html#estab_lib_dir_stage">Section 6.3.2</a>.
+
+<p>
+An example of the full specification of a staging directory follows:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC$STAGEDISK:[VMS.STAGE.VDE$STG_130.VDE$REP_13066.ERF] 
+</pre>
+</font>
+</table>
+
+<p>
+The names of the [.VDE$REP_*] replacement subdirectories are built from 
+a predefined prefix with the five decimal digit replacement number 
+appended. Replacement numbers are allocated in ascending order, and are 
+not reused unless the database is recreated.
+
+<p>
+The names of the [.VDE$STG_*] staging area subdirectories are comrpised 
+of a predefined prefix with all but the last two decimal digits of the 
+replacement number appended. This means each of staging area 
+subdirectories holds one hundred replacement subdirectory files. 
+Staging area subdirectories---once filled -- are not reused until and 
+unless the entire database is recreated.
+
+<p>
+To perform the cleanup, issue the command
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW REPLACEMENT/FULL
+</pre>
+</font>
+</table>
+
+And look for the replacement number associated with the oldest 
+replacement displayed. This is typically the first entry displayed.
+
+<p>
+Using the oldest replacement identifier, delete all [.VDE$STG_*] 
+staging area subdirectories where the first three digits are less than 
+the observed replacement number. For example, if the oldest outstanding 
+replacement number is &quot;13054&quot;, all subdirectories and all 
+files located under staging area subdirectories [.VDE$STG_129...], 
+[.VDE$STG_128...], [.VDE$STG_127...], etc., can be deleted. Do 
+<em>not</em> delete staging area subdirectories more recent than the 
+last VDE database backup operation. See <a href="vde_guide_014.html#maint_lib_backup_recover_cms">Section 7.4.10</a>.
+
+<p>
+Failure to insure adequate space in the staging area can produce errors 
+similar to the following:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+%COPY-E-OPENOUT, error opening VSC$STAGEDISK:[VMS.STAGE.VDE$STG_131. 
+VDE$REP_13163.DECW$DEVICE]DECWINDOWS000.E; as output 
+-RMS-F-FUL, device full (insufficient space for allocation) 
+%COPY-W-NOTCOPIED, dev:[dir]DECWINDOWS000.E;1 not copied 
+%VDE-E-SCRPMODFAIL, STAGING script for module 
+[DECW$DEVICE]DECWINDOWS000.E terminated with errors 
+</pre>
+</font>
+</table>
+
+<a name="index_x_571"></a>
+<a name="index_x_572"></a>
+<a name="index_x_573"></a>
+<a name="index_x_574"></a>
+The above error occured on the following command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; REPLACE DECWINDOWS000.E
+</pre>
+</font>
+</table>
+
+<a name="index_x_575"></a>
+
+<a name="db_offload"><h1><font color=maroon>7.6 Offloading Large Files</font></h1></a>
+
+<p>
+It is possible for a VDE database to exceed the capacity of 
+a volume. The following section describes the steps required to offload 
+the larger files from one of the VDE libraries.
+
+<p>
+The following command can be used to locate the larger files present in 
+the VDE libraries. In the case of OpenVMS, these 
+files are typically savesets from contributing projects, are typically 
+large.
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Note</strong></font></center><hr size=1 noshade>
+<font color=black>
+The steps outlined in the following procedure apply <em>only</em> to 
+files referenced via marker files.
+<a name="index_x_576"></a>
+Further, the steps outlined below should only be performed with the 
+assistance and under the review of individual(s) familiar with the 
+status of the various streams present in the library. </font>
+    </td>
+  </tr>
+</table>
+</center>
+
+<p>
+Marker files are typically large binary, image, saveset, or library 
+files, and as such are not (and should not be) stored directly in the 
+CMS library, as this reduces the overhead involved when there are 
+typically rather large changes between one module generation and the 
+next. Use the SHOW MODULE/FULL command
+<a name="index_x_577"></a>
+to determine if a particular module is a marker file. Use the SHOW 
+DIRECTORY/DELTA command
+<a name="index_x_578"></a>
+to determine the current (default) location of the delta 
+directory---specifically the location referenced by the applicable 
+VDE$MARKER symbol.
+<a name="index_x_579"></a>
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Note</strong></font></center><hr size=1 noshade>
+<font color=black>
+Recent versions of CMS have added support for the storage of binary 
+files, but VDE does not currently utilize this support. 
+</font>
+    </td>
+  </tr>
+</table>
+</center>
+
+<p>
+The following command can be used to locate the larger file(s) present 
+in the local VDE database in the &quot;VMS$&quot; library:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$  DIRECTORY/SIZE/SELECT=SIZE=MINIMUM=500 VMS$:[000000...]*.*.*
+</pre>
+</font>
+</table>
+
+Based on the files located by above command, a list of the larger files 
+was generated, and the following command procedure was then created:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ Set NoOn 
+$ dir/col=1/siz/out=sys$scratch:masd_listing1.tmp - 
+    vms$:[ddtm.src]ddtmkit.bck 
+$ dir/col=1/siz/out=sys$scratch:masd_listing2.tmp - 
+    vms$:[decw$buildtool.src]decw$buildtool.sav,decw$motif%%%.% 
+$ dir/col=1/siz/out=sys$scratch:masd_listing3.tmp - 
+    vms$:[decw$common.src]decwindows%%%.a 
+$ dir/col=1/siz/out=sys$scratch:masd_listing4.tmp - 
+    vms$:[decw$device.src]decwindows000.b,.c,.d,.e,.f 
+$ dir/col=1/siz/out=sys$scratch:masd_listing5.tmp - 
+    vms$:[decw$fonts.src]decwindows000.c,.d,.e 
+$ dir/col=1/siz/out=sys$scratch:masd_listing6.tmp - 
+    vms$:[decw$server.src]decwindows000.b,.c,.q 
+$ dir/col=1/siz/out=sys$scratch:masd_listing7.tmp - 
+    vms$:[ipc.src]ipckit.bck 
+$ dir/col=1/siz/out=sys$scratch:masd_listing8.tmp - 
+    vms$:[lm.src]lmkit.bck 
+$ dir/col=1/siz/out=sys$scratch:masd_listing9.tmp - 
+    vms$:[starlet.src]vic_starlet.obj 
+$ dir/col=1/siz/out=sys$scratch:masd_listinga.tmp - 
+    vms$:[syslib.src]*.* 
+$ dir/col=1/siz/out=sys$scratch:masd_listingb.tmp - 
+    vms$:[tpssda.src]tpssdakit.bck 
+$ 
+$ Copy sys$scratch:masd_listing%.tmp sys$scratch:masd_listing.lis 
+</pre>
+</font>
+</table>
+
+Based on the above command procedure, the following command is issued 
+for each module located:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW GENERATION/TREE [DDTM]DDTMKIT.BCK
+</pre>
+</font>
+</table>
+
+Based on the above generation listing and the directory listing, you 
+must now translate each module generation to the associated file 
+version number---this information allows you to remove the appropriate 
+module generations. Each generation of the module must be checked 
+against the directory listing and the generation tree. The following 
+two commands must be issued---the first command is issued once per 
+module, and the second is issued once for each module generation:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW MODULE [DDTM]DDTMKIT.BCK/FULL
+VSC&gt; FETCH/OUT=TT:/GENERATION=n [DDTM]DDTMKIT.BCK
+</pre>
+</font>
+</table>
+
+The above commands are used to determine the generation-to-version 
+mapping, and to ensure that the module uses a marker file. Based on the 
+directory listing, on the generation-to-version translation, and on the 
+knowledge of which versions are in streams that are unlikely to be 
+immediately required, a review of the files that can be offloaded can 
+be conducted. Based on the results of the review, a command procedure 
+similar to the following can be created:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ SET NOON 
+$ 
+$! Ignore any higher-version warnings.. 
+$ 
+$ READ/PROMPT="^Z TO ABORT, &lt;RET&gt; TO CONTINUE " - 
+    /ERROR=DONE/END_OF_FILE=DONE SYS$COMMAND YESNO 
+$ 
+$ CREATE/DIRECTORY VDE$RESD1$:[941002_VMS_MASD_CLEANUP.DDTM] 
+$ COPY VMS$:[DDTM.SRC]DDTMKIT.BCK;54 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.DDTM] 
+$ COPY VMS$:[DDTM.SRC]DDTMKIT.BCK;53 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.DDTM] 
+$ CREATE/DIRECT VDE$RESD1$:[941002_VMS_MASD_CLEANUP.DECW$DEVICE] 
+$ COPY VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.B;18 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.DECW$DEVICE] 
+$ COPY VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.C;17 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.DECW$DEVICE] 
+$ COPY VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.D;18 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.DECW$DEVICE] 
+$ COPY VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.E;13 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.DECW$DEVICE] 
+$ COPY VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.E;11 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.DECW$DEVICE] 
+$ COPY VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.F;11 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.DECW$DEVICE] 
+$ CREATE/DIRECT VDE$RESD1$:[941002_VMS_MASD_CLEANUP.IPC] 
+$ COPY VMS$:[IPC.SRC]IPCKIT.BCK;47 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.IPC] 
+$ CREATE/DIRECT VDE$RESD1$:[941002_VMS_MASD_CLEANUP.LM] 
+$ COPY VMS$:[LM.SRC]LMKIT.BCK;47 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.LM] 
+$ CREATE/DIRECT VDE$RESD1$:[941002_VMS_MASD_CLEANUP.STARLET] 
+$ COPY VMS$:[STARLET.SRC]VIC_STARLET.OBJ;32 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.STARLET] 
+$ COPY VMS$:[STARLET.SRC]VIC_STARLET.OBJ;29 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.STARLET] 
+$ CREATE/DIRECT VDE$RESD1$:[941002_VMS_MASD_CLEANUP.SYSLIB] 
+$ COPY VMS$:[SYSLIB.SRC]VAXCDEF.TLB;30 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.SYSLIB] 
+$ COPY VMS$:[SYSLIB.SRC]VAXCDEF.TLB;28 - 
+    VDE$RESD1$:[941002_VMS_MASD_CLEANUP.SYSLIB] 
+$ 
+$ READ/PROMPT="^Z TO ABORT, &lt;RET&gt; TO CONTINUE " - 
+    /ERROR=DONE/END_OF_FILE=DONE SYS$COMMAND YESNO 
+$ 
+$ DELETE VMS$:[DDTM.SRC]DDTMKIT.BCK;54         
+$ DELETE VMS$:[DDTM.SRC]DDTMKIT.BCK;53         
+$ DELETE VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.B;18     
+$ DELETE VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.C;17     
+$ DELETE VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.D;18     
+$ DELETE VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.E;13     
+$ DELETE VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.E;11     
+$ DELETE VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.F;11     
+$ DELETE VMS$:[IPC.SRC]IPCKIT.BCK;47          
+$ DELETE VMS$:[LM.SRC]LMKIT.BCK;47           
+$ DELETE VMS$:[STARLET.SRC]VIC_STARLET.OBJ;32     
+$ DELETE VMS$:[STARLET.SRC]VIC_STARLET.OBJ;29     
+$ DELETE VMS$:[SYSLIB.SRC]VAXCDEF.TLB;30         
+$ DELETE VMS$:[SYSLIB.SRC]VAXCDEF.TLB;28         
+$ 
+$ READ/PROMPT="^Z TO ABORT, &lt;RET&gt; TO CONTINUE " - 
+    /ERROR=DONE/END_OF_FILE=DONE SYS$COMMAND YESNO 
+$ 
+$ COPY SYS$SCRATCH:Q.Q VMS$:[DDTM.SRC]DDTMKIT.BCK;54         
+$ COPY SYS$SCRATCH:Q.Q VMS$:[DDTM.SRC]DDTMKIT.BCK;53         
+$ COPY SYS$SCRATCH:Q.Q VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.B;18     
+$ COPY SYS$SCRATCH:Q.Q VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.C;17     
+$ COPY SYS$SCRATCH:Q.Q VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.D;18     
+$ COPY SYS$SCRATCH:Q.Q VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.E;13     
+$ COPY SYS$SCRATCH:Q.Q VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.E;11     
+$ COPY SYS$SCRATCH:Q.Q VMS$:[DECW$DEVICE.SRC]DECWINDOWS000.F;11     
+$ COPY SYS$SCRATCH:Q.Q VMS$:[IPC.SRC]IPCKIT.BCK;47          
+$ COPY SYS$SCRATCH:Q.Q VMS$:[LM.SRC]LMKIT.BCK;47           
+$ COPY SYS$SCRATCH:Q.Q VMS$:[STARLET.SRC]VIC_STARLET.OBJ;32     
+$ COPY SYS$SCRATCH:Q.Q VMS$:[STARLET.SRC]VIC_STARLET.OBJ;29     
+$ COPY SYS$SCRATCH:Q.Q VMS$:[SYSLIB.SRC]VAXCDEF.TLB;30         
+$ COPY SYS$SCRATCH:Q.Q VMS$:[SYSLIB.SRC]VAXCDEF.TLB;28         
+$ 
+$ EXIT 
+$ 
+$DONE: 
+$ EXIT 
+</pre>
+</font>
+</table>
+
+The above command procedure is used to substitute a stub file---an 
+example Q.Q stub file follows---for the original version of the file.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+ ***  this file was archived as of Oct 2, 1994 *** 
+ ***  Contact [name], at [email-address]       *** 
+</pre>
+</font>
+</table>
+
+<p>
+The end result of the above commands and command procedures is the 
+relocation of the larger modules---those that are referenced via marker 
+files---and out of the VDE library. Should the offloaded 
+generation of the file be reserved or fetched for any reason, the 
+&quot;archived&quot; notice will be returned. The archived file must be 
+manually located and retrieved from online or offline storage. (It is 
+typically good practice to indicate the particular location of this 
+storage in the stub file.)
+
+<p>
+A future version of VDE may include the capability to 
+&quot;tie off&quot; streams and offload modules referenced by marker 
+files in an easier and cleaner fashion.
+<a name="index_x_580"></a>
+
+<a name="bottom_014"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_013.html#bottom_013">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vde_guide_015.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+</body>
+</html>

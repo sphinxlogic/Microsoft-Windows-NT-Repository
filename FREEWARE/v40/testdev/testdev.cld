@@ -1,0 +1,47 @@
+! TESTDEV.CLD version 2.2
+
+DEFINE TYPE CVRG_TYP
+  KEYWORD RANDOM , LABEL=CVRG_RND , DEFAULT , NONNEGATABLE ,		! random seeks over specified or implied volume
+          VALUE(DEFAULT=12345678,TYPE=$NUMBER)				! > to specify an alternate random seed
+  KEYWORD SEQUENTIAL , LABEL=CVRG_SEQ , NONNEGATABLE			! seek sequentially
+
+DEFINE TYPE DIST_TYP
+  KEYWORD CENTERED_ON_AVERAGE , LABEL=DIST_CEN , NONNEGATABLE ,		! number of reporting elements centered on average
+	  VALUE(DEFAULT=15,TYPE=$NUMBER)
+  KEYWORD UNIFORM_SPACING , LABEL=DIST_UNI , DEFAULT , NONNEGATABLE ,	! number of reporting elements equally spaced
+	  VALUE(DEFAULT=15,TYPE=$NUMBER)
+
+DEFINE TYPE REPT_TYP
+  KEYWORD DISTRIBUTION , LABEL=REPT_DIS , DEFAULT , NONNEGATABLE ,	! IO time distribution breakdown
+	  VALUE(TYPE=DIST_TYP)
+
+DEFINE TYPE SEEK_TYP
+  KEYWORD MEGABYTE , LABEL=SEEK_MEG , DEFAULT , NONNEGATABLE ,		! seek volume in megabytes, 0 for entire volume
+          VALUE(DEFAULT=0,TYPE=$NUMBER)
+  KEYWORD FROM_LBN , LABEL=SEEK_LBS , NONNEGATABLE ,			! seek lower limit logical block number (inclusive)
+          VALUE(REQUIRED,TYPE=$NUMBER)
+  KEYWORD TO_LBN , LABEL=SEEK_LBE , NONNEGATABLE ,			! seek upper limit logical block number (inclusive)
+          VALUE(REQUIRED,TYPE=$NUMBER)
+
+DEFINE VERB TESTDEV
+  IMAGE "SYS_TOOLS:TESTDEV"
+
+  PARAMETER P1 , LABEL=TDV_NAME , PROMPT="Device" , VALUE(REQUIRED)	! device name, can be logical name
+
+! Values typical of VMS activity would be reflected by /BLOCK=4 /SEEK=MEGABYTE=100
+  QUALIFIER BLOCK_PER_IO , LABEL=TDV_BLCK , DEFAULT , NONNEGATABLE ,	! IO size in 512 byte blocks
+            VALUE(DEFAULT=1,TYPE=$NUMBER)
+  QUALIFIER COVERAGE , LABEL=TDV_CVRG , DEFAULT, NONNEGATABLE ,		! random or sequential seek pattern
+            VALUE(TYPE=CVRG_TYP)
+  QUALIFIER IO , LABEL=TDV_IO , DEFAULT , NONNEGATABLE ,		! number of IO's to perform
+            VALUE(DEFAULT=1000,TYPE=$NUMBER)
+  QUALIFIER REPORT , LABEL=TDV_REPT , DEFAULT , NEGATABLE ,		! reporting options
+	    VALUE(TYPE=REPT_TYP)
+  QUALIFIER SEEK_RANGE , LABEL=TDV_SEEK , DEFAULT , NONNEGATABLE ,	! seek lower/upper bound
+            VALUE(LIST,TYPE=SEEK_TYP)
+  QUALIFIER STREAM , LABEL=TDV_STRM , DEFAULT , NONNEGATABLE ,		! number of parallel IO's to device
+            VALUE(DEFAULT=1,TYPE=$NUMBER)
+
+  DISALLOW SEEK_MEG AND (SEEK_LBS OR SEEK_LBE)				! seek specification can be either physical or logical
+  DISALLOW CVRG_RND AND CVRG_SEQ					! sequential and random coverage mutually exclusive
+  DISALLOW TDV_STRM AND CVRG_SEQ 					! sequential coverage operates over single stream only

@@ -1,0 +1,131 @@
+	.title	lib_validate_fh2
+	.ident	"X1-001"
+
+;+
+; Version:	X1-001
+;
+; Facility:	Library routines.
+;
+; Abstract:	To validate a files-11 file header.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	13-Jul-1992, DBS, Version X1-001
+; 001 -	Original version.  (Modified from a DSIN article.)
+;-
+
+;++
+; Functional Description:
+;	This routine will scan the specified buffer checking for all those
+;	things that make a files-11 file header what it is.
+;
+; Calling Sequence:
+;	pushab	buffer
+;	calls	#1, g^lib_validate_fh2
+;
+; Formal Argument(s):
+;	buffer_addr.rl.v  The address of the buffer containing the possible
+;		file header.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	The low bit is set or cleared in R0 to indicate success or failure.
+;
+; Side Effects:
+;	None
+;--
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	$fh2def
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	buffer_addr = 4			; argument offset
+
+	header_valid = 1
+	header_not_valid = 0
+
+	set_psect _sys_code
+
+	.entry -
+lib_validate_fh2, ^m<r2,r3,r4>
+
+	movl	#header_valid, r0	; assume file hdr is valid
+	movzwl	#255, r3		; number of words in header
+	clrl	r4			; clear the count
+	movl	buffer_addr(ap), r1	; copy address of buffer
+	movl	r1, r2			; copy address of buffer
+
+calc_checksum:
+	addw2	(r1)+, r4		; add up the words
+	sobgtr	r3, calc_checksum
+	cmpw	r4, fh2$w_checksum(r2)	; compare calculated checksum
+					;  to file header checksum
+	beql	chk_idoffset		; branch if equal
+	brw	invalid_header		; otherwise invalid file hdr
+
+chk_idoffset:
+	cmpb	fh2$b_idoffset(r2), -	; compare fh2$b_idoffset
+		#fh2$l_fileowner/2	;  to fh2$l_fileowner/2
+	bgequ	chk_offsets		; branch if greater or equal
+	brw	invalid_header		; otherwise invalid file hdr
+
+chk_offsets:
+	cmpb	fh2$b_idoffset(r2), -
+		fh2$b_mpoffset(r2)
+	bgtru	invalid_header
+	cmpb	fh2$b_mpoffset(r2), -
+		fh2$b_acoffset(r2)
+	bgtru	invalid_header
+	cmpb	fh2$b_acoffset(r2), -
+		fh2$b_rsoffset(r2)
+	bgtru	invalid_header
+
+chk_struclev:
+	cmpb	#2, fh2$b_struclev(r2)
+	beql	chk_version		; branch if equal
+	brw	invalid_header		; otherwise invalid hdr
+
+chk_version:
+	cmpb	#1, fh2$b_strucver(r2)
+	beql	chk_fid_num		; branch if equal
+	brw	invalid_header		; otherwise invalid hdr
+
+chk_fid_num:
+	tstw	fh2$w_fid_num(r2)	; check fh2$w_fid_num for 0
+	bneq	chk_fid_seq		; branch if not equal
+	brw	invalid_header		; otherwise invalid hdr
+
+chk_fid_seq:
+	tstw	fh2$w_fid_seq(r2)	; check fh2$w_fid_seq for 0
+	bneq	chk_map_inuse		; branch if not equal
+	brw	invalid_header		; otherwise invalid hdr
+
+chk_map_inuse:
+	subb3	fh2$b_mpoffset(r2), -	; subtract fh2$b_mpoffset
+		fh2$b_acoffset(r2), r3	;  from fh2$b_acoffset
+	cmpb	fh2$b_map_inuse(r2), r3	; compare fh2$b_map_inuse to r3
+	blequ	valid_header		; branch if less than or equal
+
+invalid_header:
+	movl	#header_not_valid, r0	; header is invalid
+	ret
+
+valid_header:
+	ret
+
+	.end

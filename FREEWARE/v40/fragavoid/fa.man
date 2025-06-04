@@ -1,0 +1,277 @@
+The "Frag Avoider" is released by Acorn Software and GCE as a "calling 
+card". It will speed disk I/O in most cases and avoid the creation of
+disk fragmentation, and is completely invisible to normal system
+operation. Versions have been in use several years at selected VMS
+sites running VMS from VAX version 5.5 through Alpha versions 7.1
+with no problems, even on system disks. It is a "set it up and forget
+it" utility.
+
+The application was created from parts of the Safety product of GCE
+(see the EACF.SPD and the DPS.SPD for descriptions of that product's
+security and undelete functions; the undelete does NOT "pick up the
+pieces" like others; it sets up a wastebasket paradigm in VMS.
+
+The security system provides things like file hiding, soft links,
+file passwords, virus or Trojan protection, control of what privs
+may be used to open a file, general control of privileged users'
+file system access, ability to run downloaded applets safely (e.g.
+Java), and in general a very finegrained ability to specify who can
+do what to your most sensitive data. Together they make up the
+Safety system, which runs on VMS, Vax or Alpha, and provides
+hands-off operation, disk space management, frag inhibition (so
+customers don't need to load multiple drivers), and much more.
+Contact sales@gce.com for ordering information.
+
+	The Fragmentation Avoider
+
+VMS disks in ordinary operation become fragmented rather quickly
+once defragmented. This leads to files which require many index file
+reads to locate and to lots of unnecessary disk head motion. On
+optical disks, this is an even worse problem, since seek times are much
+longer than magnetic disks.
+
+File extension is also expensive in CPU and clock time. The Frag Avoider
+will gain considerable speed (we've seen 30% gains easily) due to its
+allowing VMS to "go to the well" for space less often.
+
+Back to fragmentation.
+
+There are several reasons for this rapid refragmentation which
+deserve exploration. First is the way VMS uses its "extent cache".
+Whenever disk space is released, pointers to it are kept in memory
+awhile, so that space can be quickly allocated. The problem is that
+whenever files are closed, they are generally truncated to return
+extra allocated space to the system. The returned space is usually
+in small pieces, and thus new space requests wind up being satisfied
+from the last bunch of these little pieces of disk, rather than from
+larger areas. When files are deleted, they leave these pieces around
+which only get cut up still more with time. The result is fragmentation.
+
+Also, it is often the case that files are left open for fairly long
+times, and grow a few blocks at a time, typically allocating the
+volume default allocation, but sometimes allocating a small fixed
+number of blocks. Many of these files may grab 5-block extents
+thousands of times over their lives; this inevitably produces badly
+fragmented files which are hard to defragment because they're open.
+
+The Fragmentation Avoider is a system for automatically addressing
+these problems, and incidentally solving a few others.
+
+The Fragmentation Avoider arranges for file extension to be done
+"Contiguous Best Try" when this is possible. This causes VMS to
+flush (i.e., forget about) its extent cache and attempt to find
+a space big enough to hold the whole requested area before using
+badly fragmented store. The program can do this for every extension
+(the default and recommended behavior) or every Nth extension,
+if you feel the need to have the extent cache used, but cleared
+periodically. 
+
+Fragmentation Avoider also controls the amount of space requested
+when a program extends a file (i.e., makes it longer). It can
+set a minimum extent request, so even explicit requests for one
+block at a time can be increased, and is able to request that a
+file be extended by 1/N of its current size, subject to free space
+constraints on the volume and a maximum extend amount. It will
+always request at least as much space as the program wanted, but
+will attempt to extend by 1/N of the file size, 1/8 of the available
+free space on the disk, or the maximum extent request, whichever
+is least.
+
+Suppose, for example, you have a file OPERATOR.LOG that is now
+1000 blocks long, and suppose you set Fragmentation Avoider to
+extend by 1/4 of the file size. Suppose also your volume default
+allocation is 10 blocks.
+
+Now if the file is extended, Fragmentation Avoider will cause it to
+grow to 1000 + 250 + 1 blocksd long in one extend operation. This
+will be usually found contiguously and thus the file gains one
+extent. 
+
+If normal VMS allocation had been in effect, the file would have been
+extended about 25 times to gain this much space, would probably be
+multi-header if it wasn't already, and could not be defragmented by
+conventional techniques because it would still be open.
+
+As a file grows, the number of extend operations needed for it
+to grow to a given size drops quickly. Consider the following table,
+which assumes volume default allocation of 20 blocks and F.A. set
+to extend by 1/4 of file size:
+
+   Extension		Size with F.A.		Size without F.A.
+
+	1			20			20
+	2			40			40
+	3			60			60
+	4			80			80
+	5		       101		       100
+	6		       127		       120
+	7		       159		       140
+	8		       199		       160
+	9		       249		       180
+       10		       312		       200
+       11		       391		       220
+       12		       489                     240
+       13		       612		       260
+       14		       766		       280
+       15		       958		       300
+       16		      1198		       320
+
+This clearly shows the need for file extensions to handle given
+file sizes drops. 
+
+File extension is an expensive operation; by arranging it to be less
+often needed, F.A. can permit file writing to enjoy up to a 30%
+speed gain, in addition to permitting faster access to files written with
+it. This is the gain from not having to do the extend operation
+as often.
+
+Note too that disks sometimes run out of file headers because the index
+file must be mapped by one file header (which means it can only have
+around 15 extents), and VMS never extends it by over 1000 files. The
+only traditional remedy is to initialize with /headers=nnnnnn large
+enough for what you want.
+
+If Fragmentation Avoider is running, suppose we start at 10000 blocks
+in the index file; consider the following sizes:
+
+   Extension		Size with F.A.		Size without F.A.
+
+	0		  10000			  10000
+	1		  12501			  11000
+	2		  19534			  12000
+	3		  24418			  13000
+	4		  30523			  14000
+	5		  38154			  15000
+	6		  47693			  16000
+	7		  59617			  17000
+	8		  74522			  18000
+	9		  93153			  19000
+       10		 116442			  20000
+
+The larger the index file, the more file headers are available.
+Clearly, one is less likely to run out of index file headers
+with Fragmentation Avoider than without.
+   [Note: we need to ensure this really works...]
+
+
+SUMMARY:
+
+Fragmentation Avoider permits disk fragmentation to be controlled
+by altering somewhat the VMS file extend operation in a way
+that greatly slows the refragmentation of disk space. The product
+can be installed on any disks where this is desired and its
+parameters can be set on a per-disk basis. Disks where the 
+Fragmentation Avoider is not installed are unaffected.
+
+
+Installation:
+
+From SYSTEM (or some other fully privileged account) type
+
+$@SYS$UPDATE:VMSINSTAL FA010
+
+The system will install Fragmentation Avoider for you. Then use
+the FA_SETUP.COM script to generate a script SYS$MANAGER:FA_STARTUP.COM
+which can be run from your systartup_v5.com or systartup_vms.com
+at boot.
+
+Use:
+
+First, issue the command
+
+$SET COMMAND SYS$SYSTEM:FAVOID
+(If you use kitinstal the favoid verb will be predefined as of your
+next login.)
+
+Then for every disk whose fragmentation is to be controlled, you
+must connect a unit of the JF: pseudodevice. The SYSGEN connect command
+looks like this:
+
+$ sysgen connect jfa3:/noada/driver=jfdriver
+
+or on Alpha
+
+$ sysman io connect jfa3:/noada/driver=sys$system:jfdriver
+
+Then you use FAVOID to point another disk at it for frag avoiding:
+
+e.g.
+
+$ SET COMM SYS$SYSTEM:FAVOID
+
+$ FAVOID JFA3: DKA500:
+
+
+Now DKA500: will have its fragmentation reduced.
+
+There are a number of controls available. These use the gene4ral command
+format:
+
+$FAVOID/switches JFAn: FragAvoided_device:
+
+where
+
+   JFAn: is a unit of JFdriver, one unit per victim disk.
+   FragAvoided_device: is the devicename of a disk having its fragmentation
+	avoided.
+
+Switches are as follows:
+
+/FRACTION:N	Sets fraction of file size to extend by. If n=3
+		(JFCTL/FRACTION:3 JFAn: DEVICE:) then file
+		extension will be by 1/3 of the file size, subject
+		to other constraints. Default is N=4 to extend by
+		1/4 of file size.
+/CBT:N		Do file extension contiguous best try every Nth
+		open. Default is 1 so file extension is always tried
+		contiguous best try. You can set the Frag Avoider
+		to do this only every Nth time (N up to 1,000,000,000)
+		to allow use of the extent cache some if you like.
+		Note that contiguous extensions are left alone.
+/MINIMUM:N	Sets minimum extension request; default is 10
+		blocks. This is sometimes useful for programs
+		which explicitly request very small extents.
+/MAXIMUM:N	Sets maximum extension request. If 1/fraction of file
+		size is greater than N, then we use this maximum to
+		extend the file. Thus, setting /MAX:10000 would
+		mean we never request more than 10000 blocks
+		extension even on huge files (though if the 
+		program requests more, we NEVER reduce an extension
+		request, ever.)
+/ALDEFONLY	If specified, modifies extensions ONLY where
+		the program says to use volume default extension.
+		Otherwise always modifies extensions provided
+		the modified extension is at least as large
+		as that originally requested.
+			Using this setting is extremely "safe" in that
+		programs requesting default extension are "expecting"
+		the extension not to be exactly known, but many 
+		"problem" programs have hardcoded 2 or 3 block extension
+		lengths and will continue to cause fragmentation and
+		use lots of extend requests if this switch is set.
+		Therefore it is a per-disk site selection which to 
+		use.
+
+	In all cases, the Fragmentation Avoider will never extend a
+	file by more than 1/8 of the free space on the volume and
+	will never cause an extend request to have less blocks requested
+	than the program asked for. It will not reduce the program's
+	request even if the freespace constraint is violated, nor will
+	it touch contiguous extend requests.
+
+
+	The following switch can be used if needed. It MUST be used
+	with CAUTION since the correct JF unit must be given.
+
+/DEASSIGN 	Remove the JFAn: unit association with the target
+		device and turn off frag avoidance. Format of
+		this command is:
+
+	$ FAVOID/DEASSIGN JFAn: FragAvoided_device:
+
+	Note that the unit of JFAn: that is specified MUST be the same as
+	that which was used to initially start fragmentation avoidance.
+	If the wrong unit is used, the system will refuse to deassign
+	the unit (and leave the JF unit online). This safeguard will
+	prevent system damage, but the Fragmentation Avoider should be
+	set the way you prefer and left alone for normal use.

@@ -1,0 +1,94 @@
+	.library	"sys$share:lib.mlb"
+	.link		"sys$system:sys.stb"/se
+	.disable	global
+	.external	LDR$UNLOAD_IMAGE
+	$LCKDEF
+	$LDRIMGDEF
+	$SBDEF
+	$SSDEF
+	$SYIDEF
+
+;
+	.psect	$DATA,RD,WRT,NOSHR,NOEXE
+handle_null:	.long	0
+		.long	0
+		.long	0
+image_name:	.ascid	/SYS$LOADABLE_IMAGES:ACC_CKPT.EXE/
+lockname:	.ascii	/ACC_CKPT_/
+nodename:	.blkb	SB$S_NODENAME
+nodename_s= .-nodename
+nodename_l:	.blkw	1
+syilist:	.word	nodename_s, SYI$_SCSNODE
+	.address nodename
+	.address nodename_l
+	.long	0
+lock_d:	.long	nodename-lockname
+	.address lockname
+lksb:	.blkl	1
+lkid:	.blkl	1
+valblk:	.blkq	2	; 16 bytes
+;
+;	called at IPL 2, cannot use system services
+;			 since some of them change IPL to 0, and REI crashes
+;
+	.psect	$CODE,RD,NOWRT,SHR,EXE
+	.entry main,^M<>
+
+	$GETSYI_S	itmlst=syilist
+	blbc	r0,33$
+	movzwl	nodename_l,r0
+1$:	cmpb	<nodename-1>[r0],#^A' '	; remove trailing spaces
+	bneq	10$
+	decl	r0
+	brb	1$
+10$:	addw	r0,lock_d	; removes the trailing '_' if not in cluster
+;
+;
+	$CMKRNL_S	routin=unload
+;
+33$:	ret
+
+bugcheck:movl	#SS$_BUGCHECK,R0
+	ret
+	.entry	unload,^M<R2,R3>
+	clrl	r3
+	$ENQW_S	resnam=lock_d,-
+		lkmode=#LCK$K_PRMODE,-
+		lksb=lksb,-
+		flags=#<LCK$M_SYSTEM!LCK$M_NOQUEUE!LCK$M_VALBLK>
+	blbc	R0,330$
+	incl	r3
+	$DEQ_S	lkid=lkid
+	blbc	r0,330$
+	incl	r3
+	tstl	valblk
+	bgeq	bugcheck
+	movl	valblk+8,lkid
+	movl	valblk+4,r2
+	$ENQW_S	lkmode=#LCK$K_EXMODE,-
+		lksb=lksb,-	; note: lock is converted to process mode
+		flags=#<LCK$M_CONVERT!LCK$M_NOQUEUE>	; since lkmode increases
+330$:	blbc	r0,33$
+;
+	incl	r3
+	movl	LDRIMG$L_BASE(r2),valblk+4
+	movl	r2,valblk+8
+	movl	LDRIMG$L_SEQ(r2),valblk+12
+;
+	moval	<valblk+4>,-(SP)
+	moval	image_name,-(SP)
+	calls	#2,G^LDR$UNLOAD_IMAGE
+	blbc	r0,3333$
+	incl	r3
+	$DEQ_S	lkid=lkid
+33$:	ashl	#16,r3,r3
+	bisl	r3,r0
+	ret
+3333$:	;	cannot unload image; revert lock to normal PR mode
+	movl	#100,r3
+	$ENQW_S	lkmode=#LCK$K_PRMODE,-
+		lksb=lksb,-
+		flags=#<LCK$M_CONVERT!LCK$M_CVTSYS>
+	brb	33$
+;
+	.end main

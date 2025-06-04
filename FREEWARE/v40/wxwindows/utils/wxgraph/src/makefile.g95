@@ -1,0 +1,77 @@
+#
+# File:		makefile.unx
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile for tree library and example (UNIX).
+# Change the WXDIR directory, and CPPFLAGS and LDFLAGS, for your system.
+
+WXDIR = ../../..
+
+# All common UNIX compiler flags and options are now in
+# this central makefile.
+include $(WXDIR)/src/makeg95.env
+
+GRAPHDIR = $(WXDIR)/utils/wxgraph
+GRAPHINC = $(GRAPHDIR)/src
+GRAPHLIB = $(GRAPHDIR)/lib/libwxgraph$(GUISUFFIX).a
+
+OBJECTS = $(OBJDIR)/wxgraph.$(OBJSUFF)
+
+TESTOBJECTS = $(OBJDIR)/test.$(OBJSUFF)
+TESTPROGRAM = $(GRAPHDIR)/src/test$(GUISUFFIX)
+
+DOCUTILSDIR = $(WXDIR)/utils/tex2rtf/src
+
+LDFLAGS =  -Wl,--subsystem,windows -mwindows -L$(WXDIR)/lib -L../lib
+LDLIBS=-lwxgraph $(LIBS)
+
+all:	$(OBJDIR) $(GRAPHLIB)
+
+demo:   $(TESTPROGRAM)
+
+$(GRAPHLIB): $(OBJECTS)
+	rm -f $@
+	ar $(AROPTIONS) $@ $(OBJECTS)
+	$(RANLIB) $@
+
+$(OBJDIR):
+	mkdir $(OBJDIR)
+
+test$(GUISUFFIX): $(OBJDIR)/test.$(OBJSUFF) test.$(RSCSUFF) $(WXLIB) $(GRAPHLIB)
+	$(CC) $(LDFLAGS) -o test$(GUISUFFIX) test.$(RSCSUFF) $(OBJDIR)/test.$(OBJSUFF) $(XVIEW_LINK) $(LDLIBS)
+
+$(OBJDIR)/wxgraph.$(OBJSUFF):        wxgraph.$(SRCSUFF) wxgraph.h
+	$(CC) -c $(CPPFLAGS) -o $@ wxgraph.$(SRCSUFF)
+
+$(OBJDIR)/test.$(OBJSUFF):        test.$(SRCSUFF) test.h wxgraph.h
+	$(CC) -c $(CPPFLAGS) -o $@ test.$(SRCSUFF)
+
+HTMLDIR=/home/hardy/html/wx/manuals
+docs:	ps xlp
+ps:	$(GRAPHDIR)/docs/manual.ps
+xlp:	$(GRAPHDIR)/docs/wxgraph.xlp
+html:	$(HTMLDIR)/wxgraph/wxgraph_contents.html
+
+$(GRAPHDIR)/docs/wxgraph.xlp:	$(GRAPHDIR)/docs/manual.tex $(GRAPHDIR)/docs/classes.tex
+	cd ../docs; tex2rtf manual.tex tmp.xlp -xlp -twice
+	sed -e "s/WXHELPCONTENTS/wxTree Manual/g" < $(GRAPHDIR)/docs/tmp.xlp > $(GRAPHDIR)/docs/wxgraph.xlp
+	/bin/rm -f $(GRAPHDIR)/docs/tmp.xlp
+
+$(HTMLDIR)/wxgraph/wxgraph_contents.html:	$(GRAPHDIR)/docs/manual.tex $(GRAPHDIR)/docs/classes.tex
+	cd ../docs; tex2rtf manual.tex $(HTMLDIR)/wxgraph/wxgraph.html -html -twice
+
+$(GRAPHDIR)/docs/manual.dvi:	$(GRAPHDIR)/docs/manual.tex $(GRAPHDIR)/docs/classes.tex
+	cd $(GRAPHDIR)/docs; latex manual; latex manual; makeindex manual; bibtex manual; latex manual; latex manual
+
+$(GRAPHDIR)/docs/manual.ps:	$(GRAPHDIR)/docs/manual.dvi
+	cd $(GRAPHDIR)/docs; dvips -f -r < manual.dvi > manual.ps
+
+test.res:   test.rc
+
+clean:
+	rm -f $(OBJECTS) $(OBJDIR)/*.$(OBJSUFF) test$(GUISUFFIX).exe $(GRAPHLIB) core *.rsc *.res

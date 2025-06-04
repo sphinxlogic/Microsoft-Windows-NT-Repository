@@ -1,0 +1,588 @@
+%title 'nm$uss'
+module nm$uss(
+              ident='03',
+    	      addressing_mode(external=general)
+    	      ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	28-Jun-1992
+!
+! Revision history:
+!
+!   01  28-Jun-1992
+!	Reworked from NM$CHMODE.MAR as part of Alpha port.
+!	This module contains the actual USS entry points,
+!	and is common to VAX and Alpha.  There is a separate
+!	change-mode module for each architecture.
+!
+!   02	20-Sep-1993
+!	Reworked again; the Epsilon release of Alpha VMS broke
+!	the previous structure.  Now we have to be more specific
+!	about the separation between exec-mode code and user-mode
+!	code.  All exec-mode code is now in this module.  Actually,
+!	I should have done it this way all along.
+!
+!   03	4-Oct-1993
+!	Use %TARGET rather than %BLISS since it's more appropriate
+!
+!--
+
+!
+! Sanity clause
+!
+%if not %target(vax) and not %target(alpha)
+%then
+    %warn('Unknown target machine')
+%fi
+
+!
+! Library declarations
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+!
+! Forward routines
+!
+forward routine
+    nm$privsup,
+    nm$privsdown;
+
+!
+! Own data
+!
+own
+    savfid : block[nm$s_fileid, byte] alias,
+    savifi : word unsigned;
+
+!
+! Macros
+!
+%if %target(vax) %then
+builtin
+    prober, probew, movpsl;
+macro
+    $prober(addr, len) =
+	prober(%ref(psl$c_user), %ref(len), addr)
+    %,
+    $probew(addr, len) =
+	probew(%ref(psl$c_user), %ref(len), addr)
+    %,
+    $chkmode(dummy) = 
+	begin
+	local $$psl : block[%upval,byte];
+	movpsl($$psl);
+	if .$$psl[psl$v_curmod] neq psl$c_exec
+	then
+	    return ss$_wrongacmode;
+	end
+    %;
+%fi
+%if %target(alpha) %then
+builtin 
+    pal_prober, pal_probew, pal_rd_ps;
+macro
+    $prober(addr, len) =
+	pal_prober(addr, (len)-1, pr$c_ps_user)
+    %,
+    $probew(addr, len) =
+	pal_probew(addr, (len)-1, pr$c_ps_user)
+    %,
+    $chkmode(dummy) = 
+	begin
+ 	local $$psl : block[8,byte];
+	$$psl = pal_rd_ps();
+ 	if .$$psl[pr$v_ps_curmod] neq pr$c_ps_exec
+	then
+	    return ss$_wrongacmode;
+	end
+    %;
+%fi
+
+%sbttl 'create control file'
+global routine nm$uss_create_ctl_file (fabarg) =
+
+!++
+! Functional description:
+!
+! Creates an Nmail control file.  This must be done from exec
+! mode, since we need to create the file in a system-owned
+! directory, and the image doesn't necessarily have the privs
+! to do so (since any old program can send mail).
+!
+! Our caller specifies input parameters via RMS structures.
+! We however ignore many of the fields, since much harm may
+! be done by letting the user specify what he wishes.  We
+! only allow what we know we need and what we know to be safe.
+!
+! Caution - this module can handle one and only one open file
+! at a time.  This restriction arises because we use own storage
+! to remember details of the open file, since the other routines
+! (close and submit) must only be allowed to manipulate files
+! which were opened by this routine.
+!
+! Formal parameters:
+! 
+! fabarg.mr.r = file access block (with filename string, NAM, and XAB
+!		attached to the FAB, and with expanded/resultant string
+!		buffers attached to the NAM)
+!		   
+! Completion codes:
+!
+! status = success/failure status
+!
+!--
+
+    begin
+
+    local
+	status,
+        dpriv : vector[2] initial(0,0),
+	fab   : ref $fab_decl,
+	nam   : ref $nam_decl,
+  	xab   : ref $xabpro_decl;
+	
+    builtin
+        actualcount;
+
+    local
+	fna, fns, fop, fac, shr, rat, rfm, ctx, esa, ess, rsa, rss;
+
+    !
+    ! Check we're in exec mode (this is a check on correct
+    ! operation of our dispatcher, not a protection check)
+    !
+    $chkmode();
+
+    !
+    ! Probe all structures to check they can be written.  We only
+    ! need to probe things we're going to read ourselves; other
+    ! stuff (like filespec buffers) will be probed by RMS in the
+    ! mode specified in FAB$V_CALLERS_MODE.
+    !
+    if actualcount() neq 1 then return ss$_insfarg;
+    fab = .fabarg;
+    if .fab eql 0 or not $probew(.fab, fab$s_fabdef) then return ss$_accvio;
+    nam = .fab[fab$l_nam];
+    if .nam eql 0 or not $probew(.nam, nam$s_namdef) then return ss$_accvio;
+    xab = .fab[fab$l_xab];
+    if .xab eql 0 or not $probew(.xab, xab$s_xabprodef) then return ss$_accvio;
+
+    !
+    ! Reinitialise the FAB to ensure that the user hasn't
+    ! tried to sneak past us with some fancy trick.   Note
+    ! also that we switch the specified and default filespecs
+    ! to prevent the user from overriding our idea of the
+    ! correct directory to use.  Only the filename (and perhaps
+    ! a node name??) will be taken from the user's specification.
+    !
+    fna = .fab[fab$l_fna];
+    fns = .fab[fab$b_fns];
+    fop = .fab[fab$l_fop] and fab$m_sqo;
+    fac = .fab[fab$b_fac] and not fab$m_exe;
+    shr = .fab[fab$b_shr];
+    rat = .fab[fab$b_rat];
+    rfm = .fab[fab$b_rfm];
+    ctx = .fab[fab$l_ctx];
+    $fab_init(fab=.fab);
+    fab[fab$b_fns]	    = .nm$gt_work_def[0];
+    fab[fab$l_fna]	    = nm$gt_work_def[1];
+    fab[fab$b_dns]	    = .fns;
+    fab[fab$l_dna]	    = .fna;
+    fab[fab$v_lnm_mode]     = psl$c_exec;
+    fab[fab$v_chan_mode]    = psl$c_user;
+    fab[fab$v_callers_mode] = psl$c_user;
+    fab[fab$l_nam]	    = .nam;
+    fab[fab$l_xab]	    = .xab;
+    fab[fab$l_fop]	    = .fop;
+    fab[fab$b_fac]	    = .fac;
+    fab[fab$b_shr]	    = .shr;
+    fab[fab$b_rat]	    = .rat;
+    fab[fab$b_rfm]	    = .rfm;
+    fab[fab$l_ctx] 	    = .ctx;
+
+    !
+    ! Ditto the NAM block (required, because we need to
+    ! get back the file ID after we've created the file)
+    !
+    ess = .nam[nam$b_ess];
+    esa = .nam[nam$l_esa];
+    rss = .nam[nam$b_rss];
+    rsa = .nam[nam$l_rsa];
+    $nam_init(nam=.nam);
+    nam[nam$b_ess] = .ess;
+    nam[nam$l_esa] = .esa;
+    nam[nam$b_rss] = .rss;
+    nam[nam$l_rsa] = .rsa;
+
+    !
+    ! XAB to set up protection so that only system can get at the
+    ! file (avoids likelihood of forged mail).  We ignore any
+    ! details specified by the caller, and force protection and
+    ! ownership the way we like it.
+    !
+    $xabpro_init(xab=.xab, pro=(rwd,rwd,,), uic=(1,4));
+
+    !
+    ! Turn on the privs
+    !
+    status = nm$privsup(dpriv);
+    if not .status
+    then
+	begin
+	fab[fab$l_sts] = .status;
+	fab[fab$l_stv] = 0;
+	fab[fab$l_fna] = .fna;
+	fab[fab$b_fns] = .fns;
+	fab[fab$l_dna] = 0;
+	fab[fab$b_dns] = 0;
+	return .status;
+	end;
+
+    !
+    ! Create the control file with SYSPRV enabled.  If the
+    ! creation succeeds, then save the IFI and file-id for
+    ! subsequent operations.  Restore a few user FAB fields.
+    !
+    status = $create(fab=.fab);
+    savifi = .fab[fab$w_ifi];
+    ch$move(nm$s_fileid, nam[nam$t_dvi], savfid);
+    fab[fab$l_fna] = .fna;
+    fab[fab$b_fns] = .fns;
+    fab[fab$l_dna] = 0;
+    fab[fab$b_dns] = 0;
+
+    !
+    ! Done; restore all privs and return
+    !
+    nm$privsdown(dpriv);
+    .status
+
+    end;
+
+%sbttl 'close control file'
+global routine nm$uss_close_ctl_file (fabarg) =
+
+!++
+! Functional description:
+!
+! Closes the control file, possibly deleting it
+!
+! Formal parameters:
+!
+! fabarg.mr.r = file access block
+!
+! Routine value:
+!
+! status = success/failure status
+!
+!--
+
+    begin
+
+    local
+	status,
+        dpriv   : vector[2] initial(0,0),
+	fab     : ref $fab_decl,
+	loc_fab : $fab_decl;
+
+    builtin
+        actualcount;
+
+    !
+    ! Check we're in exec mode (this is a check on correct
+    ! operation of our dispatcher, not a protection check)
+    !
+    $chkmode();
+
+    !
+    ! Check that the FAB was specified and is accessible.
+    !
+    if actualcount() neq 1 then return ss$_insfarg;
+    fab = .fabarg;
+    if .fab eql 0 or not $probew(.fab, fab$s_fabdef) then return ss$_accvio;
+
+    !
+    ! We must only handle files that we opened
+    !
+    if .fab[fab$w_ifi] neq .savifi 
+    then 
+	begin
+	fab[fab$l_sts] = rms$_ifi;
+	fab[fab$l_stv] = 0;
+	return rms$_ifi;
+	end;
+
+    !
+    ! Initialise a local FAB (saves worrying about what 
+    ! the user mode code may try and foist upon us)
+    !
+    $fab_init(fab=loc_fab);
+    loc_fab[fab$w_ifi] = .savifi;
+    loc_fab[fab$l_fop] = .fab[fab$l_fop] and fab$m_dlt;
+
+    !
+    ! Turn on the privs
+    !
+    status = nm$privsup(dpriv);
+    if not .status
+    then
+	begin
+	fab[fab$l_sts] = .status;
+	fab[fab$l_stv] = 0;
+	return .status;
+	end;
+
+    !
+    ! Close file with privileges enabled, and copy results
+    ! back to the user's FAB
+    !
+    status = $close(fab=loc_fab);
+    fab[fab$l_sts] = .loc_fab[fab$l_sts];
+    fab[fab$l_stv] = .loc_fab[fab$l_stv];
+    fab[fab$w_ifi] = .loc_fab[fab$w_ifi];
+    savifi         = .loc_fab[fab$w_ifi];
+    
+    !
+    ! Done (successfully or otherwise)
+    !
+    nm$privsdown(dpriv);
+    .status
+
+    end;
+
+%sbttl 'submit job'
+global routine nm$uss_submit_job (fid : ref block[,byte], after : ref vector) =
+
+!++
+! Functional description:
+!
+! Submits an Nmail control file to the queue for 
+! processing.
+!
+! Formal parameters:
+!
+! fid.rr.r   = 28-byte file id
+! after.rq.r = "after" time (zero for right away)
+!
+! Routine value:
+!
+! status.wlc.v = status from queue request
+!
+!--
+
+    begin
+
+    local
+ 	status,
+        dpriv : vector[2] initial(0,0),
+        sub_items : vector[16],
+	iosb      : vector[2];
+ 
+    builtin
+        actualcount;
+
+    !
+    ! Check we're in exec mode (this is a check on correct
+    ! operation of our dispatcher, not a protection check)
+    !
+    $chkmode();
+
+    !
+    ! Check validity of arguments
+    !
+    if actualcount() neq 2 then return ss$_insfarg;
+    if not $prober(.fid, nm$s_fileid) then return ss$_accvio;
+    if .after neq 0 and not $prober(.after, 2*%upval) then return ss$_accvio;
+
+    !
+    ! We must only handle files that we opened
+    !
+    if ch$neq(nm$s_fileid, .fid, nm$s_fileid, savfid)
+    then 
+	return rms$_fnf;
+
+    !
+    ! Create the item list in a manner that avoids address fixups
+    !
+    sub_items[0]  = sjc$_file_identification^16 + nm$s_fileid;
+    sub_items[1]  = savfid;
+    sub_items[2]  = 0;
+    sub_items[3]  = sjc$_queue^16 + .nm$gt_queue[0];
+    sub_items[4]  = nm$gt_queue[1];
+    sub_items[5]  = 0;
+    sub_items[6]  = sjc$_job_name^16 + .nm$gt_jobname[0];
+    sub_items[7]  = nm$gt_jobname[1];
+    sub_items[8]  = 0;
+    sub_items[9]  = sjc$_restart^16 + 0;
+    sub_items[10] = 0;
+    sub_items[11] = 0;
+    sub_items[12] = sjc$_after_time^16 + 2*%upval;
+    sub_items[13] = .after;
+    sub_items[14] = 0;
+    sub_items[15] = 0;
+
+    !
+    ! Don't include 'after' time if it's zero
+    !
+    if (if .after eql 0 then true else $zeroq(.after))
+    then 
+	sub_items[12] = sub_items[13] = 0;
+
+    !
+    ! Queue the job with privileges enabled
+    ! 
+    status = nm$privsup(dpriv);
+    if not .status then return .status;
+    status = $sndjbcw(func=sjc$_enter_file, itmlst=sub_items, iosb=iosb);
+    if .status then status = .iosb[0];
+    nm$privsdown(dpriv);
+
+    !
+    ! Return status
+    !
+    .status
+
+    end;
+
+%sbttl 'elevate privileges'
+routine nm$privsup(disb_privs : ref vector[2]) =
+
+!++
+! Functional description:
+!
+! Enables whatever extra privileges we need to
+! operate -- this is possible because exec mode
+! has implicit SETPRV.
+!
+! Formal parameters:
+!
+! disb_privs.mq.r = quadword to remember privs to
+!		    subsequently be disabled (must be
+!		    initialised to zero)
+!
+! Routine value:
+!
+! status.wlc.v = success/failure status
+!
+!--
+
+    begin
+
+    local
+	reqd_privs : vector[2],
+	prev_privs : vector[2],	
+	status;
+
+    !
+    ! Can't handle no repeat calls
+    !
+    if .disb_privs[0] neq 0 or .disb_privs[1] neq 0
+    then
+  	return nm$_prvup;
+
+    !
+    ! Turn on required privs
+    !
+    reqd_privs[0] = prv$m_sysprv;
+    reqd_privs[1] = 0;
+    status = $setprv(enbflg=1, prvadr=reqd_privs, prvprv=prev_privs);
+    if not .status then return nm$_prvup;
+
+    !
+    ! Remember what we actually enabled
+    !
+    disb_privs[0] = .reqd_privs[0] and not .prev_privs[0];
+    disb_privs[1] = .reqd_privs[1] and not .prev_privs[1];
+
+    !
+    ! If we didn't get complete success, then disable any
+    ! partial privilege setting
+    !
+    if .status neq ss$_normal
+    then
+	begin
+	nm$privsdown(.disb_privs);
+	return nm$_prvup;
+	end;
+
+    !
+    ! Done
+    !
+    ss$_normal
+
+    end;
+
+%sbttl 'revoke elevated privileges'
+routine nm$privsdown(disb_privs : ref vector[2]) =
+
+!++
+! Functional description:
+!
+! Disables whatever extra privileges were asserted
+! by routine NM$PRIVSUP.
+!
+! Note: if this routine fails to disable privileges,
+! then it will exit in exec mode, killing the process.
+! We cannot let the user regain control with privileges 
+! he should not have.  (However, failures in this routine 
+! are never expected to occur).
+!
+! Formal parameters:
+!
+! disb_privs.mq.r = privs to be disabled (as returned
+!		    from nm$privsup)
+!
+! Routine value:
+!
+! status.wlc.v = success/failure status
+!
+!--
+
+    begin
+
+    local 
+	status;
+
+    !
+    ! Turn off any elevated privs
+    !
+    status = $setprv(enbflg=0, prvadr=.disb_privs);
+    if not .status 
+    then
+	begin
+ 	$exit(code=.status);
+	return nm$_prvdwn; ! paranoia
+	end;
+
+    !
+    ! And remember they're off
+    !
+    disb_privs[0] = 0;
+    disb_privs[1] = 0;
+    ss$_normal
+
+    end;
+
+end
+eludom

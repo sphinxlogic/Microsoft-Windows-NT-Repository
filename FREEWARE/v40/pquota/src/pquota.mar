@@ -1,0 +1,1953 @@
+	.TITLE  PQUOTA - Display Process Quotas
+	.IDENT  'V1.15'
+
+;
+; Copyright © 1995, 1997 by Kari Salminen. This code may be freely distributed
+; and modified for non-commercial purposes as long as this copyright notice is
+; retained.
+;
+; This software is provided "AS IS". The author makes no representations or
+; warranties with respect to the software and specifically disclaim any implied
+; warranties of merchantability or fitness for any particular purpose.
+;
+;++
+; FACILITY:     SHOW SPECIFIC PROCESS QUOTAS
+;
+; ABSTRACT:
+;
+;       This image displays selected quotas for a given process.
+;
+; ENVIRONMENT:
+;
+;       Runs in User and Kernel mode. Raises IPL to SCHED.
+;
+;
+; VERSION:      01.00
+;
+; AUTHOR:	Kari Salminen 
+;
+; DATE:         14-SEP-1995
+;
+;
+; MODIFIED BY:
+;
+;       V1.1	 4-OCT-1995	Kari Salminen
+;				Fix Mailbox LOGNAM usage to prevent process
+;				hang when running 2 or more copies
+;
+;
+;       V1.2	26-OCT-1995	Kari Salminen
+;				Display node name.
+;
+;
+;	V1.4	07-DEC-1995	Kari Salminen
+;				Write display to disk.
+;
+;
+;	V1.5	15-DEC-1995	Kari Salminen
+;				Add Username, CPU time, State and
+;				AST's enabled/active display.
+;
+;
+;	V1.6	31-JAN-1996	Kari Salminen
+;				Add command line input.
+;				Add VAX bits.
+;
+;
+;	V1.7	14-FEB-1996	Kari Salminen
+;				Add blinking max values.
+;				Change output file name to PQUOTA_procname.OUT
+;
+;
+;	V1.8	25-MAR-1996	Kari Salminen
+;				Fix mutex state display.
+;				Write PID into PQUOTA_procname.OUT file.
+;
+;
+;	V1.9	16-APR-1996	Kari Salminen
+;				Handle outswapped processes.
+;				Make PQUOTA_xxx.OUT file shared for $ TYPE 
+;
+;
+;	V1.10	6-NOV-1996	Kari Salminen
+;				The maximum working set size on AXP is
+;				PHD$L_WSAUTHEXT - PHD$L_WSLIST + 1.
+;
+;	V1.11	26-MAY-1997	Kari Salminen
+;				VMS V7 port.
+;
+;	V1.12	29-JUL-1997	Kari Salminen
+;				Fix AST pending.
+;
+;	V1.13	04-NOV-1997	Kari Salminen
+;
+;
+;	V1.14	12-FEB-1998	Kari Salminen
+;				Add single sample
+;				Ignore blanks in OTS$CVT
+;				Add virtual memory size
+;
+;	V1.15	10-MAR-1998	Kari Salminen
+;				Add Page faults and I/O's
+;
+;	V1.16	25-MAY-1998	Kari Salminen
+;				Change output file name to
+;				PQUOTA_procname_pid.OUT
+;				
+;
+;
+;
+;--
+
+	$DSCDEF				; Descriptor offsets
+	$IODEF				; I/O function codes
+	$JIBDEF				; Job information block offsets
+	$PCBDEF				; Process control block offsets
+	$PHDDEF				; Process header offsets
+	.IF	DF, ALPHA
+	$PQBDEF				; Process quota block definitions
+	.ENDC
+	$PSLDEF				; Processor status definitions
+	$SSDEF				; System status codes
+	$STATEDEF			; PCB states
+
+
+; Define native EVAX PAL call to perform PROBEs.  Unlike the VAX PROBE
+; instructions which can only probe a 64Kb range, the EVAX equivalents accept
+; a full quadword signed offset.  Note also that use of the native EVAX PROBE
+; avoids the additional PAL call to obtain the previous mode.
+
+	.IF	DF, ALPHA
+	.DEFINE_PAL	PROBER, <^X008F>, RQ, RQ, RQ
+					; Base, offset, acmode<1:0>
+	.ENDC
+
+
+	PID_SIZE     = 12		; PID + single sample size
+	DISP_STR_LEN = 68		; Quota's string length
+	TIME_STR_LEN = 20		; Time string length
+	VIRT_STR_LEN = 11		; Virtual size length
+	IOCOUNT_STR_LEN =  8		; I/O's size length
+	PGFLTS_STR_LEN  =  8		; PGFLTS size length
+
+	CR = 13				; Carriage return
+	LF = 10				; Line feed
+
+	CSID_WID = PCB$S_EPID_NODE_IDX + PCB$S_EPID_NODE_SEQ
+
+	ASSUME PCB$V_EPID_WILD EQ <PCB$V_EPID_NODE_IDX + CSID_WID>
+	ASSUME PCB$V_EPID_NODE_SEQ EQ <PCB$V_EPID_NODE_IDX+PCB$S_EPID_NODE_IDX>
+
+	.IF	DF, ALPHA
+	.EXTERNAL	EXE$CVT_EPID_TO_IPID 
+	.EXTERNAL	EXE$CVT_EPID_TO_PCB
+	.ENDC
+
+
+
+	.PSECT  RWDATA,WRT,NOEXE,LONG
+
+DEFAULT: .ASCIZ	'SYS$DISK:'             	; System default.
+DEFALN	= . - DEFAULT				; Size of the default device.
+
+;	.OUT file : Process name and PID.
+;                        1234567
+OUT_FILE:	.ASCII	/PQUOTA_/		; Output file name
+ADD_NAME:	.ASCIZ	/123456789012345_78901234.OUT/	; ...
+OUT_FILE_LEN = . - OUT_FILE			; Length of output file name
+
+FIL_EXT:	.ASCIZ	/OUT/			; File extension
+		.LONG	0 			; Terminator
+
+	.ALIGN	LONG
+
+WTBUF:	.BLKB	512				; Disk write buffer
+
+
+WTFAB:: $FAB	DNA=DEFAULT,-			; Default 
+		DNS=DEFALN,-			; Default length
+		FNA=OUT_FILE,-			; Output file name 
+		FNS=OUT_FILE_LEN,-		; Output file name length
+		ALQ=1,-				; Allocate 1 block at open
+		DEQ=1,-				; File extension 1 block
+		FAC=<GET,PUT>,-			; GET, PUT
+		FOP=DFW, -			; Deferred write
+		SHR=<SHRGET,UPI>,-		; Allow shared access
+		ORG=SEQ,-			; Sequential file
+		RAT=CR,-			; CR carriage control
+		RFM=VFC				; Variable length with fixed-
+						; length control record
+	.ALIGN LONG
+
+WTRAB:: $RAB	FAB=WTFAB,RAC=SEQ,ROP=<EOF,WBH>,MBC=1	; Beginning of RAB block.
+
+	.ALIGN LONG
+
+TTCHAN:		.BLKW	1			; Terminal I/O channel
+TTBUF:  	.BLKB   4			; Input buffer
+TT_IOSB: 	.BLKL  	2			; Terminal I/O status block
+TTNAME:		.ASCID  /SYS$OUTPUT/		; Output device
+
+	.ALIGN LONG
+
+MBCHAN:		.BLKW   1			; Mailbox I/O channel
+MBXBUF: 	.BLKB   256			; Input buffer
+;
+;	Mailbox Message buffer format
+;
+;	 63            32 31   16 15     0
+;	+----------------+----------------+
+;	|      Unit #    |    MSG type    |
+;	+----------------+-------+--------+
+;	| Device name            | Length |
+;	+------------------------+--------+
+;	|       Device name               |
+;	+---------------------------------+
+;	|                                 |
+;
+;
+;
+MB_IOSB: 	.BLKL  	2			; Mailbox I/O status block
+MBNAME: 	.ASCID  /MB0000000000000000000/	; Modified with proc name
+		.BLKL	1			; Pad
+
+	.ALIGN LONG
+;		         31-JAN-1996 17:51:46.00
+;			 12345678901234567890123
+CUR_TIME:	.ASCID  /                    /	; Time buffer (length 20
+						; instead of 23 => drop
+						; 1/100's of seconds)
+	.ALIGN	LONG
+
+EXIT_FLAG:	.BLKL	1			; Process gone flag 
+NOW:		.BLKL   1			; Input flag
+INPUT_LEN:	.BLKL	1			; Input length
+
+NODE_ITMLST:					; Item list for node name
+        .WORD   	15              	; Length
+        .WORD   	SYI$_NODENAME		; Ask nodename
+        .ADDRESS        NODENAME		; Nodename buffer
+        .ADDRESS        NODENAME_LEN		; Nodename length
+        .LONG   0				; Pad
+
+NODENAME_LEN:   .LONG   0			; Length
+                .ADDRESS NODENAME		; Node name
+NODENAME:       .BLKB   15			; Node name buffer
+
+
+PROMPT_FOR_PID:					; Input prompt
+	.ASCID	/ Please enter the target Process PID: /
+
+	.ALIGN	LONG
+
+;	Table for process states
+
+ST_TBL:	.ASCII	/COLPG/		; Collided page wait
+	.ASCII	/MUTEX/		; Mutex and miscellaneous resource wait
+	.ASCII	/CEF  /		; Common event flag wait state
+	.ASCII	/PFW  /		; Page fault wait
+	.ASCII	/LEF  /		; Local event flag wait
+	.ASCII	/LEFO /		; Local event flag wait out of balance set
+	.ASCII	/HIB  /		; Hibernate wait
+	.ASCII	/HIBO /		; Hibernate wait out of balance set
+	.ASCII	/SUSP /		; Suspended
+	.ASCII	/SUSPO/		; Suspended out of the balance set
+	.ASCII	/FPG  /		; Freepage wait
+	.ASCII	/COM  /		; Compute, in balance set state
+	.ASCII	/COMO /		; Compute, out of balance set state
+	.ASCII	/CUR  /		; Current process state
+MAX_ST = . - ST_TBL
+
+	.ALIGN LONG
+
+;	Table for mutex wait states
+
+RW_TBL:	.ASCII	/RWAST/		; AST wait
+	.ASCII	/RWMBX/		; Mailbox full
+	.ASCII	/RWNPG/		; Non-paged pool
+	.ASCII	/RWPFF/		; Pagefile full
+	.ASCII	/RWPAG/		; Paged pool
+	.ASCII	/RWBRK/		; Waiting for BROADCAST to finish
+	.ASCII	/RWIMG/		; Image activation lock
+	.ASCII	/RWQUO/		; Pooled quota
+	.ASCII	/RWLCK/		; Lock ID database
+	.ASCII	/RWSWP/		; Swapfile space
+	.ASCII	/RWMPE/		; Modified pagelist empty
+	.ASCII	/RWMPB/		; Modified pagewriter busy
+	.ASCII	/RWSCS/		; SCS wait
+	.ASCII	/RWCLU/		; Cluster transition wait
+	.ASCII	/RWCAP/		; CPU capability required
+	.ASCII	/RWCSV/		; Cluster server
+	.ASCII	/RWSNP/		; System snapshot
+	.ASCII	/PSXFR/		; POSIX fork wait
+	.ASCII	/INNER/		; INNER_MODE, Thread in an inner mode wait
+	.ASCII	/EXH  /		; Thread in exit handling wait
+MAX_RW = . - RW_TBL
+
+OUTSWAP_STR:	.ASCII	/ * Outswapped * /
+OUTSWAP_STR_1:	.ASCII	/ * Process is Outswapped * /
+		.ASCII	/                                           /
+
+	.ALIGN LONG
+
+;	Initial screen output
+;
+;	We use VT100 escape sequences to pack the screen output
+;	compact enough to fit in a single $QIO.
+;
+CLEAR_BUFF:	.BYTE	27
+		.ASCII	/[H/			; Clear screen
+		.BYTE	27
+		.ASCII  /[J/			; Set cursor up/left
+		.BYTE	27
+		.ASCII /[2;1H/
+CLEAR_len = . - CLEAR_BUFF
+        .BYTE   27				; Position cursor to
+        .ASCII  /[01;03H/			; line 1, row 3
+        .ASCII  /Node     :/			; Output text
+
+        .BYTE   27				; Position cursor to
+        .ASCII  /[01;31H/			; line 1, row 31
+        .ASCII  /PQUOTA V1.15/
+
+	.BYTE	27
+	.ASCII	/[02;03H/
+	.ASCII	/Process  :/
+
+	.BYTE	27
+	.ASCII	/[02;31H/
+	.ASCII  /CPU :/
+
+	.BYTE	27
+	.ASCII	/[03;03H/
+	.ASCII	/Username :/
+
+	.BYTE	27
+	.ASCII	/[03;31H/
+	.ASCII	/State :/
+
+	.BYTE	27
+	.ASCII	/[04;03H/
+	.ASCII	/Virt size:/
+
+	.BYTE	27
+	.ASCII	/[04;31H/
+	.ASCII	\I/O's :\	
+	.BYTE	27
+	.ASCII	/[04;57H/
+	.ASCII	/Pflts:/
+
+	.BYTE	27
+	.ASCII	/[05;10H/
+	.ASCII  /---- Sysgen ----    -------------- Process ---------------/
+	.BYTE	^O12,^O15
+	.ASCII  /                                               curr         max/
+	.BYTE	^O12,^O15
+        .ASCII  \         max/def      min       max    free    used   %    used   %\
+	.BYTE	^O12,^O15
+	.ASCII  / ==================================================================/
+	.BYTE	^O12,^O15
+	.ASCII  / BYTCNT                                                              Bytes/
+	.BYTE	^O12,^O15
+	.ASCII  / BIOCNT                                                              IO's/
+	.BYTE	^O12,^O15
+	.ASCII  / DIOCNT                                                              IO's/
+	.BYTE	^O12,^O15
+	.ASCII  / ASTCNT                                                              Ast's/
+	.BYTE	^O12,^O15
+	.ASCII  / FILCNT                                                              Files/
+	.BYTE	^O12,^O15
+	.ASCII  / ENQCNT                                                              Locks/
+	.BYTE	^O12,^O15
+	.ASCII  / TQCNT                                                               Timers/
+	.BYTE	^O12,^O15
+
+	.IF	DF, ALPHA
+	.ASCII  / PGFLQUO                                                             Pagelets/
+	.BYTE	^O12,^O15
+	.ASCII  / WSQUO                                                               Pagelets/
+	.IFF
+	.ASCII  / PGFLQUO                                                             Pages/
+	.BYTE	^O12,^O15
+	.ASCII  / WSQUO                                                               Pages/
+	.ENDC
+
+	.BYTE	^O12,^O15
+
+HEADER_LEN = . - CLEAR_BUFF
+
+	.ALIGN LONG
+
+;******************
+
+FILE_TIMER:	.LONG	0			; Counter to disk write
+
+FILE_FAO:					; File output format string
+	.ASCID	/BYTCNT  !7UL !3UL Bytes   /<CR><LF> -
+		/BIOCNT  !7UL !3UL IO's    /<CR><LF> -
+		/DIOCNT  !7UL !3UL IO's    /<CR><LF> -
+		/ASTCNT  !7UL !3UL Ast's   /<CR><LF> -
+		/FILCNT  !7UL !3UL Files   /<CR><LF> -
+		/ENQCNT  !7UL !3UL Locks   /<CR><LF> -
+		/TQCNT   !7UL !3UL Timers  /<CR><LF> -
+		/PGFLQUO !7UL !3UL Pagelets/<CR><LF> -
+		/WSQUO   !7UL !3UL Pagelets/<CR><LF>
+FILE_FAO_LEN = . - FILE_FAO + 50
+
+	.ALIGN LONG
+
+FILE_DSC:	.LONG           FILE_FAO_LEN	; Length
+                .ADDRESS        FILEBUF		; Address
+
+
+FILE_NAM_TIM:	.BYTE	^O12,^O15
+		.BYTE	^O12,^O15
+;			 12345678901234567890123456789012345678901234567890
+		.ASCII	/                                                  /
+		.BYTE	^O12,^O15
+HD_LINE:	.ASCII  /            Max   %/
+		.BYTE	^O12,^O15
+
+	.ALIGN LONG
+
+FILEBUF:					; Buffer
+F_BYTCNT:	.BLKB	30
+F_BIOCNT:	.BLKB	30
+F_DIOCNT:	.BLKB	30
+F_ASTCNT:	.BLKB	30
+F_FILCNT:	.BLKB	30
+F_ENQCNT:	.BLKB	30
+F_TQCNT:	.BLKB	30
+F_PGFLQUO:	.BLKB	30
+F_WSQUO:	.BLKB	30
+		.ASCII	/                              /
+;			 123456789012345678901234567890
+                .LONG    0               	; Pad
+
+	.ALIGN LONG
+
+;******************
+;
+VIRT_FAO:  .ASCID '!10<!UL!>'
+VIRT_FAO_LEN = . - VIRT_FAO + 12
+;
+VIRT_DSC:	.LONG		VIRT_FAO_LEN
+		.ADDRESS	VIRTBUF
+VIRTBUF:	.BLKB		VIRT_FAO_LEN
+		.LONG		0
+;
+;
+IOCNT_FAO:  .ASCID '!8<!UL!>'
+IOCNT_FAO_LEN = . - IOCNT_FAO + 10
+;
+IOCNT_DSC:	.LONG		IOCNT_FAO_LEN
+		.ADDRESS	IOCNTBUF
+IOCNTBUF:	.BLKB		IOCNT_FAO_LEN
+		.LONG		0
+
+
+PGFLTS_FAO:  .ASCID '!8<!UL!>'
+PGFLTS_FAO_LEN = . - PGFLTS_FAO + 10
+;
+PGFLTS_DSC:	.LONG		PGFLTS_FAO_LEN
+		.ADDRESS	PGFLTSBUF
+PGFLTSBUF:	.BLKB		PGFLTS_FAO_LEN
+		.LONG		0
+;
+;
+;
+;             	     max   min    max left curr   %          max     %
+;                                                      Normal           Normal
+QUOTA_FAO: .ASCID ' !7UL  !7UL   !7UL !7UL !7UL !3UL [0m!7UL !3UL[0m'
+QUOTA_FAO_LEN = . - QUOTA_FAO + 50
+; 					Blink/Noblink = <ESC>[5m / <ESC>[0m
+;                                                           
+;	Normal  = <ESC>[0m
+;	Blink   = <ESC>[5m
+;	Bold    = <ESC>[1m
+;	Reverse = <ESC>[0;7m
+;
+
+QUOTA_DSC:      .LONG           QUOTA_FAO_LEN	; Length
+                .ADDRESS        QUOTABUF	; Address
+QUOTABUF:	.BLKB           QUOTA_FAO_LEN	; Buffer
+                .LONG           0               ; Pad
+
+	.ALIGN LONG
+
+;************** Main output buffer
+
+QUOTA_OUT:	.BYTE   27
+	        .ASCII  /[01;14H/
+;               	 123456
+NOD_NAM:  	.ASCII  /      /
+
+		.BYTE	27
+		.ASCII	/[01;57H/
+TIM_OUT:	.BLKB	20
+
+		.BYTE	27
+		.ASCII	/[02;14H/
+NAME_BUF: 	.ASCII	/               /	; 15 bytes
+;			 123456789012345
+
+		.BYTE	27
+		.ASCII	/[02;36H/
+;                        9999 23:33:18.23
+CPUTIMA:	.ASCII	/                /
+;			 1234567890123456
+
+                .BYTE   27
+                .ASCII  /[02;64H/
+                .ASCII  /Ena  Pend/
+
+		.BYTE	27
+		.ASCII	/[03;14H/
+USERNAME:	.ASCII	/            /
+
+		.BYTE	27
+		.ASCII	/[03;39H/
+STATE_OUT:	.ASCII	/     /
+
+                .BYTE   27
+                .ASCII  /[03;57H/
+                .ASCII  /AST's: /
+AST_ENA:        .ASCII  /KESU /
+AST_ACT:        .ASCII  /KESU/
+
+
+		.BYTE	27
+		.ASCII	/[04;14H/
+VASIZE_OUT:	.ASCII	/           /
+;                        12345678901
+;;		.ASCII  / Pagelets/
+
+		.BYTE	27
+		.ASCII	/[04;39H/
+IOCNT_OUT:	.ASCII	/         /
+;                        123456789
+;;		.ASCII  / Pagelets/
+
+
+		.BYTE	27
+		.ASCII	/[04;64H/
+PGFLTS_OUT:	.ASCII	/         /
+;                        123456789
+
+		.BYTE	27
+		.ASCII	/[09;09H/
+QUO_BYT:	.BLKB	DISP_STR_LEN
+		.BYTE	27
+		.ASCII	/[10;09H/
+QUO_BIO:	.BLKB	DISP_STR_LEN
+		.BYTE	27
+		.ASCII	/[11;09H/
+QUO_DIO:	.BLKB	DISP_STR_LEN
+		.BYTE	27
+		.ASCII	/[12;09H/
+QUO_AST:	.BLKB	DISP_STR_LEN
+		.BYTE	27
+		.ASCII	/[13;09H/
+QUO_FIL:	.BLKB	DISP_STR_LEN
+		.BYTE	27
+		.ASCII	/[14;09H/
+QUO_ENQ:	.BLKB	DISP_STR_LEN
+		.BYTE	27
+		.ASCII	/[15;09H/
+QUO_TQE:	.BLKB	DISP_STR_LEN
+		.BYTE	27
+		.ASCII	/[16;09H/
+QUO_PGFL:	.BLKB	DISP_STR_LEN
+		.BYTE	27
+		.ASCII	/[17;09H/
+QUO_WS:		.BLKB	DISP_STR_LEN
+
+		.BYTE	27
+		.ASCII	/[20;1H/		; Set cursor left down
+
+QUOTA_OUT_LEN = . - QUOTA_OUT
+
+	.ALIGN LONG
+
+;******************
+
+PRC_ITEM:					; GETJPI item list
+	.WORD   	15			; Name buffer length
+        .WORD		JPI$_PRCNAM		; Process name
+        .ADDRESS	OUR_NAME		; Name buffer address
+	.ADDRESS	OUR_LEN			; Return length
+	.LONG   	0			; Terminator
+
+OUR_NAME:	.ASCII	/                                     /
+OUR_LEN:	.BLKL	1
+
+	.ALIGN LONG
+
+PRC_ITMLST:
+	   .WORD      	  4			; PID buffer length
+	   .WORD    	  JPI$_PID		; PID
+	   .ADDRESS 	  PID
+	   .LONG    	  0
+
+          .WORD           15            	; Length
+          .WORD           JPI$_PRCNAM		; Item code
+	  .ADDRESS        NAME_BUF     		; Buffer
+	  .ADDRESS	  NAME_LEN		; Return length
+          .LONG           0             	; Terminator
+
+NAME_LEN: .LONG		  0			; Return length
+	  .ADDRESS        NAME_BUF
+
+
+WAIT_TIME: .BLKQ	1			; Delay time
+
+OFFSET:	.ASCID	/0 ::01.00/			; Display interval 1.0 sec
+
+;***** Lock down the fields accessed from kernel mode and all code ******
+
+DATA_LOCK_START:				; Lock down data
+
+PID_DESC:	.LONG		PID_SIZE	; PID size
+		.ADDRESS	PID_BUFFER	; PID buffer address
+PID_BUFFER:	.BLKB	PID_SIZE		; 
+
+PID:		.LONG	0			; PID buffer
+		.LONG   0			; ...
+
+;	Kernel routine call descriptor
+
+KARGS:		.LONG		1		; Argument #
+		.ADDRESS	PID		; Argument address
+		.LONG		0		; Terminator
+
+CPU_DSC:	.LONG	  16			; Absolute time only
+		.ADDRESS  CPUTIMA		; CPU time output buffer
+
+CPUTIM: 	.BLKL	2			; CPU time, 64-bit
+
+
+OUTSWAP:	.BLKL	1			; Process outswapped
+STATE:		.BLKL	1			; State
+EFWM:		.BLKL	1			; Wait mask
+
+AST_K:  .BLKL   1                       	; Kernel
+AST_E:  .BLKL   1                       	; Exec
+AST_S:  .BLKL   1                       	; Super
+AST_U:  .BLKL   1                       	; User
+ASTEN:  .BLKL   1                       	; AST's served and enabled
+
+
+;*******************************************
+
+; Currently used
+
+ASTCNT:		.BLKL   1
+ASTLM:		.BLKL   1
+BYTCNT:		.BLKL	1
+BYTLM:		.BLKL	1
+ORG_BYTLM: 	.BLKL   1
+DIOCNT:		.BLKL   1
+DIOLM:		.BLKL   1
+BIOCNT:		.BLKL   1
+BIOLM:		.BLKL   1
+ENQCNT:		.BLKL   1
+ENQLM:		.BLKL   1
+FILLM:		.BLKL   1
+FILCNT:  	.BLKL   1
+PRCCNT:		.BLKL   1
+PRCLIM:		.BLKL   1
+TQCNT:		.BLKL   1
+TQLM:		.BLKL   1
+PGFLQUOTA:	.BLKL   1
+PGFLCNT:	.BLKL   1
+WSQUOTA:	.BLKL   1
+WSEXTENT:	.BLKL   1
+VASIZE:		.BLKL   2
+IOCOUNT:	.BLKL   1
+PGFLTS:		.BLKL	1
+
+;	Maximum used
+
+AST_MAX:	.BLKL   1
+BYT_MAX:	.BLKL	1
+DIO_MAX:	.BLKL   1
+BIO_MAX:	.BLKL   1
+ENQ_MAX:	.BLKL   1
+FIL_MAX:	.BLKL   1
+PRC_MAX:	.BLKL   1
+TQ_MAX:		.BLKL   1
+PGFLQUOTA_MAX:	.BLKL   1
+WSQUOTA_MAX:	.BLKL   1
+ENQLM_MAX:	.BLKL   1
+FILLM_MAX:	.BLKL   1
+TQLM_MAX:	.BLKL   1
+
+;	Maximum used percentage
+
+AST_MAX_PERCENT:	.BLKL   1
+BYT_MAX_PERCENT:	.BLKL	1
+DIO_MAX_PERCENT:	.BLKL   1
+BIO_MAX_PERCENT:	.BLKL   1
+ENQ_MAX_PERCENT:	.BLKL   1
+FIL_MAX_PERCENT:	.BLKL   1
+PRC_MAX_PERCENT:	.BLKL   1
+TQ_MAX_PERCENT:		.BLKL   1
+PGFLQUOTA_MAX_PERCENT:	.BLKL   1
+WSQUOTA_MAX_PERCENT:	.BLKL   1
+ENQLM_MAX_PERCENT:	.BLKL   1
+FILLM_MAX_PERCENT:	.BLKL   1
+TQLM_MAX_PERCENT:	.BLKL   1
+
+DATA_LOCK_END:
+
+
+DATA_LOCK_ADDR:
+	.ADDRESS	DATA_LOCK_START
+	.ADDRESS	DATA_LOCK_END
+
+CODE_LOCK_ADDR:
+	.ADDRESS	CODE_LOCK_START
+	.ADDRESS	CODE_LOCK_END
+
+
+;*************************************************************************
+
+	 .PSECT CODE,NOWRT,EXE,LONG
+
+	.ENTRY	PQUOTA,^M<>
+
+	CLRL    NOW				; Clear AST flag
+
+;	Get command line = PID
+
+	PUSHAL  INPUT_LEN			; Command line length
+	CLRL    -(SP)                   	; No prompt
+	PUSHAL  PID_DESC			; Command line descriptor
+	CALLS   #3,G^LIB$GET_FOREIGN    	; Get command line
+	BLBS	R0,812$				; Ok
+813$:	BRW	8$				; Error
+
+812$:	TSTL    INPUT_LEN			; Null line ?
+        BEQL	814$				; Yes
+	CMPL	#8,INPUT_LEN			; 8 =< is PID only
+	BGEQ	811$				; Yes
+
+	MOVAB	PID_BUFFER,R0			; PID_BUFFER address
+	ADDL	INPUT_LEN,R0			; Last character
+	SUBL	#1,R0				; ...
+	CMPB	#^A/X/,(R0)			; X ?
+	BEQL	815$				; Yes
+	CMPB	#^A/x/,(R0)			; x ?
+	BNEQ	811$				; No
+
+815$:	MOVL	#1,NOW				; Flag one sample
+	MOVL	#^O32,TTBUF			; CRTL/Z
+	MOVB	#^O40,(R0) 			; X -> space
+	BRW	811$				; No
+
+;	Command line was empty , ask for PID
+
+814$:	PUSHAL	PID_DESC			; Argument descriptor
+	PUSHAL	PROMPT_FOR_PID			; Prompt
+	PUSHAL	PID_DESC			; PID descriptor
+	CALLS	#3,G^LIB$GET_INPUT		; Read PID
+
+811$:	PUSHL	#1				; Flags, ignore blanks
+	PUSHL	#4				; Output size
+	PUSHAL	PID				; EPID
+	PUSHAL	PID_DESC			; PID string
+	CALLS	#4,G^OTS$CVT_TZ_L		; Convert text to longword
+	BLBC	R0,813$				; Error
+
+
+;	We must use different LOGNAM for $CREMBX_S if the user runs
+;	2 or more copies of PQUOTA to prevent unsolicited input to
+;	cause a process hang.
+;	Insert part of the process name into LOGNAM.
+
+	$GETJPIW_S	ITMLST=PRC_ITEM		; Get process name
+
+	MOVAB	OUR_NAME,R0			; Process name
+	MOVL	OUR_LEN,R2			; Name length
+	SUBL	#1,R2				; Point to last char
+
+;	Do not insert : into LOGNAM
+
+	CMPB	#^A/:/,(R0)[R2]			; _FTAxx: ?
+	BEQL	1$				; Yes , skip :
+	ADDL	#1,R2				; No, leave char
+
+;	Insert max 13 bytes
+
+1$:	CMPL	#13,R2				; Length > 13
+	BGTR	2$				; No
+	MOVL	#13,R2				; Cut
+
+2$:	MOVAB	MBNAME,R1			; Mailbox name
+	ADDL	#10,R1				; Point past "MB"
+
+;	Insert process name into LOGNAM
+
+3$:	MOVB	(R0)+,(R1)+			; Insert part of procname
+	SOBGTR	R2,3$				; into MBNAME
+
+;	Get our node name
+
+        $GETSYIW_S ITMLST=NODE_ITMLST		; Get node name
+
+	MOVL	NODENAME_LEN,R0			; Nodename length
+	CMPL	#6,R0				; 
+	BGEQ	4$				; 
+	MOVL	#6,R0				; 
+
+4$:	MOVAB	NODENAME,R1			; Nodename
+	MOVAB	NOD_NAM,R2			; Display buffer
+
+	MOVC3	R0,(R1),(R2)			; Copy nodename
+
+
+        $CREMBX_S  CHAN=MBCHAN,LOGNAM=MBNAME	; Create attention Mailbox
+        $ASSIGN_S  CHAN=TTCHAN,DEVNAM=TTNAME,MBXNAM=MBNAME ; Channel to terminal
+
+        PUSHAL  MBCHAN				; Mailbox channel
+        CALLS   #1,ENABLE_UNSOLICIT_INPUT       ; Enable attention AST
+
+	CLRL    EXIT_FLAG			; Clear process gone flag 
+	CLRL	OUTSWAP				; Clear outswapped
+	CLRL	ASTCNT				; Clear 
+	CLRL	ASTLM				; Clear 
+	CLRL	AST_MAX				; Clear 
+	CLRL	AST_MAX_PERCENT			; Clear 
+
+	$BINTIM_S TIMBUF=OFFSET,TIMADR=WAIT_TIME ; Convert time
+
+	$LKWSET_S	INADR=CODE_LOCK_ADDR	; Lock code 
+	$LKWSET_S	INADR=DATA_LOCK_ADDR	; Lock data
+
+;       First time
+
+        $CMKRNL_S	ROUTIN=GET_JPI,ARGLST=KARGS     ; Get job info
+        BLBS    R0, 9$				; Ok
+	BRW     1010$           		; Error
+
+;	Open output file
+
+9$:	$GETJPI_S	PIDADR=PID,ITMLST=PRC_ITMLST	; Get process name
+;
+;	Valid file name characters: a - z,  A - Z, 0 - 9, _, - and $.
+;				141 - 172, 101 - 132, 60 - 71, 137, 55, 44
+;
+	MOVAB	NAME_BUF,R0			; Process name
+	MOVAB	ADD_NAME,R1			; Filename field after PQUOTA_
+	MOVL	NAME_LEN,R2			; Process name length
+	BNEQ	5500$				; > 0
+	MOVL	#1,R2				; No, use 1 character
+	MOVL	#1,NAME_LEN			; ...
+
+;	$, -, _ 
+
+5500$:	CMPB	#^A/$/,(R0)			; $ ?
+	BEQL	5510$				; Yes, ok
+	CMPB	#^A/-/,(R0)			; - ?
+	BEQL	5510$				; Yes, ok
+	CMPB	#^A/_/,(R0)			; _ ?
+	BEQL	5510$				; Yes, ok
+
+;	< ASCII 0
+
+	CMPB	#^A/0/,(R0)			; >= ASCII 0 ?
+	BLEQ	5501$				; Yes, check more
+	BRW	5509$				; Invalid char, make it $
+
+;	> Z
+
+5501$:	CMPB	#^A/z/,(R0)			; > z ?
+	BGEQ	5502$				; Yes, check more
+	BRW	5509$				; Invalid char, make it $
+
+; 	=< ASCII 9
+
+5502$:	CMPB	#^A/9/,(R0)			; > 9 ?
+	BLSS	5503$				; Yes, check more
+	BRW	5510$				; Ok
+
+;	>= a
+
+5503$:	CMPB	#^A/a/,(R0)			; < a ?
+	BGTR	5504$				; Yes, check more
+	BRW	5510$				; Ok
+
+;	>= A 
+
+5504$:	CMPB	#^A/A/,(R0)			; < A ?
+	BGTR	5509$				; Invalid char, make it $
+
+;	<= Z
+
+	CMPB	#^A/Z/,(R0)			; > Z ?
+	BGEQ	5510$				; No, ok
+
+5509$:	MOVB	#^A/$/,(R0)			; Invalid char, make it $
+
+5510$:	MOVB	(R0)+,(R1)+			; Copy name
+	SOBGTR	R2,5500$			; ...
+
+;	Add '_' and PID into file name
+
+	MOVB	#^A/_/,(R1)+			; '_'
+	
+	MOVAB	PID_BUFFER,R0			; PID buffer address
+	MOVL	PID_DESC,R2			; PID size
+5413$:	MOVB	(R0)+,(R1)+			; Copy PID
+	SOBGTR	R2,5413$			; ...
+
+	MOVB	#^A/./,(R1)+			; Dot
+
+	MOVAB	FIL_EXT,R0			; File extension and terminator
+	MOVL	(R0),(R1)+			; ...
+
+;	File name length
+
+	DECL	R1				; Subtract terminator
+	SUBL3	#OUT_FILE,R1,R3			; File name length
+
+	MOVAL	WTFAB,R1			; Put address of FAB into R1.
+	$FAB_STORE FAB=R1,FNS=R3		; Tell RMS file name length
+
+	$CREATE #WTFAB				; Create the file
+	BLBC	R0,8$				; Error
+
+	MOVAL	WTRAB,R1			; Put address of RAB into R1.
+	$RAB_STORE RAB=R1,UBF=WTBUF,RBF=WTBUF,USZ=#255,RSZ=#255	; Put address
+						; of user buffer in RAB.
+
+	$CONNECT #WTRAB 			; Connect to record.
+	BLBS	R0,88$				; Ok
+
+8$:	BRW     1010$           		; Error
+
+
+88$:	CLRL	FILE_TIMER			; Clear file write counter
+
+;	Get here for refresh the screen
+
+190$:	$QIOW_S CHAN=TTCHAN,FUNC=#IO$_WRITEVBLK,-
+		IOSB=TT_IOSB,-
+		EFN=#1,-
+                P1=CLEAR_BUFF,-
+                P2=#HEADER_len			; Screen output
+
+;	Get here for update the screen
+
+200$:	$CMKRNL_S	ROUTIN=GET_JPI,ARGLST=KARGS	; Get job info
+	BLBS	R0, 205$			; Ok
+	CMPL	#SS$_NONEXPR,R0			; Has process gone ?
+	BNEQ	201$				; No, an error
+	MOVL	#1,EXIT_FLAG			; Flag process gone
+	BRW	421$				; Write latest values into file
+
+201$:	BRW	1000$				; Error
+
+205$:	$GETJPI_S	PIDADR=PID,ITMLST=PRC_ITMLST	; Get process name
+
+;	Get current time
+
+        PUSHAQ  CUR_TIME			; Time buffer address
+        CALLS   #1,G^LIB$DATE_TIME              ; Get current time
+
+	MOVC3	#TIME_STR_LEN,CUR_TIME+8,TIM_OUT ; Copy time
+
+;************* Output values ***************************
+;
+;	Fill in first the whole output buffer and then do the
+;	output with a single $QIO to keep the CPU load at minimum.
+;
+
+;\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\
+
+
+        PUSHL   VASIZE				; 
+
+        PUSHAQ  VIRT_DSC			; Receive buffer descriptor
+        PUSHAW  VIRT_DSC			; Buffer length
+        PUSHAQ  VIRT_FAO			; Input string to convert
+
+        CALLS   #4,G^SYS$FAO			; Format string
+
+	MOVC3	#VIRT_STR_LEN,VIRTBUF,VASIZE_OUT ; Copy string into output buffer
+
+
+        PUSHL   IOCOUNT				; 
+
+        PUSHAQ  IOCNT_DSC			; Receive buffer descriptor
+        PUSHAW  IOCNT_DSC			; Buffer length
+        PUSHAQ  IOCNT_FAO			; Input string to convert
+
+        CALLS   #4,G^SYS$FAO			; Format string
+
+	MOVC3	#IOCOUNT_STR_LEN,IOCNTBUF,IOCNT_OUT ; Copy string into output buffer
+
+
+        PUSHL   PGFLTS				; 
+
+        PUSHAQ  PGFLTS_DSC			; Receive buffer descriptor
+        PUSHAW  PGFLTS_DSC			; Buffer length
+        PUSHAQ  PGFLTS_FAO			; Input string to convert
+
+        CALLS   #4,G^SYS$FAO			; Format string
+
+	MOVC3	#PGFLTS_STR_LEN,PGFLTSBUF,PGFLTS_OUT ; Copy string 
+
+
+
+	SUBL3	BYTCNT,ORG_BYTLM,R1		; Bytes used
+	CMPL	BYT_MAX,R1			; > max ?
+	BGTR	50$				; No
+	MOVL	R1,BYT_MAX			; New max
+50$:	MULL3	#100,R1,R3			; * 100
+	BEQL	51$				; Zero, dont use as divisor
+	DIVL3	ORG_BYTLM,R3,R2			; % used
+	CMPL	BYT_MAX_PERCENT,R2		; > max ?
+	BGTR	51$				; No
+	MOVL	R2,BYT_MAX_PERCENT		; New max
+51$:
+	MOVL	#<QUOTA_FAO+44>,R0		; Blink/Noblink (5/0) byte.
+	MOVB	#^A/0/,(R0)			; Default no blink
+	CMPL	#90,BYT_MAX_PERCENT		; > 90 % used ?
+	BGTR	53$				; No
+	MOVB	#^A/5/,(R0)			; Yes, blink
+
+53$:	PUSHL   BYT_MAX_PERCENT			; Max %
+        PUSHL   BYT_MAX				; Max #
+        PUSHL   R2                              ; % used
+        PUSHL   R1                              ; Bytes used
+        PUSHL   BYTCNT                          ; Process bytcnt
+        PUSHL   ORG_BYTLM                       ; Process bytlm
+        PUSHL   G^PQL$GMBYTLM                   ; System min_bytlm
+        PUSHL   G^PQL$GDBYTLM                   ; System def_bytlm
+
+        PUSHAQ  QUOTA_DSC			; Receive buffer descriptor
+        PUSHAW  QUOTA_DSC			; Buffer length
+        PUSHAQ  QUOTA_FAO			; Input string to convert
+
+        CALLS   #11,G^SYS$FAO			; Format string
+
+	MOVC3	#DISP_STR_LEN,QUOTABUF,QUO_BYT	; Copy string into output buffer
+
+	SUBL3	BIOCNT,BIOLM,R1			; Bytes used
+	CMPL	BIO_MAX,R1			; > max ?
+	BGTR	40$
+	MOVL	R1,BIO_MAX
+40$:	MULL3	#100,R1,R3			; * 100
+	BEQL	41$				; Zero, dont use as divisor
+	DIVL3	BIOLM,R3,R2			; % used
+	CMPL	BIO_MAX_PERCENT,R2
+	BGTR	41$
+	MOVL	R2,BIO_MAX_PERCENT
+
+41$:	MOVL	#<QUOTA_FAO+44>,R0		; Blink/Noblink (5/0) byte.
+	MOVB	#^A/0/,(R0)			; Default no blink
+	CMPL	#90,BIO_MAX_PERCENT		; > 90 % used ?
+	BGTR	43$				; No
+	MOVB	#^A/5/,(R0)			; Yes, blink
+
+43$:	PUSHL	BIO_MAX_PERCENT
+	PUSHL	BIO_MAX
+	PUSHL	R2
+	PUSHL	R1
+	PUSHL	BIOCNT
+	PUSHL	BIOLM
+	PUSHL	G^PQL$GMBIOLM			; System 
+	PUSHL	G^PQL$GDBIOLM			; System 
+	
+        PUSHAQ  QUOTA_DSC			; Receive buffer descriptor
+        PUSHAW  QUOTA_DSC			; Buffer length
+        PUSHAQ  QUOTA_FAO			; Input string to convert
+
+        CALLS   #11,G^SYS$FAO
+
+	MOVC3	#DISP_STR_LEN,QUOTABUF,QUO_BIO
+
+	SUBL3	DIOCNT,DIOLM,R1			; bytes used
+	CMPL	DIO_MAX,R1			; > max ?
+	BGTR	30$
+	MOVL	R1,DIO_MAX
+30$:	MULL3	#100,R1,R3			; * 100
+	BEQL	31$				; Zero, dont use as divisor
+	DIVL3	DIOLM,R3,R2			; % used
+	CMPL	DIO_MAX_PERCENT,R2
+	BGTR	31$
+	MOVL	R2,DIO_MAX_PERCENT
+31$:
+	MOVL	#<QUOTA_FAO+44>,R0		; Blink/Noblink (5/0) byte.
+	MOVB	#^A/0/,(R0)			; Default no blink
+	CMPL	#90,DIO_MAX_PERCENT		; > 90 % used ?
+	BGTR	33$				; No
+	MOVB	#^A/5/,(R0)			; Yes, blink
+
+33$:
+	PUSHL	DIO_MAX_PERCENT
+	PUSHL	DIO_MAX
+	PUSHL	R2
+	PUSHL	R1
+	PUSHL	DIOCNT
+	PUSHL	DIOLM
+	PUSHL	G^PQL$GMDIOLM			; System 
+	PUSHL	G^PQL$GDDIOLM			; System 
+
+        PUSHAQ  QUOTA_DSC			; Receive buffer descriptor
+        PUSHAW  QUOTA_DSC			; Buffer length
+        PUSHAQ  QUOTA_FAO			; Input string to convert
+
+        CALLS   #11,G^SYS$FAO
+
+	MOVC3	#DISP_STR_LEN,QUOTABUF,QUO_DIO
+
+	TSTL	OUTSWAP				; Outswapped ?
+	BNEQ	21$				; Yes
+
+	SUBL3	ASTCNT,ASTLM,R1			; used
+	CMPL	AST_MAX,R1			; > max ?
+	BGTR	20$
+	MOVL	R1,AST_MAX
+20$:	MULL3	#100,R1,R3			; * 100
+	BEQL	21$				; Zero, dont use as divisor
+	DIVL3	ASTLM,R3,R2			; % used
+	CMPL	AST_MAX_PERCENT,R2
+	BGTR	21$
+	MOVL	R2,AST_MAX_PERCENT
+21$:
+	MOVL	#<QUOTA_FAO+44>,R0		; Blink/Noblink (5/0) byte.
+	MOVB	#^A/0/,(R0)			; Default no blink
+	CMPL	#90,AST_MAX_PERCENT		; > 90 % used ?
+	BGTR	23$				; No
+	MOVB	#^A/5/,(R0)			; Yes, blink
+
+23$:	PUSHL	AST_MAX_PERCENT
+	PUSHL	AST_MAX
+	PUSHL	R2
+	PUSHL	R1
+	PUSHL	ASTCNT
+	PUSHL	ASTLM
+	PUSHL	G^PQL$GMASTLM
+	PUSHL	G^PQL$GDASTLM
+
+        PUSHAQ  QUOTA_DSC			; Receive buffer descriptor
+        PUSHAW  QUOTA_DSC			; Buffer length
+        PUSHAQ  QUOTA_FAO			; Input string to convert
+
+        CALLS   #11,G^SYS$FAO
+
+	TSTL	OUTSWAP				; Outswapped ?
+	BNEQ	28$				; Yes
+
+	MOVC3	#DISP_STR_LEN,QUOTABUF,QUO_AST	; No, copy values
+	BRB	29$
+
+28$:	MOVC	#60,OUTSWAP_STR_1,QUO_AST	; Copy Outswapped text
+
+29$:	SUBL3	FILCNT,FILLM,R1			; used
+	CMPL	FILLM_MAX,R1			; > max ?
+	BGTR	80$
+	MOVL	R1,FILLM_MAX
+80$:	MULL3	#100,R1,R3			; * 100
+	BEQL	81$				; Zero, dont use as divisor
+	DIVL3	FILLM,R3,R2			; % used
+	CMPL	FILLM_MAX_PERCENT,R2
+	BGTR	81$
+	MOVL	R2,FILLM_MAX_PERCENT
+81$:
+	MOVL	#<QUOTA_FAO+44>,R0		; Blink/Noblink (5/0) byte.
+	MOVB	#^A/0/,(R0)			; Default no blink
+	CMPL	#90,FILLM_MAX_PERCENT		; > 90 % used ?
+	BGTR	83$				; No
+	MOVB	#^A/5/,(R0)			; Yes, blink
+
+83$:	PUSHL	FILLM_MAX_PERCENT
+	PUSHL	FILLM_MAX
+	PUSHL	R2
+	PUSHL	R1
+	PUSHL	FILCNT
+	PUSHL	FILLM
+	PUSHL	G^PQL$GMFILLM
+	PUSHL	G^PQL$GDFILLM
+
+        PUSHAQ  QUOTA_DSC			; Receive buffer descriptor
+        PUSHAW  QUOTA_DSC			; Buffer length
+        PUSHAQ  QUOTA_FAO			; Input string to convert
+
+        CALLS   #11,G^SYS$FAO
+
+	MOVC3	#DISP_STR_LEN,QUOTABUF,QUO_FIL
+
+	SUBL3	ENQCNT,ENQLM,R1			; used
+	CMPL	ENQLM_MAX,R1			; > max ?
+	BGTR	90$
+	MOVL	R1,ENQLM_MAX
+90$:	MULL3	#100,R1,R3			; * 100
+	BEQL	91$				; Zero, dont use as divisor
+	DIVL3	ENQLM,R3,R2			; % used
+	CMPL	ENQLM_MAX_PERCENT,R2
+	BGTR	91$
+	MOVL	R2,ENQLM_MAX_PERCENT
+91$:
+	MOVL	#<QUOTA_FAO+44>,R0		; Blink/Noblink (5/0) byte.
+	MOVB	#^A/0/,(R0)			; Default no blink
+	CMPL	#90,ENQLM_MAX_PERCENT		; > 90 % used ?
+	BGTR	93$				; No
+	MOVB	#^A/5/,(R0)			; Yes, blink
+
+93$:	PUSHL	ENQLM_MAX_PERCENT
+	PUSHL	ENQLM_MAX
+	PUSHL	R2
+	PUSHL	R1
+	PUSHL	ENQCNT
+	PUSHL	ENQLM
+	PUSHL	G^PQL$GMENQLM
+	PUSHL	G^PQL$GDENQLM
+
+        PUSHAQ  QUOTA_DSC			; Receive buffer descriptor
+        PUSHAW  QUOTA_DSC			; Buffer length
+        PUSHAQ  QUOTA_FAO			; Input string to convert
+
+        CALLS   #11,G^SYS$FAO
+
+	MOVC3	#DISP_STR_LEN,QUOTABUF,QUO_ENQ
+
+	SUBL3	TQCNT,TQLM,R1			; used
+	CMPL	TQLM_MAX,R1			; > max ?
+	BGTR	110$
+	MOVL	R1,TQLM_MAX
+110$:	MULL3	#100,R1,R3			; * 100
+	BEQL	111$				; Zero, dont use as divisor
+	DIVL3	TQLM,R3,R2			; % used
+	CMPL	TQLM_MAX_PERCENT,R2
+	BGTR	111$
+	MOVL	R2,TQLM_MAX_PERCENT
+111$:
+	MOVL	#<QUOTA_FAO+44>,R0		; Blink/Noblink (5/0) byte.
+	MOVB	#^A/0/,(R0)			; Default no blink
+	CMPL	#90,TQLM_MAX_PERCENT		; > 90 % used ?
+	BGTR	113$				; No
+	MOVB	#^A/5/,(R0)			; Yes, blink
+
+113$:	PUSHL	TQLM_MAX_PERCENT
+	PUSHL	TQLM_MAX
+	PUSHL	R2
+	PUSHL	R1
+	PUSHL	TQCNT
+	PUSHL	TQLM
+	PUSHL	G^PQL$GMTQELM
+	PUSHL	G^PQL$GDTQELM
+
+        PUSHAQ  QUOTA_DSC			; Receive buffer descriptor
+        PUSHAW  QUOTA_DSC			; Buffer length
+        PUSHAQ  QUOTA_FAO			; Input string to convert
+
+        CALLS   #11,G^SYS$FAO
+
+	MOVC3	#DISP_STR_LEN,QUOTABUF,QUO_TQE
+
+	SUBL3	PGFLCNT,PGFLQUOTA,R1		; used
+	CMPL	PGFLQUOTA_MAX,R1		; > max ?
+	BGTR	70$
+	MOVL	R1,PGFLQUOTA_MAX
+70$:	MULL3	#100,R1,R3			; * 100
+	BEQL	71$				; Zero, dont use as divisor
+	DIVL3	PGFLQUOTA,R3,R2			; % used
+	CMPL	PGFLQUOTA_MAX_PERCENT,R2
+	BGTR	71$
+	MOVL	R2,PGFLQUOTA_MAX_PERCENT
+71$:
+	MOVL	#<QUOTA_FAO+44>,R0		; Blink/Noblink (5/0) byte.
+	MOVB	#^A/0/,(R0)			; Default no blink
+	CMPL	#90,PGFLQUOTA_MAX_PERCENT	; > 90 % used ?
+	BGTR	73$				; No
+	MOVB	#^A/5/,(R0)			; Yes, blink
+
+73$:	PUSHL	PGFLQUOTA_MAX_PERCENT
+	PUSHL	PGFLQUOTA_MAX
+	PUSHL	R2
+	PUSHL	R1
+	PUSHL	PGFLCNT
+	PUSHL	PGFLQUOTA
+
+	.IF	DF, ALPHA
+	PUSHL	G^PQL$GMPGFLQUOTA_PAGELETS	; System min, AXP
+	PUSHL	G^PQL$GDPGFLQUOTA_PAGELETS	; System default, AXP
+	.IFF
+	PUSHL	G^PQL$GMPGFLQUOTA		; System min, VAX
+	PUSHL	G^PQL$GDPGFLQUOTA		; System default, VAX
+	.ENDC
+
+        PUSHAQ  QUOTA_DSC			; Receive buffer descriptor
+        PUSHAW  QUOTA_DSC			; Buffer length
+        PUSHAQ  QUOTA_FAO			; Input string to convert
+	
+        CALLS   #11,G^SYS$FAO
+
+	MOVC3	#DISP_STR_LEN,QUOTABUF,QUO_PGFL
+
+
+	TSTL	OUTSWAP				; Outswapped ?
+	BNEQ	141$				; Yes
+
+	SUBL3	WSQUOTA,WSEXTENT,R1		; FREE
+	CMPL	WSQUOTA_MAX,WSQUOTA		; > max ?
+	BGTR	140$
+	MOVL	WSQUOTA,WSQUOTA_MAX
+140$:	MULL3	#100,WSQUOTA,R3			; * 100
+	BEQL	141$				; Zero, dont use as divisor
+	DIVL3	WSEXTENT,R3,R2			; % used
+	CMPL	WSQUOTA_MAX_PERCENT,R2
+	BGTR	141$
+	MOVL	R2,WSQUOTA_MAX_PERCENT
+141$:
+	MOVL	#<QUOTA_FAO+44>,R0		; Blink/Noblink (5/0) byte.
+	MOVB	#^A/0/,(R0)			; Default no blink
+	CMPL	#90,WSQUOTA_MAX_PERCENT		; > 90 % used ?
+	BGTR	143$				; No
+	MOVB	#^A/5/,(R0)			; Yes, blink
+
+143$:	
+	PUSHL	WSQUOTA_MAX_PERCENT
+	PUSHL	WSQUOTA_MAX
+	PUSHL	R2
+	PUSHL	WSQUOTA
+	PUSHL	R1
+	PUSHL	WSEXTENT
+	PUSHL	G^SGN$GL_MINWSCNT		; WSMIN
+
+	.IF	DF, ALPHA
+	PUSHL	G^SGN$GL_MAXWSCNT_PAGELETS	; WSMAX, AXP
+	.IFF
+	PUSHL	G^SGN$GL_MAXWSCNT		; WSMAX, VAX
+	.ENDC
+
+
+        PUSHAQ  QUOTA_DSC			; Receive buffer descriptor
+        PUSHAW  QUOTA_DSC			; Buffer length
+        PUSHAQ  QUOTA_FAO			; Input string to convert
+
+        CALLS   #11,G^SYS$FAO
+
+
+	TSTL	OUTSWAP				; Outswapped ?
+	BNEQ	128$				; Yes
+
+	MOVC3	#DISP_STR_LEN,QUOTABUF,QUO_WS	; No, copy values
+	BRB	129$
+
+128$:	MOVC	#60,OUTSWAP_STR_1,QUO_WS	; Copy Outswapped text
+
+129$:	MOVAB	AST_ACT,R0			; AST's pending output buffer
+	MOVB	#^A/-/,(R0)+			; Fill with "-"'s
+	MOVB	#^A/-/,(R0)+			; ...
+	MOVB	#^A/-/,(R0)+			; ...
+	MOVB	#^A/-/,(R0)			; ...
+
+	MOVAB	AST_ENA,R0			; AST's enabled output buffer
+	MOVB	#^A/-/,(R0)+			; Fill with "-"'s
+	MOVB	#^A/-/,(R0)+			; ...
+	MOVB	#^A/-/,(R0)+			; ...
+	MOVB	#^A/-/,(R0)			; ...
+
+	MOVAB	AST_ACT,R1			; AST's pending output buffer
+
+	MOVL	AST_K,R0			; Kernel AST pending ?
+	BEQL	1100$				; No
+	MOVB	#^A/K/,(R1)			; Insert K
+
+1100$:	MOVL	AST_E,R0			; Exec AST pending ?
+	BEQL	1110$				; No
+	MOVB	#^A/E/,1(R1)			; Insert E
+
+
+1110$:	MOVL	AST_S,R0			; Super AST pending ?
+	BEQL	1120$				; No
+	MOVB	#^A/S/,2(R1)			; Insert S
+
+
+1120$:	MOVL	AST_U,R0			; User AST pending ?
+	BEQL	1130$				; No
+	MOVB	#^A/U/,3(R1)			; Insert U
+
+1130$:	MOVL	ASTEN,R0			; AST's served and enabled
+	MOVAB	AST_ENA,R1			; AST's enabled output buffer
+
+        .IF     DF, ALPHA
+	BBC	#PR$V_ASTEN_KEN,R0,1131$	; Kernel AST enabled ?, AXP
+	.IFF
+	BBC	#PSL$C_KERNEL,R0,1131$		; Kernel AST enabled ?, VAX
+        .ENDC
+
+	MOVB	#^A/K/,(R1)			; Yes, insert K
+	
+1131$:
+        .IF     DF, ALPHA
+	BBC	#PR$V_ASTEN_EEN,R0,1132$	; Exec AST enabled ?, AXP
+	.IFF
+	BBC	#PSL$C_EXEC,R0,1132$		; Exec AST enabled ?, VAX
+        .ENDC
+
+	MOVB	#^A/E/,1(R1)			; Yes, insert E
+	
+1132$:
+        .IF     DF, ALPHA
+	BBC	#PR$V_ASTEN_SEN,R0,1133$	; Super AST enabled ?, AXP
+	.IFF
+	BBC	#PSL$C_SUPER,R0,1133$		; Super AST enabled ?, VAX
+        .ENDC
+
+	MOVB	#^A/S/,2(R1)			; Yes, insert S
+	
+1133$:
+        .IF     DF, ALPHA
+	BBC	#PR$V_ASTEN_UEN,R0,1134$	; User AST enabled ?, AXP
+	.IFF
+	BBC	#PSL$C_USER,R0,1134$		; User AST enabled ?, VAX
+        .ENDC
+
+	MOVB	#^A/U/,3(R1)			; Yes, insert U
+
+1134$:	MOVAB	ST_TBL,R0			; State table
+	MOVL	STATE,R1			; Process state
+	CMPL	#SCH$C_MWAIT,R1			; Mutex ?
+	BEQL	1137$				; Yes 
+	SUBL	#1,R1				; - 1 for offset
+
+1139$:	MULL3	#5,R1,R1			; Offset in table
+	CMPL	#MAX_ST,R1			; In range ?
+	BGEQ	1135$				; Yes
+
+1136$:	MOVL	#SS$_INVARG,R0			; Out of range
+	BRW	1000$				; Exit
+
+;	Display mutex state
+
+1137$:	MOVAB	RW_TBL,R0			; Mutex table
+	MOVL	EFWM,R1				; Resource wait
+	BGTR	1138$				; > 0 is a mutex number
+	MOVL	#2,R1				; < 0 is an address of a mutex
+	MOVAB	ST_TBL,R0			; State table
+	BRB	1139$				; Display MUTEX
+
+1138$:	SUBL	#1,R1				; - 1 for offset
+	BLSS	1136$				; Out of range
+	MULL3	#5,R1,R1			; Offset in table
+	CMPL	#MAX_RW,R1			; In range ?
+	BLSS	1136$				; No
+
+1135$:	ADDL	R1,R0				; Add offset
+	MOVC3	#5,(R0),STATE_OUT		; Copy state string
+
+;	CPU time
+
+	TSTL	OUTSWAP				; Outswapped ?
+	BEQL	3131$				; No
+	MOVC	#16,OUTSWAP_STR,CPUTIMA		; Copy Outswapped text into
+	BRB	3132$				; Time string buffer
+
+3131$:	MOVL	CPUTIM,R0			; Multiply the process CPU time 
+	EMUL	#-100000,R0,#0,CPUTIM		; by -100000 for ASCII
+						; conversion
+
+	MOVAB	CPU_DSC,R0			; CPU Time buffer descriptor
+
+	$ASCTIM_S TIMADR=CPUTIM,-		; Buffer to get ASCII time
+		  TIMBUF=(R0),-			; Binary time to convert
+		  CVTFLG=#0			; Return day and time
+
+
+3132$:	$QIOW_S CHAN=TTCHAN,FUNC=#IO$_WRITEVBLK,-
+		IOSB=TT_IOSB,-
+		EFN=#1,-
+                P1=QUOTA_OUT,-
+                P2=#QUOTA_OUT_LEN		; Screen output
+
+
+	TSTL	FILE_TIMER			; Time to write into file ?
+	BEQL	421$				; Yes
+	BRW	440$				; No
+
+;	Write maximum values to disk
+
+421$:	PUSHL	WSQUOTA_MAX_PERCENT		; WSquota max %
+	PUSHL	WSQUOTA_MAX
+	PUSHL	PGFLQUOTA_MAX_PERCENT
+	PUSHL	PGFLQUOTA_MAX
+	PUSHL	TQLM_MAX_PERCENT
+	PUSHL	TQLM_MAX
+	PUSHL	ENQLM_MAX_PERCENT
+	PUSHL	ENQLM_MAX
+	PUSHL	FILLM_MAX_PERCENT
+	PUSHL	FILLM_MAX
+	PUSHL	AST_MAX_PERCENT
+	PUSHL	AST_MAX
+	PUSHL	DIO_MAX_PERCENT
+	PUSHL	DIO_MAX
+	PUSHL	BIO_MAX_PERCENT
+	PUSHL	BIO_MAX
+	PUSHL	BYT_MAX_PERCENT
+	PUSHL	BYT_MAX
+
+        PUSHAQ  FILE_DSC			; Receive buffer descriptor
+        PUSHAW  FILE_DSC			; Buffer length
+        PUSHAQ  FILE_FAO			; Input string to convert
+
+        CALLS   #21,G^SYS$FAO			; Format
+
+	TSTL	OUTSWAP				; Outswapped ?
+	BEQL	428$				; No
+
+	MOVAB	F_ASTCNT,R0			; ASTCNT
+	ADDL2	#6,R0
+	MOVC	#13,OUTSWAP_STR,(R0)		; Copy Outswapped text
+
+	MOVAB	F_WSQUO,R0			; WSQUO
+	ADDL2	#6,R0
+	MOVC	#13,OUTSWAP_STR,(R0)		; Copy Outswapped text
+
+428$:	MOVAB	NAME_BUF,R0			; Process name
+	MOVAB	FILE_NAM_TIM,R1			; Proc name and time field
+	MOVL	NAME_LEN,R2			; Process name length
+411$:	MOVB	(R0)+,(R1)+			; Copy name
+	SOBGTR	R2,411$				; ...
+
+	ADDL	#3,R1				; Space
+	MOVAB	PID_BUFFER,R0			; PID buffer address
+	MOVL	PID_DESC,R2			; PID size
+413$:	MOVB	(R0)+,(R1)+			; Copy PID
+	SOBGTR	R2,413$				; ...
+
+	ADDL	#3,R1				; Space
+	MOVAB	TIM_OUT,R0			; Time buffer
+	MOVL	#20,R2				; Length
+412$:	MOVB	(R0)+,(R1)+			; Copy time
+	SOBGTR	R2,412$				; ...
+
+	MOVAB	FILE_NAM_TIM,R3			; Proc name and time field
+	MOVL	R3,WTRAB+RAB$L_RBF		; Address
+	MOVW	#50,WTRAB+RAB$W_RSZ		; Size
+
+	MOVAL   WTRAB,R1                	; Get the RAB address
+	$RAB_STORE RAB=R1               	; Record address
+	$PUT    R1                      	; Output the record
+	MOVAL   WTRAB,R1                	; Get the RAB address
+	$FLUSH	R1			; Write and update file attributes 
+
+
+	BLBC	R0,430$				; Error
+
+	MOVAB	HD_LINE,R3			; Header line
+	MOVL	R3,WTRAB+RAB$L_RBF		; Address
+	MOVW	#19,WTRAB+RAB$W_RSZ		; Size
+
+	MOVAL   WTRAB,R1                	; Get the RAB address
+	$RAB_STORE RAB=R1               	;
+	$PUT    R1                      	; Output the record
+	BLBC	R0,430$				; Error
+
+	MOVAL   WTRAB,R1                	; Get the RAB address
+	$FLUSH	R1			; Write and update file attributes 
+
+	MOVAB	FILEBUF,R3			; File output buffer
+	MOVL	#10,R4				; 9 rows
+	SUBL	#30,R3				; Point before 1'st row
+
+444$:	ADDL	#30,R3				; Next row
+	MOVL	R3,WTRAB+RAB$L_RBF		; Address
+	MOVW	#28,WTRAB+RAB$W_RSZ		; Size
+
+	MOVAL   WTRAB,R1                	; Get the RAB address
+	$RAB_STORE RAB=R1               	;
+	$PUT    R1                      	; Output the record
+	BLBC	R0,430$				; Error
+
+	MOVAL   WTRAB,R1                	; Get the RAB address
+	$FLUSH	R1			; Write and update file attributes 
+
+	SOBGTR	R4,444$				; Next
+	BRB	440$				; Continue
+
+430$:	BRW	1000$				; Error
+
+440$:	TSTL	EXIT_FLAG			; Process gone ?
+	BNEQ	430$				; Yes
+
+	INCL	FILE_TIMER			; Inc file write counter
+	CMPL	#60*10,FILE_TIMER		; 10 minutes ?
+;;;	CMPL	#10,FILE_TIMER			; 10 Seconds ?
+	BNEQ	441$				; No
+	CLRL	FILE_TIMER			; Clear file write counter
+
+441$:	$SETIMR_S	EFN=#3,DAYTIM=WAIT_TIME	; Wait 1 second
+	$WAITFR_S	EFN=#3
+
+	TSTL	NOW				; Any user input
+	BNEQ	900$				; Yes
+	BRW	200$				; No, continue
+
+900$:	CLRL	NOW				; Clear FLAG
+	CMPB	TTBUF,#^O32			; Exit ?  (CRTL/Z)
+	BEQL	1000$				; Yes
+
+	CMPB	TTBUF,#^O27			; Rewrite screen ? (CRTL/W)
+	BNEQ	910$				; No
+	BRW	190$				; Yes
+
+910$:	BRW     200$ 				; Continue
+
+;	Close output file
+
+1000$:	PUSHL	R0				; Save status
+
+	MOVAL	WTFAB,R1			; Get FAB for output file
+	$CLOSE	R1				; Close output file
+
+	POPL	R0				; 
+
+1010$:	RET					; Exit
+
+; **************************************************************************
+;
+;
+;	Read process parameters from PCB, PHD and JIB
+;
+
+CODE_LOCK_START:				; Start of code to be locked
+
+	.ENTRY	GET_JPI,^M<R4>			; Kernel mode
+
+        MOVL    @4(AP),R4			; External PID
+	EXTZV	#PCB$V_EPID_NODE_IDX,#<CSID_WID+1>,R4,R4
+						; Extract CSID
+	CMPW	G^SCH$GW_LOCALNODE,R4		; Is process on this node ?
+	BEQL	3$				; Yes
+	MOVL	#SS$_REMOTE_PROC, R0		; No support for remote nodes
+	BRW	600$				; Exit	
+
+3$:	LOCK    LOCKNAME=SCHED 			; Lock SCHED database
+
+        MOVL    @4(AP),R0			; External PID
+;
+;	We must check if the user gave us the SWAPPER PID.
+;	SWAPPER has no JIB and no process quotas in the sense of
+;	a normal process.
+;
+	.IF	DF, ALPHA
+        JSB     G^EXE$CVT_EPID_TO_IPID 		; Get IPID
+	.IFF
+	JSB	G^EXE$EPID_TO_IPID		; Get IPID
+	.ENDC
+
+	CMPL	R0,G^SCH$GL_SWPPID		; SWAPPER is illegal
+	BGTRU	20$				; Valid IPID
+	CLRL	R0				; Invalid, flag it
+	BRB	21$				; Skip the rest
+
+20$:	MOVL    @4(AP),R0			; External PID
+
+	.IF	DF, ALPHA
+        JSB     G^EXE$CVT_EPID_TO_PCB     	; Get PCB
+	.IFF
+	JSB	G^EXE$EPID_TO_PCB		; Get PCB
+	.ENDC
+
+21$:	MOVL	R0,R4				; Save PCB address
+
+        UNLOCK  LOCKNAME=SCHED,-                ; Unlock SCHED database
+		NEWIPL=#0 ,- 			; IPL 0
+		CONDITION = RESTORE		; Release only our lock
+
+	TSTL	R4				; Found ?
+	BNEQ	10$				; Yes
+	BRW	500$				; No process found
+10$:
+	.IF	DF, ALPHA
+	EVAX_PROBER	R4,#4,#0		; Can PCB be read ?
+	BLBS	R0,13$				; Yes
+	.IFF
+	MOVPSL	-(SP)				; Get current PSL
+	INSV	#PSL$C_KERNEL,#PSL$V_PRVMOD,#PSL$S_PRVMOD,(SP)
+	PUSHAB	42$				; Address following REI
+	REI					; Set previous mode to kernel
+42$:	IFRD 	#4,(R4),13$			; Can PCB be read ?
+	.ENDC
+	BRW	810$				; Error, exit
+
+13$:	MOVL	PCB$L_JIB(R4),R1		; JIB
+	MOVL	PCB$L_PHD(R4),R2		; PHD
+
+;************ From PCB
+
+        .IF     DF, ALPHA
+	MOVL	PCB$L_ASTCNT(R4),ASTCNT		; AST count remaining
+	MOVL	PCB$L_DIOCNT(R4),DIOCNT		; Direct I/O count remaining
+	MOVL	PCB$L_DIOLM(R4),DIOLM		; Direct I/O count limit
+	MOVL	PCB$L_BIOCNT(R4),BIOCNT		; Buffered I/O count remaining
+	MOVL	PCB$L_BIOLM(R4),BIOLM		; Buffered I/O limit
+
+	MOVL	PCB$L_PPGCNT(R4),R0		; Process page count in WS
+	ADDL	PCB$L_GPGCNT(R4),R0		; Global page count in WS
+	MULL3	#16,R0,WSQUOTA			; in pagelets
+
+	MOVL	PCB$L_STATE(R4),STATE		; Process state
+	MOVL	PCB$L_EFWM(R4),EFWM		; Wait mask
+
+;	An AST is pending if AST queue forward link .NEQ. forward link address
+
+	MOVAB	PCB$L_ASTQFL_K(R4),R0
+        SUBL3   PCB$L_ASTQFL_K(R4),R0,AST_K     ; Kernel
+
+	MOVAB	PCB$L_ASTQFL_E(R4),R0
+        SUBL3   PCB$L_ASTQFL_E(R4),R0,AST_E     ; Exec
+
+	MOVAB	PCB$L_ASTQFL_S(R4),R0
+        SUBL3   PCB$L_ASTQFL_S(R4),R0,AST_S     ; Super
+
+	MOVAB	PCB$L_ASTQFL_U(R4),R0
+        SUBL3   PCB$L_ASTQFL_U(R4),R0,AST_U     ; User
+
+	.IFF
+	MOVZWL	PCB$W_ASTCNT(R4),ASTCNT		; 
+	MOVZWL	PCB$W_DIOCNT(R4),DIOCNT		; 
+	MOVZWL	PCB$W_DIOLM(R4),DIOLM		; 
+	MOVZWL	PCB$W_BIOCNT(R4),BIOCNT		; 
+	MOVZWL	PCB$W_BIOLM(R4),BIOLM		; 
+
+;	Get WS size on VAX
+
+	MOVL    PCB$L_PPGCNT(R4),WSQUOTA        ; WSQUOTA
+	ADDL	PCB$L_GPGCNT(R4),WSQUOTA	; ...
+
+	MOVZWL	PCB$W_STATE(R4),STATE		; State
+	MOVL	PCB$L_EFWM(R4),EFWM		; Wait mask
+
+	MOVZBL	PCB$B_ASTEN(R4),ASTEN		; AST's enabled
+	MOVZBL	PCB$B_ASTACT(R4),R0		; AST's pending
+
+	CLRL	AST_K				; Clear Kernel AST pending
+	CLRL	AST_E				; ...
+	CLRL	AST_S				; ...
+	CLRL	AST_U				; ...
+
+	BBC	#PSL$C_KERNEL,R0,210$
+        BISL	#1,AST_K     			; Kernel AST pending
+
+210$:	BBC	#PSL$C_EXEC,R0,220$
+        BISL	#1,AST_E     			; Exec AST pending
+
+220$:	BBC	#PSL$C_SUPER,R0,230$
+        BISL	#1,AST_S     			; Super AST pending
+
+230$:	BBC	#PSL$C_USER,R0,240$
+        BISL	#1,AST_U     			; User AST pending
+240$:
+        .ENDC
+
+
+;************ From JIB
+
+	.IF	DF, ALPHA
+	EVAX_PROBER	R1,#4,#0		; Can JIB be read ?
+	BLBS	R0,15$				; Yes
+	.IFF
+	IFRD 	#4,(R1),15$			; Can JIB be read ?
+	.ENDC
+
+	BRW	810$				; Error, exit
+
+15$:	MOVL	JIB$L_BYTCNT(R1),BYTCNT		; Buffered I/O byte count avail
+	MOVL	JIB$L_BYTLM(R1),BYTLM		; Original value for Byte count
+	MOVL	JIB$L_ORG_BYTLM(R1),ORG_BYTLM	; Original BYTLM
+
+        .IF     DF, ALPHA
+	MOVL	JIB$L_ENQCNT(R1),ENQCNT		; Enqueue count available
+	MOVL	JIB$L_ENQLM(R1),ENQLM		; Enqueue limit
+	MOVL	JIB$L_FILCNT(R1),FILCNT		; Open File count remaining
+	MOVL	JIB$L_FILLM(R1),FILLM		; Open file limit
+	MOVL	JIB$L_PRCCNT(R1),PRCCNT		; Count of subprocesses existing
+	MOVL	JIB$L_PRCLIM(R1),PRCLIM		; Limit on # of subprocesses
+	MOVL	JIB$L_TQCNT(R1),TQCNT		; Timer queue entry # remaining
+	MOVL	JIB$L_TQLM(R1),TQLM		; Timer queue entry limit
+	MOVL	JIB$L_PGFLQUOTA(R1),R0		; Paging file quota in pages
+	MULL3	#16,R0,PGFLQUOTA		; in pagelets
+	MOVL	JIB$L_PGFLCNT(R1),R0		; Paging file limit in pages
+	MULL3	#16,R0,PGFLCNT			; in pagelets
+
+	.IFF
+	MOVZWL	JIB$W_ENQCNT(R1),ENQCNT
+	MOVZWL	JIB$W_ENQLM(R1),ENQLM
+	MOVZWL	JIB$W_FILCNT(R1),FILCNT
+	MOVZWL	JIB$W_FILLM(R1),FILLM
+	MOVZWL	JIB$W_PRCCNT(R1),PRCCNT
+	MOVZWL	JIB$W_PRCLIM(R1),PRCLIM
+	MOVZWL	JIB$W_TQCNT(R1),TQCNT
+	MOVZWL	JIB$W_TQLM(R1),TQLM
+	MOVL	JIB$L_PGFLQUOTA(R1),PGFLQUOTA
+	MOVL	JIB$L_PGFLCNT(R1),PGFLCNT
+        .ENDC
+
+	MOVL	JIB$T_USERNAME(R1),USERNAME	; Username 
+	MOVL	JIB$T_USERNAME+4(R1),USERNAME+4	; 
+	MOVL	JIB$T_USERNAME+8(R1),USERNAME+8	;
+
+;************ From PHD
+
+	CLRL	OUTSWAP				; Clear outswapped
+
+	BBS	#PCB$V_PHDRES, PCB$L_STS(R4), 60$ ; PHD resident
+
+	MOVL	#1,OUTSWAP			; Outswapped
+	MOVL	ASTCNT,ASTLM			; "Fake"
+	MOVL	WSQUOTA,WSEXTENT		; "Fake"
+	MOVL	#0,CPUTIM			; "Fake"
+
+	.IF	DF, ALPHA
+	MOVL	#0,ASTEN			; "Fake"
+	.ENDC
+
+
+	BRB	61$				; ...
+60$:
+	.IF	DF, ALPHA
+	EVAX_PROBER	R2,#4,#0		; Can PHD be read ?
+	BLBS	R0,14$				; Yes
+	.IFF
+	IFRD 	#4,(R2),14$			; Can PHD be read ?
+	.ENDC
+
+	BRW	810$				; Error, exit
+
+14$:
+        .IF     DF, ALPHA
+
+        .IF     DF, PHD$L_FREPTECNT		; VMS V6
+;[.SYS]SYSCREDEL.MAR => 
+	MOVL	SGN$GL_MAXVPGCT_PAGES,R0	; Max pages	
+	SUBL	PHD$L_FREPTECNT(R2),R0		; Current VA size in pages
+
+;[.CLIUTL]INFO.B64 => .phd[phd$l_frep0va]+(%x'7FFFFFFF'-.phd [phd$l_frep1va]+1);
+; gives +1 more.
+
+	.IFF
+	EVAX_LDQ  R0,MMG$GQ_PROCESS_VA_PAGES	 ; VMS V7
+	EVAX_SUBQ R0,PHD$Q_FREE_PTE_COUNT(R2),R0 ; Current VA size in pages
+	.ENDC
+
+
+	EVAX_MULQ #16,R0,R0			 ; in pagelets
+	MOVAB	VASIZE,R1			 ; VASIZE address
+	EVAX_STQ  R0,(R1)			 ; Store VA size
+
+	MOVL	PHD$L_ASTLM(R2),ASTLM		; AST limit
+
+	SUBL3	PHD$L_WSLIST(R2),PHD$L_WSAUTHEXT(R2),R0	; User max WS in pages
+						; is WSAUTHEXT - WSLIST 
+	INCL	R0				; + 1
+	MULL3	#16,R0,WSEXTENT			; in pagelets
+
+;;	MOVL	PHD$L_WSSIZE(R2),R0		; Current allowed WS size
+;;	MULL3	#16,R0,WSSIZE			; in pagelets
+
+	MOVL    PHD$Q_ASTSR_ASTEN(R2),ASTEN     ; AST's served and enabled
+
+	.IFF
+
+        .IF     DF, PHD$L_FREPTECNT		; VMS V6
+	MOVL	SGN$GL_MAXVPGCT,R0		; Max virtual pages	
+	SUBL	PHD$L_FREPTECNT(R2),R0		; Current VA size in pages
+	.IFF
+	MOVL	MMG$GQ_PROCESS_VA_PAGES,R0	; VMS V7
+	SUBL	PHD$Q_FREE_PTE_COUNT(R2),R0 	; Current VA size in pages
+	.ENDC
+
+	MOVL	R0,VASIZE			; VA size
+;;	MOVL	PHD$L_WSSIZE(R2),WSSIZE		; Current allowed WS size
+
+	MOVZWL	PHD$W_ASTLM(R2),ASTLM		; AST limit
+	MOVL	PHD$L_WSAUTHEXT(R2),WSEXTENT	; User max WS
+        .ENDC
+
+	MOVL	PHD$L_CPUTIM(R2),CPUTIM		; Accumulated CPU time charged
+	MOVL	PHD$L_PAGEFLTS(R2),PGFLTS	; Page faults
+
+	MOVL	PHD$L_DIOCNT(R2),IOCOUNT	; I/O count
+	ADDL	PHD$L_BIOCNT(R2),IOCOUNT	; ...
+
+;****************************************************************
+
+61$:	PUSHL	#SS$_NORMAL			; Status
+	BRB	510$
+
+810$:	PUSHL	#SS$_ITEMNOTFOUND		; Status
+	BRB	510$
+
+500$:	PUSHL   #SS$_NONEXPR			; Status
+
+510$:	MOVL	(SP)+,R0			; Status
+
+600$:	RET					; Return
+
+CODE_LOCK_END:					; End of code to be locked
+
+;**************************************************
+
+;       Enable write attention AST for the mailbox
+
+        .ENTRY  ENABLE_UNSOLICIT_INPUT,^M<>
+
+        MOVL    @4(AP),R0			; Get MBX channel #
+
+        $QIOW_S CHAN=R0,-			; I/O-channel
+		FUNC=#IO$_SETMODE!IO$M_WRTATTN,- ; Enable UNSOLICIT_AST
+		IOSB=MB_IOSB,-			; IOSB
+		EFN=#2,-			; EFN
+                P1=UNSOLICIT_AST,-		; AST routine
+		P2=4(AP)			; Mailbox I/O-channel
+
+        MOVL    #SS$_NORMAL,R0			; Success
+        RET					; Return
+
+;**************************************************
+
+;       Read mailbox and re-enable unsolicit input
+
+        .ENTRY  UNSOLICIT_AST,^M<>
+
+        MOVL    @4(AP),R0			; Get Mailbox channel #
+
+        $QIOW_S CHAN=R0,-			; Read mailbox message
+		FUNC=#IO$_READVBLK!IO$M_NOW,-	; Read
+		IOSB=MB_IOSB,-			; IOSB
+		EFN=#5,-			; EFN
+                P1=MBXBUF,-			; Input buffer
+		P2=#256				; 256 bytes
+
+;	We must use IO$M_NOW to get CTRL/W through, as it is seen as
+;	terminator. After CTRL/W :
+;
+;		TT_IOSB[0] = 0001  SS$_NORMAL
+;		TT_IOSB[1] = 0000  0 bytes (Offset)
+;		TT_IOSB[2] = 0017  Terminator
+;		TT_IOSB[3] = 0001  Terminator size
+
+
+        $QIOW_S CHAN=TTCHAN,-			; Read terminal input
+		FUNC=#IO$_READVBLK!IO$M_NOW,- 	; Read input
+		IOSB=TT_IOSB,-			; IOSB
+		EFN=#4,-			; EFN
+                P1=TTBUF,-			; Input buffer
+		P2=#1				; Bytes to read
+
+        MOVAL   G^NOW,R3			; Flag user input
+        INCL    (R3)				; ...
+
+10$:    PUSHAL  MBCHAN				; Mailbox I/O channel
+        CALLS   #1,ENABLE_UNSOLICIT_INPUT	; Enable attention ast again
+
+        MOVL    #SS$_NORMAL,R0			; Success
+        RET					; Return
+
+	.END	PQUOTA

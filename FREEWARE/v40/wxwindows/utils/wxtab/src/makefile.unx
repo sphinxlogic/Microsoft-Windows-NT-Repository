@@ -1,0 +1,127 @@
+#
+# File:		makefile.unx
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile for wxTab library and example (UNIX).
+
+WXDIR = ../../..
+
+# All common UNIX compiler flags and options are now in
+# this central makefile.
+include $(WXDIR)/src/make.env
+
+WXTABDIR = $(WXDIR)/utils/wxtab
+WXTABINC = $(WXTABDIR)/src
+WXTABLIB = $(WXTABDIR)/lib/libwxtab$(GUISUFFIX).a
+
+SOURCES = tree.$(SRCSUFF)
+HEADERS = tree.h
+OBJECTS = $(OBJDIR)/wxtab.$(OBJSUFF)
+
+TESTOBJECTS = $(OBJDIR)/test.$(OBJSUFF)
+TESTPROGRAM = test$(GUISUFFIX)
+
+DOCUTILSDIR = $(WXDIR)/utils/tex2rtf/src
+
+LDFLAGS = $(XLIB) -L$(WXDIR)/lib -L$(WXTABDIR)/lib
+
+XVIEWLDLIBS = -lwxtab_ol -lwx_ol -lxview -lolgx -lX11 -lm $(COMPLIBS)
+MOTIFLDLIBS = -lwxtab_motif -lwx_motif -lXm -lXmu -lXt -lX11 -lm $(COMPLIBS)
+HPLDLIBS = -lwxtab_hp -lwx_hp -lXm -Xmu -lXt -lX11 -lm $(COMPLIBS)
+# Default
+LDLIBS=$(XVIEWLDLIBS)
+
+.SUFFIXES:
+
+all:	$(OBJDIR) $(WXTABLIB)
+
+demo:   $(TESTPROGRAM)
+
+$(WXTABLIB): $(OBJECTS)
+	rm -f $@
+	ar $(AROPTIONS) $@ $(OBJECTS)
+	$(RANLIB) $@
+
+wxmotif:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx motif DEBUG='$(DEBUG)'
+
+wxxview:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx xview DEBUG='$(DEBUG)'
+
+motif:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx motif OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx GUISUFFIX=_motif GUI=-Dwx_motif GUISUFFIX=_motif OPT='$(OPT)'\
+  DEBUG='$(DEBUG)' LDLIBS='$(MOTIFLDLIBS)' WXLIB=$(WXDIR)/lib/libwx_motif.a XVIEW_LINK=
+
+xview:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx xview OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx GUI=-Dwx_xview  DEBUG='$(DEBUG)' GUISUFFIX=_ol OPT='$(OPT)'
+
+motifdemo:
+#	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx motif OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx all test_motif GUI=-Dwx_motif DEBUG='$(DEBUG)' GUISUFFIX=_motif OPT='$(OPT)' LDLIBS='$(MOTIFLDLIBS)' XVIEW_LINK=
+
+xviewdemo:
+#	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx xview OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx all test_ol GUI=-Dwx_xview OPT='$(OPT)' DEBUG='$(DEBUG)'
+
+hp:
+	$(MAKE) -f makefile.unx GUI=-Dwx_motif GUISUFFIX=_hp CC=CC DEBUGFLAGS='' WARN='-w' \
+           XINCLUDE='$(HPXINCLUDE)' XLIB='$(HPXLIB)' XVIEW_LINK='' CCLEX='cc' \
+           LDLIBS='$(HPLDLIBS)'
+
+$(OBJDIR):
+	mkdir $(OBJDIR)
+
+test$(GUISUFFIX): $(OBJDIR)/test.$(OBJSUFF) $(WXLIB) $(WXTABLIB)
+	$(CC) $(LDFLAGS) -o test$(GUISUFFIX) $(OBJDIR)/test.$(OBJSUFF) $(XVIEW_LINK) $(LDLIBS)
+
+$(OBJDIR)/wxtab.$(OBJSUFF):        wxtab.$(SRCSUFF) wxtab.h
+	$(CC) -c $(CPPFLAGS) -o $@ wxtab.$(SRCSUFF)
+
+$(OBJDIR)/test.$(OBJSUFF):        test.$(SRCSUFF) test.h wxtab.h
+	$(CC) -c $(CPPFLAGS) -o $@ test.$(SRCSUFF)
+
+HTMLDIR=/home/hardy/html/wx/manuals
+docs:	ps xlp
+ps:	$(WXTABDIR)/docs/wxtab.ps
+xlp:	$(WXTABDIR)/docs/wxtab.xlp
+html:	$(HTMLDIR)/wxtab/wxtab_contents.html
+
+$(WXTABDIR)/docs/wxtab.xlp:	$(WXTABDIR)/docs/wxtab.tex $(WXTABDIR)/docs/classes.tex
+	cd ../docs; tex2rtf wxtab.tex tmp.xlp -xlp -twice
+	sed -e "s/WXHELPCONTENTS/Tab Classes Manual/g" < $(WXTABDIR)/docs/tmp.xlp > $(WXTABDIR)/docs/wxtab.xlp
+	/bin/rm -f $(WXTABDIR)/docs/tmp.xlp
+
+$(HTMLDIR)/wxtab/wxtab_contents.html:	$(WXTABDIR)/docs/wxtab.tex $(WXTABDIR)/docs/classes.tex
+	cd ../docs; tex2rtf wxtab.tex $(HTMLDIR)/wxtab/wxtab.html -html -twice
+
+$(WXTABDIR)/docs/wxtab.dvi:	$(WXTABDIR)/docs/wxtab.tex $(WXTABDIR)/docs/classes.tex
+	cd $(WXTABDIR)/docs; latex wxtab; latex wxtab; makeindex wxtab; latex wxtab
+
+$(WXTABDIR)/docs/wxtab.ps:	$(WXTABDIR)/docs/wxtab.dvi
+	cd $(WXTABDIR)/docs; dvips -f -r < wxtab.dvi > wxtab.ps
+
+clean_motif:
+	$(MAKE) -f makefile.unx GUISUFFIX=_motif cleanany
+
+clean_ol:
+	$(MAKE) -f makefile.unx GUISUFFIX=_ol cleanany
+
+clean_hp:
+	$(MAKE) -f makefile.unx GUISUFFIX=_hp cleanany
+
+cleanany:
+	rm -f $(OBJECTS) $(OBJDIR)/*.$(OBJSUFF) test$(GUISUFFIX) $(WXTABLIB) core
+
+wxclean_ol:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx clean_ol
+
+wxclean_motif:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx clean_motif
+

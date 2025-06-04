@@ -1,0 +1,826 @@
+%TITLE 'BOOKSHELF'
+MODULE bookshelf(IDENT = 'V1.0',
+    	ADDRESSING_MODE(EXTERNAL=LONG_RELATIVE, NONEXTERNAL=LONG_RELATIVE)) =
+BEGIN
+!++
+! FACILITY: 	MGBOOK
+!
+! MODULE DESCRIPTION:
+!
+!	This module contains routines to process the contents of
+!	.DECW$BOOKSHELF files.
+!
+! AUTHOR:		Darrell Burkhead
+!			Copyright © 1995, MadGoat Software.
+!			ALL RIGHTS RESERVED.
+!
+! CREATION DATE:	December 2, 1994
+!
+! MODIFICATION HISTORY:
+!
+!	V1.0-2		Darrell Burkhead	27-APR-1995 12:48
+!		Added shelf_file_open which returns private shelf file info.
+!
+!	V1.0-1		Darrell Burkhead	23-FEB-1995 10:59
+!		In first_bookshelf_menu, don't use DECW$BOOK: as the default
+!		unless the .DECW$BOOKSHELF files can't be found otherwise.
+!
+!	V1.0		Darrell Burkhead	  2-DEC-1994 13:02
+!		Original version.
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';
+LIBRARY 'MGBOOK';
+LIBRARY	'MENU';
+LIBRARY 'FIELDS';
+
+FORWARD ROUTINE
+	first_bookshelf_menu : NOVALUE,
+	bookshelf_menu : NOVALUE,
+	add_menu_item,
+	delete_menu_items : NOVALUE,
+	delete_menu_item : NOVALUE,
+	in_menu,
+	get_title,
+	parse_shelf_file : NOVALUE,
+	shelf_menu : NOVALUE,
+	select_item : NOVALUE,
+	shelf_file_open;
+
+EXTERNAL ROUTINE
+	create_menu,
+	delete_menu : NOVALUE,
+	select_from_menu,
+	open_shelf_file,
+	close_shelf_file : NOVALUE,
+	read_shelf_file,
+	write_shelf_file,
+	book_menu : NOVALUE,
+	g_hat(LIB$SYS_FAO),
+	g_hat(STR$CONCAT, STR$COPY_DX, STR$COPY_R),
+	g_hat(STR$FIND_FIRST_IN_SET, STR$FREE1_DX);
+	
+GLOBAL BIND
+	private_shelf		= %ASCID'SYS$LOGIN:LIBRARY.DECW$BOOKSHELF',
+	shelf_dnm		= %ASCID'DECW$BOOK:*.DECW$BOOKSHELF';
+
+EXTERNAL
+	mgbook_title;
+
+OWN
+	private_resfile	: $BBLOCK[DSC$C_S_BLN] PRESET(
+			[DSC$W_LENGTH]	= 0,
+			[DSC$B_CLASS]	= DSC$K_CLASS_D,
+			[DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			[DSC$A_POINTER]	= 0),
+	private_sfile	: INITIAL(0);		!Library to which entries are
+						!...written
+
+_DEF(shelfent)
+    shelfent_l_flink		= _LONG,	!This much of the structure
+    shelfent_l_blink		= _LONG,	!...can be referenced as a
+    shelfent_q_title		= _QUAD,	!...MENENTDEF
+    shelfent_l_rend		= _LONG,	!...
+    shelfent_l_level		= _LONG,	!...
+    shelfent_q_filename		= _QUAD,
+    shelfent_l_flags		= _LONG,
+    _OVERLAY(shelfent_l_flags)
+	shelfent_v_book		= _BIT		!Book or Shelf?
+    _ENDOVERLAY
+_ENDDEF(shelfent);
+
+
+%SBTTL 'FIRST_BOOKSHELF_MENU'
+GLOBAL ROUTINE first_bookshelf_menu(libname_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine builds the initial menu of .DECW$BOOKSHELF files.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	libname		= .libname_a	: $BBLOCK,
+	defname		= shelf_dnm	: $BBLOCK,
+	min_def		= %ASCID'.DECW$BOOKSHELF',
+	min_defname	= min_def	: $BBLOCK;
+
+MACRO
+	deflib	= 'DECW$BOOK:LIBRARY.DECW$BOOKSHELF'%;
+
+LOCAL
+	e_name		: $BBLOCK[NAM$C_MAXRSS],
+	r_name		: $BBLOCK[NAM$C_MAXRSS],
+	search_nam	: $NAM(	ESA = e_name,
+				ESS = %ALLOCATION(e_name),
+				RSA = r_name,
+				RSS = %ALLOCATION(r_name)),
+	search_fab	: $FAB(	FNA = .libname[DSC$A_POINTER],
+				FNS = .libname[DSC$W_LENGTH],
+				DNA = .min_defname[DSC$A_POINTER],
+				DNS = .min_defname[DSC$W_LENGTH],
+				NAM = search_nam),
+	menu_info	: MINFODEF PRESET(
+			[MINFO_L_NUMENTS] = 0,
+			[MINFO_L_WIDTH]   = 0,
+			[MINFO_L_ENTHEAD] = menu_info[MINFO_Q_ENTRIES],
+			[MINFO_L_ENTTAIL] = menu_info[MINFO_Q_ENTRIES]),
+	bad_files	: MINFODEF PRESET(
+			[MINFO_L_NUMENTS] = 0,
+			[MINFO_L_WIDTH]   = 0,
+			[MINFO_L_ENTHEAD] = bad_files[MINFO_Q_ENTRIES],
+			[MINFO_L_ENTTAIL] = bad_files[MINFO_Q_ENTRIES]),
+	temp_title	: $BBLOCK[DSC$C_S_BLN],
+	err_file	: VECTOR[2,LONG]
+			  INITIAL(%CHARCOUNT(deflib), UPLIT(%ASCII deflib)),
+	got_title,
+	title_error,
+	status;
+
+    $INIT_DYNDESC(temp_title);
+
+    status = $PARSE(FAB = search_fab);		!Fill in the NAM
+    IF .status
+    THEN BEGIN
+	err_file[0] = .search_nam[NAM$B_ESL];	!Used in the SIGNAL below in
+	err_file[1] = .search_nam[NAM$L_ESA];	!...case of errors
+	END;					!End of save the search name
+    IF .status
+    THEN BEGIN
+	status = $SEARCH(FAB = search_fab);
+	IF .status EQL RMS$_FNF
+	THEN BEGIN
+	    search_fab[FAB$L_DNA] = .defname[DSC$A_POINTER];
+	    search_fab[FAB$B_DNS] = .defname[DSC$W_LENGTH];
+	    status = $PARSE(FAB = search_fab);
+	    IF .status
+	    THEN status = $SEARCH(FAB = search_fab);
+	    END;				!End of use default
+	END;					!End of $NAM parsed    
+
+    WHILE .status
+    DO BEGIN
+	LOCAL
+	    filename	: $BBLOCK[DSC$C_S_BLN] PRESET(
+			[DSC$W_LENGTH]	= .search_nam[NAM$B_RSL],
+			[DSC$B_CLASS]	= DSC$K_CLASS_S,
+			[DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			[DSC$A_POINTER]	= .search_nam[NAM$L_RSA]);
+
+	IF NOT in_menu(menu_info, filename) AND
+		NOT in_menu(bad_files, filename)
+	THEN BEGIN				!Not a repeated filename
+	    got_title = get_title(filename, temp_title, title_error);
+	    IF .title_error
+	    THEN add_menu_item(			!Error opening, add to err list
+			bad_files, filename, %ASCID'')
+	    ELSE BEGIN
+		IF NOT .got_title
+		THEN IF NOT LIB$SYS_FAO(	!Format a title, Library n
+				%ASCID'Library !UL', 0, temp_title,
+				.menu_info[MINFO_L_NUMENTS]+1)
+		    THEN STR$FREE1_DX(		!Error, use a null title
+				temp_title);
+
+		status = add_menu_item(		!Add to the menu list
+			menu_info, filename, temp_title);
+		IF NOT .status			!Not an RMS error
+		THEN search_fab[FAB$L_STV] = 0;
+		END;				!End of good filename
+	    END;				!End of unique filename
+
+	IF .status
+	THEN status = $SEARCH(FAB = search_fab);!Find the next shelf file
+	END;					!End of $SEARCH loop
+
+    IF .status EQL RMS$_NMF
+    THEN status = SS$_NORMAL;			!Expected error, ignore it
+
+    STR$FREE1_DX(temp_title);			!Finished w/this string
+    delete_menu_items(bad_files);		!Finished w/this list
+
+    IF .status AND .menu_info[MINFO_L_NUMENTS] GTRU 0
+    THEN shelf_menu(menu_info,			!Select from the menu built
+		mgbook_title, %ASCID'DECW$BOOK:');
+
+    delete_menu_items(menu_info);		!Finished w/this list
+
+    IF NOT .status
+    THEN SIGNAL(MGBOOK__OPENIN, 1, err_file, .status, .search_fab[FAB$L_STV]);
+END;						!End of first_bookshelf_menu
+
+
+%SBTTL 'BOOKSHELF_MENU'
+GLOBAL ROUTINE bookshelf_menu(libname_a, defname_a, shelf_name_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine builds the initial menu of .DECW$BOOKSHELF files.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	libname	= .libname_a	: $BBLOCK,
+	defname	= .defname_a	: $BBLOCK;
+
+LOCAL
+	menu_info	: MINFODEF PRESET(
+			[MINFO_L_NUMENTS] = 0,
+			[MINFO_L_WIDTH]   = 0,
+			[MINFO_L_ENTHEAD] = menu_info[MINFO_Q_ENTRIES],
+			[MINFO_L_ENTTAIL] = menu_info[MINFO_Q_ENTRIES]),
+	new_default	: $BBLOCK[DSC$C_S_BLN],
+	title		: $BBLOCK[DSC$C_S_BLN],
+	error,
+	status;
+
+    $INIT_DYNDESC(new_default);
+    $INIT_DYNDESC(title);
+
+    parse_shelf_file(libname, defname, menu_info, title, new_default, error);
+    IF NOT .error
+    THEN shelf_menu(menu_info,			!Select from the menu built
+		(IF .title[DSC$W_LENGTH] GTRU 0
+		 THEN title
+		 ELSE .shelf_name_a), new_default);
+
+    STR$FREE1_DX(new_default);			!Clean up
+    STR$FREE1_DX(title);
+END;						!End of bookshelf_menu
+
+
+%SBTTL 'ADD_MENU_ITEM'
+ROUTINE add_menu_item(menu_info_a, filename_a, title_a, book) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine adds menu item information to a MINFODEF structure.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	menu_info	= .menu_info_a	: MINFODEF,
+	filename	= .filename_a	: $BBLOCK,
+	title		= .title_a	: $BBLOCK,
+	shelf_suff	= %ASCID'...';
+
+BUILTIN
+	NULLPARAMETER;
+
+LOCAL
+	shelfent	: REF SHELFENTDEF,
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(LIB$GET_VM, STR$APPEND);
+
+    status = LIB$GET_VM(%REF(SHELFENT_S_SHELFENTDEF), shelfent);
+    IF .status
+    THEN BEGIN
+	$INIT_DYNDESC(shelfent[SHELFENT_Q_FILENAME]);
+	$INIT_DYNDESC(shelfent[SHELFENT_Q_TITLE]);
+	shelfent[SHELFENT_L_FLAGS] = shelfent[SHELFENT_L_REND] =
+		shelfent[SHELFENT_L_LEVEL] = 0;
+    !
+    ! Fill in the entry allocated.
+    !
+	shelfent[SHELFENT_V_BOOK] = NOT NULLPARAMETER(book) AND .book;
+	status = STR$COPY_DX(shelfent[SHELFENT_Q_FILENAME], filename);
+	IF .status
+	THEN status = STR$COPY_DX(shelfent[SHELFENT_Q_TITLE], title);
+	IF .status AND NOT .shelfent[SHELFENT_V_BOOK]
+	THEN status = STR$APPEND(
+			shelfent[SHELFENT_Q_TITLE], shelf_suff);
+	IF .status
+	THEN add_entry(menu_info, .shelfent)	!Update the menu stats
+	ELSE delete_menu_item(.shelfent);	!Error, free the memory
+	END;					!End of allocated an item
+
+    .status
+END;						!End of add_menu_item
+
+
+%SBTTL 'DELETE_MENU_ITEMS'
+ROUTINE delete_menu_items(menu_info_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine deallocates the memory associated with some menu items.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	menu_info	= .menu_info_a	: MINFODEF;
+
+LOCAL
+	shelfent	: REF SHELFENTDEF;
+
+    WHILE NOT REMQUE(.menu_info[MINFO_L_ENTHEAD], shelfent)
+    DO delete_menu_item(.shelfent);
+END;						!End of delete_menu_items
+
+
+%SBTTL 'DELETE_MENU_ITEM'
+ROUTINE delete_menu_item(shelfent_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine deallocates the memory associated with a menu item.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	shelfent	= .shelfent_a	: SHELFENTDEF;
+
+EXTERNAL ROUTINE
+	g_hat(LIB$FREE_VM);
+
+    STR$FREE1_DX(shelfent[SHELFENT_Q_FILENAME]);
+    STR$FREE1_DX(shelfent[SHELFENT_Q_TITLE]);
+    LIB$FREE_VM(%REF(SHELFENT_S_SHELFENTDEF), shelfent_a);
+END;						!End of delete_menu_item
+
+
+%SBTTL 'IN_MENU'
+ROUTINE in_menu(menu_info_a, filename_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns whether a given filename is already represented
+!	in a menu.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	menu_info	= .menu_info_a	: MINFODEF,
+	filename	= .filename_a	: $BBLOCK;
+
+LOCAL
+	shelfent	: REF SHELFENTDEF;
+
+EXTERNAL ROUTINE
+	g_hat(STR$COMPARE_EQL);
+
+    shelfent = .menu_info[MINFO_L_ENTHEAD];
+    WHILE .shelfent NEQA menu_info[MINFO_Q_ENTRIES]
+    DO BEGIN
+	IF STR$COMPARE_EQL(filename, shelfent[SHELFENT_Q_FILENAME]) EQL 0
+	THEN RETURN 1;				!Found a match, get out
+
+	shelfent = .shelfent[SHELFENT_L_FLINK];	!Move to the next entry
+	END;					!End of entry loop
+
+    0						!Got here, then name not found
+END;						!End of in_menu
+
+
+%SBTTL 'GET_TITLE'
+ROUTINE get_title(filename_a, title_a, error_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine reads a shelf file for its title record.  Errors will be
+!	signaled.  If there is an error opening the shelf file, then the
+!	error flag will be set.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!	1:		Title record found
+!	0:		Title record not found
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	filename	= .filename_a	: $BBLOCK,
+	title		= .title_a	: $BBLOCK,
+	error		= .error_a	: LONG;
+
+LOCAL
+	sfctx,
+	temp_type,
+	temp_fname	: $BBLOCK[DSC$C_S_BLN],
+	got_title	: INITIAL(0),
+	status;
+
+!Need to add on the node name?
+    status = open_shelf_file(filename, sfctx);
+    IF .status
+    THEN BEGIN
+	$INIT_DYNDESC(temp_fname);
+
+	DO BEGIN
+	    status = read_shelf_file(sfctx, temp_type, title, temp_fname);
+	    IF .status AND .temp_type EQL sfile_title
+	    THEN BEGIN
+		got_title = 1;			!Found title rec, mark it
+		EXITLOOP;
+		END;				!End of found the title rec
+	END WHILE .status;			!End of shelf file read loop
+
+	IF .status EQL RMS$_EOF
+	THEN status = SS$_NORMAL;		!Expected error, ignore it
+
+	STR$FREE1_DX(temp_fname);		!Clean up
+	close_shelf_file(sfctx);		!Close this shelf file
+	END;					!End of shelf file opened
+
+    error = NOT .status;			!Save whether an error occurred
+
+    .got_title
+END;						!End of get_title
+
+
+%SBTTL 'PARSE_SHELF_FILE'
+ROUTINE parse_shelf_file(filename_a, defname_a, menu_info_a, title_a,
+			new_default_a, error_a): NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine reads a shelf file and parses its contents.  Errors will
+!	be signaled.  If there is an error opening the shelf file, then the
+!	error flag will be set.
+!
+! RETURNS:	None.
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	filename	= .filename_a	: $BBLOCK,
+	defname		= .defname_a	: $BBLOCK,
+	menu_info	= .menu_info_a	: MINFODEF,
+	title		= .title_a	: $BBLOCK,
+	new_default	= .new_default_a: $BBLOCK,
+	error		= .error_a	: LONG;
+
+LOCAL
+	sfctx,
+	temp_type,
+	temp_title	: $BBLOCK[DSC$C_S_BLN],
+	temp_fname	: $BBLOCK[DSC$C_S_BLN],
+	status;
+
+    status = open_shelf_file(filename, sfctx, defname, new_default);
+    IF .status
+    THEN BEGIN
+	$INIT_DYNDESC(temp_title);
+	$INIT_DYNDESC(temp_fname);
+
+	DO BEGIN
+	    status = read_shelf_file(sfctx, temp_type, temp_title, temp_fname);
+	    IF .status
+	    THEN status =
+		(IF .temp_type EQL sfile_title
+		 THEN STR$COPY_DX(title, temp_title)
+		 ELSE add_menu_item(menu_info, temp_fname, temp_title,
+					.temp_type EQL sfile_book));
+	END WHILE .status;			!End of shelf file read loop
+
+	IF .status EQL RMS$_EOF
+	THEN status = SS$_NORMAL;		!Expected error, ignore it
+
+	IF NOT .status AND (.status AND STS$M_INHIB_MSG) EQL 0
+	THEN SIGNAL(MGBOOK__SHELFERR, 0, .status);
+
+	STR$FREE1_DX(temp_title);		!Clean up
+	STR$FREE1_DX(temp_fname);
+	close_shelf_file(sfctx);		!Close this shelf file
+	END;					!End of shelf file opened
+
+    error = NOT .status;			!Save whether an error occurred
+END;						!End of parse_shelf_file
+
+
+%SBTTL 'SHELF_MENU'
+ROUTINE shelf_menu(menu_info_a, title_a, defname_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine contains the common parts of menu_bookshelf and
+!	first_menu_bookshelf.  It allows the user to select from a menu
+!	of books and shelves.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	menu_info	= .menu_info_a	: MINFODEF,
+	title		= .title_a	: $BBLOCK,
+	defname		= .defname_a	: $BBLOCK;
+
+LOCAL
+	book_def	: $BBLOCK[DSC$C_S_BLN],
+	shelf_def	: $BBLOCK[DSC$C_S_BLN],
+	status;
+
+EXTERNAL ROUTINE
+	g_hat(STR$CONCAT);
+
+    $INIT_DYNDESC(shelf_def);
+
+    status = STR$CONCAT(shelf_def, defname, %ASCID'.DECW$BOOKSHELF');
+    IF .status
+    THEN BEGIN
+	book_def[DSC$A_POINTER] =		!Trim off the SHELF
+			.shelf_def[DSC$A_POINTER];
+	book_def[DSC$W_LENGTH] = .shelf_def[DSC$W_LENGTH] - 5;
+	book_def[DSC$B_CLASS] = DSC$K_CLASS_S;
+	book_def[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+
+	IF .menu_info[MINFO_L_NUMENTS] EQL 0
+	THEN status = MGBOOK__EMPTYSHELF
+	ELSE IF .menu_info[MINFO_L_NUMENTS] EQL 1
+	THEN select_item(			!Only 1 choice, choose it
+		.menu_info[MINFO_L_ENTHEAD], book_def, shelf_def)
+	ELSE BEGIN
+	    status = create_menu(menu_info,	!Set up the menu display
+				title, 0, 1);
+	    IF .status
+	    THEN BEGIN
+		LOCAL
+		    shelfent	: REF SHELFENTDEF,
+		    selected,
+		    term	: WORD;
+
+		DO BEGIN
+		    status = select_from_menu(menu_info, shelfent,
+						selected, term);
+		    IF .status
+		    THEN IF .selected
+			THEN select_item(	!Open the book/shelf selected
+				.shelfent, book_def, shelf_def)
+			ELSE SELECTONE .term OF
+			     SET
+			     [SMG$K_TRM_F1,	!Create a new private shelf
+			      SMG$K_TRM_KP1]:
+				BEGIN
+				IF shelf_file_open()
+				THEN close_shelf_file(private_sfile);
+
+				IF open_shelf_file(private_shelf,
+					private_sfile, 0,
+					private_resfile, shelf_write)
+				THEN SIGNAL(MGBOOK__SHELFOPEN, 1,
+						private_resfile)
+				ELSE private_sfile = 0;
+				END;		!End of create shelf file
+			     [SMG$K_TRM_F2,	!Open a private shelf for append
+			      SMG$K_TRM_KP2]:
+				BEGIN
+				IF shelf_file_open()
+				THEN close_shelf_file(private_sfile);
+
+				IF open_shelf_file(private_shelf,
+					private_sfile, 0,
+					private_resfile, shelf_append)
+				THEN SIGNAL(MGBOOK__SHELFAPP, 1,
+						private_resfile)
+				ELSE private_sfile = 0;
+				END;		!End of create shelf file
+			     [SMG$K_TRM_F3,	!Close the private shelf
+			      SMG$K_TRM_KP3]:
+				IF shelf_file_open()
+				THEN BEGIN
+				    close_shelf_file(private_sfile);
+				    SIGNAL(MGBOOK__SHELFCLOSE, 1,
+						private_resfile);
+				    private_sfile = 0;
+				    END;
+			     [SMG$K_TRM_F4,	!Write the current line to
+			      SMG$K_TRM_KP4]:
+				BEGIN		!...the private shelf
+				IF NOT shelf_file_open()
+				THEN status = open_shelf_file(private_shelf,
+					private_sfile, 0,
+					private_resfile, shelf_write);
+
+				IF .status
+				THEN BEGIN
+				    BIND title = shelfent[SHELFENT_Q_TITLE]
+							: $BBLOCK;
+				    LOCAL temp_title : $BBLOCK[DSC$C_S_BLN];
+
+				    temp_title[DSC$B_CLASS] = DSC$K_CLASS_S;
+				    temp_title[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+				    temp_title[DSC$A_POINTER] =
+					.title[DSC$A_POINTER];
+				    temp_title[DSC$W_LENGTH] =
+				    (IF .shelfent[SHELFENT_V_BOOK]
+				     THEN .title[DSC$W_LENGTH]
+				     ELSE .title[DSC$W_LENGTH] - 3);
+
+				    status = write_shelf_file(
+					private_sfile,
+					(IF .shelfent[SHELFENT_V_BOOK]
+					 THEN sfile_book ELSE sfile_shelf),
+					temp_title,
+					shelfent[SHELFENT_Q_FILENAME]);
+				    END;	!End of write a line
+
+				IF .status
+				THEN SIGNAL(MGBOOK__ADDENTRY, 2,
+					(IF .shelfent[SHELFENT_V_BOOK]
+					 THEN %ASCID'BOOK'
+					 ELSE %ASCID'SHELF'),
+					shelfent[SHELFENT_Q_TITLE]);
+
+				status = SS$_NORMAL;
+				END;		!End of write to shelf file
+			     [OTHERWISE]:	;
+			     TES;
+		END WHILE .status;		!End of menu loop
+
+		IF .status EQL RMS$_EOF
+		THEN status = SS$_NORMAL;	!Expected error, ignore it
+
+		delete_menu(menu_info);		!Clean up
+		END;				!End of created the menu
+	    END;				!End of more than 1 menu item
+	END;					!End of shelf DNM created
+
+    IF NOT .status
+    THEN SIGNAL(MGBOOK__MENUERR, 0, .status);	!Report any errors
+
+    STR$FREE1_DX(shelf_def);
+END;						!End of shelf_menu
+
+
+%SBTTL 'SELECT_ITEM'
+ROUTINE select_item(shelfent_a, book_def_a, shelf_def_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine is called to select a menu item in a shelf menu.
+!
+! RETURNS:	None.
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	shelfent	= .shelfent_a	: SHELFENTDEF,
+	book_def	= .book_def_a	: $BBLOCK,
+	shelf_def	= .shelf_def_a	: $BBLOCK;
+
+    IF .shelfent[SHELFENT_V_BOOK]
+    THEN book_menu(shelfent[SHELFENT_Q_FILENAME], book_def,
+			shelfent[SHELFENT_Q_TITLE])
+    ELSE BEGIN
+	BIND
+	    title	= shelfent[SHELFENT_Q_TITLE]	: $BBLOCK;
+	LOCAL
+	    temp_title	: $BBLOCK[DSC$C_S_BLN]	!Trim off the "..."
+			PRESET(	[DSC$W_LENGTH]	= .title[DSC$W_LENGTH] - 3,
+				[DSC$B_CLASS]	= DSC$K_CLASS_S,
+				[DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+				[DSC$A_POINTER]	= .title[DSC$A_POINTER]);
+
+	bookshelf_menu(shelfent[SHELFENT_Q_FILENAME], shelf_def,
+			temp_title);
+	END;					!End of open a shelf
+END;						!End of select_item
+
+
+%SBTTL 'SHELF_FILE_OPEN'
+GLOBAL ROUTINE shelf_file_open(filename_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns whether the private shelf file is open.  If it
+!	is open and a descriptor is passed in, then the filename will be
+!	returned.
+!
+! RETURNS:	None.
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	filename	= .filename_a	: $BBLOCK;
+
+BUILTIN
+	NULLPARAMETER;
+
+    IF .private_sfile NEQA 0 AND NOT NULLPARAMETER(filename_a)
+    THEN STR$COPY_DX(filename, private_resfile);!Return the filename
+
+    .private_sfile NEQA 0
+END;						!End of shelf_file_open
+
+END
+ELUDOM

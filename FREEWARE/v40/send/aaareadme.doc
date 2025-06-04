@@ -1,0 +1,187 @@
+SEND runs on VAX/VMS (V5.0 or later), OpenVMS VAX, and OpenVMS AXP systems.
+
+Files in this directory:
+
+AAAREADME.DOC		This file.
+AAAREADME.TOO		Revision information.
+LINK.COM		Command procedure to build SEND_DECNET.EXE and
+			SEND_SERVER.EXE.
+SEND.CLD		CDU file for the SEND command (to add to a command
+			table).
+SEND.HLP		HELP text for the SEND command.
+SEND_CLD.ALPHA_OBJ	AXP object file for SEND_CLD.CLD.
+SEND_CLD.OBJ		VAX object file for SEND_CLD.CLD.
+SEND_COMMON.ALPHA_OBJ	AXP object file for SEND_COMMON.B32.
+SEND_COMMON.OBJ		VAX object file for SEND_COMMON.B32.
+SEND_DECNET.ALPHA_OBJ	AXP object file for SEND_DECNET.B32.
+SEND_DECNET.OBJ		VAX object file for SEND_DECNET.B32.
+SEND_MSG.ALPHA_OBJ	AXP object file for SEND_MSG.MSG.
+SEND_MSG.OBJ		VAX object file for SEND_MSG.MSG.
+SEND_SERVER.ALPHA_OBJ	AXP object file for SEND_SERVER.B32.
+SEND_SERVER.OBJ		VAX object file for SEND_SERVER.B32.
+START_SEND_SERVER.COM	Command procedure to create a SEND server process.
+
+Files in [.SOURCE]:
+
+DESCRIP.MMS		MMS file to build SEND.
+FIELDS.R32		Matt Madison's field macros.
+SEND.SDML		DOCUMENT source file for SEND.HLP.
+SEND_CLD.CLD		CDU file for the SEND command (linked into
+			SEND_DECNET.EXE).
+SEND_COMMON.B32		Routines shared between the client and server.
+SEND_COMM_DEFS.R32	Structure and macro definitions having to do with
+			client/server communication.
+SEND_DECNET.B32		Client-specific routines.
+SEND_DEFS.R32		Client-specific structure definitions.
+SEND_MSG.MSG		SEND MESSAGE file.
+SEND_SERVER.B32		Server-specific routines.
+SEND_SERVER_DEFS.R32	Server-specific structure definitions.
+
+
+SEND is patterned after the Jnet SEND command for interactive messages.  Jnet
+is a registered trademark of Wingra Technologies, Inc.
+
+BUILDING SEND_DECENT.EXE AND SEND_SERVER.EXE
+
+SEND_DECNET.EXE is generated from the SEND_DECNET, SEND_COMMON, SEND_CLD, and
+SEND_MSG object files.  SEND_SERVER.EXE is generated from the SEND_SERVER and
+SEND_COMMON object files.  A command procedure, LINK.COM, is provided to link
+these object files.  It will create OpenVMS VAX executables when executed under
+OpenVMS VAX system and OpenVMS AXP executables when executed under OpenVMS AXP
+system.
+
+SETTING UP THE SEND COMMAND
+
+The SEND command can be set up as either a DCL verb or a foreign command.
+SEND.CLD has been provided to set up SEND as a DCL verb.  For information
+on adding verbs to a command table, see the documentation on the SET
+COMMAND command.  You will need to edit SEND.CLD and change the line:
+
+	IMAGE		MADGOAT_EXE:SEND_DECNET.EXE
+
+if this is not where you put SEND_DECNET.EXE.	To set up SEND as a foreign
+command, you need to define a symbol that points to SEND_DECNET.EXE.  For
+example,
+
+	$ SEND:==$MADGOAT_EXE:SEND_DECNET.EXE
+
+This symbol should be defined in a command procedure that will be executed
+by the segment of the user population that needs access to SEND.
+
+Note:	SEND_DECNET.EXE needs to be installed with OPER and WORLD privileges.
+	$ INSTALL ADD MADGOAT_EXE:SEND_DECNET.EXE/OPEN/HEAD/PRIV=(OPER,WORLD)
+
+SETTING UP A SEND SERVER
+
+SEND communicates with other DECnet nodes through a server process.  If you
+want a node to be able to send messages to a DECnet, that node will need to
+be running a SEND server.  START_SEND_SERVER.COM has been provided to run
+SEND_SERVER.EXE, the server executable, in a detached process.  You should
+add:
+
+	$ @dev:[dir]START_SEND_SERVER
+
+to the system startup command procedures (SYSTARTUP_V5 or SYSTARTUP_VMS) of the
+nodes on which you wish to run the SEND server, where dev:[dir] is the location
+of START_SEND_SERVER.COM.  You will need to edit START_SEND_SERVER.COM and
+change the line:
+
+	$  server = f$search("MADGOAT_EXE:SEND_SERVER.EXE")
+
+if this is not where you put SEND_SERVER.EXE.
+
+SEND_SERVER.EXE is a multi-threaded DECnet server for a DECnet object called
+SEND_SERVER.  You will need to create the SEND_SERVER object for the nodes on
+which you wish to run SEND_SERVER.EXE. The following commands will create the
+SEND_SERVER object:
+
+	$ RUN SYS$SYSTEM:NCP
+	NCP> DEFINE OBJECT SEND_SERVER NUMBER 0
+	NCP> SET OBJECT SEND_SERVER NUMBER 0
+	NCP> EXIT
+	$
+
+If the SEND_REQUIRE_PROXY logical name is defined (in a logical name table that
+is visible to the SEND server process), the server will reject any attempts
+to send messages from users that do not exist on the local system.  Unlike the
+name suggests, the server does NOT check for proxy usernames.
+
+THE SEND BROADCAST CLASS
+
+By default SEND uses a broadcast class of USER1.  You can change the broadcast
+class by defining one of two logical names:
+
+	SEND_BRD_CLASS or
+	JAN_BRD_BASE (for compatibility with the Jnet SEND command).
+
+SEND_BRD_CLASS will override the value of JAN_BRD_BASE.  For security (and
+sanity) reasons, these logical names are required to be defined /SYSTEM/EXEC.
+Thus, if you:
+
+	$ DEFINE/SYSTEM/EXEC SEND_BRD_CLASS "NETWORK"
+
+SEND messages will be broadcast over the NETWORK class.  If you change the
+broadcast class that SEND uses, you should change the section of SEND.HLP that
+talks about disabling messages with:
+
+	$ SET BROADCAST=NOUSER1
+
+COPYRIGHT NOTICE
+
+This software is COPYRIGHT © 1994 MADGOAT SOFTWARE. ALL RIGHTS RESERVED.
+Permission is granted for not-for-profit redistribution, provided all
+source and object code remain unchanged from the original distribution, and
+that all copyright notices remain intact.
+
+DISCLAIMER
+
+This software is provided "AS IS".  The author and MadGoat Software make no
+representations or warranties with repsect to the software and specifically
+disclaim any implied warranties of merchantability or fitness for any
+particular purpose.
+
+MADGOAT SOFTWARE MAILING LISTS
+
+MadGoat Software has set up the following mailing lists for discussions and
+support of its products:
+
+    Info-MadGoat@wkuvx1.wku.edu
+	Discussion of MadGoat Software products by users and MadGoat
+	developers.  To subscribe, send a message to
+		Info-MadGoat-Request@wkuvx1.wku.edu
+	with the word SUBSCRIBE in the first line of the body of the
+	message.
+
+    MadGoat-Announce@wkuvx1.wku.edu
+	Announcements of new releases and new products from MadGoat.
+	To subscribe, send a message to
+		MadGoat-Announce-Request@wkuvx1.wku.edu
+	with the word SUBSCRIBE in the first line of the body of the
+	message.
+
+    MadGoat-Bugs@wkuvx1.wku.edu
+	Address for reporting bugs in MadGoat Software products.  Please
+	include the name of the package and version in the subject header
+	of the message, so the report can be more easily directed to the
+	appropriate developer.
+
+   MadGoat-Register@wkuvx1.wku.edu
+          Address for registering your use of MadGoat Software.  Registration
+	  of your installation is at your discretion and is used by MadGoat
+	  Software only to determine the size of the user base for each product
+          and the future directions of the products.
+
+          To register, simply mail a message to:
+
+		MadGoat-Register@WKUVX1.WKU.EDU
+
+	  with the following information:
+
+             Installer's name
+             Company name and address
+             System(s) on which the MadGoat software is running
+             Which products you're using
+             Any comments and/or suggestions you might have
+
+
+Darrell Burkhead	burkhdr@wkuvx1.wku.edu

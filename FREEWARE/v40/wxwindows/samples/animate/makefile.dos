@@ -1,0 +1,91 @@
+#
+# File:		makefile.dos
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds animation example (DOS).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info.
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+THISDIR = $(WXDIR)\samples\animate
+WXLIB = $(WXDIR)\lib\wx.lib
+LIBS=$(WXLIB) oldnames libw llibcew commdlg ddeml shell mmsystem
+INC=-I$(WXDIR)\include\base -I$(WXDIR)\include\msw
+DUMMY=$(WXDIR)\src\msw\dummy.obj
+
+# Set this to nothing if using MS C++ 7
+ZOPTION=/Z7
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+!if "$(FINAL)" == "0"
+CPPFLAGS=/AL /W3 /Zi $(ZOPTION) /G2sw /Od $(INC) /DDEBUG=$(DEBUG) /YuWX_PREC.H /Dwx_msw /Fp$(WXDIR)\src\msw\wx.pch
+CPPFLAGS2=/AL /W3 /Zi $(ZOPTION) /G2sw /Od $(INC) /Dwx_msw
+LINKFLAGS=/NOD /CO /SEG:512 /ONERROR:NOEXE
+!else
+CPPFLAGS=/AL /W3 /G2sw $(INC) /Ox /YuWX_PREC.H /DDEBUG=$(DEBUG) /Dwx_msw /Fp$(WXDIR)\src\msw\wx.pch
+CPPFLAGS2=/AL /W3 /G2sw $(INC) /Ox /Dwx_msw
+LINKFLAGS=/NOD /ONERROR:NOEXE /SEG:512
+!endif
+
+HEADERS = animate.h
+SOURCES = animate.$(SRCSUFF)
+OBJECTS = animate.obj tool3d.obj
+
+animate:    animate.exe
+
+all:    wx animate.exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos FINAL=$(FINAL)
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos clean
+        cd $(THISDIR)
+
+
+animate.exe:      $(DUMMY) $(WXLIB) $(OBJECTS) animate.def animate.res
+        link $(LINKFLAGS) @<<
+$(DUMMY) $(OBJECTS),
+animate,
+NUL,
+$(LIBS),
+animate.def
+;
+<<
+        rc -31 -K animate.res
+
+animate.obj:      animate.h animate.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+tool3d.obj:      tool3d.h tool3d.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+animate.res :      animate.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa animate
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.sbr
+        -erase *.pdb

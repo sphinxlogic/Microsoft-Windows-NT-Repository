@@ -1,0 +1,117 @@
+From arthur@aiai.ed.ac.uk Thu Jun  1 12:39:10 1995
+Received: from subnode.aiai.ed.ac.uk (burray) by aiai.ed.ac.uk; Thu, 1 Jun 95 12:39:06 BST
+Date: Thu, 1 Jun 95 12:39:04 BST
+Message-Id: <11776.9506011139@subnode.aiai.ed.ac.uk>
+From: Arthur Seaton <arthur@aiai.ed.ac.uk>
+Subject: Memory checking code
+To: jacs@aiai.ed.ac.uk
+Status: REO
+
+> BTW, here's a memory test. You know the debuggeration code
+> you wrote during Gryphon's heady months -- do you happen
+> to have it still, and maybe any notes...?
+
+Just dug it out for you. It's in /home/gryphon/arthur/src/memory. The
+Makefile should tell you the files that you require. Seems to be just
+mem.{h,cc} which provide the debugging and testmem.cc which is a test.
+
+First - I am _not_ a good C++ programmer so I expect that I've done a
+number of things badly! Personally I find C++ hard to use and worse to
+understand! It is commented and I usually keep comments up to date.
+Can't remember if I did in this case, but I don't see why I wouldn't
+have done. It was based on the ideas in that "No bugs" book of yours.
+That's all the "notes" that I have apart from the comments in the code
+itself. However porting to C++ adds problems of its own (see the vtbl
+problem below).
+
+Second - the dates indicate that I did this work just over a year ago.
+My God, I have done some programming in the past 2 years :-)
+
+On to the code itself...
+
+Looking at the comments it seems to work by adding a struct before the
+requested memory and placing 3 markers around the memory. 1 within the
+struct itself, one just after the struct and before the memory and 1
+after the caller requested memory. Each of these is tested to check
+that they have not been overwritten. Checking can be done at various
+times controlled by the user of the package.
+
+>From memory (sorry!) there are a few problems:
+
+- underwrites are really difficult to test using this scheme. If the
+struct itself is overwritten you lose with no way of recovering. eg.
+member func within struct are overwritten and you try to call one of
+these funcs. I _think_ one way round this is to make everything
+non-virtual so there's no vtbl to get overwritten. Can't remember if I
+did this (it does have some disadvantages in loss of flexibility
+obviously) and I'm not entirely sure that it would have the desired
+effect. I'd need to check out the ARM and even then I suspect it's
+compiler specific.
+
+- Doesn't seem to compile under gcc-2.1. All seems to be ok using
+gcc-2.4.5.
+
+- There's a Makefile for the HP, but I can't remember what happened
+when I tried it out on the HP - sorry!
+
+- There's not been much testing done. Basically just testmem.cc which
+is obviously just a pre-alpha type testing!
+
+> I'd like to
+> throw it at wxwin-users to see if anyone wants to play with
+> it/finish it; it'd be a nice wxWin feature to have.
+
+Fine. I _may_ do some work on it myself in which case I'll copy it out
+of there and work on it elsewhere. If I do then I'll let you know and
+pass through anything that may be useful to you.
+
+Hope this is of some help,
+
+
+Arthur.
+
+
+Some further notes on debugging features - JACS May 1995
+
+MFC has the CObject::Dump member for dumping info.
+It would be nice to be able to stick a 'probe' into
+an application whilst running, espec. the version
+actually distributed to a user. We could have a standard
+method for outputting debugging info *conditionally*;
+e.g.
+
+ DEBUG_OUTPUT(2, "Shouldn't get here\n");
+
+where 2 represents the level of detail.
+A global level of detail may still produce voluminous
+debugging info, so it would be nice to specify a module
+or 'context', e.g.
+
+ DEBUG_OUTPUT("wxWindows:wx_win.cc:1", ...);
+
+where there's a hierarchical module system. If
+the current module is "wxWindows" then lots
+of stuff is output. If module is "wxWindows:wx_win.cc",
+then not so much. We could even use the regular expression
+code for the spec. up until the level number.
+May reduce speed substantially to use a regex evaluator
+though.
+
+We can have a standard way of communicating to a wxWin program,
+e.g. via DDE. A wxWindows debugger client allows querying
+of debugging info and display/file logging of the info remotely.
+
+Similarly we can reduce debugging info for memory checking,
+homing in on a particular module: perhaps using macros that
+give another argument to New. E.g. for a particular
+file,
+
+#define DEBUG_NEW2 new(__FILE__, __LINE__, "wxWindows:wx_win.cc")
+#define new DEBUG_NEW2
+
+We'd have to try to keep the DDE flow small, so most of the
+time it's just used for issuing commands/getting status info.
+But it would be nice to be able to display debugging info
+as it came through... WIN32 + pipes may be the answer,
+or WinSock...
+

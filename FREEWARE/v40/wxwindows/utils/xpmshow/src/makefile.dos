@@ -1,0 +1,102 @@
+#
+# File:		makefile.dos
+# Author:	Julian Smart
+# Created:	1995
+# Updated:	
+# Copyright:	(c) 1995, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds XPMSHOW utility library for Windows 3.1
+# Note: wxWindows should be built with these settings:
+#  USE_IMAGE_LOADING_IN_MSW   1
+#  USE_XPM_IN_MSW             1
+
+# Change WXDIR/WXWIN to wherever wxWindows is found
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+WXINC = $(WXDIR)\include
+
+DUMMY=$(WXDIR)\src\msw\dummy.obj
+
+THISDIR = $(WXDIR)\utils\xpmshow\src
+
+INC = /I$(WXDIR)\include\base /I$(WXDIR)\include\msw /I.
+
+LIBS=$(WXLIB) oldnames libw llibcew commdlg ddeml shell mmsystem
+
+# Set this to nothing if your compiler is MS C++ 7
+ZOPTION=/Z7
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+PRECOMP=/YuWX_PREC.H 
+
+!if "$(FINAL)" == "0"
+OPT = /Od
+CPPFLAGS= /AL /Gt4 /W3 /Zi /G2sw /DFOR_MSW $(ZOPTION) $(OPT) /Dwx_msw $(INC) $(PRECOMP) /Fp$(WXDIR)\src\msw\wx.pch /DDEBUG=$(DEBUG)
+CFLAGS= /AL /Gt4 /W3 /Zi /G2sw  /DFOR_MSW $(ZOPTION) $(OPT) /Dwx_msw $(INC)
+# CFLAGS= /AL /W3 /Zi /G2sw /Od /DFOR_MSW /Dwx_msw
+LINKFLAGS=/LI /MAP /PACKC /PACKD /NOD /CO /FARCALL /SEG:1024
+# LINKFLAGS=/NOD /CO /SEG:256
+!else
+# /Ox for real FINAL version
+OPT = /Ox
+CPPFLAGS= /AL /Gt4 /W3 /Os /G2sw  /DFOR_MSW $(OPT) /Dwx_msw $(INC) $(PRECOMP) /Fp$(WXDIR)\src\msw\wx.pch /DDEBUG=$(DEBUG)
+CFLAGS= /AL /W3 /Zi /Os /G2sw /Dwx_msw /DFOR_MSW
+LINKFLAGS=/NOD /PACKC /PACKD /SEG:1024 /FARCALL /ONERROR:NOEXE
+!endif
+
+OBJDIR=.
+OBJECTS=xpmshow.obj
+
+all:    show
+show: wx xpmshow.exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos all FINAL=$(FINAL)
+        cd $(THISDIR)
+
+xpmshow.exe:      $(DUMMY) $(WXLIB) $(OBJECTS) xpmshow.def xpmshow.res
+        link $(LINKFLAGS) @<<
+$(DUMMY) $(OBJECTS),
+xpmshow,
+NUL,
+$(LIBS),
+xpmshow.def
+;
+<<
+        rc -31 -K xpmshow.res
+
+xpmshow.res :      xpmshow.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa xpmshow
+
+
+xpmshow.obj: xpmshow.$(SRCSUFF) xpmshow.h
+        cl @<<
+$(CPPFLAGS) /Od /c /Tp $*.$(SRCSUFF)
+<<
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+
+cleanall:	clean
+    cd $(WXDIR)\src\msw
+    nmake -f makefile.dos clean
+    cd $(WXDIR)\utils\dib
+    nmake -f makefile.dos clean
+    cd $(WXDIR)\contrib\wxxpm
+
+
+

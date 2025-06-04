@@ -1,0 +1,80 @@
+Version 6.2 of the Logical Disk utility can be installed on the
+following VMS versions:
+
+	OpenVMS Alpha:	V6.2	(Saveset LD062.C)
+			V7.1	(Saveset LD062.D)
+			V7.2	(Saveset LD062.E)
+			And above
+
+	OpenVMS Vax:	V5.5-2	(Saveset LD062.F)
+			V6.1	(Saveset LD062.G)
+			V6.2	(Saveset LD062.H)
+			V7.0	(Saveset LD062.I)
+			V7.1	(Saveset LD062.J)
+			V7.2	(Saveset LD062.K)
+			And above
+
+All limited hardware releases are fine too (for example V6.2-1H3).
+
+Older versions will probably work, but this has not been tested. For
+VAX the absolute minimum should be V5.4 since the driver uses the
+fork-level interface to the lockmanager, and that was introduced in V5.4.
+The installation procedure will quit on older versions. You can create the
+utility and driver from the sources provided in saveset LD062.B, there's
+also a procedure to build the files (LD_BUILD.COM).
+
+*** WARNING ***
+
+   Special precaution needs to be taken when creating the driver for
+   VAX/VMS version below V6.0 (V5.5-2 for example). In that case the
+   driver must be edited to place a comment for the line "V6=1".
+
+In the .A saveset are also a couple of examples provided.
+
+Help can be obtained by entering $ HELP LD.
+
+New in V6.2:
+
+If one needs more than 9999 logical disk devices then another 'controller'
+may be used by specifying a new device at connection time:
+
+  $ RUN SYS$SYSTEM:SYSMAN
+  IO CONNECT LDA0/NOADAPTER/DRIVER=SYS$LDDRIVER
+  IO CONNECT LDB0/NOADAPTER/DRIVER=SYS$LDDRIVER
+  IO CONNECT LDC0/NOADAPTER/DRIVER=SYS$LDDRIVER
+
+The disks can then be used like this:
+
+  $ LD CONNECT DEV:[DIR]DISK1.DSK LDA3
+  $ LD CONNECT DEV:[DIR]DISK1.DSK LDB7
+
+Obviously, you need a BIG nonpaged pool to use more than 10000 devices
+at the same time.
+
+
+There's one bugfix in this release (i don't know of more bugs), both for
+VAX and Alpha:
+
+  Corrected possible hang on SMP systems. When inserting an i/o request
+  back into the systemwide postprocessing queue (IOC$GQ_POSTIQ) a software
+  interrupt was generated via the SOFTINT macro. If we had a thread doing
+  this on a non-primary processor and we were the first one doing this on
+  an empty queue the resulting interrupt was taken on the non-primary
+  processor, where it is simply dismissed as these interrupts must be
+  serviced on the primary processor. In that case the postprocessing queue
+  is not processesd anymore resulting in a system hang. Replaced the code
+  to insert the packet with a call to CALL_POST_IRP, a system routine
+  which checks on which cpu we do the action. If needed it will tell the
+  primary processor to do the job.
+
+
+Comments, problems and suggestions can be directed to the author:
+
+	Jur van der Burg
+	Digital Equipment B.V.
+	Europalaan 44
+	3526 KS Utrecht
+	The Netherlands
+	vdburg@mail.dec.com
+	or jur.vanderburg@digital.com
+

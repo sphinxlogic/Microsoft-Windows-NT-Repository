@@ -1,0 +1,129 @@
+# Makefile : Builds tab class library and example (DOS).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+WXTABDIR = $(WXDIR)\utils\wxtab
+WXTABLIB = $(WXTABDIR)\lib\wxtab.lib
+DOCDIR = $(WXTABDIR)\docs
+THISDIR = $(WXTABDIR)\src
+LIBS=$(WXLIB) $(WXTABLIB) oldnames libw llibcew commdlg shell
+INC=-I$(WXDIR)\include\base -I$(WXDIR)\include\msw
+DUMMY=$(WXDIR)\src\msw\dummy.obj
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+# Default is to output RTF for WinHelp
+!ifndef RTFSTYLE
+RTFSTYLE=-winhelp
+!endif
+
+# Set this to nothing if using MS C++ 7
+ZOPTION=/Z7
+
+PRECOMP = /YuWX_PREC.H /Fp$(WXDIR)\src\msw\wx.pch
+
+!if "$(FINAL)" == "0"
+CPPFLAGS=/AL /Gt4 /W3 /Zi $(ZOPTION) /G2sw /Od $(INC) $(PRECOMP) /Dwx_msw /DDEBUG=$(DEBUG)
+CPPFLAGS1=/AL /W3 /Zi /G2sw /Od $(INC) /Dwx_msw
+LINKFLAGS=/NOD /CO /SEG:512 /ONERROR:NOEXE
+!else
+CPPFLAGS=/AL /Gt4 /W3 /Zi /G2sw $(INC) /Os $(PRECOMP) /Dwx_msw /DDEBUG=$(DEBUG)
+CPPFLAGS1=/AL /W3 /Zi /G2sw $(INC) /Os /Dwx_msw
+LINKFLAGS=/NOD /SEG:512 /ONERROR:NOEXE
+!endif
+
+HEADERS = wxtab.h wxtabp.h
+SOURCES = wxtab.$(SRCSUFF)
+OBJECTS = wxtab.obj
+
+all:    $(WXTABLIB)
+
+test:   test.exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos FINAL=$(FINAL)
+        cd $(WXTABDIR)\src
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos clean
+        cd $(WXTABDIR)\src
+
+$(WXTABLIB):      $(OBJECTS)
+        -erase $(WXTABLIB)
+        lib /PAGESIZE:128 @<<
+$(WXTABLIB)
+y
+$(OBJECTS)
+nul
+;
+<<
+
+test.exe:      $(DUMMY) $(WXLIB) $(WXTABLIB) test.obj test.def test.res
+        link $(LINKFLAGS) @<<
+$(DUMMY) test.obj,
+test,
+NUL,
+$(LIBS),
+test.def
+;
+<<
+        rc -31 -K test.res
+
+wxtab.obj:      wxtab.h wxtab.$(SRCSUFF) $(DUMMY)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+test.obj:      test.h wxtab.h test.$(SRCSUFF) $(DUMMY)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+test.res :      test.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /dFAFA_LIB /i$(WXDIR)\contrib\fafa /i$(WXDIR)\include\msw test
+
+# Making documents
+docs:   hlp xlp
+hlp:   $(DOCDIR)/wxtab.hlp
+xlp:    $(DOCDIR)/wxtab.xlp
+rtf:    $(DOCDIR)/wxtab.rtf
+
+$(DOCDIR)/wxtab.hlp:         $(DOCDIR)/wxtab.rtf $(DOCDIR)/wxtab.hpj
+        cd $(DOCDIR)
+        -erase wxtab.ph
+        hc wxtab
+        cd $(THISDIR)
+
+$(DOCDIR)/wxtab.rtf:         $(DOCDIR)/wxtab.tex $(DOCDIR)/classes.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\wxtab.tex $(DOCDIR)\wxtab.rtf -twice $(RTFSTYLE)
+        cd $(THISDIR)
+
+$(DOCDIR)/wxtab.xlp:         $(DOCDIR)/wxtab.tex $(DOCDIR)/classes.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\wxtab.tex $(DOCDIR)\wxtab.xlp -twice -xlp
+        cd $(THISDIR)
+
+cleanrtf:
+        cd $(DOCDIR)
+        -erase *.rtf
+        cd  $(THISDIR)
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+        -erase $(WXTABLIB)

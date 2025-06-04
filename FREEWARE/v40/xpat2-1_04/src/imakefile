@@ -1,0 +1,216 @@
+# Imakefile for xpat2 version 1.04
+#
+# ****************************************************************************
+
+# customizing:
+#
+# 0.) extra warnings for gcc and development
+#
+#undef EXTRA_WARNINGS
+# 1.) specify, which interface to use (exactly one of the interfaces below)
+#undef useXlib		/* similar to xpat version 1.x, not all features */
+#define useXaw		/* the recommended interface for xpat2 */
+#undef useMotif	/* too buggy yet */
+#undef useXview	/* in development */
+
+# 2.) specify, if you want online help (Athena Widgets only)
+#define USE_ONLINEHELP
+
+# 3.) specify, if you want round cards (nicer, but you need Xmu)
+#define USE_ROUND_CARDS
+
+# 4.) specify, if you want sound (must copy the appropriate sound module)
+#     SOUNDOBJ should be one module of X-sound_*.o if USE_SOUND is on, else empty
+#     Note: for X-sound_SUN.o, /dev/audio must have 666 permissions */
+#define USE_SOUND	/* doesn't harm if you don't have a sound card */
+SOUNDOBJ = X-sound_SUN.o
+
+# 5.) specify, if you want the antialiased card construction set (SLOW!)
+#define USE_CARD_CONSTRUCTION
+
+# 6.) if you answered NO to 5.): Do you want support for full xpm cards?
+#define USE_XPM
+
+# 7.) if you answered NO to 5.): Do you want to load external bitmap cards?
+#define USE_LOADCARDS
+
+# BINDIR and LIBDIR should be predefined by the templates
+# BINDIR = /usr/bin/X11
+# LIBDIR = /usr/lib/X11
+XPATLIBDIR = /usr/games/lib/xpat
+APPDEFSDIR = $(LIBDIR)
+XPATMANDIR = /usr/man/man6
+
+# This is the name of the log-file, where solved games are stored:
+# an alternative path would be $(XPATLIBDIR)/xpat.log
+SCOREFILE = /var/games/xpat.log
+
+
+# paths for installation in user's home-directory.
+LXPATBINDIR = $(HOME)/bin
+LXPATMANDIR = $(HOME)/xpat
+LAPPDEFSDIR = $(HOME)
+
+# xpat2 needs to know where the xpm library resides (if needed)
+XPMLIB 			= -L$(USRLIBDIR) -lXpm
+XPMINCLUDE		= -I $(INCDIR)
+
+# *****************************************************************************
+# I hope you don't need to change anything below this point
+# *****************************************************************************
+#if defined(HPArchitecture) || defined(AIXArchitecture)
+CC = c89
+CCOPTIONS =
+#else
+CC = gcc
+#ifdef EXTRA_WARNINGS
+CCOPTIONS = -O2 -pipe -ansi -fno-common -Wall -Wshadow -Wpointer-arith \
+	-Wcast-qual -Wcast-align -Waggregate-return \
+	-Wstrict-prototypes -Wmissing-prototypes \
+	-Wnested-externs -Wwrite-strings
+#else
+CCOPTIONS = -O2 -pipe -ansi -fno-common -Wall
+#endif
+#endif
+
+#ifdef useXlib
+KIT_OPTION = -DuseXlib
+#ifdef USE_ROUND_CARDS
+KIT_LIBS = $(XMULIB) $(XLIB)
+#else
+KIT_LIBS = $(XLIB)
+#endif
+KIT_OBJS = Xlib-buttons.o Xlib-main.o Xlib-windows.o Xlib-events.o
+DEPLIBS = $(DEPXLIB)
+#endif
+#ifdef useXaw
+KIT_OPTION = -DuseXaw
+KIT_LIBS = XawClientLibs # $(XMULIB) $(XTOOLLIB)
+KIT_OBJS = Xaw-main.o Xaw-help.o
+DEPLIBS = XawClientDepLibs
+#endif
+#ifdef useMotif
+KIT_OPTION = -DuseMotif -I /usr/include/Motif1.2
+KIT_LIBS = -L/usr/lib/Motif1.2 -lXm $(XMULIB) $(XTOOLLIB) $(XLIB)
+# KIT_OPTION = -DuseMotif
+# KIT_LIBS = -lXm $(XTOOLLIB)
+KIT_OBJS = Xm-main.o
+DEPLIBS = $(DEPXLIB)
+#endif
+#ifdef useXview
+KIT_OPTION = -DuseXview -I/usr/openwin/include
+KIT_LIBS = -L/usr/openwin/lib -lxview -lolgx $(XMULIB) $(XLIB)
+KIT_OBJS = Xv-main.o Xv-events.o
+#endif
+
+#ifdef USE_ONLINEHELP
+HELP_OPTION = -DONLINE_HELP
+#else
+HELP_OPTION =
+#endif
+#ifdef USE_ROUND_CARDS
+ROUND_OPTION = # -DNO_ROUND_CARDS
+#else
+ROUND_OPTION =
+#endif
+#ifdef USE_SOUND
+SOUND_OPTION = -DSOUND
+#else
+SOUND_OPTION =
+#endif
+#ifdef USE_LOADCARDS
+LOAD_OPTION = -DLOADCARDS
+#else
+LOAD_OPTION =
+#endif
+#ifdef USE_XPM
+XPM_OPTION = $(XPMINCLUDE)
+#else
+XPM_OPTION = -DNO_XPM
+XPM_LIB =
+#endif
+#ifdef USE_CARD_CONSTRUCTION
+GFXOBJ = X-gfx2.o
+GFX_OPTION = -DGFX2
+#else
+GFXOBJ = X-gfx1.o
+GFX_OPTION = -DGFX1
+#endif
+
+
+LOCAL_LIBRARIES = $(XPMLIB) $(KIT_LIBS)
+
+
+VER=1.04
+
+XOBJS    = X-events.o X-layout.o X-expose.o X-cards.o \
+	   X-markcard.o X-arrows.o X-widget.o $(GFXOBJ)
+STDOBJS =  rules.o commands.o messages.o hints.o \
+	   loadsave.o util.o moves.o $(SOUNDOBJ) \
+	   r_Klondike.o r_Spider.o r_Delight.o r_MonteCarlo.o r_Midnight.o \
+           r_Gypsy.o r_Seahaven.o r_FreeCell.o r_Calculatio.o r_Michaels.o \
+	   r_Royal.o r_Canfield.o r_mdCanfield.o r_Bakers.o
+
+OBJS = $(STDOBJS) $(XOBJS) $(KIT_OBJS)
+MYPROG = xpat2
+LANGUAGES = italian german russian french
+DEFINES =  $(LOAD_OPTION) $(HELP_OPTION) $(KIT_OPTION) $(ROUND_OPTION) \
+    $(SOUND_OPTION) $(XPM_OPTION) $(GFX_OPTION) \
+    -DSCOREFILE=\"$(SCOREFILE)\" -DLIBDIR=\"$(XPATLIBDIR)\"
+
+# Dependencies:
+# *.c  require  version.h xpat.h xpatgame.h
+# X*.c additionally require X-pat.h and Tableau.h
+# X-widget.c additionally requires TableauP.h
+
+all::	$(MYPROG)
+
+install:: $(MYPROGS)
+	mkdirhier $(XPATLIBDIR)
+	chmod 755 $(XPATLIBDIR)
+	for f in $(LANGUAGES); do \
+	  mkdirhier $(APPDEFSDIR)/$$f/app-defaults; \
+	  cp ../lib/$$f/XPat $(APPDEFSDIR)/$$f/app-defaults; \
+	  chmod 755 $(APPDEFSDIR)/$$f/app-defaults; \
+	  chmod 644 $(APPDEFSDIR)/$$f/app-defaults/XPat; \
+	done 
+	(cd ../lib; tar cf - * | (cd $(XPATLIBDIR); tar xf -))
+	chown -R root $(XPATLIBDIR)
+	chmod -R a+r $(XPATLIBDIR)
+	for f in $(LANGUAGES); do \
+	    chmod 755 $(XPATLIBDIR)/$$f; \
+	done
+	mkdirhier $(XPATMANDIR)
+	cp xpat2.man $(XPATMANDIR)/xpat2.6x
+	chmod 644 $(XPATMANDIR)/xpat2.6x
+
+ComplexProgramTarget($(MYPROG))
+InstallAppDefaults(XPat)
+
+install.fsstnd:
+	$(MAKE) install
+	mkdirhier /usr/games/bin
+	chmod 755 /usr/games/bin
+	mv $(BINDIR)/xpat2 /usr/games/bin
+
+install.local: $(MYPROGS)
+	mkdirhier $(LXPATBINDIR) $(LXPATMANDIR) $(XPATLIBDIR) $(LAPPDEFSDIR)/app-defaults
+	chmod 755 $(XPATLIBDIR) $(LXPATMANDIR) $(LAPPDEFSDIR)/app-defaults
+	for f in $(LANGUAGES); do \
+	  mkdirhier $(LAPPDEFSDIR)/$$f/app-defaults; \
+	  cp ../lib/$$f/XPat $(LAPPDEFSDIR)/$$f/app-defaults; \
+	  chmod 755 $(LAPPDEFSDIR)/$$f/app-defaults; \
+	  chmod 644 $(LAPPDEFSDIR)/$$f/app-defaults/XPat; \
+	done 
+	cp XPat.ad $(LAPPDEFSDIR)/app-defaults/XPat
+	chmod 755 $(LAPPDEFSDIR)/app-defaults/XPat
+	(cd ../lib; tar cf - * | (cd $(XPATLIBDIR); tar xf -))
+	chmod -R a+r $(XPATLIBDIR)
+	for f in $(LANGUAGES); do \
+	    chmod 755 $(XPATLIBDIR)/$$f; \
+	done
+	cp xpat2 $(LXPATBINDIR)
+	chmod 755 $(LXPATBINDIR)/xpat2
+	cp xpat2.man $(LXPATMANDIR)/xpat2.6x
+	chmod 644 $(LXPATMANDIR)/xpat2.6x
+

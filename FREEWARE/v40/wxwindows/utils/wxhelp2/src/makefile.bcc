@@ -1,0 +1,140 @@
+#
+# File:		makefile.bcc
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxHelp for Windows 3.1
+
+!if "$(BCCDIR)" == ""
+!error You must define the BCCDIR variable in autoexec.bat, e.g. BCCDIR=d:\bc4
+!endif
+
+!if "$(WXWIN)" == ""
+!error You must define the WXWIN variable in autoexec.bat, e.g. WXWIN=c:\wx
+!endif
+
+# Change WXDIR to wherever wxWindows is found
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makebcc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+WXINC = $(WXDIR)\include
+CFG=$(WXWIN)\src\wxwin.cfg
+
+HYPDIR = $(WXDIR)\utils\hytext
+HYPINC = $(HYPDIR)\src
+HYPLIB = $(HYPDIR)\lib\hytext.lib
+
+WXHELPDIR = $(WXDIR)\utils\wxhelp
+TEX2RTFDIR = $(WXDIR)\utils\tex2rtf
+DOCDIR = $(WXHELPDIR)\docs
+
+LIBS=$(WXLIB) $(HYPLIB) mathwl cwl import
+
+# Default is to output RTF for WinHelp
+!ifndef WINHELP
+WINHELP=-winhelp
+!endif
+
+INC=/I$(HYPINC) /I$(WXDIR)\include\base /I$(WXDIR)\include\msw
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+!if "$(FINAL)" == "0"
+OPT = -Od
+DEBUG_FLAGS= -v
+LINKFLAGS=/v/Vt /Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+!else
+LINKFLAGS=/Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+OPT = -O2
+DEBUG_FLAGS=
+!endif
+CPPFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+CFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+
+all:    wxhelp.exe test.exe
+
+.$(SRCSUFF).obj:
+	bcc $(CPPFLAGS) -I$(HYPINC) -c {$< }
+
+wxhelp.obj: wxhelp.$(SRCSUFF) wxhelp.h $(HYPINC)\hytext.h
+
+wxhelp.res :      wxhelp.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(BCCDIR)\include /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa wxhelp
+
+wxhelp.exe:      $(WXLIB) wxhelp.obj wxhelp.def wxhelp.res $(HYPLIB)
+        tlink $(LINKFLAGS) @&&!
+c0wl.obj wxhelp.obj
+wxhelp
+
+$(LIBS)
+wxhelp.def
+!
+        rc -K wxhelp.res
+
+# Tests out calling wxhelp.exe from an application
+test.obj: test.$(SRCSUFF)
+
+test.res :      test.rc $(WXDIR)\include\msw\wx.rc
+    rc /i$(BCCDIR)\include /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -r test
+
+test.exe:      test.obj test.def test.res $(HYPLIB)
+        tlink $(LINKFLAGS) @&&!
+c0wl.obj test.obj
+test
+
+$(LIBS)
+test.def
+!
+        rc -K test.res
+
+
+# No PostScript production on the PC: just check it goes through Latex
+docs:	dvi hlp xlp htm
+dvi:	$(WXHELPDIR)/docs/manual.dvi
+hlp:	$(WXHELPDIR)/docs/wxhelp.hlp
+rtf:	$(WXHELPDIR)/docs/wxhelp.rtf
+xlp:    $(WXHELPDIR)/docs/wxhelp.xlp
+html:    $(WXHELPDIR)/docs/wxhelp.html
+
+$(WXHELPDIR)/docs/manual.dvi:	$(WXHELPDIR)/docs/manual.tex
+	cd $(WXHELPDIR)/docs
+        latex manual
+        latex manual
+        makeindx manual
+        latex manual
+#        dvips -f -r < manual.dvi > manual.ps
+
+$(WXHELPDIR)/docs/wxhelp.rtf:       $(DOCDIR)/manual.tex
+        cd $(DOCDIR)
+        -wx tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\wxhelp.rtf -twice $(WINHELP)
+        cd $(WXHELPDIR)/src
+
+$(WXHELPDIR)/docs/wxhelp.hlp:       $(DOCDIR)/wxhelp.rtf
+        cd $(DOCDIR)
+        hc wxhelp
+        cd $(WXHELPDIR)/src
+
+$(WXHELPDIR)/docs/wxhelp.xlp:         $(DOCDIR)/manual.tex
+        cd $(DOCDIR)
+        -wx tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\wxhelp.xlp -xlp -twice
+        cd $(WXHELPDIR)/src
+
+$(WXHELPDIR)/docs/wxhelp.html:         $(DOCDIR)/manual.tex
+        cd $(DOCDIR)
+        -wx tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\wxhelp.htm -html -twice
+        cd $(WXHELPDIR)/src
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.res
+
+cleanall:	clean
+

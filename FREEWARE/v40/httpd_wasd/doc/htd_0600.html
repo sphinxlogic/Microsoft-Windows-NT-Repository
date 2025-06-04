@@ -1,0 +1,1225 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.7.0">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.HTD]HTD.SDML">
+<META NAME="date" CONTENT="Tue, 08 Sep 1998 10:04:12">
+<!--
+WASD (HFRD) VMS Hypertext Services, Copyright (c) 1996-1998 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Server Configuration</TITLE>
+</HEAD>
+<BODY>
+<H1>WASD Hypertext Services - Technical Overview</H1>
+[<A HREF="HTD_0700.HTML" TARGET="_self">next</A>] [<A HREF="HTD_0500.HTML" TARGET="_self">previous</A>] [<A HREF="HTD_0001.HTML"TARGET="_top" >contents</A>] [<A HREF="HTD_0600.HTML"TARGET="_top" >full-page</A>]
+<HR>
+
+<A NAME="67">
+<H1>6 - Server Configuration</H1>
+</A>
+
+<P>
+ WASD's HTTPd configuration was originally a subset based on the CERN
+HTTPd. It has now evolved considerably. By default, the system-table logical
+name HTTPD$CONFIG locates a common configuration file, unless an individual
+configuration file is specified using a job-table logical name. Simple editing
+of this file changes the configuration. Comment lines may be included by
+prefixing them with the hash &quot;#&quot; character. Configuration file
+directives are not case-sensitive. Any changes to the configuration file can
+only be enabled by restarting the HTTPd process using the following command on
+the server system:
+
+<PRE>  $ HTTPD /DO=RESTART
+</PRE>
+
+<P>
+ A server's currently loaded configuration can be interrogated.  See
+<A HREF="htd_1100.html#137" TARGET="_self">11 - Server Administration</A> for further information.
+
+<A NAME="68">
+<H2><BR><U>6.1 - Content-Type Configuration</U></H2>
+</A>
+
+<P>
+ HTTP uses a quasi-standard implementation of the MIME (Multi-purpose
+Internet Mail Extensions) specification for identifying the type of data
+returned in a response. A MIME content-type consists of a plain text string
+describing the data as a <I>type</I> and slash-separated
+<I>subtype</I>, as illustrated in the following examples:
+
+<PRE>  text/html
+  text/plain
+  image/gif
+  image/jpeg
+  application/octet-stream
+</PRE>
+ The content-type is returned to the client as part of the HTTP response,
+the client then using this information to correctly process and present the
+data contained in that response.
+
+<P>
+ In common with most HTTP servers WASD uses a file's type (extension,
+suffix, e.g. &quot;.HTML&quot;, &quot;.TXT&quot;, &quot;.GIF&quot;) to identify the
+data type within the file. The [AddType] directive (see below) is used in
+configuration to bind a file type to a MIME content-type.  To make the server
+recognise and return specific content-types the [AddType] directives matches
+file types to content-types.
+<P><FONT SIZE=+1 COLOR="#ff0000"><B><U>NOTE:</U></B></FONT>
+ 
+When adding a totally new content-type to the configuration be sure also to
+bind an icon to that type using the [AddIcon] directive (see below).  When this
+is not done a directory listing shows
+&quot;<FONT COLOR="#ff0000"><B>[?]</B></FONT>&quot;
+ 
+in place of an icon.
+
+<P>
+ With the VMS file system there is no effective file characteristic or
+algorithm for identifying a file's content without an exhaustive examination
+of the data contained there-in ... a very expensive process (and
+probably still inconclusive in many cases), hence the reliance on the file
+type.
+
+<P>
+ If a file type is not recognised (i.e. no [AddType] corresponding to the
+file type) then by default WASD identifies its data as
+<I>application/octet-stream</I> (i.e. essentially binary data). Most
+browsers respond to this content-type with a download dialog, allowing the
+data to be saved as a file. Most commonly these unknown types manifest
+themselves when authors use &quot;interesting&quot; file names to indicate their
+purpose. Here are some examples the author has encountered:
+
+<PRE>  README.VMS
+  README.1ST
+  READ-ME.FIRST
+  BUILD.INSTRUCTIONS
+  MANUAL.PT1 (.PT2, ...)
+</PRE>
+
+<P>
+ If the site administrator would prefer another default content-type,
+perhaps &quot;text/plain&quot; so that any unidentified files default to plain
+text, then this may be configured by specifying that content-type as the
+<I>description</I> of the catch-all file type entry. Examples (use one
+of):
+
+<PRE>  [AddType]
+  *  internal/x-unknown  -
+  *  internal/x-unknown  -  application/octet-stream
+  *  internal/x-unknown  -  text/plain
+  *  internal/x-unknown  -  something/else-entirely
+</PRE>
+ It is the author's opinion that unidentified file types should remain as
+binary downloads, not &quot;text&quot; documents, which they are probably more
+often not, but it's there if it's wanted.
+
+<A NAME="69">
+<H3><BR><U>6.1.1 - Explicitly Specifying Content-Type</U></H3>
+</A>
+
+<P>
+ When accessing files it is possible to explicitly specify the identifying
+content-type to be returned to the browser in the HTTP response header.  Of
+course this does not change the actual content of the file, just the header
+content-type!  This is primarily provided to allow access to plain-text
+documents that have obscure, non-&quot;standard&quot; or non-configured file
+extensions.
+
+<P>
+ It could also be used for other purposes, &quot;forcing&quot; the browser to
+accept a particular file as a particular content-type.  This can be useful if
+the extension is not configured (as mentioned above) or in the case where the
+file contains data of a known content-type but with an extension conflicting
+with an already configured extension specifying data of a different
+content-type.
+
+<P>
+ Enter the file path into the browser's URL specification field ("Location:",
+"Address:").  Then, for plain-text, append the following query string:
+
+<PRE>  ?httpd=content&amp;type=text/plain
+</PRE>
+
+<P>
+ For another content-type substitute it appropriately. 
+For example, to retrieve a text file in binary (why I can't imagine :^) use
+
+<PRE>  ?httpd=content&amp;type=application/octet-stream
+</PRE>
+
+<P>
+ This is an example:
+
+<PRE>
+  <A TARGET="_top" HREF="file.unknown">file.unknown</A>
+
+  <A TARGET="_top" HREF="file.unknown?httpd=content&type=text/plain">file.unknown?httpd=content&type=text/plain</A>
+</PRE>
+
+<P>
+ It is posssible to "force" the content-type for all files in a particular
+directory.  Enter the path to the directory and then add
+
+<PRE>  ?httpd=index&amp;type=text/plain
+</PRE>
+
+<P>
+ (or what-ever type is desired).  Links to files in the listing will contain
+the appropriate &quot;?httpd=content&amp;type=...&quot; appended as a query string.
+
+<P>
+ This is an example:
+
+<PRE>
+  <A TARGET="_top" HREF="*.*">*.*</A>
+
+  <A TARGET="_top" HREF="*.*?httpd=index&type=text/plain">*.*?httpd=index&type=text/plain</A>
+</PRE>
+
+<A NAME="70">
+<H2><BR><U>6.2 - Directives</U></H2>
+</A>
+<P><FONT SIZE=+1 COLOR="#ff0000"><B><U>NOTE:</U></B></FONT>
+ 
+The format of the configuration file has been changed between version 3 and
+version 4.  This was to support on-line server configuration and administration
+(see <A HREF="htd_1100.html#137" TARGET="_self">11 - Server Administration</A>).  The version 3 format will still be
+read by the HTTPd but the first time the configuration is updated on-line it is
+saved in the version 4 format, described below.
+
+<P> The example
+<A TARGET="_top" HREF="/ht_root/example/httpd$config.conf">configuration file</A> for the
+WASD HTTP server can be viewed.
+
+<P>
+ Some directives take a single parameter, such as an integer, string or
+boolean value.  Other directives can/must have multiple parameters.  The
+version 4 configuration requires the directive to be placed on a line by itself
+and each separate parameter on a separate line following it.  All parameter
+lines apply to the most recently encountered directive.
+
+<P>
+ Note that all <I>boolean</I> directives are <I>disabled</I> (OFF)
+by default.  This is done so that there can be no confusion about what is
+enabled and disabled by default.  To use directive controlled facility it
+<B>must</B> be explicitly enabled.
+<OL>
+<LI> <B>[Accept] <I>host/domain name</I></B>
+<I>(default: all)</I>
+
+<P>
+ One or more (comma-separated if on the same line) internet host/domain
+names, with &quot;*&quot; wildcarding for host/subdomain matching, to be
+explicitly allowed access. If DNS lookup is not enabled hosts must be expressed
+using numeric addresses (see [DNSLookup] directive). Also see the [Reject]
+directive. Reject directives have precedence over Accept directives. The
+Accept directive may be used multiple times.
+
+<P>
+ Examples: 
+
+<PRE>  [Accept]
+  *.wasd.dsto.defence.gov.au
+  131.185.250.*
+</PRE>
+<P>
+<LI> <B>[ActivityDays] <I>integer</I></B> 
+<I>(default: 0)</I> 
+
+<P>
+ Specifies the number of days to record activity statistics, available in
+report form from the server administration menu (see
+<A HREF="htd_1100.html#140" TARGET="_self">11.2 - HTTPd Server Reports</A>). Zero disables this data collection. The
+maximum is 28 days. 11520 bytes per day, and 80640 per week, is required to
+store the per-minute data.
+<P>
+<LI> <B>[AddIcon] <I>icon-URL</I> <I>ALT-text</I> 
+<I>template</I> </B> 
+<I>(no default)</I> 
+
+<P>
+ Specifies a directory listing icon and alternative text for the mime 
+content type specified in the template.
+
+<BR>
+<BR> Examples: 
+
+<PRE>  [AddIcon]
+  /icon/-/doc.gif    [HTM]  text/html
+  /icon/-/text.gif   [TXT]  text/plain
+  /icon/-/image.gif  [IMG]  image/gif
+</PRE>
+<LI> <B>[AddBlankIcon] <I>icon-URL</I></B>
+
+<BR> <B>[AddDirIcon] <I>icon-URL</I> <I>ALT-text</I></B>
+
+<BR> <B>[AddParentIcon] <I>icon-URL</I> <I>ALT-text</I></B>
+
+<BR> <B>[AddUnknownIcon] <I>icon-URL</I> <I>ALT-text</I></B>
+<I>(no defaults)</I> 
+
+<BR>
+<BR>
+Specifies a directory listing icon for these non-content-type parts of the 
+listing.
+
+<BR>
+<BR>
+Examples:
+
+<PRE>  [AddBlankIcon]    /icon/-/blank.gif
+  [AddDirIcon]      /icon/-/dir.gif      [DIR]
+  [AddParentIcon]   /icon/-/back.gif     [&lt;--]
+  [AddUnknownIcon]  /icon/-/unknown.gif  [???] 
+</PRE>
+<P>
+<LI> <B>[AddType] <I>.suffix</I> <I>representation</I>
+<I>encoding</I> <I>script-name</I> <I>description</I> </B>
+<I>(no default)</I> 
+
+<P>
+ Binds a file suffix (extension, type) to a mime content type.
+The script name is used to auto-script against a specified file type.  The
+description is used as documentation for directory listings. 
+
+<BR>
+<BR>
+Examples:
+
+<PRE>  [AddType]
+  .html  text/html   -       HyperText Markup Language
+  .txt   text/plain  -       plain text
+  .gif   image/gif   -       image (GIF)
+  .hlb   text/x-script /Conan  VMS Help library
+  .decw$book   text/x-script   /HyperReader    Bookreader book
+  *  internal/x-unknown -  application/octet-stream
+  #*  internal/x-unknown -  text/plain
+</PRE>
+
+<P>
+ (Versions prior to 3.2 used this configuration directive for the MIME
+content-type to determine whether a file was transfered record-by-record or in
+binary.  This is no longer required and should be removed from existing
+configuration files.)
+<P>
+<LI> <B>[AuthBasic] <TT>ENABLED|DISABLED</TT></B> 
+<I>(default: DISABLED)</I> 
+
+<P>
+ Enables or disables BASIC username authentication.  See 
+<A HREF="htd_0900.html#103" TARGET="_self">9 - Authentication and Authorization</A>.
+<P>
+<LI> <B>[AuthCacheMinutes] <I>integer</I></B> 
+<I>(default: 60)</I> 
+
+<P>
+ The number of minutes authentication information is cached before being
+revalidated from the authentication source.  Zero disables caching (with a
+resultant impact on performance as each request requiring authentication is
+validated directly from the source).
+<P>
+<LI> <B>[AuthDigest] <TT>ENABLED|DISABLED</TT></B> 
+<I>(default: DISABLED)</I> 
+
+<P>
+ Enables or disables Digest username authentication.  See 
+<A HREF="htd_0900.html#103" TARGET="_self">9 - Authentication and Authorization</A>.
+<P>
+<LI> <B>[AuthDigestGetLife] <I>integer</I></B> 
+<I>(default: 0)</I> 
+
+<P>
+ The number of seconds a digest nonce for a GET request (read) can be used
+before becoming stale.
+<P>
+<LI> <B>[AuthDigestPutLife] <I>integer</I></B> 
+<I>(default: 0)</I> 
+
+<P>
+ The number of seconds a digest nonce for a PUT (/POST/DELETE ... write)
+request can be used before becoming stale.
+<P>
+<LI> <B>[AuthFailureLimit] <I>integer</I></B> 
+<I>(default: 10)</I> 
+<P>
+
+<P>
+ The number of unsuccessful attempts at authentication before the username
+is disabled.  Once disabled any subsequent attempt is automatically refused
+without further reference to the authentication source.  A disabled username
+can be reenabled by simply purging the cache.
+<P>
+<LI> <B>[AuthRevalidateUserMinutes] <I>integer</I></B> 
+<I>(default: 60)</I> 
+
+<P>
+ The number of minutes between authenticated requests that user
+authentication remains valid before the user is forced to reenter the
+authentication information (via browser dialog).  Zero disables the requirement
+for revalidation.
+<P>
+<LI> <B>[AuthVMS]</B>
+
+<P>
+ <I>(Retired in v4.4, server /SYSUAF qualifier provides this)</I>
+<P>
+<LI> <B>[Busy] <I>integer</I></B>
+<I>(default: 10)</I>
+
+<P>
+ The maximum number of concurrent client connections before a 
+&quot;<I>server too busy right now ... try again shortly</I>&quot; error 
+is returned to the client. 
+<P>
+<LI> <B>[Cache] <TT>ENABLED|DISABLED</TT></B> 
+<I>(default: DISABLED)</I> 
+<P>
+<LI> <B>[CacheChunkKBytes] <I>integer</I></B>
+<I>(default: 0)</I>
+
+<P>
+ Granularity of memory blocks allocated to file data, in kilobytes.
+<P>
+<LI> <B>[CacheEntriesMax] <I>integer</I></B>
+<I>(default: 0)</I>
+
+<P>
+ Maximum number of files loaded into the cache before entries are reused
+removing the original contents from the cache.
+<P>
+<LI> <B>[CacheFileKBytesMax] <I>integer</I></B>
+<I>(default: 0)</I>
+
+<P>
+ Maximum size of a file before it is not a candidate for being cached, in
+kilobytes.
+<P>
+<LI> <B>[CacheFrequentHits] <I>integer</I></B>
+<I>(default: 0)</I>
+
+<P>
+ Minimum, total number of hits an entry must sustain before being a
+candidate for [CacheFrequentSeconds] assessment.
+<P>
+<LI> <B>[CacheFrequentSeconds] <I>integer</I></B>
+<I>(default: 0)</I>
+
+<P>
+ If a file has been hit at least [CacheFrequentHits] times in total and the
+last was within the number of seconds here specified it will not be a
+candidate for reuse. See <A HREF="htd_1300.html#193" TARGET="_self">13 - Cache</A>.
+<P>
+<LI> <B>[CacheHashTableEntries] <I>integer</I></B>
+<I>(default: 0)</I>
+
+<P>
+ Size of the hash table.
+<P>
+<LI> <B>[CacheTotalKBytesMax] <I>integer</I></B>
+<I>(default: 0)</I>
+
+<P>
+ Maximum memory allocated to the cache, in kilobytes.
+<P>
+<LI> <B>[CacheValidateSeconds] <I>integer</I></B>
+<I>(default: 0)</I>
+
+<P>
+ The interval after which a cache entry's original, content revision time
+is revalidated against the file's current revision time.  If not the same the
+contents are declared invalid and reloaded.
+<P>
+<LI> <B>[CommentedInfo] <TT>ENABLED|DISABLED</TT></B> 
+<I>(default: DISABLED)</I> 
+
+<P>
+ Includes, as META information, the software ID of the server and any
+relevant VMS file specification for directory listings, etc.
+<P>
+<LI> <B>[DclCgiPlusLifeTime] <I>integer</I></B>
+<I>(default: 0)</I>
+
+<P>
+ This value represents time in minutes.  If this value is zero CGIplus
+subprocess may persist indefinitely (excluding explicit and proactive server
+purging).  If non-zero the CGIplus subprocess is terminated the specified
+number of minutes after it last processed a request.  This helps prevent
+sporadically used scripts from clogging up a system.
+<P>
+<LI> <B>[DclFullRequest]
+<TT>ENABLED|DISABLED</TT></B> 
+<I>(default: DISABLED)</I> 
+
+<P>
+ Versions of the server prior to 4.3 supplied the full request (header then
+body) to the script.  This was not fully CGI-compliant.  Versions 4.3 and
+following supply only the body, although the previous behaviour may be
+explicitly selected by enabling this configuration parameter.
+<P>
+<LI> <B>[DclHardLimit] <I>integer</I></B>
+<I>(default: 0)</I>
+
+<P>
+ The maximum number of DCL/CGI script processing subprocesses that may ever
+exist concurrently (works in conjunction with [DclSoftLimit].
+<P>
+<LI> <B>[DclScriptRunTime] <I>string</I></B>
+<I>(default: none)</I> 
+
+<P>
+ One or more file type (extension) specification and scripting verb pairs.
+See <A HREF="htd_1200.html#149" TARGET="_self">12.3 - Script Run-Time</A>.
+<P>
+<LI> <B>[DclSoftLimit] <I>integer</I></B>
+<I>(default: 0)</I>
+
+<P>
+ The number of DCL/CGI script processing subprocesses after which idle
+subprocesses are deleted to make room for new ones.  The [DclHardLimit] should
+be approximately 25% more than the [DclSoftLimit].  The margin exists to allow
+for occasional slow run-down of deleted/finishing subprocesses.  If these
+limits are not set (i.e. zero) they are calculated with [Busy] using
+&quot;[DclSoftLimit] = [Busy]&quot; and &quot;[DclHardLimit] = [DclSoftLimit] +
+[DclSoftLimit] / 4&quot;.
+<P>
+<LI> <B>[DclSpawnAuthPriv]
+<TT>ENABLED|DISABLED</TT></B> 
+<I>(default: DISABLED)</I> 
+
+<P>
+ By default, when a DCL/scripting subprocess is spawned it inherits the
+server's currently enabled privileges, which are <B>none</B>, not
+even TMPMBX or NETMBX. If this parameter is enabled the subprocess is created
+with the server account's SYSUAF-authorized privileges (which should never be
+other than NETMBX and TMPMBX). Use with caution.
+<P>
+<LI> <B>[DclZombieLifeTime] <I>integer</I></B>
+<I>(default: 0)</I>           
+
+<P>
+ This value represents time in minutes.  If this value is zero the use of
+persistant DCL subprocesses is disabled.  If non-zero the <I>zombie</I>
+subprocess is terminated the specified number of minutes after it last
+processed a request.  This helps prevent zombie processes from clogging up a
+system.  See <A HREF="htd_1200.html#145" TARGET="_self">12 - Scripting</A>.
+<P>
+<LI> <B>[DECnetReuseLifeTime] <I>integer</I></B>
+<I>(default: 0)</I>              
+
+<P>
+ The number of minutes a DECnet scripting connection is maintained with the
+network task.  Zero disables connection reuse. 
+<LI> <B>[DECnetConnectListMax] <I>integer</I></B>
+<I>(default: 0)</I>              
+
+<P>
+ The size of the list used to manage connections for DECnet scripting.  Zero
+effectively allows the server to use as many DECnet scripting connections as
+demanded. 
+<P>
+<LI> <B>[DirAccess] <TT>ON|OFF|
+SELECTIVE</TT></B> <I>(default: DISABLED)</I> 
+
+<P>
+ Controls directory listings.  <TT>SELECTIVE</TT> allows access 
+only to those directories containing a file 
+<TT>.WWW_BROWSABLE</TT>.  The WASD HTTPd directory access 
+facility always ignores directories containing a file named 
+<TT>.WWW_HIDDEN</TT>.  Also see the [DirWildcard]
+directive.
+<P>
+<LI> <B>[DirDescription] <TT>ON|OFF|
+SELECTIVE</TT></B> <I>(default: DISABLED)</I> 
+
+<P>
+ <I>Retired in v5.0, replaced by [DirDescriptionLines]</I>
+<P>
+<LI> <B>[DirDescriptionLines] <I>integer</I></B>
+<I>(default: 0)</I>              
+
+<P>
+ Non-Zero enables HTML file descriptions during listings.  Generating HTML
+descriptions involves opening each HTML file and searching for
+&lt;TITLE&gt;...&lt;/TITLE&gt; and &lt;H1&gt;...&lt;/H1&gt; text to generate the
+description. This is an obviously resource-intensive activity and on busy
+servers or systems may be disabled.  Any non-zero number specifies the number
+of lines to be searched before quitting.  Set to a very high number to search
+all of files' contents (e.g. 999999).
+<P>
+<LI> <B>[DirLayout] <I>string</I></B>
+<I>(default: I__L__R__S__D)</I> 
+
+<P>
+ Allows specification of the directory listing layout. This is a short,
+case-insensitive string that specifies the included fields, relative placement
+and optionally the width of the fields in a directory listing. Each field is
+controlled by a single letter and optional leading decimal number specifying
+its width. If a width is not specified an appropriate default applies. An
+underscore is used to indicate a single space and is used to separate the
+fields (two consecutive works well). 
+<P>
+<UL>
+<LI><B>C</B> - creation date
+<LI><B>D</B> - description (generally best specified last)
+<UL>
+<LI><B>D:L</B> - for files, make a link out of the description text
+</UL>
+<LI><B>I</B> - icon (takes no field-width attribute)
+<LI><B>L</B> - link (highlighted anchor using the name of the file)
+<LI><B>N</B> - name (no link, why bother? who knows!)
+<LI><B>O</B> - owner (can be disabled)
+<LI><B>R</B> - revision date
+<LI><B>S</B> - size
+<UL>
+<LI><B>S:B</B> - in bytes (comma-formatted)
+<LI><B>S:D</B> - decimal kilos (see below)
+<LI><B>S:F</B> - kilo and mega are displayed to one decimal place
+<LI><B>S:K</B> - in kilo-bytes (and fractions thereof)
+<LI><B>S:M</B> - in mega-bytes (and fractions thereof)
+</UL>
+<LI><B>U</B> - upper-case file and directory names (must be the
+first character)
+</UL>
+<P>
+
+<P>
+ The following shows some examples:
+
+<PRE>  [DirLayout]       I__L__R__S__D
+  [DirLayout]       I__L__R__S:b__D
+  [DirLayout]       I__15L__S__D
+  [DirLayout]       UI__15L__S__D
+  [DirLayout]       15L__9R__S
+  [DirLayout]       15N_9C_9R_S
+  [DirLayout]       I__L__R__S:d__D
+  [DirLayout]       25D:l__S:b__C__R
+</PRE>
+
+<P>
+ The size of files is displayed by default as 1024 byte kilos.  When using
+the &quot;S:k&quot;, &quot;S:m&quot; and &quot;S:f&quot; size modifiers the size is
+displayed as 1000 byte kilos.  If it is prefered to have the default display
+in 1000 byte kilos then set the directory listing layout using:
+
+<PRE>  [DirLayout]       I__L__R__S:d__D
+</PRE>
+
+<P>
+ If unsure of the kilo value being used check the
+&quot;&lt;META&gt;&quot; information in the directory listing.
+<P>
+<LI> <B>[DirNoImpliedWildcard] <TT>ON|OFF </TT></B> 
+<I>(default: DISABLED)</I> 
+
+<P>
+ When a directory is accessed having no file or type component and there is
+no welcome page available a directory listing is generated.  By default any
+other directory accessed from this listing has the implied wildcards "*.*"
+added,  consequently forcing directory listings.  If enabled, this directive
+ensures no wildcards are added, so subsequent directories accessed with
+welcome pages display the pages, not a forced listing. 
+<P>
+<LI> <B>[DirNoPrivIgnore] <TT>ON|OFF </TT></B> 
+<I>(default: DISABLED)</I> 
+
+<P>
+ To prevent browsing through directories (perhaps due to inadvertant
+mapping) that have file permissions allowing no WORLD access the server stops
+listing and reports the error the first time a protection violation occurs. 
+This behaviour may be changed to ignore the violation, listing only those files
+to which it has access.
+<P>
+<LI> <B>[DirOwner] <TT>ON|OFF </TT></B> 
+<I>(default: DISABLED)</I> 
+
+<P>
+ Allows specification and display of the RMS file owner information.
+<P>
+<LI> <B>[DirPreExpired]
+<TT>ENABLED|DISABLED </TT></B> 
+<I>(default: DISABLED)</I> 
+
+<P>
+ Directory listings and trees may be <I>pre-expired</I>.  That is, the
+listing is reloaded each time the page is referenced.  This is convenient in
+some environments where directory contents change frequently, but adds
+considerable over-head and so is disabled by default.  Individual directory
+listings may have the default behaviour over-ridden using syntax similar to the
+following examples:
+
+<PRE>  /dir1/dir2/*.*?httpd=index?expired=yes
+  /dir1/dir2/*.*?httpd=index?expired=no
+  /tree/dir2/?httpd=index?expired=yes
+  /tree/dir1/dir2/?httpd=index?expired=no
+</PRE>
+<P>
+<LI> <B>[DirReadme] <TT>TOP|BOTTOM |
+OFF</TT></B> <I>(default: DISABLED)</I> 
+
+<P>
+ If any of the files provided using the [DirReadMeFile] directive are
+located in the directory the contents are included at the top or bottom of the
+listing (or not at all). Plain-text are included as plain-text, HTML are
+included as HTML allowing markup tags to be employed. 
+<P>
+<LI> <B>[DirReadMeFile] <TT>file.suffix</TT></B>
+<I>(no default)</I> 
+
+<P>
+ Specifies the names and order in which a directory is checked for
+<I>read-me</I> files. This can be enabled or disabled using the
+[DirReadme] directive. Plain-text are included as plain-text, HTML are
+included as HTML allowing markup tags to be employed. 
+<P>
+
+<P>
+ Examples: 
+
+<PRE>  [DirReadMeFile]
+  readme.html
+  readme.htm
+  readme.
+  readme.txt
+  readme.1st
+</PRE>
+<P>
+<LI> <B>[DirWildcard] <TT>OFF|ON</TT></B>
+<I>(default: DISABLED)</I>
+
+<P>
+ This enables the facility to <I>force</I> the server to provide a
+directory listing by providing a wildcard file specification, even if there is
+a home (welcome) document in the directory.  This should not be confused with
+the [DirAccess] directive which controls directory listing itself.
+<P>
+<LI> <B>[DNSLookup] <TT>ENABLED|DISABLED</TT></B>
+<I>(default: DISABLED)</I> 
+
+<P>
+ Enables or disables connection request host name resolution.  This 
+functionality may be expensive (in terms of processing overhead) and make 
+serving granularity coarser if DNS is involved.  If not enabled and logging 
+is, the entry is logged against the numeric internet address.  If not enabled 
+any [Accept], [Reject] directive, etc., must be expressed as numeric
+addresses.
+
+<P>
+ This functionality significantly slows request processing.  See
+<A HREF="htd_1400.html#201" TARGET="_self">14 - Server Performance</A>.
+<P><FONT SIZE=+1 COLOR="#ff0000"><B><U>NOTE:</U></B></FONT>
+ 
+From version 4.4 the HTTPd processes initial client connection at AST delivery
+level.  Some NETLIB-supported TCP/IP packages cannot perform host name
+resolution at this level and will &quot;hang&quot;.  If using NETLIB with
+[DNSlookup] enabled and this seems to occur disable it (NETLIB DNSlookup
+certainly does work with Digital TCP/IP).
+<P>
+<LI> <B>[ErrorRecommend] <TT>ENABLED|DISABLED</TT></B>
+<I>(default: DISABLED)</I> 
+
+<P>
+ Provides a short message recommending action when reporting an error to a
+client.  For example, if a document cannot be found it may say:
+
+<PRE>  <I>(document, or bookmark, requires revision)</I>
+</PRE>
+<P>
+<LI> <B>[ErrorSourceInfo] <TT>ENABLED|DISABLED</TT></B>
+<I>(default: DISABLED)</I> 
+
+<P>
+ When an error message is generated META information is included showing the
+server version with source code module and line reporting the error.  This is
+useful information during development and often during general use.  Only
+disable if this concerns you.
+<P>
+<LI> <B>[ErrorInfo]</B>
+
+<P>
+ <I>(Retired in v4.4, message configuration provides this)</I>
+<P>
+<LI> <B>[ErrorSysAdmin]</B>
+
+<P>
+ <I>(Retired in v4.4, message configuration provides this)</I>
+<P>
+<LI> <B>[InputTimeout] <I>integer</I></B>
+<I>(default: 2)</I> 
+
+<P>
+ Number of minutes to allow a connection request to be in progress without 
+submitting a complete request header before terminating it. 
+<P>
+<LI> <B>[Logging] <TT>ENABLED|DISABLED</TT></B>
+<I>(default: DISABLED)</I> 
+
+<P>
+ Enables or disables the request log.  Logging can slow down request
+processing and adds overhead.  The log file name must be specified using the
+/LOG qualifier or HTTPD$LOG logical name (see
+<A HREF="htd_0500.html#47" TARGET="_self">Logical Names</A>.
+<P>
+<LI> <B>[LogExcludeHosts] <I>string</I></B>
+<I>(default: none)</I> 
+
+<P>
+ One or more (comma-separated if on the same line) internet host/domain
+names, with &quot;*&quot; wildcarding for host/subdomain matching, requests from
+which are not placed in any log files. If DNS lookup is not enabled hosts must
+be expressed using numeric addresses (see [DNSLookup] directive). Use for
+excluding local or web-maintainer's host from logs.
+
+<P>
+ Example: 
+
+<PRE>  [LogExcludeHosts]
+  *.wasd.dsto.defence.gov.au
+  131.185.250.*
+</PRE>
+<P>
+<LI> <B>[LogFormat] <I>string</I></B>
+<I>(default: COMMON)</I> 
+
+<P>
+ Specifies one of three pre-defined formats, or a user-definable format.
+See <A HREF="htd_0600.html#73" TARGET="_self">6.4.1 - Log Format</A>.
+<P>
+<LI> <B>[LogNaming] <I>string</I></B>
+<I>(default: none)</I> 
+
+<P>
+ When [LogPeriod] or [LogPerService] directives are used to generate
+multiple log files this directive may be used to modify the naming of the file. 
+See <A HREF="htd_0600.html#79" TARGET="_self">6.4.4 - Log Naming</A>.
+<P>
+<LI> <B>[LogPeriod] <I>string</I></B>
+<I>(default: none)</I> 
+
+<P>
+ Specifies a period at which the log file is changed.
+See <A HREF="htd_0600.html#77" TARGET="_self">6.4.2 - Log Period</A>.
+<P>
+<LI> <B>[LogPerService] <TT>ENABLED|DISABLED</TT></B>
+<I>(default: DISABLED)</I> 
+
+<P>
+ When multiple services are specified (see <A HREF="htd_0600.html#71" TARGET="_self">6.3 - Multi-Homed and Multi-Port Services</A>) 
+a separate log file will be created for each if this is enabled. See
+<A HREF="htd_0600.html#78" TARGET="_self">6.4.3 - Log Per-Service</A>.
+<P>
+<LI> <B>[Monitor] <TT>ENABLED|DISABLED</TT></B>
+<I>(default: DISABLED)</I> 
+
+<P>
+ Allows monitoring via the HTTPDMON utility (see <A HREF="htd_1600.html#217" TARGET="_self">16.5 - HTTPd Monitor</A>. 
+Adds slight request processing overhead.
+<P>
+<LI> <B>[OutputTimeout] <I>integer</I></B>
+<I>(default: 10)</I> 
+
+<P>
+ Number of minutes to allow a request to be output before terminating it.
+<P>
+<LI> <B>[Port] <I>integer</I></B>
+<I>(default: 80)</I> 
+
+<P>
+ IP port number for server to bind to.
+<P>
+<LI> <B>[PutMaxKBytes] <I>integer</I></B>
+<I>(default: 250)</I> 
+
+<P>
+ Maximum size of an HTTP POST or PUT method request in Kilobytes.
+<P>
+<LI> <B>[PutVersionLimit] <I>integer</I></B>
+<I>(default: 3)</I> 
+
+<P>
+ File created using the POST or PUT methods have the specified version limit
+applied.
+<P>
+<LI> <B>[Reject] <I>host/domain name</I></B>
+<I>(default: none)</I>
+
+<P>
+ One or more (comma-separated if on the same line) internet host/domain
+names, with &quot;*&quot; wildcarding for host/subdomain matching, to be
+explicitly denied access. If DNS lookup is not enabled hosts must be expressed
+using numeric addresses (see [DNSLookup] directive). Also see the [Accept]
+directive. Reject directives have precedence of Accept directives. The Reject
+directive may be used multiple times.
+
+<P>
+ Example: 
+
+<PRE>  [Reject]
+  *.wasd.dsto.defence.gov.au
+  131.185.250.*
+</PRE>
+<P>
+<LI> <B>[RequestHistory] <I>integer</I></B>
+<I>(default: 0)</I>
+
+<P>
+ The server can keep a list of the most recent requests accessable from the
+server administration menu.  This value determines the number kept.  Zero
+disables the facility.  Each retained request consumes 256 bytes and adds a
+small amount of extra processing overhead.
+<P>
+<LI> <B>[Search] <I>path</I></B>
+<I>(no default)</I> 
+
+<P>
+ Specifies the <B>physical path</B> to the default query-string 
+keyword search script.
+
+<P>
+ Examples: 
+
+<PRE>  Search /ht_root/script/query
+</PRE>
+<P>
+<LI> <B>[Service] <I>string</I></B>
+<I>(no default)</I> 
+
+<P>
+ This parameter allows SSL, multi-homed hosts and multiple port serving to
+be specified, see <A HREF="htd_1000.html#131" TARGET="_self">10.1 - SSL Configuration</A> and
+<A HREF="htd_0600.html#71" TARGET="_self">6.3 - Multi-Homed and Multi-Port Services</A>.
+<P>
+<LI> <B>[SSI] <TT>ENABLED|DISABLED</TT></B>
+<I>(default: DISABLED)</I> 
+
+<P>
+ Enables or disables Server Side Includes (HTML pre-processing).
+<P>
+<LI> <B>[SSIaccesses] <TT>ENABLED|DISABLED</TT></B>
+<I>(default: DISABLED)</I> 
+
+<P>
+ Enables or disables Server Side Includes (HTML pre-processing) file access
+counter.
+<P>
+<LI> <B>[SSIexec] <TT>ENABLED|DISABLED</TT></B>
+<I>(default: DISABLED)</I> 
+
+<P>
+ Enables or disables Server Side Includes (HTML pre-processing) DCL
+execution functionality.
+<P>
+<LI> <B>[StreamLF] <I>integer</I></B>
+<I>(default: 0 (disabled))</I> 
+
+<P>
+ Enables or disables automatic conversion of VARIABLE record format
+documents (files) to STREAM-LF, which are much more efficient with this server.
+The integer is the maximum size of a file in kilobytes that the server will
+attempt to convert.  Zero disables the conversion.  Also see [StreamLFpaths].
+<P>
+<LI> <B>[StreamLFpaths] <I>string</I></B>
+<I>(no default)</I> 
+
+<P>
+ Specifies which path(s) automatic conversion of VARIABLE record format
+files to STREAM-LF is allowed. If no path is provided all conversion is
+disabled. To allow conversion on all paths use &quot;/*&quot;. Also see
+[StreamLF].
+
+<P>
+ Example: 
+
+<PRE>  [StreamLFpaths]
+  /ht_root/*
+  /web/*
+</PRE>
+<P>
+<LI> <B>[Welcome] <I>file.suffix</I></B>
+<I>(no default)</I> 
+
+<P>
+ Specifies the names and order in which a directory is checked for home page 
+files.  If no home page is found a directory listing is generated.
+<P>
+
+<P>
+ Examples: 
+
+<PRE>  [Welcome]
+  home.html
+  home.htm
+  home.menu
+  home.mnu
+</PRE>
+</OL>
+
+<A NAME="71">
+<H2><BR><U>6.3 - Multi-Homed and Multi-Port Services</U></H2>
+</A>
+
+<P>
+ By default the server is defined by the local host name and port
+specified by either [port] or /PORT.  The WASD server is capable of
+concurrently supporting a number of services on different port numbers and, if
+the system is configured to be multi-homed (see
+<A HREF="htd_0500.html#65" TARGET="_self">5.4 - Multi-Homed Hosts With Digital TCP/IP</A>), more than one host name.
+Using the [Service] configuration parameter or the /SERVICE qualifier the
+server creates an HTTP service for each specified. If the host name is omitted
+it defaults to the local host name. If the port is omitted it defaults to 80.
+
+<P>
+ This rather contrived example show a server configured to provide four
+services over two host names.
+
+<PRE>  [Service]
+  alpha.wasd.dsto.defence.gov.au
+  8080
+  beta.wasd.dsto.defence.gov.au
+  beta.wasd.dsto.defence.gov.au:8000
+</PRE>
+
+<P>
+ This capability combined with conditional rule mapping (see
+<A HREF="htd_0800.html#99" TARGET="_self">8.5 - Conditional Mapping</A>) offers versatile and powerful service
+provision. The first port specified in the service list becomes the
+&quot;official&quot; port of the server, using the local host name.
+
+<A NAME="72">
+<H2><BR><U>6.4 - Access Logging</U></H2>
+</A>
+
+<P>
+ WASD provides a versatile access log, allowing data to be collected in
+Web-standard <I>common</I> and <I>combined</I> formats, as well as
+allowing customization of the log record format.  It is also possible to
+specify a log period.  If this is done log files are automatically changed
+according to the period specified.  Exclude requests from specified hosts
+using the [LogExcludeHosts] configuration parameter.
+
+<A NAME="73">
+<H3><BR><U>6.4.1 - Log Format</U></H3>
+</A>
+
+<P>
+ The configuration parameter [LogFormat] and the server qualifier /FORMAT
+specifies one of three pre-defined formats, or a user-definable format.
+Most log analysis tools can process the three pre-defined formats.  There is a
+small performance impost when using the user-defined format, as the log entry
+must be specially formatted for each request.
+<OL>
+                
+<LI> <B>COMMON -</B>
+This is the most common, base logging format for Web servers.  COMMON is the
+default log format.
+<P>
+<LI> <B>COMMON_SERVER -</B>
+This is an optional format used, for one, by the NCSA server.  It is basically
+the common format, with the server host name appended to the line (used for
+multi-homed servers, see <A HREF="htd_0600.html#71" TARGET="_self">6.3 - Multi-Homed and Multi-Port Services</A>).
+<P>
+<LI> <B>COMBINED -</B>
+This is an optional format used, for one again, by the NCSA server.  It too is
+basically the common format, with the HTTP referer and user agent appended.
+</OL>
+
+<A NAME="74">
+<H3>User-Defined</H3>
+</A>
+
+<P>
+ The user-defined format allows customised log formats to be specified using
+a selection of commonly required data. The specification must begin with a
+character that is used as a substitute when a particular field is empty (use
+"\0" for no substitute, as in the "windows log format" example below).
+
+<P>
+ Two different "escape" characters introduce the following parameters:
+
+<P>
+
+<BR> A &quot;!&quot; followed by
+<UL>
+<LI><B>AR -</B> authentication realm (if any)
+<LI><B>AU -</B> authenticated user name (if any)
+<LI><B>BB -</B> bytes in body (excludes response header)
+<LI><B>BY -</B> bytes in response (includes header)
+<LI><B>CN -</B> client host name (or address if DNS lookup disabled)
+<LI><B>CA -</B> client address
+<LI><B>EM -</B> request elapsed time in milliseconds
+<LI><B>ES -</B> request elapsed time in fractional seconds
+<LI><B>ME -</B> request method
+<LI><B>PA -</B> request path (not to be confused with &quot;RQ&quot;)
+<LI><B>QS -</B> request query string (if any)
+<LI><B>RF -</B> referer (if any)
+<LI><B>RQ -</B> complete request string (see below)
+<LI><B>RS -</B> response status code
+<LI><B>SN -</B> server host name
+<LI><B>SC -</B> script name (if any)
+<LI><B>SM -</B> request scheme (http: or https:)
+<LI><B>SP -</B> server port
+<LI><B>TC -</B> request time (common log format)
+<LI><B>TG -</B> request time (GMT)
+<LI><B>TV -</B> request time (VMS format)
+<LI><B>UA -</B> user agent
+</UL>
+
+<P>
+
+<BR> A &quot;\&quot; followed by
+<UL>
+<LI><B>0 -</B> a null character (used to define the empty field character)
+<LI><B>! -</B> insert an &quot;!&quot;
+<LI><B>\ -</B> insert a &quot;\&quot;
+<LI><B>n -</B> insert a newline
+<LI><B>q -</B> insert a quote (so that in DCL the quotes won't need escaping!)
+<LI><B>t -</B> insert a TAB
+</UL>
+
+<P>
+
+<BR> Any other character is directly inserted into the log entry.
+
+<A NAME="75">
+<H3>Note on &quot;PA&quot; and &quot;RQ&quot;</H3>
+</A>
+
+<P>
+ The &quot;PA&quot; and &quot;RQ&quot; have distinct roles.  In general the
+&quot;RQ&quot; (request) directive will always be used as this is the full
+request string;  script component (if any), path string and query string
+component (if any).  The &quot;PA&quot; directive is merely the path string after
+any script and query string components have been removed.
+
+<A NAME="76">
+<H3>Examples</H3>
+</A>
+<OL>
+<LI> The equivalent of the common log format is:
+
+<PRE>  -!CN - !AU [!TC] \q!RQ\q !RS !BY
+</PRE>
+<P>
+<LI> The combined log format could be specified as:
+
+<PRE>  -!CN - !AU [!TC] \q!RQ\q !RS !BY \q!RF\q \q!UA\q
+</PRE>
+<P>
+<LI> The <I>O'Reilly WebSite</I> &quot;windows log format&quot; would be
+created by:
+
+<PRE>  \0!TC\t!CA\t!SN\t!AR\t!AU\t!ME\t!PA\t!RQ\t!EM\t!UA\t!RS\t!BB\t
+</PRE>
+<P>
+<LI> The common log format with appended request duration in seconds could be
+provided using:
+
+<PRE>  -!CN - !AU [!TC] \q!RQ\q !RS !BY !ES
+</PRE>
+</OL>
+
+<A NAME="77">
+<H3><BR><U>6.4.2 - Log Period</U></H3>
+</A>
+
+<P>
+ The access log file may have a period specified against it, producing an
+automatic generation of log file based on that period. This allows logs to be
+systematically named, ordered and kept to a managable size. The period
+specified can be one of
+<UL>
+<LI> DAILY
+<P>
+<LI> weekly as ...
+
+<BR> MONDAY
+
+<BR> TUESDAY
+
+<BR> WEDNESDAY
+
+<BR> THURSDAY
+
+<BR> FRIDAY
+
+<BR> SATURDAY
+
+<BR> SUNDAY
+<P>
+<LI> MONTHLY
+</UL>
+
+<P>
+ The log file changes on the first request after midnight of the new
+period. When using a weekly period the new log file comes into effect on the
+first request following midnight on the specified day.
+
+<P>
+ When using a periodic log file, the file name specified by HTTPD$LOG or
+the configuration parameter [LogFileName] is partially ignored, only
+partially because the directory component of it is used to located the
+generated file name. The periodic log file name generated comprises
+<UL>
+<LI> server host name
+<LI> server port
+<LI> year (YYYY)
+<LI> month (MM)
+<LI> day (DD)
+</UL>
+ as in the following example
+
+<PRE>  HT_LOGS:WASD_80_19971013_ACCESS.LOG
+</PRE>
+
+<P>
+ For the daily period the date represents the request date. For the weekly
+period it is the date of the previous (or current) day specified. That is, if
+the request occurs on the Wednesday for a weekly period specified by Monday
+the log date show the last Monday's. For the monthly period it uses the first.
+
+<A NAME="78">
+<H3><BR><U>6.4.3 - Log Per-Service</U></H3>
+</A>
+
+<P>
+ By default a single access log file is created for each HTTP server
+process. Using the [LogPerService] configuration directive a log file for each
+service provided by the HTTPd is generated (see <A HREF="htd_0600.html#71" TARGET="_self">6.3 - Multi-Homed and Multi-Port Services</A>).
+
+<A NAME="79">
+<H3><BR><U>6.4.4 - Log Naming</U></H3>
+</A>
+
+<P>
+ When per-period or per-service logging is enabled the access log file has a
+name generated.  Part of this name is the host's name or IP address. By default
+the host name is used, however if the host IP address is specified the
+dot-numeric address is used, hyphens being substituted for the periods.
+Accepted values for the [LogNaming] configuration directive are:
+<UL>
+                
+<LI> NAME (default)
+<LI> ADDRESS
+</UL>
+
+<P>
+ Examples of generated per-service (non-per-period) log names:
+
+<PRE>  HT_LOGS:WASD_80_ACCESS.LOG
+  HT_LOGS:131-185-250-202_80_ACCESS.LOG
+</PRE>
+
+<P>
+ Examples of generated per-period (with/without per-service) log names:
+
+<PRE>  HT_LOGS:WASD_80_19971013_ACCESS.LOG
+  HT_LOGS:131-185-250-202_80_19971013_ACCESS.LOG
+</PRE>
+
+<P>
+<HR>
+[<A HREF="HTD_0700.HTML" TARGET="_self">next</A>] [<A HREF="HTD_0500.HTML" TARGET="_self">previous</A>] [<A HREF="HTD_0001.HTML"TARGET="_top" >contents</A>] [<A HREF="HTD_0600.HTML"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

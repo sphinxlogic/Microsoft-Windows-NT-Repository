@@ -1,0 +1,136 @@
+#
+# File:		makefile.dos
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds Hypertext hytext.lib library for Windows 3.1
+
+# Change WXDIR/WXWIN to wherever wxWindows is found
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makemsc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+WXINC = $(WXDIR)\include
+
+!include $(WXDIR)\src\makemsc.env
+
+HYPDIR = $(WXDIR)\utils\hytext
+HYPINC = $(HYPDIR)\src
+HYPLIB = $(HYPDIR)\lib\hytext.lib
+
+DOCDIR = $(HYPDIR)\docs
+DOCUTILSDIR = $(WXDIR)\utils\tex2rtf\src
+THISDIR = $(WXDIR)\utils\hytext\src
+
+INC = /I$(WXDIR)\include\base /I$(WXDIR)\include\msw
+
+LIBS=$(WXLIB) $(HYPLIB) libw llibcew commdlg ddeml shell
+
+# Set this to nothing if your compiler is MS C++ 7
+ZOPTION=/Z7
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+# Default is to output RTF for WinHelp
+!ifndef RTFSTYLE
+RTFSTYLE=-winhelp
+!endif
+
+PRECOMP=/YuWX_PREC.H /Fp$(WXDIR)\src\msw\wx.pch
+
+!if "$(FINAL)" == "0"
+OPT = /Od
+CPPFLAGS= /AL /Gt4 /W4 /Zi /G2sw $(ZOPTION) /DDEBUG=$(DEBUG) $(OPT) /Dwx_msw $(INC) $(PRECOMP)
+CFLAGS= /AL /W4 /Zi /G2sw /Od /Dwx_msw
+LINKFLAGS=/NOD /CO /ONERROR:NOEXE
+!else
+# /Ox for real FINAL version
+OPT = /Ox
+CPPFLAGS= /AL /Gt4 /W4 /Os /G2sw $(OPT) /DDEBUG=$(DEBUG) /Dwx_msw $(INC) $(PRECOMP)
+CFLAGS= /AL /W4 /Zi /Os /G2sw /Dwx_msw
+LINKFLAGS=/NOD /ONERROR:NOEXE
+!endif
+
+SOURCES = hytext.$(SRCSUFF)
+HEADERS = hytext.h
+OBJECTS = hytext.obj
+
+all:    $(HYPLIB)
+
+wx:
+        cd $(WXDIR)\src
+        nmake -f makefile.dos $(WXLIB) FINAL=$(FINAL)
+        cd $(HYPDIR)\src
+
+$(HYPLIB):      $(OBJECTS)
+        -erase $(HYPLIB)
+        lib /PAGESIZE:128 @<<
+$(HYPLIB)
+y
+$(OBJECTS)
+nul
+;
+<<
+
+$(OBJECTS):     $(HYPINC)\hytext.h
+
+# Optimizing causes a weird problem where blocks aren't read properly.
+hytext.obj: hytext.$(SRCSUFF) $(HYPINC)\hytext.h
+        cl @<<
+$(CPPFLAGS) /Od /c /Tp $*.$(SRCSUFF)
+<<
+
+# Making documents
+docs:   $(DOCDIR)/hytext.hlp xlp htm
+htm:    $(DOCDIR)/hytext.htm
+xlp:     $(DOCDIR)/hytext.xlp
+rtf:    $(DOCDIR)/hytext.rtf
+hlp:    $(DOCDIR)/hytext.hlp
+
+$(DOCDIR)/hytext.hlp:         $(DOCDIR)/hytext.rtf $(DOCDIR)/hytext.hpj
+        cd $(DOCDIR)
+        -erase hytext.ph
+        hc hytext
+        cd $(THISDIR)
+
+$(DOCDIR)/hytext.rtf:         $(DOCDIR)/classes.tex $(DOCDIR)/manual.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\hytext.rtf -twice $(RTFSTYLE)
+        cd $(THISDIR)
+
+wordrtf:         $(DOCDIR)/classes.tex $(DOCDIR)/manual.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\hytext.rtf -twice -rtf
+        cd $(THISDIR)
+
+$(DOCDIR)/hytext.xlp:         $(DOCDIR)/manual.tex $(DOCDIR)/classes.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\hytext.xlp -twice -xlp
+        cd $(THISDIR)
+
+$(DOCDIR)/hytext.html:         $(DOCDIR)/manual.tex $(DOCDIR)/classes.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\hytext.htm -twice -html
+        cd $(THISDIR)
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+        -erase ..\lib\*.lib
+
+cleanrtf:
+        cd $(DOCDIR)
+        -erase *.rtf
+        cd $(THISDIR)
+
+cleanall:	clean

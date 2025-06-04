@@ -1,0 +1,68 @@
+XSwarm, MOTIF_TOYS, Displays a swarm of bees chasing a wasp
+        
+        This demo  displays  a swarm of bees chasing a wasp.  It's almost
+        too fast to watch on OpenVMS AXP.
+        
+                
+       
+        ** NOTE **
+
+        You must have the logical  name DEMOS defined to point to the top
+        level directory that contains the XSWARM  directory.  All command
+        procedures rely on this being defined.   For  example  if all the
+        XSWARM files are in WORK:[SMITH.XSWARM] then you need  a  logical
+        name defined as follows:
+        
+        $ DEFINE/SYSTEM/EXECUTIVE DEMOS WORK:[SMITH.] 
+
+        **  Ensure you include the "." after the last directory name  **
+        
+        To build...
+        -----------------------------------------------------------------
+                        
+        $ @DEMOS:[XSWARM]BUILD_XSWARM.COM
+
+        This will  build  either a OpenVMS VAX or OpenVMS AXP image based
+        on what architecture it is run on.
+                
+        To run...
+        -----------------------------------------------------------------
+
+        $ @DEMOS:[XSWARM]START_XSWARM.COM
+        
+        This  will  start  up  the  appropiate  architecture  version  of
+        XSWARM.  
+
+                                
+        XSWARM options...
+        -----------------------------------------------------------------
+
+        $ XSWARM :== "$ DEMOS:[XSWARM]XSWARM_AXP"
+        $ XSWARM -h
+        
+        demos:[xswarm]xswarm_axp.exe;1 [options]
+        
+        -r              use root window
+        -d  delay       non-blocking delay between screen updates in msec
+                        (Less than 10 is dangerous!)
+        -x              use the logical xor raster operation
+                        (This is buggy, but it leaves your root bitmap alone!)
+        -g geom         window geometry
+        -b bees         number of bees
+        -a bee_acc      bee acceleration in pixels per frame per frame
+        -s bee_vel      bee speed limit in pixels per frame
+        -A wasp_acc     wasp max acceleration in pixels per frame per frame
+        -S wasp_vel     wasp speed limit in pixels per frame
+        -B width        border width that wasp can't cross
+        -w wasp_clr     wasp color
+        -c bee_clr      bee color
+        -C bg_color     background color
+        -t title        window title
+        -h|q|?          display this message
+        
+        Press q in the window to stop the insanity.
+        
+        An error has occurred.  The description is below...
+        The command line parameters were incorrect.
+        Program aborting...
+

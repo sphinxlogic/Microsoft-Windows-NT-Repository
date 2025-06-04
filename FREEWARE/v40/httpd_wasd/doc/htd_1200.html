@@ -1,0 +1,1562 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.7.0">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.HTD]HTD.SDML">
+<META NAME="date" CONTENT="Tue, 08 Sep 1998 10:04:13">
+<!--
+WASD (HFRD) VMS Hypertext Services, Copyright (c) 1996-1998 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Scripting</TITLE>
+</HEAD>
+<BODY>
+<H1>WASD Hypertext Services - Technical Overview</H1>
+[<A HREF="HTD_1300.HTML" TARGET="_self">next</A>] [<A HREF="HTD_1100.HTML" TARGET="_self">previous</A>] [<A HREF="HTD_0001.HTML"TARGET="_top" >contents</A>] [<A HREF="HTD_1200.HTML"TARGET="_top" >full-page</A>]
+<HR>
+
+<A NAME="145">
+<H1>12 - Scripting</H1>
+</A>
+
+<P>
+ This chapter is <B>not a tutorial on authoring CGI scripts</B>.
+There exists a plague of references in the popular computing press covering
+aspects of this technology, usually quite comprehensive. This chapter merely
+outlines the WASD implementation details, which are in general very much
+vanilla CGI.
+
+<P>
+ <I>Scripts</I> are mechanisms for creating simple HTTP services,
+sending data to (and sometimes receiving data from) a client, extending the
+capabilities of the basic HTTPd. Anything that can write to SYS$OUTPUT can be
+used to generate script output. A DCL procedure or an executable can be the
+basis for a script. Simply TYPE-ing a file can be provide script output.
+Scripts execute in processes separate from the actual HTTP server but under
+it's control and interacting with it.
+
+<P>
+<FONT SIZE=+1 COLOR="#ff0000"><B>NOTE:</B>&nbsp;</FONT>
+ 
+WASD can manage a script's process environment either as a subprocess spawned
+by the HTTP server, or as a network process created using DECnet. By default
+it supports subprocess-based CGI scripts without further configuration.
+If DECnet-based CGI scripting or OSU (DECthreads) emulated scripting is
+desired see <A HREF="htd_1200.html#171" TARGET="_self">12.8 - DECnet Scripting</A>.
+
+<P>
+ Scripts are enabled using the <I>exec</I> or <I>script</I> rules
+in the mapping file (see <A HREF="htd_0800.html#84" TARGET="_self">8 - Mapping Rules</A>). The script
+portion of the <I>result</I> must be a URL equivalent of the physical VMS
+procedure or executable specification.
+
+<A NAME="146">
+<H2><BR><U>12.1 - Caution!</U></H2>
+</A>
+
+<P>
+ Scripts are executed within unprivileged subprocesses spawned by the
+HTTP server.  These subprocesses are owned by the HTTP server account
+(HTTP$SERVER).  Script actions can potentially affect server behaviour.
+For example it is possible for a script to issue an &quot;HTTPD/DO=EXIT=NOW&quot;
+command, or to create or modify logical name values in the JOB table (e.g.
+change the value of LNM$FILE_DEV altering the logical search path).
+Obviously these types of actions are undesirable.  In addition scripts can
+access any WORLD-readable and modify any WORLD-writable resource in the
+system/cluster, opening a window for information leakage or
+mischievous/malicious actions (some might argue that anyone with important
+WORLD-accessable resources on their system deserves all that happens to
+them - but we know they're out there :^)  Script authors should be
+aware of any potential side-effects of their scripts and Web administrators
+vigilant against possible malicious behaviours of scripts they do not author.
+
+<P>
+ As of version 4.2 it has become possible to exercise some control over the
+privileges of spawned subprocesses, allowing enviroments that require scripts
+to have minimum privileges (e.g. NETMBX, TMPMBX for IPC) to provide them using
+the server account's authorized privileges. See <A HREF="htd_0600.html#67" TARGET="_self">6 - Server Configuration</A>.
+
+<A NAME="147">
+<H2><BR><U>12.2 - Scripting Environment</U></H2>
+</A>
+
+<P>
+ WASD HTTPd scripting underwent a major redesign between v4.1 and v4.2.
+This was to provide a faster and more efficient scripting environment. It
+provided the opportunity for a much needed review of the DCL mechanism within
+the server. As a result two capabilities not found in earlier versions became
+available, persistant subprocesses (see below) and CGIplus (see
+<A HREF="htd_1200.html#165" TARGET="_self">12.7 - CGIplus Scripting</A>).
+
+<P>
+ Process creation under the VMS operating system is notoriously slow and
+expensive. This is an inescapable overhead when scripting via child processes.
+An obvious strategy is to avoid, at least as much as possible, the creation of
+subprocesses. The only way to do this is to share subprocesses between
+multiple scripts/requests, addressing the attendant complications of isolating
+potential interactions between requests. These could occur through changes
+made by any script to the subprocess' enviroment. For VMS this involves symbol
+and logical name creation, and files opened at the DCL level. In reality few
+scripts need to make logical name changes and symbols are easily removed
+between uses. DCL-opened files are a little more problematic, but again, in
+reality most scripts doing file manipulation will be images.
+
+<P>
+ A reasonable assumption is that for almost all environments scripts can
+quite safely share subprocesses with great benefit to response latency and
+system impact (see <A HREF="htd_1400.html#205" TARGET="_self">14.2 - Subprocess-based Scripting</A> for a table with
+some comparative performances). If the local environment requires absolute
+script isolation for some reason then this subprocess-persistance may easily
+be disabled with a consequent trade-off on performance.
+<P><FONT SIZE=+1 COLOR="#ff0000"><B><U>NOTE:</U></B></FONT>
+ 
+With the form of subprocess management used in v4.2 and following, BYTLM can
+become an issue. When setting the HTTPd account BYTLM quota allow approxiamtely
+12,500 bytes per subprocess that can be concurrently active, plus a general
+allowance (technically, allow 1.0 x /NETBUF= plus 1.0 x + 0.5 x + 0.5 x
+/SUBBUF=). That is if the subprocess <I>hard-limit</I> (see below) is 20
+then BYTLM should be set to at least 250,000 plus 50,000. Of course in such a
+case PRCLM should be set to at least 20, preferably 40. These and other
+relevant quotas may be monitored using the HTTPDMON utility or the server
+administration menu.
+
+<A NAME="148">
+<H3>Zombies</H3>
+</A>
+
+<P>
+ The term <I>zombie</I> is used to describe subprocesses when
+persisting between uses (the reason should be obvious, they are neither
+&quot;alive&quot; (processing a request) nor are they &quot;dead&quot; (deleted) :^)
+Zombie subprocesses have a finite time to exist (<I>non-</I>life-time?)
+before they are automatically purged from the system (see
+<A HREF="htd_0600.html#67" TARGET="_self">6 - Server Configuration</A>). This keeps process clutter on the system to a
+minimum.
+
+<A NAME="149">
+<H2><BR><U>12.3 - Script Run-Time</U></H2>
+</A>
+
+<P>
+ Scripts are merely executed or interpreted files. Although by default VMS
+executables and DCL procedures can be used as scripts, other run-time
+environments may also be configured. For example, scripts written for the Perl
+language may be transparently given to the Perl interpreter in a script
+subprocess. This type of script activation is based on a unique file type
+(extension following the file name), for the Perl example this is most
+commonly &quot;.PL&quot;, or sometimes &quot;.CGI&quot;. Both of these may be
+configured to automatically invoke the site's Perl interpreter, or any other
+run-time environment for that matter.
+
+<P>
+ This configuration is performed using the [DclScriptRunTime] parameter,
+where a file type is associated with a run-time environment. This parameter
+takes two components, the file extension and the run-time verb. The verb may
+be specified as a simple, globally-accessable verb (e.g. one embedded in the
+CLI tables), or in the format to construct a <I>foreign-verb</I>,
+providing reasonable versatility. Run-time parameters may also be appended to
+the verb if desired. The server ensures the verb is foreign-assigned if
+necessary, then used on a command line with the script file name as the
+final parameter to it.
+
+<P>
+ The following is an example showing a Perl run-time environment being
+specified.  The first line assumes the &quot;Perl&quot; verb is globally
+accessable on the system (e.g. perhaps provided by the DCL$PATH logical) while
+the second (for the sake of illustration) shows the same Perl interpreter
+being configured for a different file type using the foreign verb syntax.
+
+<PRE>  [DclScriptRunTime]
+  .PL PERL
+  .CGI $PERL_EXE:PERL
+</PRE>
+
+<P>
+ A file contain a Perl script then may be activated merely by specifying a
+path such as the following
+
+<PRE>  /cgi-bin/example.pl
+</PRE>
+
+<P>
+ To add any required parameters just append them to the verb specified.
+
+<PRE>  [DclScriptRunTime]
+  .XYZ XYZ_INTERPRETER -vms -verbose -etc
+  .XYZ $XYZ_EXE:XYZ_INTERPRETER /vms /verbose /etc
+</PRE>
+
+<P>
+ If a more complex run-time environment is required it may be necessary to
+<I>wrap</I> the script's execution in a DCL procedure.
+
+<A NAME="150">
+<H3>Script File Extensions</H3>
+</A>
+
+<P>
+ The WASD server does not require a file type (extension) to be explicitly
+provided when activating a script. This can help hide the implementation
+detail of any script. If the script path does not contain a file type the
+server searches the script location for a file with one of the known file
+types, first &quot;.COM&quot; for a DCL procedure, then &quot;.EXE&quot; for an
+executable, then any file types specified using script run-time configuration
+directive, in the order specified.
+
+<P>
+ For instance, the script activated in the Perl example above could have
+been specified as below and (provided there was no &quot;EXAMPLE.COM&quot; or
+&quot;EXAMPLE.EXE&quot; in the search) the same script would have been executed.
+
+<PRE>  /cgi-bin/example
+</PRE>
+
+<A NAME="151">
+<H2><BR><U>12.4 - CGI Compliance</U></H2>
+</A>
+
+<P>
+ The HTTPd scripting mechanism is designed to be WWW CGI (Common Gateway
+Interface) compliant, based in part on by the INTERNET-DRAFT
+authored by D.Robinson (drtr@ast.cam.ac.uk), 8 January 1996.
+
+<A NAME="152">
+<H3>CGI Compliant Variables</H3>
+</A>
+
+<P>
+ Environment variables are created in a similar way to the CERN VMS HTTPd
+implementation, where CGI environment variables are provided to the script via
+DCL global symbols. Each CGI variable symbol name is prefixed with
+&quot;WWW_&quot; (by default, although this can be changed using the
+&quot;/CGI_PREFIX&quot; qualifier, see <A HREF="htd_0500.html#54" TARGET="_self">5.3 - HTTPd Command Line</A>, this
+is not recommended if the WASD VMS scripts are to be used, as they expect CGI
+variable symbols to be prefixed in this manner).
+
+<A NAME="153">
+<H3>Extensions to CGI Variables</H3>
+</A>
+
+<P>
+ In line with other CGI implemenations, additional, non-compliant variables
+are provided to ease CGI interfacing.  These provide the various components of
+the query string.  A <I>keyword</I> query string and a <I>form</I>
+query string are parsed into separated variables, named
+
+<PRE>  WWW_KEY_<I>number</I>
+  WWW_KEY_COUNT
+  WWW_FORM_<I>form-element-name</I>
+</PRE>
+
+<P>
+ See the example below.
+
+<A NAME="154">
+<H3>CGI Variable Capacity</H3>
+</A>
+
+<P>
+ DCL symbol values are limited to approximately 1024 characters.  The CGI 
+interface will provide symbols with values up to that limit if required.  This 
+should be sufficient for most circumstances.
+
+<A NAME="155">
+<H3>CGI Variable Descriptions</H3>
+</A>
+
+<P>
+ Remember, all variables are prefixed by &quot;WWW_&quot;.
+
+<P>
+
+<BR><CENTER><TABLE CELLPADDING=2 BORDER=1>
+<TH><TH>Description<TH>&quot;Standard&quot; CGI</TH>
+<TR><TD>AUTH_GROUP<TD>authentication group (or empty)<TD>no</TR>
+<TR><TD>AUTH_REALM<TD>authentication realm (or empty)<TD>no</TR>
+<TR><TD>AUTH_TYPE<TD>authentication type (BASIC or DIGEST)<TD>yes</TR>
+<TR><TD>CONTENT_LENGTH<TD>&quot;Content-Length:&quot; from request header<TD>yes</TR>
+<TR><TD>CONTENT_TYPE<TD>&quot;Content-Type:&quot; from request header<TD>yes</TR>
+<TR><TD>FORM_field<TD>query string &quot;&amp;&quot; separated form elements<TD>no</TR>
+<TR><TD>GATEWAY_INTERFACE<TD>&quot;CGI/1.1&quot;<TD>yes</TR>
+<TR><TD>HTTP_ACCEPT<TD>any list of browser-accepted content types<TD>optional</TR>
+<TR><TD>HTTP_ACCEPT_CHARSET<TD>any list of browser-accepted character sets<TD>optional</TR>
+<TR><TD>HTTP_ACCEPT_LANGUAGE<TD>any list of browser-accepted languages<TD>optional</TR>
+<TR><TD>HTTP_AUTHORIZATION<TD>any from request header<TD>optional</TR>
+<TR><TD>HTTP_COOKIE<TD>any cookie sent by the client<TD>optional</TR>
+<TR><TD>HTTP_FORWARDED<TD>any proxy/gateway hosts that forwarded the request<TD>optional</TR>
+<TR><TD>HTTP_HOST<TD>host and port request was sent to<TD>optional</TR>
+<TR><TD>HTTP_IF_MODIFIED_SINCE<TD>any last modified GMT time string<TD>optional</TR>
+<TR><TD>HTTP_PRAGMA<TD>any pragma directive of request header<TD>optional</TR>
+<TR><TD>HTTP_REFERER<TD>any source document URL for this request<TD>optional</TR>
+<TR><TD>HTTP_USER_AGENT<TD>client/browser identification string<TD>optional</TR>
+<TR><TD>KEY_n<TD>query string &quot;+&quot; separated elements<TD>no</TR>
+<TR><TD>KEY_COUNT<TD>number of &quot;+&quot; separated elements<TD>no</TR>
+<TR><TD>PATH_INFO<TD>virtual path of data requested in URL<TD>yes</TR>
+<TR><TD>PATH_TRANSLATED<TD>VMS file path of data requested in URL<TD>yes</TR>
+<TR><TD>QUERY_STRING<TD>un-URL-decoded string following &quot;?&quot; in URL<TD>yes</TR>
+<TR><TD>REMOTE_ADDR<TD>IP host address of HTTP client<TD>yes</TR>
+<TR><TD>REMOTE_HOST<TD>IP host name of HTTP client<TD>yes</TR>
+<TR><TD>REMOTE_USER<TD>authenticated remote user name (or empty)<TD>yes</TR>
+<TR><TD>REQUEST_METHOD<TD>&quot;GET&quot;, &quot;PUT&quot;, etc.<TD>yes</TR>
+<TR><TD>REQUEST_SCHEME<TD>&quot;http:&quot; or &quot;https:&quot;<TD>no</TR>
+<TR><TD>REQUEST_TIME_GMT<TD>GMT time request received<TD>no</TR>
+<TR><TD>REQUEST_TIME_LOCAL<TD>Local time request received<TD>no</TR>
+<TR><TD>SCRIPT_NAME<TD>name of script being executed (e.g. &quot;/query&quot;)<TD>yes</TR>
+<TR><TD>SERVER_GMT<TD>offset from GMT (e.g. &quot;+09:30&quot;)<TD>no</TR>
+<TR><TD>SERVER_NAME<TD>IP host name of server system<TD>yes</TR>
+<TR><TD>SERVER_PROTOCOL<TD>HTTP protocol version (always &quot;HTTP/1.0&quot;)<TD>yes</TR>
+<TR><TD>SERVER_PORT<TD>IP port request was received on<TD>yes</TR>
+<TR><TD>SERVER_SOFTWARE<TD>software ID of HTTP server<TD>yes</TR>
+</TABLE></CENTER><BR>
+
+<BR>
+
+<A NAME="156">
+<H3>CGI Variable Demonstration</H3>
+</A>
+
+<P>
+ The basic CGI symbol names are demonstrated here with a call to a script 
+that simply executes the following DCL code:
+
+<PRE>  $ SHOW SYMBOL WWW_*
+  $ SHOW SYMBOL *
+</PRE>
+ Note how the request components are represented for
+&quot;ISINDEX&quot;-style searching (third item) and a forms-based query (fourth
+item). 
+
+<OL>
+<LI> <A TARGET="_top" HREF="/cgi-bin/cgi_symbols">&lt;A HREF="/cgi-bin/cgi_symbols"&gt;</A>
+<LI> <A TARGET="_top" HREF="/cgi-bin/cgi_symbols/ht_root/doc/htd">
+     &lt;A HREF="/cgi-bin/cgi_symbols/ht_root/doc/htd"&gt;</A>
+<LI> <A TARGET="_top" HREF="/cgi-bin/cgi_symbols/ht_root/doc/htd/*.*?string1+string2">
+     &lt;A HREF="/cgi-bin/cgi_symbols/ht_root/doc/htd/*.*?string1+string2"&gt;</A>
+<LI> <A TARGET="_top" HREF="/cgi-bin/cgi_symbols/ht_root/doc/htd?FirstField=for&SecondField=this">
+     &lt;A HREF="/cgi-bin/cgi_symbols/ht_root/doc/htd?FirstField=for&SecondField=this"&gt;</A>
+</OL>
+
+<A NAME="157">
+<H3>CGI Compliant Output</H3>
+</A>
+
+<P>
+ Script output must behave in a CGI-compliant fashion (by way of contrast, 
+see <A HREF="htd_1200.html#159" TARGET="_self">12.5 - Raw HTTP Output</A>).  That is, a CGI script may redirect 
+the location of the document, using a <I>Location:</I> header line, or 
+may supply a data stream beginning with a <I>Content-Type:</I> header 
+line.  Both must be followed by a blank line. 
+
+<P>
+ If the script output begins with a CGI-compliant &quot;Content-Type:
+text/...&quot; (text document) the HTTPd assumes that output will be
+line-oriented and requiring HTTP carriage-control (each record/line terminated
+by a line-feed), and will thereafter ensure each record it receives is
+correctly terminated before passing it to the client.  In this way DCL
+procedure output (and the VMS CLI in general) is supported transparently.  Any
+other content-type is assumed to be <I>binary</I> and no carriage control
+is enforced.
+
+<A NAME="158">
+<H3><BR><U>12.4.1 - Example DCL Scripts</U></H3>
+</A>
+
+<P>
+ A simple script to provide the system time might be:
+
+<PRE>  $ say = "write sys$output"
+  $! the next two lines make it CGI-compliant
+  $ say "Content-Type: text/plain"
+  $ say ""
+  $! start of plain-text script output
+  $ show time
+</PRE>
+
+<P>
+ A script to provide the system time more elaborately (using HTML):
+
+<PRE>
+  $ say = "write sys$output"
+  $! the next two lines make it CGI-compliant
+  $ say "Content-Type: text/html"
+  $ say ""
+  $! start of HTML script output
+  $ say "&lt;HTML&gt;"
+  $ say "Hello ''WWW_REMOTE_HOST'"  !(CGI variable)
+  $ say "&lt;P&gt;"
+  $ say "System time on node ''f$getsyi("nodename")' is:"
+  $ say "&lt;H1&gt;''f$cvtime()'&lt;/H1&gt;"
+  $ say "&lt;/HTML&gt;"
+</PRE>
+
+<A NAME="159">
+<H2><BR><U>12.5 - Raw HTTP Output</U></H2>
+</A>
+
+<P>
+ A script does not have to output a CGI-compliant data stream. If it begins
+with a HTTP header status line (e.g. &quot;HTTP/1.0 200 OK&quot;), HTTPd assumes
+it will supply a <B>raw</B> HTTP data stream, containing all the
+HTTP requirements. This is the equivalent of the <I>no-parse-header</I>,
+or &quot;nph...&quot; named scripts of some environments.
+
+<P>
+ Any such script must observe the HyperText Transfer Protocol.  Every line
+must be terminated by a <I>carriage-return</I> and <I>line-feed</I>
+(represented as &quot;\r&quot;&quot;\n&quot;), or as a minimum 
+by a single <I>line-feed</I>.  In particular, the type of the data being 
+returned by the scripts must be included in an HTTP header sent prior to the 
+data itself.  Headers for the two most common data types will be illustrated 
+here.  Note that the blank line is strictly necessary, it terminates the 
+header. 
+
+<A NAME="160">
+<H3>Plain-Text</H3>
+</A>
+
+<PRE>  HTTP/1.0 200 ok\r\n
+  Content-Type: text/plain\r\n
+  \r\n
+</PRE>
+
+<A NAME="161">
+<H3>HTML</H3>
+</A>
+
+<PRE>  HTTP/1.0 200 ok\r\n
+  Content-Type: text/html\r\n
+  \r\n
+</PRE>
+
+<A NAME="162">
+<H3>Raw HTTP DCL Script</H3>
+</A>
+
+<P>
+ The following example show a non-CGI-compliant DCL script similar in 
+function to the CGI-compliant one above.  Note the full HTTP header and each 
+line explicitly terminated with a carriage-return and line-feed pair. 
+
+<PRE>
+  $ cr[0,8] = %x0d
+  $ lf[0,8] = %x0a
+  $ say = "write sys$output"
+  $! the next line determines it is raw HTTP stream
+  $ say "HTTP/1.0 200 Success''cr'''lf'"
+  $ say "Content-Type: text/html''cr'''lf'"
+  $! response header separating blank line
+  $ say "''cr'''lf'"
+  $! start of HTML script output
+  $ say "&lt;HTML&gt;''lf'"
+  $ say "Hello ''WWW_REMOTE_HOST'''lf'"
+  $ say "&lt;P&gt;''lf'"
+  $ say "Local time is ''WWW_TIME_LOCAL'''lf'"
+  $ say "&lt;/HTML&gt;''lf'"
+</PRE>
+
+<A NAME="163">
+<H3>Raw HTTP C Script</H3>
+</A>
+
+<P>
+ When scripting using the C programming language and providing a full HTTP
+response there can be considerable efficiencies to be gained by providing a
+binary output stream from the script.  This may be simply provided using a code
+construct similar to following to reopen &lt;stdout&gt; in binary mode.
+
+<PRE>  /* reopen output stream so that the '\r' and '\n' are not filtered */
+  #ifdef __DECC
+     if ((stdout = freopen ("SYS$OUTPUT", "w", stdout, "ctx=bin")) == NULL)
+        exit (vaxc$errno);
+  #endif
+</PRE>
+ This is used consistently in WASD scripts.  Of course after that the full
+HTTP header must be supplied.
+
+<PRE>
+     fprintf (stdout,
+  "HTTP/1.0 200 Success\r\n\
+  Content-Type: text/html\r\n\
+  \r\n\
+  &lt;HTML&gt;\n\
+  Hello %s\n\
+  &lt;P&gt;\n\
+  System time is %s\n\
+  &lt;/HTML&gt;\n",
+     getenv("WWW_REMOTE_HOST"),
+     getenv("WWW_TIME_LOCAL"));
+</PRE>
+
+<A NAME="164">
+<H2><BR><U>12.6 - Raw HTTP Input</U></H2>
+</A>
+
+<P>
+ The logical name SYS$INPUT (with a synonym of HTTP$INPUT for backward
+compatibility), &lt;stdin&gt; for C Language based scripts, defines a
+mailbox providing a stream containing the request body (if any). This is
+available for procedures and executables to explicitly open and read.
+
+<P>
+ Note that this is a raw stream, and HTTP <I>lines</I> (carriage-
+return/line-feed terminated sequences of characters) may have be blocked 
+together for network transport.  These would need to be explicity parsed by 
+the program.
+<P><FONT SIZE=+1 COLOR="#ff0000"><B><U>NOTE:</U></B></FONT>
+ 
+Versions of the server prior to 4.3 supplied the full request (header then
+body) to the script.  This was not fully CGI-compliant.  Versions 4.3 and
+following supply only the body, although the previous behaviour may be
+explicitly selected using the configuration parameter [DclFullRequest].
+
+<A NAME="165">
+<H2><BR><U>12.7 - CGIplus Scripting</U></H2>
+</A>
+
+<P>
+ 
+
+<TABLE BORDER=0>
+<TR><TD VALIGN=top>
+<FONT SIZE=+1><B>
+Common Gateway Interface ... 
+<B></FONT>
+</TD><TD>
+<FONT SIZE=+1><B>
+plus lower latency,
+<BR>plus greater efficiency,
+<BR>plus far less system impact!
+<B></FONT>
+</TD></TR>
+</TABLE>
+
+<P>
+ I know, I know!  The term <U>CGIplus</U> is a bit <U>too
+cute</U> but I had to call it something!
+
+<P>
+ CGIplus attempts to eliminate the overhead associated with creating the
+subprocess and then executing the image of a CGI script.  It does this by
+allowing the subprocess and any associated image/application to continue
+executing between uses, eliminating any startup overheads.  This reduces both
+the load on the system and the request latency.  In this sense these advantages
+parallel those offered by commercial HTTP server-integration APIs, such as
+Netscape NSAPI and Microsoft ISAPI, without the disadvantages of such
+proprietory interfaces, the API complexity, language dependency and server
+process integration.
+
+<P>
+ CGIplus is not as complex (and consequently nor as versatile) as another
+approach to improving CGI performance, Open Market's <I>FastCGI</I>,
+
+see <A TARGET="_top" HREF="http://www.fastcgi.com/">http://www.fastcgi.com/</A>
+
+<P>
+ CGIplus design is generic enough to be easily implemented by other server
+architectures if found desirable. (For example, it is imagined Unix platforms
+would implement the CGIplus variable stream using <I>named pipes</I> one
+of which would be designated by the CGIPLUSIN environment variable.) The
+CGIplus-specific script environment and example code has been made as
+platform-neutral as possible, providing potential for a more wide-spread
+adoption. Existing CGI scripts can rapidly and elegantly be modified to
+additionally support CGIplus. The capability of scripts to easily
+differentiate between and operate in both standard CGI and CGIplus
+environments with a minimum of code revision offers great versatility.
+
+<A NAME="166">
+<H3>CGIplus Performance</H3>
+</A>
+
+<P>
+ A simple performance evaluation indicates the advantage of CGIplus.  See
+<A HREF="htd_1400.html#205" TARGET="_self">14.2 - Subprocess-based Scripting</A> for some test results comparing the
+non-persistant-process, persistant-process and CGIplus environments.
+
+<P>
+ Without a doubt, the subjective difference in activating the same script
+within the standard CGI and CGIplus environments is quite startling!
+
+<A NAME="167">
+<H3>CGIplus Programming</H3>
+</A>
+
+<P>
+ <B>The script interface is still CGI</B>, which means a new API
+does not need to be learned and existing CGI scripts are simple to modify.
+
+<P> See examples in
+<A TARGET="_top" HREF="/ht_root/src/CGIplus/*.*">HT_ROOT:[SRC.CGIPLUS]</A>
+
+<P>
+ Instead of having the CGI variables available from the environment
+(generally accessed via the C Language <I>getenv()</I> standard library
+call) a CGIplus script must read the CGI variables from CGIPLUSIN. They are
+supplied as a series of records (lines) containing a CGI variable name (in
+upper-case), an equate symbol and then the variable value. The line will never
+contain more than 1024 characters. The format may be easily parsed and as the
+value contains no encoded characters may be directly used.
+
+<P>
+ Requirements when using:
+<UL>
+<LI> The read will block between subsequent requests and so may be used to
+coordinate the application.
+<P>
+<LI> The first record read in any request can always be discarded.  This is
+provided so that a script may be synchronized outside of the general CGIplus
+variable read loop (the DCL and Perl examples use this feature).
+<P>
+<LI> The CGIplus variable stream should be completely read (up until the blank
+line, see below) before beginning any request processing.
+<P>
+<LI> The CGIplus variable stream should ALWAYS BE COMPLETELY READ (up until the
+blank line, see below).
+<P>
+<LI> An empty record (blank line) indicates the end of a single request's
+CGIplus variable stream. Reading MUST be halted at this stage.  Request
+processing may then commence.
+</UL>
+
+<P>
+ After processing, the CGIplus script can loop, waiting to read the details
+of the next request from CGIPLUSIN.
+
+<P>
+ Request output (to the client) is written to SYS$OUTPUT
+(&lt;stdout&gt;) as per normal CGI behaviour. <B>End of output
+MUST be indicated by writing a special EOF record to the output stream.</B>
+This is bit of a <I>kludge</I>, and the least elegant part of CGIplus
+design, but it is also the simplest implementation. A unique EOF sequence is
+generated for each use of DCL via a zombie or CGIplus subprocess. A
+non-repeating series of bits most unlikely to occur in normal output is
+employed ... but there is still a very, very, very small chance of
+premature termination of output
+
+(one in 2^<SUP>280</SUP> I think!)
+See <A TARGET="_top" HREF="/ht_root/src/httpd/cgi.c">CGI.c</A> for how the value is
+generated.
+
+<P>
+ The CGIplus EOF string is obtained by the script from the logical name
+CGIPLUSEOF, defined in the script subprocess' process table, using the
+scripting language's equivalent of F$TRNLNM(), SYS$TRNLNM(), or a getenv()
+call (in the C standard library). This string will always contain less than 64
+characters and comprise only printable characters. It must be written at the
+conclusion of a request's output to the output stream as a single record
+(line) but may also contain a &lt;CR&gt;&lt;LF&gt; or just
+&lt;LF&gt; trailing carriage-control (to allow for programming language
+requirements). It only has to be evaluated once, as the processing begins,
+remaining the same for all requests over the life-time of that instance of the
+script.
+
+<P>
+ HTTP input (raw request stream, header and any body) is still available to
+a CGIplus script.
+
+<A NAME="168">
+<H3>Code Examples</H3>
+</A>
+
+<P>
+ Of course a CGIplus script should only have a single exit point and should
+explicitly close files, free allocated memory, etc., after processing a
+request (i.e. not rely on image run-down to clean-up after itself). It is
+particularly important when modifying existing scripts to work in the CGIplus
+environment to ensure this requirement is met (who of us hasn't thought
+&quot;well, this file will close when the image exits anyway&quot;?)
+
+<P>
+ It is a simple task to design a script to modify it's behaviour according
+to the environment it is executing in. Detecting the presence or absence of
+the CGIPLUSEOF logical is sufficient indication. The following C code fragment
+shows simultaneously determining whether it is a standard or CGIplus
+environment (and setting an appropriate boolean), and getting the CGIplus EOF
+sequence (if it exists).
+
+<PRE>  int  IsCgiPlus;
+  char  *CgiPlusEofPtr;
+
+  IsCgiPlus = ((CgiPlusEofPtr = getenv("CGIPLUSEOF")) != NULL);
+</PRE>
+
+<P>
+ The following C code fragment shows a basic CGIplus request loop, reading
+lines from CGIPLUSIN, and some basic processing to select required CGI
+variables for request processing.
+
+<PRE>  if (IsCgiPlus)
+  {
+     char  *cptr;
+     char  Line [1024],
+           RemoteHost [128];
+     FILE  *CgiPlusIn;
+
+     if ((CgiPlusIn = fopen (getenv("CGIPLUSIN"), "r")) == NULL)
+     {
+        perror ("CGIplus: fopen");
+        exit (0);
+     }
+
+     for (;;)
+     {
+        /* will block waiting for subsequent requests */
+        for (;;)
+        {
+           /* should never have a problem reading CGIPLUSIN, but */
+           if (fgets (Line, sizeof(Line), CgiPlusIn) == NULL)
+           {
+              perror ("CGIplus: fgets");
+              exit (0);
+           }
+           /* first empty line signals the end of CGIplus variables */
+           if (Line[0] == '\n') break;
+           /* remove the trailing newline */
+           if ((cptr = strchr(Line, '\n')) != NULL) *cptr = '\0';
+
+           /* process the CGI variable(s) we are interested in */
+           if (!strncmp (Line, "WWW_REMOTE_HOST=", 16))
+              strcpy (RemoteHost, Line+16);
+        }
+
+        <I>(process request, signal end-of-output)</I>
+     }
+  }
+</PRE>
+ CGI scripts can write output in record (line-by-line) or binary mode
+(more efficient because of buffering by the C RTL).  When in binary mode the
+output stream must be flushed immediately before and after writing the CGIplus
+EOF sequence (note that in binary a full HTTP stream must also be used). This
+code fragment shows placing a script output stream into binary mode and the
+flushing steps.
+
+<PRE>  /* reopen output stream so that the '\r' and '\n' are not filtered */
+  if ((stdout = freopen ("SYS$OUTPUT", "w", stdout, "ctx=bin")) == NULL)
+     exit (vaxc$errno);
+
+  do {
+
+     <I>(read request ...)</I>
+
+     /* HTTP response header */
+     fprintf (stdout, "HTTP/1.0 200 ok\r\nContent-Type: text/html\r\n\r\n");
+
+     <I>(other output ...)</I>
+
+     if (IsCgiPlus)
+     {
+        /* the CGIplus EOF must be an independant I/O record */
+        fflush (stdout);
+        fprintf (stdout, "%s", CgiPlusEofPtr);
+        fflush (stdout);
+     }
+
+  } while (IsCgiPlus);
+</PRE>
+ If the script output is not binary (using default &lt;stdout&gt;) it
+is only necessary to ensure the EOF string has a record-delimiting new-line. 
+
+<PRE>  fprintf (stdout, "%s\n", CgiPlusEofPtr);
+</PRE>
+ Other languages may not have this same requirement.  DCL procedures are
+quite capable of being used as CGIplus scripts.
+
+<P> See examples in
+<A TARGET="_top" HREF="/ht_root/src/CGIplus/*.*">HT_ROOT:[SRC.CGIPLUS]</A>
+
+<P>
+<FONT SIZE=+1 COLOR="ff0000">
+Whenever developing CGIplus scripts/applications (unlike standard CGI) don't
+forget that after compiling, the old image must be purged from the server
+before trying out the new!!!  (I've been caught a number of times :^) 
+</FONT>
+
+<P>
+ Scripting subprocesses may be purged or deleted using (see
+<A HREF="htd_0500.html#60" TARGET="_self">5.3.2.4 - DCL/Scripting Subprocesses</A>):
+
+<PRE>  $ HTTPD /DO=DCL=DELETE
+  $ HTTPD /DO=DCL=PURGE
+</PRE>
+
+<A NAME="169">
+<H3>Other Considerations</H3>
+</A>
+
+<P>
+ Multiple CGIplus scripts may be executing in subprocesses at any one time.
+This includes multiple instances of any particular script.  It is the server's
+task to track these, distributing appropriate requests to idle subprocesses,
+monitoring those currently processing requests, creating new instances if and
+when necessary, and deleting the least-used, idle CGIplus subprocesses when
+configurable thresholds are reached.  Of course it is the script's job to
+maintain coherency if multiple instances may result in resource conflicts or
+race conditions, etc., between the scripts.
+
+<P>
+ The CGIplus subprocess can be given a finite life-time set by configuration
+parameter (see <A HREF="htd_0600.html#67" TARGET="_self">6 - Server Configuration</A>).  If this life-time is not set then
+the CGIplus will persist indefinitely (i.e. until purged due to soft-limits
+being reached, or explicitly purged/deleted).  When a life-time has been set the
+CGIplus subprocess is automatically deleted after being idle for the specified
+period (i.e. not having processed a request).  This can be useful in preventing
+sporadically used scripts from cluttering up the system indefinitely.
+
+<P>
+ In addition, an idle CGIplus script can be terminated by the server at any
+time the subprocess soft-limit is reached (the subprocess SYS$DELPRC()ed) so
+resources should be largely quiescent when not actually processing. Of course a
+CGIplus subprocesses may also be manually terminated from the command line
+(e.g. STOP/ID=).
+
+<P>
+ Some CGIplus scripting information and management is available via the
+server administration menu, see <A HREF="htd_1100.html#140" TARGET="_self">11.2 - HTTPd Server Reports</A>.
+
+<A NAME="170">
+<H3>CGIplus Rule Mapping</H3>
+</A>
+
+<P>
+ CGIplus scripts are differentiated from standard CGI scripts in the
+mapping rule configuration file using the &quot;script+&quot; and &quot;exec+&quot;
+directives.  See <A HREF="htd_0800.html#84" TARGET="_self">8 - Mapping Rules</A>.
+
+<P>
+ Scripts capable of operating in both standard CGI and CGIplus environments
+may simply be accessed in either via rules such as
+
+<PRE>  exec /cgi-bin/* /cgi-bin/*
+  exec+ /cgiplus-bin/* /cgi-bin/*
+</PRE>
+ while specific scripts can be individually designated as CGIplus using
+
+<PRE>  script+ /cgiplus_example* /cgi-bin/cgiplus_example*
+</PRE>
+
+<P>
+ <B>Caution! </B> If changing CGIplus script mapping it is
+advised to restart the server rather than reloading the rules.  Some conflict
+is possible when using new rules while existing CGIplus scripts are executing.
+
+<A NAME="171">
+<H2><BR><U>12.8 - DECnet Scripting</U></H2>
+</A>
+
+<P>
+ <I>&quot;Imitation is the sincerest form of flattery&quot;</I>
+- proverb
+
+<P>
+<FONT SIZE=+1 COLOR="#ff0000"><B><U>Please Note!</U></B></FONT>
+ 
+WASD requires no additional configuration to support subprocess-based
+scripting.  The following information applies only if DECnet-based scripting
+is desired.
+
+<P>
+ By default WASD executes scripts within subprocesses, but can also provide
+scripting using DECnet for the process management. DECnet scripting is not
+provided to generally supplant the subprocess-based scripting but augment it
+for certain circumstances:
+<UL>
+<LI> To provide an environment within WASD where OSU-based scripts (both CGI
+and OSU-specific) may be employed without modification.
+<P>
+<LI> To allow nodes without a full HTTP service to participate in providing
+resources via a well-known server, possibly resources that only they have
+access to.
+<P>
+<LI> Load-sharing amongst cluster members for <I>high-impact</I> scripts
+or particularly busy sites.
+<P>
+<LI> Provide user-account scripting.
+</UL>
+
+<A NAME="172">
+<H3>DECnet Performance</H3>
+</A>
+
+<P>
+ Any DECnet based processing incurs some overheads.
+<UL>
+<LI> connection establishment
+<LI> NETSERVER image activation
+<LI> NETSERVER maintenance (such as logs, etc.)
+<LI> activation of DECnet object image or procedure
+<LI> DECnet object processing
+<LI> activation by object of image or procedure
+<LI> DECnet object run-down
+<LI> NETSERVER image reactivation on completion of object processing
+</UL>
+
+<P>
+ As of version 5.2 WASD provides reuse of DECnet connections for both CGI
+and OSU scripting, in-line with OSU v3.3 which provided reuse for OSU scripts.
+This means multiple script requests can be made for the cost of a single
+DECnet connection establishment and task object activation. This functionality
+provides substantial performance improvements as indicated by
+<A HREF="htd_1400.html#206" TARGET="_self">14.3 - DECnet-based Scripting</A>. Note that the OSU task procedure
+requires the definition of the logical name WWW_SCRIPT_MAX_REUSE representing
+the number of times a script may be reused. The WASD startup procedures can
+provide this.
+
+<P>
+ In practice both the WASD CGI and OSU scripts seem to provide acceptable
+responsiveness.
+
+<A NAME="173">
+<H3>Rule Mapping</H3>
+</A>
+
+<P>
+ DECnet-based scripts are mapped using the same rules as subprocess-based
+scripts, using the SCRIPT and EXEC rules (see
+<A HREF="htd_0800.html#84" TARGET="_self">8 - Mapping Rules</A> for general information on mapping rules).
+DECnet scripts have a DECnet node and <I>task specification string</I> as
+part of the mapping rule. There are minor variations within these to further
+identify it as a WASD or an OSU script. See <A HREF="htd_1200.html#187" TARGET="_self">12.8.4 - User Scripts</A>
+for information on mapping user scripting.
+
+<P>
+ The specification string follows basic VMS file system syntax (RMS),
+preceding the file components of the specification.  The following example
+illustrates declaring that paths beginning with FRODO will allow the execution
+of scripts from the CGI-BIN:[000000] directory on DECnet node FRODO.
+
+<PRE>  exec /FRODO/* /FRODO::/cgi-bin/*
+</PRE>
+
+<P>
+ In similar fashion the following example illustrates a script
+&quot;frodo_show&quot; that might do a &quot;SHOW SYSTEM&quot; on node FRODO.  Note
+that these rules are case-insensitive.
+
+<PRE>  script /frodo-showsys /frodo::/cgi-bin/showsys.com
+</PRE>
+
+<P>
+ Both of the above examples would use the WASD CGI DECnet environment (the
+default if no task specification string is provided). By including task
+information other environments, in particular the OSU scripting enviroment,
+can be specified for the script to be executed within. The default task is
+named CGIWASD and can also be explicitly specified (although this behaviour
+would be the same as that in the first example)
+
+<PRE>  exec /frodo/* /frodo::"task=cgiwasd"/cgi-bin/*
+</PRE>
+
+<P>
+ All task specification strings may also use zero as the task abreviation.
+
+<PRE>  exec /frodo/* /frodo::"0=cgiwasd"/cgi-bin/*
+</PRE>
+
+<P>
+ To execute a script within the OSU environment specify the standard OSU
+task executive WWWEXEC, as in the following example:
+
+<PRE>  exec /osu/* /FRODO::"task=wwwexec"/cgi-bin/*
+</PRE>
+
+<P>
+ This would allow any URL beginning with &quot;/osu/&quot; to execute a script
+in the OSU environment.
+
+<A NAME="174">
+<H3>Local System</H3>
+</A>
+
+<P>
+ To specify any script to execute on the same system as the HTTP server
+specify the node name as zero or SYS$NODE.
+
+<PRE>  exec /decnet/* /0::"task=cgiwasd"/cgi-bin/*
+  exec /osu/* /sys$node::"task=wwwexec"/cgi-bin/*
+</PRE>
+
+<P>
+ Mapping rules are included in the examples
+
+(see <A TARGET="_top" HREF="/ht_root/example/">HT_ROOT:[EXAMPLE]</A>)
+providing this. After the DECnet environment has been started any CGI script
+may be executed on the local system via DECnet by substituting
+&quot;/decnet/&quot; for &quot;/cgi-bin/&quot; as the script path, and any OSU
+script available by using &quot;/osu/&quot;. Behaviour is indeterminate, though
+it shouldn't be catastrophic, if one is invoked using the incorrect path (i.e.
+an OSU script using /decnet/ or a CGI script using /osu/).
+
+<A NAME="175">
+<H3><BR><U>12.8.1 - Script System Environment</U></H3>
+</A>
+
+<P>
+ The target system must have sufficient of the WASD server environment
+to support the required CGI script activation and activity. If the target
+system is actually the same system as the HTTP server then it already exists,
+or if part of the local system's cluster, then providing this should be
+relatively straight-forward. If the target system has none of the server
+environment then at a minimum it must have the logical name CGI-BIN
+defined representing the directory containing the required DECnet object
+procedure and scripts. The following fragment illustrates this:
+
+<PRE>  $ DEFINE /SYSTEM /TRANSLATION=(CONCEALED) CGI-BIN device:[dir.]
+</PRE>
+ In this directory must be located the WASDCGI.COM and WWWEXEC.COM
+procedures required by the network task.  Of course other parts of the
+environment may need to be provided depending on script requirements.
+
+<A NAME="176">
+<H4><BR><U>12.8.1.1 - Proxy Access</U></H4>
+</A>
+
+<P>
+ The local system must have <I>proxy access</I> to each target
+scripting system (even if that &quot;target&quot; system is the same system as
+the HTTP server). This involves creating a proxy entry in each target hosts's
+authorization database. The following example assumes the existance of a local
+HTTP$SERVER account. If it does not exist on the target node then one must be
+created with the same security profile as the HTTP server's.
+
+<P>
+<FONT SIZE=+1 COLOR="#ff0000"><B><U>Caution!</U></B></FONT>
+ 
+If unsure of the security implications of this action consult the relevant
+VMS system management security documentation.
+
+<P>
+ The zero represents the system the server is currently executing on.
+
+<PRE>  $ SET DEFAULT SYS$SYSTEM
+  $ MCR AUTHORIZE
+  UAF&gt; ADD /PROXY 0::HTTP$SERVER HTTP$SERVER /DEFAULT
+</PRE>
+
+<P>
+ It is necessary to ensure the account has permission to write into
+it's home directory.  A network process creates a NETSERVER.LOG (Phase-IV) or
+NET$SERVER.LOG (DECnet-Plus) file in the home directory, and will fail to start
+if it cannot!
+
+<A NAME="177">
+<H4><BR><U>12.8.1.2 - DECnet Objects</U></H4>
+</A>
+
+<P>
+ To provide DECnet scripting DECnet <I>object(s)</I> must be specified
+for any system on which the scripts will be executed. The DECnet object is the
+program or procedure that is activated at the target system inside of a
+network-mode process to interact with the HTTP server.
+
+<A NAME="178">
+<H3>DECnet-Plus (OSI/Phase-V)</H3>
+</A>
+
+<P>
+ DECnet-Plus uses the NCL utility to administer the network environment. The
+following NCL scripting shows the creation of a network application for the
+WASD CGI object:
+
+<PRE>  $ MCR NCL
+  CREATE NODE 0 SESSION CONTROL APPLICATION CGIWASD
+  SET NODE 0 SESSION CONTROL APPLICATION CGIWASD ADDRESSES = {NAME=CGIWASD} -
+  ,CLIENT =  -
+  ,INCOMING ALIAS = TRUE -
+  ,INCOMING PROXY = TRUE -
+  ,OUTGOING ALIAS = FALSE -
+  ,OUTGOING PROXY = TRUE -
+  ,NODE SYNONYM = TRUE -
+  ,IMAGE NAME = CGI-BIN:[000000]CGIWASD.COM -
+  ,INCOMING OSI TSEL =
+</PRE>
+
+<P>
+ To create a DECnet-Plus OSU WWWEXEC object:
+
+<PRE>  $ MCR NCL
+  SET NODE 0 SESSION CONTROL APPLICATION WWWEXEC ADDRESSES = {NAME=WWWEXEC} -
+  ,CLIENT =  -
+  ,INCOMING ALIAS = TRUE -
+  ,INCOMING PROXY = TRUE -
+  ,OUTGOING ALIAS = FALSE -
+  ,OUTGOING PROXY = TRUE -
+  ,NODE SYNONYM = TRUE -
+  ,IMAGE NAME = CGI-BIN:[000000]WWWEXEC.COM -
+  ,INCOMING OSI TSEL =
+</PRE>
+
+<P>
+ These must be executed at each system (or server) startup, and may be
+executed standalone, as illustrated, or incorporated in the NCL script
+SYS$STARTUP:NET$APPLICATION_STARTUP.NCL for automatic creation at each system
+startup.
+
+Examples may be found in
+<A TARGET="_top" HREF="/ht_root/example/">HT_ROOT:[EXAMPLE]</A>.
+
+<A NAME="179">
+<H3>Phase-IV</H3>
+</A>
+
+<P>
+ DECnet Phase-IV uses the NCP utility to administer the network
+environment. The following NCP commands may be used each time during server
+startup to create the required DECnet objects. With Phase-IV the SET verb may
+be replaced with a DEFINE verb and the commands issued just once to
+permanently create the objects (a SET must also be done that first time to
+create working instances of the DEFINEd objects).
+
+<P>
+ To create a DECnet CGI object:
+
+<PRE>  $ MCR NCP
+  SET OBJECT CGIWASD NUMBER 0 FILE CGI-BIN:[000000]CGIWASD.COM
+</PRE>
+
+<P>
+ To create a DECnet OSU WWWEXEC object:
+
+<PRE>  $ MCR NCP
+  SET OBJECT WWWEXEC NUMBER 0 FILE CGI-BIN:[000000]WWWEXEC.COM
+</PRE>
+
+<P>Examples may be found in
+<A TARGET="_top" HREF="/ht_root/example/">HT_ROOT:[EXAMPLE]</A>.
+
+<A NAME="180">
+<H4><BR><U>12.8.1.3 - Reducing Script Latency</U></H4>
+</A>
+
+<P>
+ Script system network process persistance may be configured using
+NETSERVER logical names. These can control the number and quiescent period of
+the server processes. These logical names must be defined in the LOGIN.COM of
+the HTTP server account on the target script system.
+<UL>
+<LI> <B>NETSERVER$SERVERS_<I>username</I> - </B> This logical
+controls the number of network server processes that are kept available at any
+one time. Defining this logical results in a minimum of the specified number
+of quiescent server processes maintained. This can improve script response
+latency by circumventing the need to create a process to service the request,
+at the cost of cluttering the system with NETSERVER processes.
+
+<PRE>  DEFINE /JOB NETSERVER$SERVERS_HTTP$SERVER 5
+</PRE>
+<LI> <B>NETSERVER$TIMEOUT - </B>
+This logical controls the duration a quiescent network process persists
+before being deleted. The default period is five minutes. The following
+examples first show reducing that to thirty seconds, the second increasing it
+to one hour. Again, this can improve script response latency by circumventing
+the need to create a process to service the request, at least during the
+period a previously created process continues to exist.
+
+<PRE>  DEFINE /JOB NETSERVER$TIMEOUT "0 00:00:30"
+  DEFINE /JOB NETSERVER$TIMEOUT "0 01:00:00"
+</PRE>
+</UL>
+
+<A NAME="181">
+<H4><BR><U>12.8.1.4 - DECnet/OSU Startup</U></H4>
+</A>
+
+<P>
+ The example STARTUP.COM and STARTUP_DECNET.COM procedures found in the
+
+<A TARGET="_top" HREF="/ht_root/example/">HT_ROOT:[EXAMPLE]</A>
+directory provide the essentials for DECnet/OSU scripting.  If the INSTALL.COM
+startup environment is used setting the PROVIDE_DECNET symbol to 1 in
+STARTUP.COM will create the DECnet scripting environment during server startup.
+
+<A NAME="182">
+<H3><BR><U>12.8.2 - CGI</U></H3>
+</A>
+
+<P>
+ CGI scripts may be transparently executed within the DECnet scripting
+environment. This means that the script is executed within a network process,
+on the target system (which could be the local system), instead of within a
+subprocess on the local system. Other than that the WASD DECnet CGI
+environment behaves identically to the standard subprocess CGI environment.
+CGIplus scripting is not supported and if CGIplus-only scripts are executed
+the behaviour is indeterminate.
+
+<P>
+ An example of making the HELP database on a system other than that hosting
+the HTTP server (using the CONAN script) would be done using the mapping rules
+
+<PRE>  map /FRODO/help /FRODO/help/
+  script /FRODO/help/* /FRODO::/cgi-bin/conan/*
+</PRE>
+ and for the example DCL SHOW script
+
+<PRE>  script /FRODO/show* /FRODO::/cgi-bin/show*
+</PRE>
+
+<A NAME="183">
+<H3><BR><U>12.8.3 - OSU (DECthreads) Emulation</U></H3>
+</A>
+
+<P>
+ The OSU, or <I>DECthreads</I>, server is the most widely deployed VMS
+HTTP server environment, authored by David Jones and copyright the Ohio State
+University. See
+
+<A TARGET="_top" HREF="http://kcgl1.eng.ohio-state.edu/www/doc/serverinfo.html">
+http://kcgl1.eng.ohio-state.edu/www/doc/serverinfo.html</A>
+for more information.
+
+<P>
+ The WASD HTTP server provides an emulation of the OSU scripting
+environment. This is provided so that OSU-based scripts (both CGI-style and
+OSU-specific) may be employed by WASD with no modification. As this emulation
+has been designed through examining OSU code and lots of trial and error it's
+behaviour may be incomplete or present errors. A list of OSU scripts known to
+work with WASD is provided at the end of this section, see
+<A HREF="htd_1200.html#186" TARGET="_self">Known Working Scripts</A>.
+
+<P>
+ Supported scripts include only those that depend on the OSU WWWEXEC object
+and dialog for all functionality. Any script that uses other OSU-specific
+functionality is not supported. Interactions between WASD's and OSU's
+authentication/authorization schemes may be expected.
+
+<P>
+ <B>Please remember this is a first-cut of reverse-engineered
+technology.</B> The author would like to know of any OSU scripts the WASD
+emulation <I>barfs</I> on, and will attempt to address the associated
+limitation(s) and/or problem(s).
+
+<A NAME="184">
+<H3>OSU Setup</H3>
+</A>
+
+<P>
+ Software necessary for supporting the OSU scripting environment (e.g.
+WWWEXEC.COM) and selected OSU scripts (mainly for testing purposes) have been
+extracted from the OSU v3.3a package and included in the
+
+<A TARGET="_top" HREF="/ht_root/src/osu/">HT_ROOT:[SRC.OSU]</A>
+directory.  This has been done within the express OSU licensing conditions.
+
+<PRE>  Copyright 1994,1997 The Ohio State University.  
+  The Ohio State University will not assert copyright with respect
+  to reproduction, distribution, performance and/or modification 
+  of this program by any person or entity that ensures that all 
+  copies made, controlled or distributed by or for him or it bear 
+  appropriate acknowlegement of the developers of this program.
+</PRE>
+
+<P>
+ An example DECnet and OSU scripting startup may be found in
+
+<A TARGET="_top" HREF="/ht_root/example/">HT_ROOT:[EXAMPLE]</A>.
+This should be called from or used within the HTTP server startup. It includes
+two logical definitions required for common OSU scripts. Other tailoring may
+be required for specific OSU scripts.
+
+<A NAME="185">
+<H3>OSU - General Comments</H3>
+</A>
+
+<P>
+ David Jones, the author of the DECthreads (OSU) HTTP server, outlines his
+reasons for basing OSUs scripting on DECnet (reproduced from a USENET NEWS
+reply to a comment this author made about DECnet-based scripting).
+
+<PRE>  ------------------------------------------------------------------------
+
+  From           JONESD@er6.eng.ohio-state.edu (David Jones)
+  Organization   The Ohio State University
+  Date           12 Aug 1997 09:04:11 GMT
+  Newsgroups     vmsnet.sysmgt,comp.os.vms,comp.infosystems.www.servers.misc
+  Message-ID     &lt;5sp8ub$brs$1@charm.magnus.acs.ohio-state.edu&gt;
+
+  ------------------------------------------------------------------------
+
+  <I>... some text omitted</I>
+
+  Since I was comfortable with DECnet, I based the scripting system
+  for the OSU server around it.    The key reasons to use netserver
+  processes rather than spawning sub-processes:
+
+      1. DECnet automatically caches and re-uses netserver processes,
+         whereas there were well-known performance problems with spawning
+         sub-processes.
+
+      2. DECnet processes are detached processes, so you don't worry about
+         the effect of scripts consuming pooled quotas (e.g. bytlm) on
+         the HTTP server process.
+
+      3. Creation/connection with the DECnet server process is asynchronous
+         with respect to the server so other operations can proceed concurrently.
+         Spawning is done in supervisor mode, blocking the server's operation
+         until the child process is completely initialized.
+
+      4. With DECnet, scripts can be configured to run on different nodes
+         for load balancing.
+
+      5. In addition to the standard 'WWWEXEC' object, you can create
+         other 'persistent' DECnet objects that the server communicates with
+         as scripts. (this was implemented years before OpenMarket's FastCGI
+         proposal).
+
+      6. CGI is not the be-all end-all of scripting.  The dialog phase of
+         OSU's scripting environment allows scripts to do things CGI
+         is incapable of, such as ask the server to translate an arbitrary
+         path and not just what followed the script name in the URL.
+
+  People grouse all the time about the installation difficulties caused by
+  it's reliance on DECnet,  the reason shown above were cited to show that it
+  wasn't made so capricously.
+
+  <I>... some text omitted</I>
+
+  David L. Jones               |      Phone:    (614) 292-6929
+  Ohio State Unviversity       |      Internet:
+  2070 Neil Ave. Rm. 122       |               jonesd@kcgl1.eng.ohio-state.edu
+  Columbus, OH 43210           |               vman+@osu.edu
+
+  Disclaimer: Dogs can't tell it's not bacon.
+</PRE>
+
+<P>
+ The OSU server's DECnet scripting is not based on arbitrary
+considerations. This author does not disagree with any of the concerns, and as
+may be seen from WASD documentation the design of WASD also directly addresses
+points 1, 3 and 5 with the use of persistant subprocesses and CGIplus.
+Certainly DECnet-based scripting addresses the very legitimate point 4 (and
+also allows nodes with specific resources to participate without installing
+full HTTP server environments). For all practical purposes point 2 may be
+addressed by adjusting process quotas. Point 6 is only too true (possibly at
+least until Java servers and <I>servlets</I> become ubiquitous :^)
+
+<A NAME="186">
+<H3>Known Working Scripts</H3>
+</A>
+
+<P>
+ The following is a list of OSU-specific scripts that the WASD v5.1
+implementation has either been developed or tested against, and any
+installation notes or other WASD specifics. The author would like to know of
+any OSU scripts the WASD emulation has problems or works successfully with.
+<UL>
+<LI> All of the scripts, etc. provided in the
+
+<A TARGET="_top" HREF="/ht_root/src/osu/">HT_ROOT:[SRC.OSU]</A>
+directory.  These include:
+<UL>
+<LI> cgi_symbols
+<LI> cgi-mailto
+<LI> html_preproc
+<LI> set_dcl_env
+<LI> testcgi
+<LI> testform
+<LI> tmail
+<LI> vmshelpgate
+<LI> webbook
+</UL>
+<P>
+<LI> <B>helpgate</B>
+
+<P>
+ Comment out the <I>Conan The Librarian</I> mappings for the
+&quot;/help&quot; path and provide the following in HTTPD$MAP:
+
+<PRE>  # first make "/help" into a script specification
+  map /help* /htbin/helpgate/help*
+  # general rule mapping "/htbin" to OSU DECnet scripts
+  exec /htbin/* /0::"0=wwwexec"/cgi-bin/*
+  # map the non-script part of the path back to just "/help"
+  pass /htbin/helpgate/help* /help*
+</PRE>
+ It is possible to support both HELP environments (although
+<I>helpgate</I> will not work without owning the &quot;/help&quot; path),
+merely provide another mapping for <I>Conan</I> with a slightly different
+path, for example:
+
+<PRE>  map /chelp /chelp/
+  script /chelp/* /cgi-bin/conan/*
+</PRE>
+<P>
+<LI> <B>HTML pre-processor</B>
+
+<P>
+ Yes, backward compatibility can be provided for those old OSU .HTMLX
+files in your new WASD environment ;^) All that is needed is a file type
+mapping to the script in the HTTPD$CONFIG configuration file.
+
+<PRE>  [AddType]
+  .HTMLX  text/html  /htbin/html_preproc  OSU SSI HTML
+</PRE>
+<P>
+<LI> showtime
+<LI> mgmt
+</UL>
+
+<A NAME="187">
+<H3><BR><U>12.8.4 - User Scripts</U></H3>
+</A>
+
+<P>
+ The WASD DECnet environment provides a simple mechanism for executing
+scripts within accounts other than the server's.  This allows configured users
+to write and maintain scripts within their own areas and have them execute as
+themselves.  Both standard CGI and OSU scripting may be provided for with this
+facility.
+
+<P>
+ Of course there is always a down-side.  Be careful to whom this
+capability is granted.  User scripts are executed within a user network-mode
+process created by DECnet. Script actions cannot generally affect server
+behaviour, but they can access any WORLD-readable and modify any WORLD-writable
+resource in the system/cluster, opening a window for information leakage or
+mischievous/malicious actions. Script authors should be aware of any potential
+side-effects of their scripts and Web administrators vigilant against possible
+destructive behaviours of scripts they do not author.
+
+<P>
+ User scripting is not enabled by default.  To provide this facility mapping
+rules into the user area must be provided in much the same way as for user
+directories, See <A HREF="htd_0800.html#102" TARGET="_self">8.6 - Mapping User Directories (<I>tilde</I> character (&quot;~&quot;))
+</A>.  
+
+<P>
+ The &quot;EXEC&quot; rule provides a wildcard representation of users'
+script paths. As part of this mapping a subdirectory specifically for the web
+scripts should always be included. <B>Never</B> map users' top-level
+directories. For instance if a user's account home directory was located in the
+area WWW_USER:[DANIEL] the following rule would potentially allow the user
+DANIEL to provide scripts from the home subdirectory [.WWW.CGI-BIN] using the
+accompanying rules (first for CGI, second for OSU scripts):
+
+<PRE>  exec /~*/cgi-bin/* /0""::/www_user/*/www/cgi-bin/*
+  exec /~*/osu-bin/* /0""::"0=wwwexec"/www_user/*/www/cgi-bin/*
+</PRE>
+
+<P>
+ Scripts located in these directories are accessable via paths such as the
+following:
+
+<PRE>  /~daniel/cgi-bin/test
+</PRE>
+
+<A NAME="188">
+<H3>Explicit User Account</H3>
+</A>
+
+<P>
+ Using mapping rules it is possible to explicitly specify the user account
+for a particular script or scripts to be executed within.  This may be useful
+if an application has quota or other resource requirements that are desired to
+be withheld from the HTTP server account (i.e. it can provide a measure of
+isolation between the server and application accounts).
+
+<PRE>  exec /whatever-bin/* /0"WHATEVER"::/whatever_root/cgi-bin/*
+  script /dowhatever/* /0"WHATEVER"::/whatever_root/cgi-bin/dowhatever/*
+</PRE>
+
+<A NAME="189">
+<H3>Proxy Access</H3>
+</A>
+
+<P>
+ For each user account permitted to execute local scripts proxy access to
+that account must be granted to the HTTP server account.
+
+<P>
+<FONT SIZE=+1 COLOR="#ff0000"><B><U>Caution!</U></B></FONT>
+ 
+If unsure of the security implications of this action consult the relevant
+VMS system management security documentation.
+
+<PRE>  $ SET DEFAULT SYS$SYSTEM
+  $ MCR AUTHORIZE
+  UAF&gt; ADD /PROXY &lt;node&gt;::HTTP$SERVER &lt;account&gt;
+</PRE>
+
+<P>
+ For example, the following would allow the HTTP server to execute scripts
+on behalf of the username DANIEL.
+
+<PRE>  UAF&gt; ADD /PROXY 0::HTTP$SERVER DANIEL
+</PRE>
+
+<A NAME="190">
+<H2><BR><U>12.9 - Java Scripts</U></H2>
+</A>
+
+<P>
+ Java classes may be used to perform CGI scripting with WASD. They may be
+designed as standard CGI scripts (with the inevitable latency of the class
+loading) or as CGIplus scripts (with the attendant benefit of lower latency).
+
+<P>
+ Note that Java scripts must always be mapped and executed using the
+CGIplus path, however some can behave as standard CGI scripts, exiting after
+responding to the request, while others can persist, responding to multiple
+requests (see <A HREF="htd_1200.html#165" TARGET="_self">12.7 - CGIplus Scripting</A>). The CGIplus path is always necessary
+as Java does not have direct access to a process' general environment, the
+traditional way of passing CGI variables, so the WASD implementation uses the
+CGIplus data stream to provide CGI information. 
+
+<P>
+ WASD provides a class to allow a relatively simple interface to the CGI
+environment for both GET and POST method scripts. This and a collection of
+demonstration scripts may be found in the
+
+<A TARGET="_top" HREF="/ht_root/src/java/">HT_ROOT:[SRC.JAVA]</A>
+directory.
+
+<P>
+ Developed using the first-release JDK1.1 beta kit for OpenVMS Alpha V7.1. 
+
+<A NAME="191">
+<H3>Requirements</H3>
+</A>
+<UL>
+<LI> Ensure the Java class file type is mapped to the Java run-time in the
+HTTPD$CONFIG configuration file.
+
+<PRE>  [DclScriptRunTime]
+  .CLASS  @CGI-BIN:[000000]JAVA.COM
+</PRE>
+<P>
+<LI> The following content types are configured, also in HTTPD$CONFIG. 
+
+<PRE>  [AddType]
+  .CLASS  application/octet-stream  -  Java class
+  .JAVA  text/plain  -  Java source
+  .JAR  application/octet-stream  -  Java archive
+  .PROPERTIES  text/plain  -  Java properties
+</PRE>
+<P>
+<LI> The CGI-BIN logical includes the HT_ROOT:[JAVA] class directory in the
+server startup.
+
+<PRE>  $ JAVA_ROOT = F$TRNLNM("HT_ROOT") - ".]" + ".JAVA.]"
+  $ DEFINE /SYSTEM /TRANSLATION=(CONCEALED) -
+           CGI-BIN 'EXE_ROOT','SCRIPT_LOCAL_ROOT', -
+           'SCRIPT_ROOT','JAVA_ROOT'
+</PRE>
+</UL>
+
+<A NAME="192">
+<H2><BR><U>12.10 - HTTP Persistant-State Cookies</U></H2>
+</A>
+
+<P>
+ The WASD server is <I>cookie-aware</I>. That is, if the client
+supplies a &quot;Cookie:&quot; request header line it is passed to a CGI script
+as &quot;WWW_HTTP_COOKIE&quot; CGI variable symbol. If a cookie is not part of
+the request this symbol does not exist. A script may use the
+&quot;Set-Cookie:&quot; response header line to set cookies.
+
+<P>Here is <A TARGET="_top" HREF="/cgi-bin/cookie_demo">a small demonstration</A> of cookie
+processing using a DCL script.
+
+<P>
+<HR>
+[<A HREF="HTD_1300.HTML" TARGET="_self">next</A>] [<A HREF="HTD_1100.HTML" TARGET="_self">previous</A>] [<A HREF="HTD_0001.HTML"TARGET="_top" >contents</A>] [<A HREF="HTD_1200.HTML"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

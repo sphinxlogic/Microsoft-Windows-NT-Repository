@@ -1,0 +1,96 @@
+#
+# File:		makefile.dos
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds bombs example (DOS).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info.
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+THISDIR = $(WXDIR)\samples\bombs
+WXLIB = $(WXDIR)\lib\wx.lib
+LIBS=$(WXLIB) oldnames libw llibcew commdlg ddeml shell mmsystem
+INC=-I$(WXDIR)\include\base -I$(WXDIR)\include\msw
+DUMMY=$(WXDIR)\src\msw\dummy.obj
+
+# Set this to nothing if using MS C++ 7
+ZOPTION=/Z7
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+PRECOMP = /YuWX_PREC.H /Fp$(WXDIR)\src\msw\wx.pch
+
+!if "$(FINAL)" == "0"
+CPPFLAGS=/AL /W3 /Zi $(ZOPTION) /G2sw /Od $(INC) $(PRECOMP) /Dwx_msw
+LINKFLAGS=/NOD /CO /ONERROR:NOEXE /SEG:256
+!else
+CPPFLAGS=/AL /W3 /G2sw $(INC) /Ox $(PRECOMP) /Dwx_msw
+LINKFLAGS=/NOD /ONERROR:NOEXE /SEG:256
+!endif
+
+HEADERS = bombs.h
+SOURCES = bombs.$(SRCSUFF)
+OBJECTS = bombs.obj bombs1.obj game.obj
+
+bombs:    bombs.exe
+
+all:    wx bombs.exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos FINAL=$(FINAL)
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos clean
+        cd $(THISDIR)
+
+
+bombs.exe:      $(DUMMY) $(WXLIB) $(OBJECTS) bombs.def bombs.res
+        link $(LINKFLAGS) @<<
+$(DUMMY) $(OBJECTS),
+bombs,
+NUL,
+$(LIBS),
+bombs.def
+;
+<<
+        rc -31 -K bombs.res
+
+bombs.obj:      bombs.h bombs.$(SRCSUFF) $(DUMMY)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+bombs1.obj:      bombs.h bombs1.$(SRCSUFF) $(DUMMY)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+game.obj:      bombs.h game.h game.$(SRCSUFF) $(DUMMY)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+bombs.res :      bombs.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa bombs
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb

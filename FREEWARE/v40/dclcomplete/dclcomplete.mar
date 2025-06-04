@@ -1,0 +1,1560 @@
+ 
+                .title DCLCOMPLETE      tcsh style filename completion for DCL
+;++
+;
+; The following code provides command and filename completion in DCL.
+; It works by hooking the $GET RMS service and figuring out whether the
+; call is a DCL command line.  Yes, it's a hack.
+;
+; TAB triggers both command and filename completion.  A partial command
+; is looked up in the CLI tables.  (Someone might like to add a symbol
+; search to get foreign commands.)  If the last element of the command
+; is not the first "word", it's treated as a file, and completed.
+;
+; HERE BE DRAGONS!  This is supervisor mode code, with exec and kernel
+; mode stuff to load it.  I don't think it does anything nasty, but when
+; was the last time you saw 100% bug-free code?
+;
+; Compiling/linking:
+;       $ MACRO DCLCOMPLETE
+;       $ LINK DCLCOMPLETE
+;
+; Installing:
+;       $ RUN DCLCOMPLETE
+;
+; Note: This requires CMKRNL privilege to install.  Once installed in your
+; process requires no privileges, thus DCLCOMPLETE can be INSTALLed with
+; CMKRNL.  Remember that installed images must be linked /NOTRACEBACK.
+;
+; Note too that DCLCOMPLETE installs itself into the current process; it
+; does not install itself into subprocesses automatically.
+;
+; This code is copyright Don Stokes 1993.  Non-commercial distribution
+; is allowed, but contributions to my hacking fund are always welcome.
+;
+; Questions, bug reports, money, bug fixes, kudos, money, offers, money
+; etc to:
+;               Don Stokes, Network Manager
+;               Computing Services Centre
+;               Victoria University of Wellington
+;               New Zealand.
+;
+;               Phone +64 4 495-5052
+;               Phax  +64 4 471-5386
+;
+;               Email don@zl2tnm.gen.nz (Home), don@vuw.ac.nz (Work)
+;
+; Note: VMS hacking is my hobby, not my job.  Don't hold VUW responsible for
+; your problems.  (Don't give 'em the credit either.)  You can hold me
+; responsible if it makes you feel better, but if you think I'm going to
+; guarantee this crap, you've got another thing coming.... 8-)
+;
+; Kudos to Joe Meadows for VERB, part of which I've ripped off to do the
+; command completion, and a useful tool all round.
+;
+; Note: 15-Jul-94 Ramon Curiel
+;       I don't know if this is true with the original version, but it
+;       would appear to be the case.  When using "application keypad"
+;       mode - redrawing the current line (e.g completing a filename)
+;       will not work correctly.  The changes I've made shouldn't affect
+;       this part of the code and this appears to be interaction problem
+;       with this code and the terminal driver(?)...
+;       
+;
+; Changes:
+;        2 Aug 94       Ramon M. Curiel
+;                       Fix problem with qualifier completion on negation.
+;
+;       21 Jul 94       Ramon M. Curiel
+;                       Incorporate Jerry Leichters code to use ?<tab> as
+;                       the list sequence.  This is a neat hack that allows
+;                       us to use non-terminating codes to change things.
+;                       Make it a compile time option (Jerry Mode). Make
+;                       lowercasing file names compile time option (Don mode)
+;                       and lowercasing commands compile time option (Ray mode).
+;
+;       20 Jul 94       Ramon M. Curiel
+;                       Fix problem with display when quoting a "special"
+;                       char.  Do this by ^H and Space to blank quote char.
+;                       Add code to parse a top-level qualifier.  Now we
+;                       have three levels of completion Filenames, command,
+;                       and top-level qualifiers.  Next should be parameters
+;                       and then second level qualifiers the keywords...
+;
+;       15 Jul 94       Ramon M. Curiel
+;                       Use Don's suggestion of not echoing the termination
+;                       character.  We then explicitly check to see if
+;                       the termination char is CR.  If it is then we do a
+;                       $QIO to write a CR.  
+;
+;       13 Jul 94       Ramon M. Curiel
+;                       Didn't like using Ctrl Chars to do lists - use
+;                       "?" for what it was created for.  Need to allow
+;                       users to quote this, so if we're inside quotes
+;                       let it through.  Check previous char for "\" our
+;                       quote character if there let it through...Allow
+;                       <tab> to be quoted...
+;                       
+;                       Add input redirection in here.  Note: order that
+;                       redirection is attempted is important. Output
+;                       redirection must be last or it won't work...
+;                       Restructure redirection checks...
+;
+;        6 Jul 94       Ramon M. Curiel
+;                       Change redirection code and allow piping and
+;                       multiple commands.  Piping and multiple commands
+;                       combined with redirection require an "assist"
+;                       insert the string "PIPE " infront of string and
+;                       pass to do_get...
+;
+;       20 Jun 94       Ramon M. Curiel SRI
+;                       Add code to allow redirection of output.  This
+;                       code looks for " >> " and assigns sys$output 
+;                       to a string following this...
+;
+;       18 Jun 94       Ramon M. Curiel SRI
+;                       Make <cntrl-n> list possible matching commands...
+;
+;       17 Jun 94       Ramon M. Curiel SRI
+;                       Didn't like the way file list wildcarded subdirs.
+;                       When looking for a list see if we got a DIR END
+;                       if not then the wildcard is changed and need to
+;                       fixup the display.  Also make "<dir." wildcards
+;                       work by changing the "<" to "["...
+;
+;       15-16 Jun 94    Ramon M. Curiel SRI
+;                       Check for DECNet node names and make <CNTRL-N>
+;                       list the filenames that match the filespec...
+;
+;       9/9/93/dcs      Made system service remapping code *much* more
+;                       paranoid.
+;
+;--
+
+                .link "SYS$SYSTEM:SYS.STB"/selective_search
+                .link "SYS$SYSTEM:DCLDEF.STB"/selective_search
+                .library "SYS$LIBRARY:LIB.MLB"
+
+;
+; The following definitions change certain aspects of DCLCOMPLETE
+;  NOTE: when completing or get a list of Qualifiers the partial
+;        qualifier or completed qualifier is ALWAYS uppercased!
+;
+Don             = 1                     ; lowercase filenames
+Ray             = 1                     ; Don't lowercase Commands
+;Jerry          = 1                     ; Change how we do list via terminator
+;                                       ; off list_char or list_char complete_char
+
+
+
+                                        ; System definitions:
+                $IODEF                  ;       $QIO function codes
+                $TRMDEF                 ;       Terminal function item codes
+                $PRTDEF                 ;       Page protection codes
+                $PSLDEF                 ;       PSL symbols (processor modes)
+                $RMSDEF                 ;       RMS stuff
+                $FABDEF                 ;       FAB stuff
+                $NAMDEF                 ;       NAM stuff
+                $XABDEF                 ;       Standard XAB stuff
+                $RABDEF                 ;       RAB stuff
+                $XABTRMDEF              ;       Terminal XAB stuff
+                $IPLDEF                 ;       IPL definitions
+                $LNMDEF                 ;       LNM definitions
+                $SSDEF                  ; DEFINE SYSTEM MESSAGES
+                $CLIMSGDEF              ; DEFINE ERROR/STATUS VALUES
+                $STSDEF                 ; DEFINE STATUS CODE FIELDS
+
+;
+; Some constants
+;
+complete_char   = 9                     ; File completion character (TAB)
+CR_CHAR         = 13                    ; Carriage Return
+list_char       = ^A/?/                 ; File List Character (Ctrl-P)
+Mult_Char       = ^A/;/                 ; Command Separator...
+Pipe_char       = ^A/|/                 ; Pipe command character (|)
+Qual_Char       = ^A"/"                 ; Qualifiers
+Quote_char      = ^A/\/                 ; \
+Redi_char       = ^A/</                 ; redirection input char
+Redo_Char       = ^A/>/                 ; Redirection output char
+reloc_sigval    = 12345678              ; Signature value
+cr_ctrl         = ^X00010000            ; CR/LF for QIO
+ReDirects       = ^A/|;></              ; Output Redirection Chars...
+P_Com           = ^A/PIPE/              ; PIPE AND MULTI COMMAND COMMAND
+PCOM_SZ         = 4
+
+;
+; From V4 Fiche for Keyword lookup
+;
+V_NEGAT = 0
+M_NEGAT = 1
+V_KEYWD = 1
+M_KEYWD = 2
+V_SYNTAX = 2
+M_SYNTAX = 4
+V_AMBIG = 3
+M_AMBIG = 8
+
+
+
+
+;
+; Local variables allocated on (supervisor) stack
+;
+                tmp=.                   ; Define some local variables
+                .=0
+itmlst:                                 ; Itemlist for XABTRM
+        itm_len = 0                     ;               length field
+        itm_cod = 2                     ;               code field
+        itm_adr = 4                     ;               address field
+        itm_ret = 8                     ;               retaddress field
+itmlst_mod:     .blkb 12                ;       Modifiers
+itmlst_prompt:  .blkb 12                ;       Prompt
+itmlst_termsk:  .blkb 12                ;       Terminator Mask
+itmlst_inistr:  .blkb 12                ;       Initial String
+itmlst_offset:  .blkb 12                ;       Cursor offset
+itmlst_len      = .-itmlst
+prompt:         .blkb 40                ; Prompt string (we fiddle with this)
+;
+; Flags and terminators added by RMCJ to do extended
+;       terminators, but wasn't able to figure out
+;       how to allow quoted strings and ? might be
+;       needed - so use <CTRL-N> to list files...
+; Flags is used to inform code we want a complete list...
+;
+Terminators:    .blkb 8                 ; include ?
+  Term_Len = .-Terminators              ;get size of last block
+Flags:          .long 0                 ;Use this to flag <?> or <tab>
+VecTbl:         .long 0                 ;This is a copy of R8 we'll need
+QualBlk:        .long 0                 ;Address of Qualifier Entity block
+KeyBlk:         .long 0                 ;Future use
+ParBlk:         .long 0                 ;Future use
+TQBuf:          .long 0                 ;Temp Qualifer buffer
+SQBuf:          .long 0                 ;Saved one used for completion
+APT:            .long 0
+                                        ; Some temporaries
+rab_address:    .blkl                   ; Address of callers RAB
+xab_address:    .blkl                   ;    "    "     "    XABTRM
+itmlst_address: .blkl                   ;    "    "     "    item list
+itmlst_length:  .blkl                   ; Length  "     "     "    "
+
+fab:            .blkb FAB$K_BLN         ; FAB for file lookups
+nam:            .blkb NAM$K_BLN         ; NAM for same
+rsa:            .blkb 256               ; Resultant string address
+esa:            .blkb 256               ; Expanded string address
+scratch:        .blkb 256               ; Scratch buffer
+dirlen:         .blkl 1                 ; Directory length
+
+                local=.
+                .=tmp                   ; End of local variables
+
+;
+;Local Vars for Pipe_it
+;
+                PTmp = .
+                     . = 0
+InChan:         .Word   0               ;MBX Input Chan
+OutChan:        .Word   0               ;MBX Output chan
+InNam:          .Blkb   64              ;InMBX Name
+OutNam:         .blkb   64              ;OutMBx Name
+PItmLst:        .blkb   6*12            ;roome for 6 Items...
+
+                PLocal = .
+                        . = PTmp
+
+
+;
+; Variables used by install code
+;
+pagetweak:      .blkl 2         ; Virtual address of page containing SYS$SETDDIR
+
+vectmp:         .blkb 512       ; Temp storage while we tear the system service
+                                ; vectors down and rebuild 'em.
+
+
+tty:            .ascid "SYS$COMMAND:"   ; Terminal name to assign channel to
+
+
+
+
+
+
+
+
+
+;
+; Mainline code -- install completion code and revector $GET to point
+; to it.
+;
+        .entry dclcomplete, ^M<>
+;;;             movaq   -(sp),r2                ; get a Descriptor
+;;;             movzwl  #8,(r2)                 ;
+;;;             movaq   -(sp),4(r2)             ;Allocate input buffer
+;;;             pushl   r2                      ;return length
+;;;             pushl   #0                      ;don't prompt
+;;;             pushl   r2                      ;one shot if there use
+;;;             Calls   #3,G^Lib$Get_Foreign    ;okay...
+;;;             blbc    r0,100001$
+;;;             Tstw    (r2)                    ;Anything
+;;;             beql    100001$                 ;nope continue
+;;;             movc3   (r2),@4(r2),comp_ch     ;overwrite defaults
+                
+100001$:        cmpl @#SYS$GET,#^x9F170FFC      ; Check that $GET has not been
+                bneq 1$                         ; revectored...
+                                                ; 9f170ffc = .entry; jmp @#
+                movl @#SYS$GET+4, R1            ; If so, find vectored code
+                movl #SS$_ABORT, R0
+                cmpl reloc_sig-reloc(R1), #reloc_sigval
+                bneq 99$                        ; Check signature value
+                                                ; If not ours, abandon ship NOW!
+                $CMKRNL_S routin=deinstall_code ; Get rid of the old stuff.
+                blbc R0, 99$
+1$:             $CMKRNL_S routin=install_code   ; Install routine into P1 pool
+                blbc R0, 99$
+
+99$:            ret                             ; All done
+
+
+;
+; Install $GET revector routine in P1 pool, assign channel to terminal.
+; Exec mode, image context.
+;
+;       .macro movo src,dst
+;       movq    src,dst
+;       movq    src+8,dst+8
+;       .endm
+        .entry install_code, ^m<R2,R3,R4,R5,R6>
+                movo @#SYS$GET, real_get        ; Save real vector
+
+                $ASSIGN_S chan=ttychan, devnam=tty, acmode=#PSL$C_SUPER
+                blbc R0, 98$                    ; Give us a supervisor channel
+                                                ; for later use
+
+                movl #reloc_len, R1             ; R1=length of allocated block
+                jsb @#EXE$ALOP1PROC             ; Get P1 pool
+                blbs R0, 1$                     ; Got it?
+                movl #SS$_INSFMEM, R0           ; Not enuff pool....
+98$:            ret
+1$:             movl R1, reloc_alloc_len        ; Save length of block
+                movl R2, R6                     ; R6=address of block in P1
+                movc3 #reloc_len, reloc, (R2)   ; Copy reloc into P1
+
+;
+; This is where me prepare the vectors to be written to.
+; The steps are:
+;       Make a copy of the page where the $GET vector lives
+;       Create a kernel mode demand-zero page over the top of it
+;       Copy the saved vectors back over it
+;       Set protection to URKW
+;       Lock it into the working set
+;
+; NOTE: Once $CRETVA has done its thing, several important system services
+; are unreachable.  It would be bad if we run into problems before
+; restoring the saved vectors into the page, and setting the page
+; protection to URKW.  We really want the pages locked down fairly soon
+; too.  We don't want any ASTs delivered to us here, so crank IPL up to ASTDEL.
+;
+; If something fails in here, go into a loop (at IPL 2!).  This way we can
+; be probed with SDA (priorities willing!) while letting the rest of the
+; system continue, protected from being forced into continuing with a fubared
+; process.  We don't know if the unreachable system services will be called
+; during rundown, for example.
+;
+; We don't need to do this stuff if the page is already writable.  (DEBUG
+; can do this for us, for example.)
+;
+                probew #0, #8, @#SYS$GET
+                bneq 2$
+
+                bicl3 #^x000001FF, #SYS$GET, pagetweak
+                movl pagetweak, pagetweak+4     ; Calculate page address that
+                                                ; $GET lives in
+                movc3 #512, @pagetweak, vectmp  ; Save page to be mapped
+
+                SETIPL #IPL$_ASTDEL             ; Crank up IPL shields
+                                                ; We don't wanna be killed now!
+                $CRETVA_S inadr=pagetweak,acmode=#PSL$C_KERNEL
+                blbc R0, 99$                    ; Create memory over the page
+                movc3 #512, vectmp, @pagetweak  ; Restore vectors from copy
+                $SETPRT_S inadr=pagetweak,acmode=#PSL$C_KERNEL,prot=#PRT$C_URKW
+                blbc R0, 99$                    ; Set page protection to URKW
+                $LKWSET_S inadr=pagetweak,acmode=#PSL$C_KERNEL
+                blbc R0, 99$                    ; Lock the buggers down
+                SETIPL #0                       ; Shields down
+;
+; Things are safe(ish) now.  Re-write the $GET vector.
+;
+2$:                                             ; Point vector at our code in P1
+                movl #^x9F170FFC, @#SYS$GET     ; .entry $GET ; JMP @#
+                movl R6, @#SYS$GET+4            ;                     code
+
+                movl #SS$_NORMAL, R0            ; Success.
+                ret
+
+99$:            brb 99$                         ; Emergency stasis field:
+
+;
+; Remove $GET revector code, deassign channel to terminal
+; Kernel mode, image context
+;
+        .entry deinstall_code, ^m<R2>
+                movl @#SYS$GET+4, R2            ; Get location of code in P1
+
+                $DASSGN_S chan=ttychan-reloc(R2)
+                blbc R0, 99$
+
+                movl reloc_alloc_len-reloc(R2), R1      ; Get length of P1 block
+                movo real_get-reloc(R2), @#SYS$GET      ; Restore $GET vector
+                movl R2, R0
+                jsb @#EXE$DEAP1                 ; Deallocate P1 block
+                movl #SS$_NORMAL, R0
+99$:            ret
+
+
+
+
+
+
+
+
+
+;
+; Code & stuff relocated into P1 pool.
+; This must be relocatable, and is read-only in supervisor mode (the page
+; protection is UREW).
+;
+                .psect code_reloc, long,pic,wrt,exe,noshr
+;
+; Preamble, used for identification etc.
+;
+reloc:          brw code                        ; Entry point at start of code
+                .align long
+reloc_sig:      .long reloc_sigval              ; Signature value
+reloc_alloc_len:.blkl                           ; Length of alocated P1 block
+real_get:       .blkb 2                         ; $GET vector code: entry mask
+real_get_code:  .blkb 14                        ;                   actual code
+ttychan:        .blkw                           ; Channel to command terminal
+
+Comp_ch:        .byte   complete_char
+List_ch:        .byte   List_char
+Quot_ch:        .byte   Quote_Char
+Pipe_Ch:        .byte   Pipe_Char
+Mult_Ch:        .byte   Mult_Char
+Redo_Ch:        .byte   Redo_char               ;
+Redi_ch:        .byte   Redi_char               ;
+                .byte   0                       ;keep things aligned
+
+;
+; Read-only data
+;
+tchars:         .ascii " ,+(@=/"                ; Command element delimiters
+tchars_term_l = .-tchars                        ; File name delimiters
+                .word ^A":"                     ; Device terminators
+                .word ^A"<["                    ; Directory opener
+tdchars:        .word ^A">]"                    ; Directory close
+tdchar_sz     = .-tdchars
+                .word ^A"."                     ; Type specifier
+tchars_len    = .-tchars
+
+                                        ; Flag values
+        fv_typ  = 0                     ;       Type
+        fm_typ  = 1
+        fv_die  = 1                     ;       Directory end
+        fm_die  = 2
+        fv_dib  = 2                     ;       Directory begin
+        fm_dib  = 4
+        fv_dev  = 3                     ;       Device
+        fm_dev  = 8
+
+compflags:      .byte   fm_dev, fm_typ!fm_die!fm_dib    ; Device
+                .byte   fm_dib, fm_typ!fm_die           ; Directory start
+                .byte   fm_die, fm_typ                  ; Directory end
+                .byte   fm_typ, 0                       ; Type
+
+DirWildList:    .ascii  "%*.dir"
+DirWLst_Sz    = .-DirWildList                   
+
+wildcard_d:     .ascii "%*]"            ; Bits of the wildcard spec...
+wildcard_f:     .ascii "*."
+wildcard_t:     .ascii "*"
+wildcard_e:
+
+wildcard_tbl:                                   ;       DirB    DirE    Typ
+                .byte   wildcard_e-wildcard_f   ;
+                .byte   wildcard_e-wildcard_t   ;                       X
+                .byte   wildcard_e-wildcard_f   ;               X
+                .byte   wildcard_e-wildcard_t   ;               X       X
+                .byte   wildcard_e-wildcard_d   ;       X
+                .byte   wildcard_e-wildcard_d   ;       X               X
+                .byte   wildcard_e-wildcard_f   ;       X       X
+                .byte   wildcard_e-wildcard_t   ;       X       X       X
+
+bel:            .byte 7                         ; A spare BEL to beep with
+Erase:          .byte   8,32                    ; ^H,Space
+
+AOut:           .Ascii  "SYS$OUTPUT"                    ;Used for redirection
+AOut_Sz       = . - AOut                                ;Need size to...
+AIn:            .Ascii  "SYS$INPUT"                     ;Used for redirection
+AIn_Sz        = . - AIn                                 ;Need size to...
+
+LTbl:           .ascii  "LNM$PROCESS"
+LT_SZ         = . - LTBL
+
+
+RDSize        = <2*3*4>                 ;CRELNM ItmLst Size
+                                                ; 2 Items * 3 Longwords/Itme * 4 Bytes/LW
+                                                ;Actually a single item plus termination
+                                                ;longword plus a ACMODE Byte...
+
+                .align long
+fab_proto:      $FAB fop=ppf                    ; FAB & NAM for file search
+nam_proto:      $NAM ess=255, rss=255
+
+
+
+
+
+
+
+
+
+;
+; All calls to $GET come here.  *ALL*!
+; Decide what to do with it.
+; The $GETs we're interested in come at us in supervisor mode, with a RAB
+; carrying a XABTRM, who's prompt string points to the DCL prompt.  The DCL
+; prompt must not be a continuation prompt (_$).
+;
+; DCL plays silly buggers with its prompt.  The prompt string specified by
+; SET PROMPT comes with a three character preamble; the first two characters
+; may or may not be CR/LF, the third is eithe nul or '_' if it's a continuation
+; prompt.
+;
+code:           movpsl R0                       ; Abandon ship if not supervisor
+                bbc #<PSL$V_CURMOD+1>, R0, 99$
+                bbs #<PSL$V_CURMOD>, R0, 99$
+
+                movl 4(AP), R6                  ; R6=RAB address
+                movl RAB$L_XAB(R6), R7          ; R7=XAB address from RAB
+                beql 99$                        ; No XABs?  bye bye!
+
+                cmpb XAB$B_COD(R7), #XAB$C_TRM  ; XABTRM?
+                bneq 99$                        ; No?  bye bye!
+
+                movzwl XAB$W_ITMLST_LEN(R7), R8
+                cmpw R8, #24                    ; Two item itemlist?
+                beql 1$                         ; Yes, OK
+                cmpw R8, #48                    ; Four item itemlist?
+                bneq 99$                        ; No?  exit
+1$:             movl XAB$L_ITMLST(R7), R9       ; R9=address of itemlist
+
+                moval @#CTL$AG_CLIDATA, R1      ; locate start of prompt
+                movl PPD$L_PRC(R1), R1
+                movab PRC_G_PROMPT-3(R1), R1
+
+                cmpl R1, 16(R9)                 ; Does XAB's prompt point there?
+                bneq 99$                        ; No?  bye bye!
+
+                tstb 2(R1)                      ; 0 in continuation field?
+                beql dcl_input                  ; Y: we've got you!
+
+99$:            brw real_get_code               ; Bounce off to the real $GET
+
+
+
+
+
+
+
+
+
+;
+; Come here when we've got a real live DCL input
+;
+; On entry:     R6 = RAB address
+;               R7 = XABTRM address
+;               R8 = XABTRM itemlist length
+;               R9 = XABTRM itemlist address
+;
+; Build a new XABTRM item list
+;
+
+dcl_input:      subl2 #local, SP                ; Allocate some space on the
+                movl SP, R11                    ; stack.  R11=base pointer
+
+                movc5 #0, dcl_input, #0, #itmlst_len, itmlst(R11)
+                movw #TRM$_MODIFIERS, itmlst_mod+itm_cod(R11)
+                movl #TRM$M_TM_NORECALL!TRM$M_TM_ESCAPE!TRM$M_TM_TRMNOECHO,-
+                      itmlst_mod+itm_adr(R11)
+                                                ; Clear out the new itemlist
+
+                movc3 12(R9), @16(R9), prompt(R11)
+                movw #TRM$_PROMPT, itmlst_prompt+itm_cod(R11)
+                movw 12(R9), itmlst_prompt+itm_len(R11)
+                movab prompt(R11), itmlst_prompt+itm_adr(R11)
+                                                ; Copy the prompt to it
+
+                movw #Term_Len,-
+                         Itmlst_termsk+Itm_Len(r11);ADDed by RMCJ
+                movc5 #0, dcl_Input,#0,-
+                         #Term_Len, terminators(r11)    ;Added by RMCJ
+
+                movw #TRM$_TERM, itmlst_termsk+itm_cod(R11)
+                     ;  _^]\[ZYXWVUTSRQPONMLKJIHGFEDCBA@
+                movab Terminators(r11),-
+                        itmlst_termsk+itm_adr(R11)
+
+                movl #^b00000100000000000010000000000100,-
+                        Terminators(r11)
+                bbss    #complete_char,Terminators(r11),10001$
+10001$:
+        .If Not_Defined Jerry
+                bbss    #List_char,Terminators(r11),10002$      
+10002$:
+        .endc
+                                                ; Put in the terminator mask
+
+                movw #12*3, XAB$W_ITMLST_LEN(R7); Set the length of the itmlst
+                cmpw R8, #24                    ; Is this a long (48 byte) or
+                beql 1$                         ; short (24 byte) form itemlist?
+
+                movc3 #24, 24(R9), itmlst_inistr(R11)
+                movw #12*5, XAB$W_ITMLST_LEN(R7); append the rest of the long
+                                                ; itmlst to the new one
+1$:
+
+                movab itmlst(R11), XAB$L_ITMLST(R7)
+
+                movl R6, rab_address(R11)       ; Save some stuff for later
+                movl R7, xab_address(R11)
+                movl R8, itmlst_length(R11)
+                movl R9, itmlst_address(R11)
+
+;
+; Perform the $GET with the supplied RAB, decide whether we need to
+; complete the character
+;
+do_get:         callg (AP), real_get            ; Do it
+                blbc R0, 99$
+
+                movl rab_address(R11), R6       ; Get RAB location
+                bbc #DEV$V_TRM, RAB$L_CTX(R6), 99$ ; If this was not a
+                                                ; terminal read, leave now.
+
+                clrl    Flags(r11)              ;Added by RMCJ <?> or <tab>
+                cmpb RAB$W_STV0(R6), #complete_char
+                beql check_list                 ; Check termination character
+
+        .if not_defined JERRY
+                cmpb RAB$W_STV0(R6), #List_char ;is this a "?" RMCJ
+                bneq 99$                        ;Nope Skip stuff
+                movl #1,flags(r11)              ;Signal we want list
+                brb  check_List                 ;see if we're quoted...
+        .EndC
+
+
+99$:
+                cmpb RAB$W_STV0(R6), #CR_char   ;is this a CR RMCJ
+                BNEQ    100$
+                $QIOW_S chan=ttychan, func=#IO$_WRITEVBLK, -
+                        p1=RAB$W_STV0(R6), p2=#0, p4=#^X008D0000        ; DO CR
+                
+100$:           Calls   #0,Check_ReDirect       ;
+
+                movl xab_address(R11), R7       ; Going out, restore the things
+                movl itmlst_length(R11), XAB$W_ITMLST_LEN(R7) ; we diddled with
+                movl itmlst_address(R11), XAB$L_ITMLST(R7)
+
+                ret
+
+;
+; Code from here to comments before complete_file added by RMCJ
+; 13-Jul-94
+;We're using ? to list characters, this could be a valid character in
+;some instances - DCL may want it some where - in those cases it needs
+;to be quoted.  Also, if the preceding char is "\" also let it through,
+;but replace the "\"...
+
+Check_list:
+        movl    rab$l_rbf(r6),r8                ;address of buffer
+        movzwl  rab$W_RSZ(r6),r9
+        bneq    10$
+1$:     brw     Error                           ;Empty line
+10$:    clrq    r2                              ;use this to count "'s
+20$:    cmpb    (r8)+,#^A/"/
+        bneq    30$
+        incl    r2
+30$:    sobgtr  r9,20$                          ;tight loop  till done
+        cmpb    #Quote_char,-1(r8)              ;check last char
+        .if     not_defined Jerry
+                bneq    33$                     ;this is ray mode
+        .endc
+        .if     defined Jerry
+                beql    32$
+                cmpb    #List_char,-1(r8)               ;check for list char here
+                bneq    33$
+                movl    #1,Flags(r11)                   ;set list mode
+                decw    rab$W_rsz(r6)                   ;remove last char
+                brb     Complete_File                   ;go complete the file
+        32$:
+                .endc
+
+        decw    rab$W_rsz(r6)                   ;remove last char
+        decl    r8                              ;adjust pointer
+        brb     35$
+33$:
+        blbc    r2,complete_file                ;not quoted all done get list
+        cmpw    rab$w_rsz(r6),-
+                rab$w_usz(r6)
+        bgeq    1$                              ;beep no room
+        
+35$:
+        cmpl    rab$l_ubf(r6),rab$l_rbf(r6)     ;Same Buffer
+        beql    37$                             ;yes skip
+        movc3   Rab$W_RSZ(r6),-                 ;
+                @Rab$L_Rbf(r6),-
+                @Rab$L_UBf(r6)                  ;copy to input buffer           
+        movl    r3,r8                           ;save pointer here
+        movl    rab$l_ubf(r6),rab$l_rbf(r6)     ;
+37$:    movb    Rab$W_Stv0(r6),(r8)             ;set this
+39$:    incw    rab$w_rsz(r6)                   ;add it to the end
+
+        brw     error1                          ;this isn't a real error...
+
+
+;
+; Come here when the user hits the TAB key
+;
+complete_file:  movc3 #FAB$K_BLN, fab_proto, fab(R11)   ; Fill FAB & NAM
+                movc3 #NAM$K_BLN, nam_proto, nam(R11)
+                movab nam(R11), fab+FAB$L_NAM(R11)      ; Fixup pointers
+                movab esa(R11), nam+NAM$L_ESA(R11)
+                movab rsa(R11), nam+NAM$L_RSA(R11)
+
+                movl RAB$L_RBF(R6), R8          ; R8=address of text
+                movzwl RAB$W_RSZ(R6), R9        ; R9=length of text to search
+                bneq 22$
+                brw error                       ; Empty cmd line? Beep!
+22$:
+;
+; This is a bit tricky.
+; R10 contains a bit mask of the filespec components we have seen as we
+; run backwards down the length of the partial filename.
+; R7 contains a mask of bits _not_ to be set.  Mainly, this is so that
+; once we've started into a directory (ie crossed a ']' or '>') we don't
+; signal that we've found the delimiter between the name & type.
+;
+                clrl R10                        ; R10=Filespec components flags
+                clrl R7                         ; R7=Mask
+                clrl R4                         ; R4=Directory end location
+                movl r8,r1                      ; need an address in r1
+                movl R9, R2                     ; Search backward through text
+1$:             decl R2                         ; for beginning of filespec
+                blss 2$                         ; R2=index
+                locc (R8)[R2], #tchars_len, tchars
+                beql 1$
+                subl3 R0, #tchars_len, R0
+                subl2 #tchars_term_l, R0
+                blss 2$
+;Note this stuff is added by RMCJ < with out trailing > don't work
+;change < to [ 
+                cmpb (r1),#^A/</
+                bneq 1001$
+                movb #^A/[/,(r8)[r2]            ;Replace < with [
+1001$:          bicl #1, R0
+                movab compflags, R3
+                movb (R3)[R0], R1               ; Get bits to set
+                bicb R7, R1                     ; Mask off bits already in use
+                bisb R1, R10
+                bisb 1(R3)[R0], R7
+                cmpb R1, #fm_die                ; Dir end char?
+                bneq 1$                         ; No, loop
+                movb #^A/]/,(r8)[r2]            ; Make die "]"
+                movb R2, R4                     ; Yes, note its location
+                incl R4
+                brb 1$
+
+                                                ; Come here when we've hit
+2$:             incl R2                         ; a delimiter or BOL.
+                bneq 21$                        ; If BOL then go and complete
+201$:           brw  complete_cmd               ; the command.
+
+
+
+;
+; We're completing the filespec.
+; We now need to decide what sort of wildcard spec to feed to $SEARCH.
+; This is determined by taking the bits we set above and using the wildcard_x
+; table to decide how much of the wildcard extension we need.
+;
+21$:
+                cmpb -1(r8)[r2],#Qual_Char              ; Qualifier
+                bneq 2100$
+                BRW  Complete_Qual
+2100$:          addl2 R2, R8                    ; R8=address of filespec
+                subl2 R2, R9                    ; R9=length  "     "
+                subl3 R2, R4, dirlen(R11)
+
+                movc3 R9, (R8), scratch(R11)    ; Copy filename to scratch buf
+                movab scratch(R11), R2          ; R2=address of scratch buffer
+
+                bicl3 #fm_dev, R10, R0
+;
+; code from here to 23$ added to handle directory list
+;
+                blbc    flags(r11),23$          
+                bbc     #fv_dib,r0,23$          ;if didn't see start of dir skip
+                bbs     #fv_die,r0,23$          ;saw end of dir then skip
+                movab   DirWildList,r6
+                movzbl  #<DirWLst_Sz>,-
+                        r7
+                movl    r9,r2
+2301$:          decl    r2
+                blss    23$                     ;didn't find it skip to normal...
+                cmpb    scratch(r11)[r2],#^a/./ ;end of dir
+                bneq    2301$                   ;keep looking till we find
+                bbss    #FV_Die,flags(r11),2303$
+2303$:          
+                movb    #^a/]/,scratch(r11)[r2] ;assume "["
+                brb     24$
+23$:            movab wildcard_tbl, R7
+                movzbl (R7)[R0], R7             ; R7=length of wildcard portion
+                movab wildcard_e, R6
+                subl2 R7, R6                    ; R6=address of wildcard portion
+24$:            movc3 R7, (R6), scratch(R11)[R9]
+                addl3 R7, R9, R3                ; R3=length of wildcard spec
+
+;
+; Set up the FAB & NAM, parse & search.
+;
+                movab fab(R11), R6              ; R6=address of FAB
+                movab nam(R11), R7              ; R7=address of NAM
+
+                movab scratch(R11), FAB$L_FNA(R6)
+                movb R3, FAB$B_FNS(R6)          ; Set up search file nam in FAB
+
+                $PARSE (R6)                     ; Parse
+                blbs R0, 9$
+8$:             brw error                       ; Not found or error, beep.
+
+9$:             $SEARCH (R6)                    ; and search
+;
+; Code from here to 10$ added by RMCJ to get list of possible
+;       filenames.  Don't know if this might cause errors later
+;       on since we don't go through and clean up later, but errors
+;       may not need to do this....
+;
+
+                blbs    Flags(r11),900$         ; get a list? no then complete
+                brw     999$
+900$:
+                movl    Nam$L_Rsa(r7),r3
+                blbs    r0,901$                 ;check status move line if all done
+                clrl    r2
+                brb     909$
+        
+901$:           movzbl  Nam$B_RSL(r7),r2        
+                bbc     #fv_die,flags(r11),909$
+                movc3   r2,(r3),Scratch(r11)    ;Save this cuz we goin to muck it
+                movzbl  Nam$B_RSL(r7),r2        
+                movab   scratch(r11),r3
+                movl    r2,r1                   ;
+903$:           decl    r1
+                bleq    909$                    ;alldone here
+                cmpb    (r3)[r1],#^a/./         ;version ?
+                bneq    905$
+                addl3   #1,r1,r2                ;save for later
+                movb    #^a/]/,(r3)[r1]         ;make it a dir
+                brb     903$
+905$:           cmpb    (r3)[r1],#^a/]/         ;
+                bneq    903$
+                movb    #^a/./,(r3)[r1]         ;make it a dir
+
+909$:
+                $QIOW_S chan=ttychan, func=#IO$_WRITEVBLK, -
+                        p1=(r3), p2=r2, p4=#CR_CTRL        ; show filespec
+                TstL    r2
+                bneq    9$
+                brw     error
+
+;
+; Decide what to do with the result.
+; If there was a start '[' (or '<'), but no closing bracket, we need to
+; fill out the directory spec -- do elsewhere.
+; We then work out the amount of stuff that needs to be taken from the
+; original line, and the parts of the searched spec we need to add.
+;
+999$:           blbs r0,10$
+                brw     error
+10$:
+                clrl R6                         ; R6=preamble length
+                bbs #fv_die, R10, 3$            ; if ']' found, process
+                bbs #fv_dib, R10, directory     ; if '[' found -- must be dir
+                bbc #fv_dev, R10, 11$           ; Strip device name off if
+                locc #^A":", R9, (R8)           ; device found but no dir
+;
+; code from here to 1002$ added by RMCJ to deal with DECNET...
+;
+                tstl r0
+                beql 1002$                      ;end of string? skip
+                cmpb 1(R1),#^A/:/               ; is this a node?
+                bneq 1002$                      ; no then device
+                decl r0
+                beql 1002$                      ;End of String?
+                movl    r0,r2                   ;save incase no dev found
+                decl r0
+                addl #2,r1
+                locc #^A":", R0, (R1)           ; device found but no dir
+                bneq    1002$                   ; found okay
+                movl    r2,r0                   ; restore dev not found
+1002$:          subl3 R0, R9, R6
+                incl R6
+                brb 4$
+3$:             movl dirlen(R11), R6            ; Come here if dir found
+4$:             movc3 R6, (R8), scratch(R11)    ; Copy dir/dev to filespec
+11$:            movzbl NAM$B_NAME(R7), R9       ; R9=filename lenght
+                bbc #fv_typ, R10, 5$            ; Add type if a '.' found.
+                addb NAM$B_TYPE(R7), R9
+
+5$:             movc3 R9, @NAM$L_NAME(R7), scratch(R11)[R6]
+                addl2 R6, R9                    ; Copy the name to the end
+                                                ; of the spec
+                brw done                        ; and off to common code
+
+;
+; Come here if a directory was found.
+; This is a bit yucky...
+;
+directory:      movl R9, R6                     ; R6 = counter
+1$:             decl R6                         ; BOL?
+                bleq 2$                         ; Y: done
+                cmpb (R8)[R6], #^A"<"           ; Looking for first directory
+                beql 2$                         ; delimiter...
+                cmpb (R8)[R6], #^A"["
+                beql 2$
+                cmpb (R8)[R6], #^A"."
+                bneq 1$
+2$:             incl R6                         ; R6=beginning of last dir
+                                                ;    name
+                movl NAM$L_DIR(R7), R5
+                movzbl NAM$B_DIR(R7), R4
+                movl R4, R0
+
+3$:             decl R0                         ; Find a '.' in found directory
+                bleq 4$                         ; spec, or beginning of dir
+                cmpb (R5)[R0], #^A"."
+                bneq 3$
+
+4$:             incl R0                         ; R0=start of dir spec
+                subl R0, R4                     ; R4=length of last dir name
+                addl R0, R5                     ; R5=address "  "    "   "
+                decl R4
+                addl3 R4, R6, R9
+                movc3 R4, (R5), scratch(R11)[R6]; Copy to new filespec
+
+;
+; Come here when we have a filespec
+; Lowercase the string (R9 = length)
+;
+done:
+        .if     defined DON                     ; Don Likes Lowercased strings - Ray doesn't :-)
+                movl R9, R0                     ; R0=loop counter
+1$:             decl R0
+                blss 2$
+                cmpb scratch(R11)[R0], #^A"A"   ; A-Z?
+                blss 1$
+                cmpb scratch(R11)[R0], #^A"Z"
+                bgtr 1$
+                bisb #32, scratch(R11)[R0]      ; Yes, make it a-z.
+                brb 1$
+2$:
+        .EndC
+
+;
+; Now call $PARSE/$SEARCH with a null filespec.  This is to avoid a nasty
+; little problem with running out of PPF space.
+;
+3$:             movab fab(R11), R6              ; R6=FAB address
+                movab scratch(R11), FAB$L_FNA(R6)
+                clrb FAB$B_FNS(R6)              ; Null filespec
+                $PARSE (R6)                     ; Don't care if these "succeed"
+                $SEARCH (R6)                    ; or "fail"
+                
+;
+; Insert the rest of the command line in front of our new filename.
+;
+10$:            movl rab_address(R11), R7       ; R7 = input RAB
+                subl3 RAB$L_RBF(R7), R8, R6     ; R6 = preamble length
+                movc3 R9, scratch(R11), scratch(R11)[R6] ; Move filename up
+                movc3 R6, @RAB$L_RBF(R7), scratch(R11)   ; Move preamble in
+
+                addl3 R6, R9, R8                ; R8=length of preamble+filespec
+
+;
+; This is common code for the command and filename completion stuff.
+; Diddle the inistrng part of the itemlist to point to our scracth buffer.
+; Resubmit the $GET.
+;
+fix_itmlst:     movl xab_address(R11), R7       ; Get the XAB address
+                bsbw prepare_retry              ; Fiddle the itemlist readty to
+                                                ; retry the $GET
+
+                movab scratch(R11), itmlst_inistr+itm_adr(R11)
+                movw R8, itmlst_inistr+itm_len(R11)
+                                                ; Point the inistr at our line
+                brw do_get                      ; Round we go again...
+
+
+
+
+
+
+
+
+
+;
+; Come here if we need to complete the command rather than the filespec.
+; This runs through the command tables looking for a command that matches
+; the typed portion.
+;
+; This code is ripped off from Joe Meadows' VERB, and I haven't really
+; paid much attention to how it works, hence the relative lack of comments. 8-)
+;
+complete_cmd:
+                movl @#CTL$AG_CLITABLE,R0
+                addl3 R0, VEC_L_COMDPTR(R0),R1
+                movzwl VEC_W_TRO_COUNT(R1), R6
+                addl3 #8,R1,R3
+
+                clrl R4
+
+10$:            movl (R3)[R4],R5                ; comand_block TRO
+                addl @#CTL$AG_CLITABLE, R5
+                movzwl CMD_W_NAME(R5),R0        ; name BRO
+                addl R0,R5                      ; ascic all names
+                movzbl (R5),R2
+
+20$:            incl R5                         ; Ascic verb name
+                movzbl (R5), R7
+
+                movl R9, R1                     ; R1=loop counter from cmd len
+                cmpl R1,R7                      ; Bigger than cmd?  Forget it
+                bgtr 8$
+1$:             decl R1                         ; Case-insensitive string
+                blss 99$                        ; compare (CLI table is upcase)
+                bicb3 #32, (R8)[R1], R0
+                cmpb R0, 1(R5)[R1]
+                beql 1$
+
+8$:             decl R2
+                subb (R5),R2
+                bleq 30$
+
+                addl R7,R5
+                brb 20$
+
+30$:            aoblss R6,R4,10$                ; If this falls thru, forget
+                blbc    flags(r11),35$
+                clrl    r0
+                bsbw    205$
+35$:            brw error                       ; it.
+
+99$:
+                blbc    flags(r11),100$
+                bsbw    200$
+                brb     30$
+100$:
+                movab 1(R7), R8                 ; Come here when command found
+                movb #32,scratch(R11)[R7]       ; Put a space at the end of
+        .If     defined RAY
+                movc3   r7,1(r5),scratch(r11)   ; Copy command
+        .Endc
+                                                ; the command
+        .if     Not_defined Ray
+2$:             decl R7                         ; Copy and lowercase the command
+                blss 3$                         ; to the command buffer
+                bisb3 #32, 1(R5)[R7], scratch(R11)[R7]
+                brb 2$
+3$:
+        .endc
+             brw fix_itmlst                  ; Done.
+
+200$:
+                movzbl  r7,r0
+205$:
+End_List:       movab   1(r5)[r7],r1
+                subl2   r0,r1
+                $QIOW_S chan=ttychan, func=#IO$_WRITEVBLK, -
+                        p1=(r1), p2=r0, p4=#CR_CTRL        ; show filespec
+                rsb
+
+
+
+
+
+
+
+
+;
+; Come here on error.  Ring the terminal bel, and redisplay the current
+; line.  Note: Error1 redisplays using rab$L_rbf and rab$l_rsz without
+; ringing the bell - we do this on a quoted ? and its not a real error.
+;
+
+Error1:
+        $QIOW_S chan=ttychan, func=#IO$_WRITEVBLK!IO$M_NOFORMAT, -
+                p1=Erase, p2=#2           ; Backspace,space
+        BRB     Error2
+
+error:
+          $QIOW_S chan=ttychan, func=#IO$_WRITEVBLK!IO$M_NOFORMAT, -
+                        p1=bel, p2=#1           ; Beep!
+
+Error2:
+                movl rab_address(R11), R6       ; Get some stuff back
+                movl xab_address(R11), R7
+                bsbw prepare_retry              ; Fix up the itemlist
+
+                movl RAB$L_RBF(R6), itmlst_inistr+itm_adr(R11)
+                movw RAB$W_RSZ(R6), itmlst_inistr+itm_len(R11)
+                                                ; And point the inistring at
+                                                ; read buffer
+                brw do_get                      ; And around we go.
+
+;
+; This prepares the prompt and itemlist for a retry.
+; We put CR/NULL in the carriage control portion to return to the cursor
+; to the margin before reprompting -- we only make the line longer so
+; clearing to EOL is not necessary.
+;
+prepare_retry:  cmpw XAB$W_ITMLST_LEN(R7), #12*5 ; First try?
+                beql 1$                         ; No? not much to do.
+
+                movw #TRM$_INISTRNG, itmlst_inistr+itm_cod(R11)
+                movw #TRM$_INIOFFSET, itmlst_offset+itm_cod(R11)
+                movw #12*5, XAB$W_ITMLST_LEN(R7)
+
+1$:             movb #13, prompt(R11)           ; Set carr control to CR NUL
+                clrb prompt+1(R11)
+                rsb
+
+;++++
+; We come here when we are looking to complete or list
+; potential qualifiers /<string><tab> or /<string><?>
+; Need to get the command first inorder to get the
+; quals that match - at this time only do toplevel
+; quals...
+
+
+Complete_Qual:
+        addl2   R2, R8                  ; R8=address of Qual
+        subl2   R2, R9                  ; R9=length  "     "
+        
+        movzwl  #4,r2                   ;Assume more then 4
+        cmpw    Rab$W_Rsz(r6),#4        ;
+        bgeq    1$                      ;only use first 4 chars
+        movzwl  Rab$W_RSZ(r6),r2        ;Limit of chars to check
+1$:     movl    Rab$L_Rbf(r6),r3        ;expecting things there...
+        movab   Scratch(r11),r5
+        clrl    r4                      ;zero index
+2$:     locc    (r3)[r4],#tchars_len, tchars
+        bneq    10$                     ;
+        bicb3   #32,(r3)[r4],(r5)[r4]   ;move and upcase the byte
+        aoblss  r2,r4,2$
+10$:    bsbw    Locate_DCL              ;match DCL command
+        blbc    r0,200$                 ;not found 
+        movl    r9,r1                   ;
+        movl    r8,r2
+        movl    QualBlk(r11),r8
+        BEQL    200$                    ;IF NO BLOCK! SKIP
+        clrl    SQBuf(r11)              ;Zero this for later
+        bsbw    Find_KeyWord            ;Find keyword
+        blbs    Flags(r11),20$          ;Already have list...
+;;;;    blbc    r0,200$                 ;ambiguous keword
+        movl    r2,r8                   ;restore this
+        movl    SQBuf(r11),r5           ;get unique match
+        beql    200$
+        cmpw    (r5),(r8)               ;
+        beql    15$                     ;Not equal means negated
+        subl2   #2,r9                   ;strip NO
+        addl2   #2,r8                   ;advance past NO
+15$:    movzbl  -1(r5),r4               ;crete descriptor
+        beql    200$
+        BRW     Move_End                ;move it and retry
+20$:    clrl    r0                      ;need to zero this
+        bsbw    End_List
+200$:   BRW     ERROR                   ;ring bell and reprompt
+
+
+Move_End:
+        subl3   r9,r4,r1                ;get length to move
+        bleq    100$                    ;nothing to do
+        addw3   Rab$W_RSZ(r6),-
+                r1,r2
+        cmpw    r2,rab$w_Usz(r6)        ;how much room
+        bleq    10$                     ;okay to procede
+        subw3   rab$w_rsz(r6),-
+                rab$w_usz(r6),r1        ;space we have to move
+10$:    addw2   r1,Rab$W_Rsz(r6)
+        movab   (r8)[r9],r2
+        movab   (r5)[r9],r3
+        movc3   r1,(r3),(r2)            ;copy it
+100$:   brw     Error2
+
+
+;---
+;Locate qualifers for DCL command
+;Input:
+;       r4/r5   - DCL command to find
+;output:
+;       r1      - Address of QualBlock
+;---
+Locate_DCL:
+        pushr   #^M<r2,r3,r4,r5,r6,r7,r8,r9>    ;Save scratch regs
+        movl    @#CTL$AG_CLITABLE,R8
+;
+; FIND BASE AND SIZE OF VERB AND POINTER TABLES.
+;
+20$:
+        ADDL3   VEC_L_COMDPTR(R8),R8,R7         ;GET BASE OF POINTER TABLE
+        ADDL    #VEC_K_HEADER_LENGTH,R7         ;SKIP PAST POINTER TABLE HEADER
+
+        ADDL3   VEC_L_VERBTBL(R8),R8,R3         ;GET BASE OF VERB TABLE
+        CVTWL   VEC_W_SIZE(R3),R2               ;GET SIZE OF TABLE + HEADER
+        SUBL    #VEC_K_HEADER_LENGTH,R2         ;REMOVE HEADER
+        DIVL3   #4,R2,R6                        ;GET SIZE IN VERBS (4 BYTES PER VERB)
+        ADDL    #VEC_K_HEADER_LENGTH,R3         ;SKIP PAST VERB TABLE HEADER
+
+;
+; SEARCH VERB TABLE FOR SPECIFIED VERB.
+;
+22$:    MATCHC  R4,(R5),R2,(R3)                 ;SCAN FOR VERB MATCH
+        BEQL    25$                             ;BR IF VERB MATCH
+        movl    #CLI$_IVVERB,r0
+        brb     50$                             ;return
+
+;
+; IF MATCH WAS NOT ON LONGWORD BOUNDARY, THEN KEEP LOOKING.
+;
+25$:    SUBL3   R4,R3,R0                        ;GET ADDRESS OF MATCHED VERB
+        BICL3   #3,R0,R1                        ;ROUND ADDR TO LONGWORD ADDR
+        CMPL    R0,R1                           ;IS IT SAME AS ORIGINAL?
+        BEQL    27$                             ;YES, THEN DONE
+        SUBL3   #1,R4,R0                        ;START SEARCH ONE CHAR AFTER
+        SUBL    R0,R3                           ; FIRST CHAR OF MATCH   
+        ADDL    R0,R2                           ;  
+        BRB     22$                             ;KEEP LOOKING
+
+;
+; VERB MATCH FOUND - GET ADDRESS OF CMD BLOCK.
+;
+27$:
+        movl    r8,VecTbl(r11)                  ;Save this for later
+        DIVL3   #4,R2,R9                        ;CALCULATE INVERSE COMMAND INDEX
+        SUBW3   R9,R6,R9                        ;CALCULATE VERB INDEX
+        SUBW    #1,R9                           ;ZERO BASE THE RESULT
+        ADDL3   r8,(R7)[R9],R9                  ;GET ADDRESS OF COMMAND BLOCK
+
+
+
+        MOVL    CMD_L_QUALS(R9),R0              ;GET OFFSET TO FIRST QUALIFIER DESC
+        BEQL    40$                             ;IF EQL NONE
+        ADDL    R8,R0                           ;CALCULATE ACTUAL ADDRESS
+40$:    MOVL    R0,QualBlk(r11)                 ;SET ADDRESS OF QUALIFIER DESCRIPTORS
+        MOVL    #SS$_NORMAL,R0                  ;IT'S OKAY NOW...
+50$:    popr    #^M<r2,r3,r4,r5,r6,r7,r8,r9>    ;Save scratch regs
+        RSB     
+
+;++++
+; FIND_KEYWORD - Look up a keyword in specified list
+;
+; This routine is mostly from the V4 fiche of parsent.mar modified
+; to work here
+;
+; INPUTS:
+;
+;       R1/R2   - Descriptor of keyword to look up
+;       R6      - 0 if qualifier keyword, M_KEYWD if regular keyword
+;       R8      - Address of list of descriptor blocks
+;       R11     - Scratch area
+;
+; OUTPUTS:
+;
+;       SQBuf   - Points Buffer of matched keyword
+;               - if list mode is on outputs matching keywords to
+;               - screen.
+;-
+
+FIND_KEYWORD:
+
+        PUSHR   #^M<r2,R3,R4,R5,r6,r7,r8,R9>    ;SAVE REGISTERS
+        movq    r1,r3
+1$:     decl    r3
+        blss    2$                              ;okay so far    
+        bicb2   #32, (R4)[R3]                   ;uppper case it
+        brb     1$                              ;string is done
+
+;
+; IF KEYWORD LIST, THEN SKIP PAST TYPE BLOCK.
+;
+2$:     CMPB    ENT_B_TYPE(R8),#BLOCK_K_TYPE    ;TYPE BLOCK?
+        BNEQ    5$                              ;NO, THEN SKIP
+        ADDL3   VecTbl(R11),-                   ;GET ADDR OF FIRST ENT BLOCK
+                TYPE_L_KEYWORDS(R8),R8          ;
+
+;
+; SAVE ADDRESS OF LIST OF DESCRIPTOR BLOCKS.
+;
+5$:     MOVL    R8,R9                           ;SAVE LIST ADDRESS
+
+;
+; INITIALIZE SEARCH PARAMETERS.
+;
+10$:    CLRL    R7                              ;CLEAR QUALIFIER NUMBER
+        CLRQ    -(SP)                           ;SET NULL AS QUALIFIER FOUND
+
+;
+; IF QUALIFIER THEN ONLY CHECK FIRST FOUR CHARACTERS OF KEYWORD,
+; ELSE CHECK THE WHOLE THING.
+;
+        MOVL    R1,APT(r11)             ;SAVE ORIGINAL TOKEN SIZE
+;
+; GET NEXT QUALIFIER IN LIST
+;
+30$:    CVTWL   ENT_W_NAME(R8),R0       ;GET OFFSET TO ASCIC QUALIFIER NAME
+        MOVAB   (R8)[R0],R5             ;FIND ADDRESS OF QUALIFIER KEY LENGTH
+        MOVAB   1(R8)[R0],TQBuf(R11)    ;FIND ADDRESS OF QUALIFIER KEY TEXT and save
+        MOVQ    R1,R3                   ;COPY QUALIFIER STRING DESCRIPTOR
+        movzbl  (r5),r0
+;
+; COMPARE THE QUALIFIER WITH THE INPUT
+;
+;;      pushr   #^M<r0,r1>
+;;      movl    TQBuf(r11),r1
+;;      $QIOW_S chan=ttychan, func=#IO$_WRITEVBLK, -
+;;                p1=(r1), p2=r0, p4=#CR_CTRL        ; show filespec
+;;      popr    #^M<r0,r1>
+        cmpB    R3,R0                      ; Bigger than cmd?  Forget it
+        bgtr    70$
+        movl    TQBuf(r11),r0
+31$:    decl    R3                         ; Case-insensitive string
+        blss    63$                        ; compare (CLI table is upcase)
+        cmpb    (R0)[r3], (r4)[r3]
+        bneq    70$
+        brb     31$                     ;it was equal continue
+
+;
+; WHAT KIND OF MATCH DO WE HAVE?
+;
+63$:    bsbw    500$
+        CMPB    apt(r11),(R5)           ;IS TABLE QUALIFIER SAME LENGTH
+        BNEQ    65$                     ;NO, THEN SKIP
+        ADDL    #8,SP                   ;YES, THEN WE HAVE A UNIQUE MATCH
+        BRB     83$                     ;RESTORE STACK, BRANCH TO EXIT
+
+;
+; CHECK FOR AMBIGUITY AND SAVE MATCH.
+;
+65$:    TSTL    4(SP)                   ;FIND MATCH BEFORE?
+        BEQL    67$                     ;BR IF NOT AMBIGUOUS
+        BISL    #M_AMBIG,R6             ;SET AMBIGUOUS BIT
+67$:    MOVQ    R7,(SP)                 ;SAVE MATCHED QUALIFIER VALUES
+
+;
+; CHECK NEXT QUALIFIER IN LIST.
+;
+70$:    INCL    R7                      ;INCREMENT QUALIFIER NUMBER
+        MOVL    ENT_L_NEXT(R8),R8       ;GET OFFSET TO NEXT QUALIFIER DESCRIPTOR
+        BEQL    75$                     ;IF EQL THEN DONE
+        ADDL    VecTbl(R11),R8          ;CALCULATE ADDRESS
+        BRW     30$                     ;CHECK NEXT QUALIFIER
+ 
+;
+; ALL QUALIFERS HAVE BEEN CHECK WITHOUT AMBIGUITY, NOW SEE IF ANY MATCHED.
+;
+75$:    movl    #CLI$_ABKEYW,r0         ;ASSUME AMBIGUOUS
+        BBSC    #V_AMBIG,R6,85$         ;BR IF TRUE
+        MOVQ    (SP)+,R7                ;RESTORE MATCHED QUALIFER PARAMETERS
+        BNEQ    83$                     ;BR IF ONE WAS FOUND
+ 
+;
+; QUALIFIER DESCRIPTOR TABLE EXHAUSTED - TRY NEGATION
+;
+77$:    XORL    #M_NEGAT,R6             ;COMPLEMENT NEGATION FLAG
+        SUBL3   #2,apt(r11),R1          ;REDUCE CHARACTER COUNT
+        BLEQ    80$                     ;IF LEQ NO MATCH POSSIBLE
+        MOVL    R9,R8                   ;RESTORE ADDRESS OF DESCRIPTOR LIST
+        CMPW    #^A/NO/,(R2)+           ;KEYWORD START WITH 'NO'?
+        BNEQ    80$                     ;IF EQL YES
+;;;;    bsbw    500$
+        brw     10$
+ 
+;
+; SET STATUS, CLEAN UP, AND RETURN
+;
+80$:    movl    #CLI$_IVQUAL,r0         ;ASSUME INVALID QUALIFIER
+        BBC     #V_KEYWD,R6,90$         ;BRANCH IF QUALIFIER PROCESSING
+        movl    #CLI$_IVKEYW,r0         ;SET INVALID KEYWORD STATUS
+        BRB     90$                     ;EXIT WITH ERROR STATUS
+
+83$:    movl    #SS$_Normal,r0
+        BRB     90$                     ;EXIT WITH ERROR STATUS
+
+85$:    MOVQ    (SP)+,R7                ;RESTORE MATCHED QUALIFIER PARAMETERS
+90$:    bbss    #FV_DIB,Flags(r11),95$  ;if this is set we already tried no
+        tstl    SQBuf(r11)              ;Did we find a match?
+        beql    77$                     ;No the try stripping NO
+95$:    INCL    R7                      ;ADJUST TO ACTUAL KEYWORD NUMBER
+        POPR    #^M<r2,R3,R4,R5,r6,r7,r8,R9>    ;RESTORE REGISTERS
+        RSB                             ;RETURN FROM SUBROUTINE
+
+
+500$:
+        pushr   #^m<r0,r1>
+        movl    r0,SQBuf(r11)           ;Save for later
+        blbc    Flags(r11),510$         ;not listing just return
+        movzbl  (r5),r1
+        bleq    510$
+        $QIOW_S chan=ttychan, func=#IO$_WRITEVBLK, -
+                p1=(r0), p2=r1, p4=#CR_CTRL        ; show filespec
+510$:   popr    #^M<r0,r1>
+        RSB
+
+
+
+;+++
+; check_Redirect:
+;       Okay here we go with the piping and redirection routines.
+;       This requires some cooperation with an outside program.
+;       This routine basically checks for special characters and
+;       modifies the input buffer to insert the pipe command infront
+;       of the input command.  It also checks to see if this was
+;       already done before (doesn't need to do it again if it did).
+;       
+;       If multiple command or pipe chars aren't found it will check
+;       for redirection and do that if necessary here - point a user
+;       mode sys$output logical name to file.  No attempt is made
+;       to determine if new file or append should be used (I think
+;       this can be done by using a supervisor level translation,
+;       but I'm punting that for now...)
+;
+;   Note:
+;       The order in which checking is done is important in that
+;       output redirection needs to be last...
+;
+; Input:
+;       R6      - Points to input RAB.
+;       r11     - points to scratch area..
+; Output:
+;       r0      - SS$_Normal in most cases or CRELNM errors...
+;                 RMS$_TNS on truncation if not enough room
+;                 to add "PIPE "...
+;
+; Side Affects:
+;       if Redirection in affect Sys$output points to a file (logical name
+;       assigned in User Mode...Change Size Rab$W_Rsz to new Length.
+;       If piping or multiple commands add PIPE to beginning and update
+;       rab$w_rsz...
+;
+;---
+        .Entry  Check_Redirect,-
+                ^M<r2,r3,r4,r5,r6,r7,r8,r9,r10> ;don't muck with these
+        clrl    r10
+        movaq   -(Sp),r9                        ;Allocate descriptor
+        movaq   -(Sp),r8                        ;allocate longword for
+        subl2   #RDSize,SP
+        movl    sp,r7                           ;itmlst in r5
+        movl    #^a/    /,(r8)                  ;Redirect chars...
+        brw     200$
+
+50$:
+        movb    #redo_char,1(r8)                ;Output Redirection
+60$:
+        MatchC  #3,(r8),-                       ;Check for
+                Rab$W_Rsz(r6),-                 ; Redirect Chars in
+                @Rab$L_Rbf(r6)                  ; Input Buffer
+        bneq    90$                             ;Nope all Done
+        movl    r2,r0                           ;Did we get  filename?
+        beql    90$                             ;no, then all done
+        addl2   #3,r0                           ;GET total length not needed
+        subw2   r0,Rab$W_Rsz(r6)                ;Change length to strip end...
+        movzwl  #LT_Sz,(r8)                     ;Create static descriptor
+        movab   LTbl,4(r8)                      ;point to buffer
+        blbs    r10,70$
+        movzwl  #AOut_Sz,(r9)
+        movab   AOut,4(r9)                      ;
+        brb     80$
+70$:    movzwl  #AIn_Sz,(r9)
+        movab   AIn,4(r9)                       ;
+80$:    movl    r7,r0                           ;Now Build Itmlst
+        movw    r2,(r0)+                        ;Length of equivalence
+        movw    #LNM$_String,(r0)+              ;Item Code
+        movl    r3,(r0)+                        ;Address of buffer
+        clrq    (r0)+                           ;Clear last item and terminate list
+        movzbl  #PSL$C_User,(r0)                ;set user mode...
+        $crelnm_s -
+                TabNam=(r8),-
+                LogNam=(r9),-
+                AcMode=(r0),-
+                ItmLst=(r7)                     ;All Done
+        blbc    r0,101$                         ;If error let user know...
+90$:    blbs    r10,100$                        ;all done
+        movl    #^a/    /,(r8)                  ;Redirect chars...
+        movb    #redi_char,1(r8)                ;Input Redirection
+        incl    r10
+99$:    brb     60$
+100$:
+        movl    #SS$_Normal,r0                  ;Assume all okay...
+101$:   Ret
+
+200$:
+        movb    #Pipe_char,1(r8)                ; " > " -->> " |  "
+205$:   incl    r10
+        MatchC  #3,(r8),-                       ;Check for
+                Rab$W_Rsz(r6),-                 ; Redirect Chars in
+                @Rab$L_Rbf(r6)                  ; Input Buffer
+        beql    210$                            ;Nope check for "pipe"
+        blbs    r10,207$
+        brw     50$
+207$:   movb    #MULT_char,1(r8)                ; " > " -->> " ; "
+        brb     205$    
+210$:
+        movl    r2,r0
+        beql    100$                            ;skip if 
+        movl    #P_Com,(r8)                     ;
+        movl    Rab$l_rbf(r6),r1
+        movl    r8,r2
+        movl    #3,r3
+214$:   bicb3   #32, (R1)+, R0
+        cmpb    r0,(r2)+
+        bneq    215$
+        sobgeq  r3,214$
+        brb     100$                            ;Did start with PIPE...
+215$:   movl    #ss$_Normal,r7
+        addw3   #<PCom_Sz+1>,rab$W_rsz(r6),r0   ;remove stuff starting from
+        cmpw    r0,rab$w_usz(r6)                ;more than we have?
+        bleq    230$                            ;Safe to move
+        movw    rab$w_usz(r6),r0                ;use max size
+        movl    #rms$_tns,r7                    ;terminator not seen
+220$:
+        subw    rab$W_rsz(r6),r0
+        bgeq    230$                            ;should be okay to move
+        addw2   r0,rab$w_rsz(r6)                ;adjust it...
+230$:   movl    rab$L_Ubf(r6),r1                ;get buffer area
+        movc3   rab$w_rsz(r6),-                 ;amount of data to move
+                @rab$l_ubf(r6),-
+                <pcom_sz+1>(r1)                 ;move it here
+        movl    rab$l_ubf(r6),r1
+        movl    #P_Com,(r1)+                    ;put pipe command in front
+        movb    #32,(r1)                        ; of input string
+        addw2   #<pcom_sz+1>,rab$W_rsz(r6)      ;add pipe to command
+        movl    r7,r0
+        brw     101$
+
+
+
+;
+; And that, friends, is all.
+;
+reloc_len = .-reloc                             ; Length of relocatable stuff
+
+                .end dclcomplete

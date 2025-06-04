@@ -1,0 +1,866 @@
+/* DC.TH */
+/* Y.L. Noyelle, Supelec, France 1994 */
+
+#ifndef DC_TH
+#define DC_TH
+#include "configdc.th"
+
+
+#define ubyte	unsigned char
+#define ushort	unsigned short
+#define uint	unsigned int
+#define ulong	unsigned long
+
+typedef uint	bool;
+
+/* Anormal exit codes */
+#define ExCod1	"1"
+#define ExCod2	"2"
+#define ExCod3	"3"
+#define ExCod4	"4"
+#define ExCod5	"5"
+#define ExCod6	"6"
+#define ExCod7	"7"
+#define ExCod8	"8"
+#define ExCod9	"9"
+
+#define AdLastElt(x)	&x[NbElt(x) - 1]
+#define AllocXElt(xname, xtype, xctr, xstmtSeq)				       \
+  xtype xname(void)							       \
+  {									       \
+    /*~ zif (sizeof(TqElt6) < sizeof(*(xtype)0))			       \
+					  #xname ": " #xtype " size too big" */\
+    xtype resul;							       \
+									       \
+    if (headQElt6 != NULL) {           /* if there remains free(d) elements, */\
+      resul = (xtype /*~OddCast*/) headQElt6; /* use one of them, */	       \
+      headQElt6 = headQElt6->next;}					       \
+    else resul = allocChunk();	       /* else allocate a new chunk. */        \
+    xctr++;								       \
+    xstmtSeq			/* parameter statement sequence */	       \
+    return resul;							       \
+  }
+#define ArrLimErr	(-(size_t)1)
+#define BaseStrunType(x) x->tagId->type
+#define Base10		10
+#define BitsHexDigit	4
+#define CompatType(x, y, z) ((x == y)? True : compatType(x, y, z))
+#define ConvToString(x)	ConvToString1(x)  /* for parameter to be expanded */
+#define ConvToString1(x) #x
+#define ConvTname(x)	(Tname)x
+#define CreateParArr(n)	Tstring parArr##n[(n)+1 /*~IndexType TmsgParIndex*/]   \
+	= {(Tstring /*~OddCast*/)(n)} /* creates a message parameter array */
+#define DefIsSameName							       \
+  static bool isSameName(ThCode xh, Tname xn, ThCode yhCode, Tname zname)      \
+  {									       \
+    return xh==yhCode && memcmp(xn, zname, FullLgt(xn))==0;		       \
+  }
+#define DefRepresType							       \
+  static TpcTypeElt represType(register TpcTypeElt x)			       \
+  {									       \
+    while (NxtIsTypeId(x)) {x = x->typeId->type;}			       \
+    return x;								       \
+  }
+#define DefSem(xname, xkind, xdefnd) DefSem1(xname, xkind, xdefnd, False, False)
+#define DefSem1(xname, xkind, xdefnd, xused, xinitlz)			       \
+  static const TinfoSeman xname = {					       \
+    NoAttrib+(0-0)	/*~ zif (! __member(_attribb))			       \
+			"misplaced initialization for field '_attribb'" */,    \
+    xkind		/*~ zif (! __member(_kind))			       \
+			"misplaced initialization for field '_kind'" */,       \
+    xdefnd		/*~ zif (! __member(_defnd))			       \
+			"misplaced initialization for field '_defnd'" */,      \
+    xused		/*~ zif (! __member(_used))			       \
+			"misplaced initialization for field '_used'"  */,      \
+    False		/*~ zif (! __member(_undef))			       \
+			"misplaced initialization for field '_undef'" */,      \
+    xinitlz		/*~ zif (! __member(_initlz))			       \
+			"misplaced initialization for field '_initlz'" */,     \
+    False		/*~ zif (! __member(_msngConstQM))		       \
+			"misplaced initialization for field '_msngConstQM'" */,\
+    False		/*~ zif (! __member(_variousS1))		       \
+			"misplaced initialization for field '_variousS1'" */,  \
+    False		/*~ zif (! __member(_variousS2))		       \
+			"misplaced initialization for field '_variousS2'" */,  \
+    False		/*~ zif (! __member(_variousS3))		       \
+			"misplaced initialization for field '_variousS3'" */,  \
+    False		/*~ zif (! __member(_variousS4))		       \
+			"misplaced initialization for field '_variousS4'" */,  \
+    False		/*~ zif (! __member(_variousS5))		       \
+			"misplaced initialization for field '_variousS5'" */,  \
+    False		/*~ zif (! __member(_variousS6))		       \
+			"misplaced initialization for field '_variousS6'" */,  \
+    /*~ zif ! __member() "Structure '" ConvToString(xname)		       \
+						  "' not fully initialized" */}
+#define DispLgtId	0
+#define DispNSId	(DispLgtId + 1)
+#define Dots		"..."
+#define Found(x)	((curTok.tok == x)? (GetNxtTok(), True) : False)
+#define FreeXElt(xname, xtype, xctr, xstmtSeq, xfollow)			       \
+  xtype xname(xtype x /*~MayModify*/)					       \
+  {									       \
+    xtype resul;							       \
+									       \
+    resul = x->xfollow;							       \
+    xstmtSeq								       \
+    ((TqElt6 * /*~OddCast*/)x)->next = headQElt6;			       \
+    headQElt6 = (TqElt6 * /*~OddCast*/)x;				       \
+    xctr--;								       \
+    return resul;							       \
+  }
+#define FullLgt(x)	(Lgt(x) + LgtHdrId)
+#define GapNxtVarie	2
+#define GenericEnum	QuasiNULLval(TsemanElt *)
+#define GetNxtTok()	(*pCurGNT)()  /* calls current 'token dispenser' */
+#define InsideInterval(p, LLim,HLim)					       \
+  /*~ zif (! __sametype(LLim, p)) "InsideInterval: bad parameter type (must "  \
+						       "also be <= 'uint')" */ \
+  /*~ zif (HLim <= LLim) "InsideInterval: bad HLim" */			       \
+  ((uint)(p - (LLim)) <= (uint)((HLim) - (LLim))) /* limits included */
+#define IntStr		"int"
+#ifdef INT_BIT
+#undef INT_BIT
+#endif
+#define INT_BIT		(CHAR_BIT * sizeof(int))
+#define IsArr(x)	(x->typeSort == Array)
+#define IsArrFct(x)	IsArrFctSort(x->typeSort)
+#define IsArrFctSort(x)	InsideInterval(x, Array, VFct)
+#define IsFct(x)	IsFctSort(x->typeSort)
+#define IsFctSort(x)	InsideInterval(x, Fct, VFct)
+#define IsPtr(x)	(x->typeSort == Ptr)
+#define IsPtrArr(x)	IsPtrArrSort(x->typeSort)
+#define IsPtrArrSort(x)	InsideInterval(x, Ptr, Array)
+#define IsScalar(x)	(IsTypeSort(x, NumEnumBool) || IsPtr(x))
+#define IsStrun(x)	IsStrunSort(x->typeSort)
+#define IsStrunSort(x)	InsideInterval(x, Struc, Union)
+#define IsTypeSort(x, msk) ((x->typeSort & (msk)) != Void)
+#define Lgt(x)		((size_t)Lgt1(x))
+#define Lgt1(x)		/*~ zif !__sametype(Tname, x) "Lgt1: parameter not of \
+'Tname' type."*/*(x + DispLgtId)
+#define LgtHdrId	(DispNSId + 1)  /* size of header of identifiers name */
+#define LitLen(x)	(sizeof(x) - 1)
+#define LongStr		"long"
+#define LSIGN_BIT	~(ulong)LONG_MAX
+#define ModifType	TpTypeElt /*~OddCast*/
+#define MyAlloc(w, x)							       \
+  if ((w = malloc(x)) == NULL) sysErr(errTxt[RanOutOfMem])
+#define NoFreeExpType	QuasiNULLval(TpcTypeElt)
+#define NbElt(x)	NbEltGen(x, 0)
+#define NbEltGen(x, y)	(int)(sizeof(x)/sizeof(x[y]))
+#define NonHdrFName	""
+#define NO_GREATER_INT	(!defined(LONGLONG) && UINT_MAX==ULONG_MAX)  /* for
+				      preprocessor may not manage LLong type. */
+#define NxtIsTypeId(x)	(x->paralTyp || x->sysTpdf)
+#define NxtTok()	(GetNxtTok(), curTok.tok)
+#define NxtTypElt(x)	/*~ zif !__sametype(TpcTypeElt, x) "NxtTypElt: "       \
+		"parameter not of 'TtypeElt *' type." */ (represType(x)->nextTE)
+#define Offset(strunType, fieldName) (size_t)(&((strunType *)0)->fieldName)
+#define PopHist(x)	x >>= SizeHistElt
+#define PushHist(x)	cExp.hist = cExp.hist<<SizeHistElt | x  /* deemed      \
+		    useless to check overflow (cannot realistically happen). */
+#define QuasiNULLval(x)	(x /*~PortableQM*/)1
+#ifdef LcEqUc
+#  include <ctype.h>
+#  ifdef _tolower
+#    define RealChar(x) _tolower(x)
+#  else
+#    define RealChar(x) tolower(x)
+#  endif
+#else
+#    define RealChar(x) x
+#endif
+#define SearchDot(x)	strrchr(x, '.')
+#define SIGN_BIT	~INT_MAX
+#define SmallestWdthInt	16
+#define SpaceCntNoBegLine -2  /* -1 : comment begins line */
+#define StrEq(x,y) (strcmp(x, y) == 0)
+#ifdef LONGLONG
+#  define TgreatestInt	LONGLONG
+#else
+#  define TgreatestInt	long
+#endif
+
+/* Order is very meaningful in the following enum; see for example curTokTxt()
+   or getTokFromMac(). */
+typedef enum {
+  WHITESPACE /* here for efficiency reasons (=0) */, EndSTok=0 /*~SameValue*/,
+  COLON, COMMA, LBRA, LPAR, LSBR=LPAR+1,ARROW=LSBR+1, DOT=ARROW+1, QMARK, RBRA,
+  RPAR, RSBR, SCOL, TILDE,
+  ETok1Char, BKeyWords=ETok1Char, BDecl=BKeyWords, BAttrib=BDecl,
+  NOATTRIB=BAttrib, STATI, EXTRN, TYPDF, AUTO,
+  REG, EAttrib, BQualif = EAttrib,
+  CONST=BQualif, VOLAT, ENUM, STRUC, UNION, BNatTyp,
+  VOID=BNatTyp, FLOAT, DOUBLE, CHAR, SHORT, INT, LONG, ENatTyp,
+  USGND=ENatTyp, SGND, EDecl,
+  BREAK=EDecl, CASE, CONTINUE, DEFAULT, DO, ELSE, FOR, GOTO,
+  IF, RETURN, SIZEOF, SWITCH, WHILE, EKeyWords,
+  ADDOP=EKeyWords, AND, XOR=AND+1, IOR=XOR+1, APSAND, ELLIP,
+  EMARK, ENDPROG, EQUALOP, FPTR, LOGAND, LOGOR, MULOP, ORDEROP, SHIFTOP, STAR,
+  FCTC, DPPREFIX=FCTC, ENDDPRAG=FCTC+1,
+  BSideEffTok=ENDDPRAG+1, ASGNOP=BSideEffTok, INCOP=ASGNOP+1,
+  SIDEFF, VFCTC, ESideEffTok,
+  CSTCH=ESideEffTok, CSTCH1, CSTNU, CSTST=CSTNU+1, IDENT, CAST,
+  DOLLVAL, BegDPragTok,
+  BCKBRCH=BegDPragTok, CMPSGHDR, DOLLSIGN, DYNINIT, EXACTCMP, FULLENUM,
+  GENERIC, LITCST, LOCALADR, MASKING, MAYMODIFY, NEVRET, NOBRK,
+  NONCONST, NOTUSED, ODDCAST, PORTQM, PSEUDOVOID, RESULPTR, RESULTYP,
+  ROOTTYP, SAMEVAL, SIDEFFOK, SIZEOFBL, SIZEOK, UTILITY, VOIDTOTHER,
+  EndDPragTok, DPRAG=EndDPragTok, BegSpeMacTok,
+  BegServTok=BegSpeMacTok, CONCATOP=BegServTok,
+  ENDARG1CONC, ENDBLK, SKIPTO=ENDBLK+1, ENDDIR=SKIPTO+1, ENDPAR= ENDDIR+1,
+  FORCEMACEXP, FORCEMACEXP1=FORCEMACEXP+1, NOMACEXP=
+  FORCEMACEXP1+1, IDSTNU, MACPAR, MACPAR1, SUNDR, EndServTok,
+  CASTTO=EndServTok, INDEXTYPE, QUOTEOP,
+  NoSwallowTok,
+  PARENSEEN=SIGN_BIT, PRIMARY=(SIGN_BIT>>1)&INT_MAX, NONASSOC = PRIMARY>>1,
+  LOWEST_BIT_TOK = NONASSOC
+} Ttok;
+/*~ zif NoSwallowTok>=LOWEST_BIT_TOK "Too many token values" */
+typedef enum {Add, Sub, AddSubAsgn} TkAdd;
+typedef enum {SimplAsgn, IorAsgn, XorAsgn, AndAsgn, LShAsgn, RShAsgn, AddAsgn,
+			   SubAsgn=AddAsgn+1, MulAsgn, DivAsgn, ModAsgn} TkAsgn;
+typedef enum {EQ, NE, GT, GE, LE, LT} TkCmp;  /* order important (see array
+								   'cmpCod'). */
+typedef enum {Inc, Dec} TkInc;
+typedef enum {Mul, Div, Mod} TkMul;
+typedef enum {LSh, RSh} TkShi;
+/*~zif ModAsgn-AddAsgn != (int)Mod+(int)Sub+1 "see searchTC function" */
+
+typedef enum {
+  Err = 0, NoErrMsg = 0 /*~SameValue*/, NoConcErr = NoErrMsg + 1,
+  BegErr = 0 /*~SameValue*/,
+
+  Warning = 0 /*~SameValue*/, Error /*~SameValue*/,
+  Arithm, At0, ComponOf, ComposOf, DblIncldFile, EGConstPtr, Empty,
+  EmptyTxt, EndFileName, EndMsg, ErrWarn, File,
+  LastToks, Left, Line, MayM, NoErrWarn, OrJustBef,
+  ProceedMsg, RanOutOfMem, Right, SeparMsg, StopAftMsgBanner,
+  SubPre, Use1, Use2, WarnErrInFile, WillM,
+
+  AlrdDefId, AlrdDefLabel, AlrdQual, AlrdSeenOpt, AlrdUndef, AlrdUsedCaseVal,
+  ArgCollGetsOutMacBody, ArrExptd, ArrOfIncplOrFctElt, ArrOrFctCantBeRet,
+  ArrowExptd, ArrShdBeConst, ArrTooSmall, ArrToPtr, AsgnGblWLclAd,
+  AtLeastOnePar, BackwdBranch, BadActParListLgth, BadAttrib,
+  BadAttribForMain, BadDOption, BadDPForFctPar, BadForLftType,
+  BadIndent, BadIndent1, BadIndent2, BadIndexType, BadIndexType1,
+  BadIntgrlType, BadlyIncldHdrFile,
+  BadParForMain, BadRetType, BadRetTypeForMain, BadUUdcc, BlockQM,
+  BndShdBeNamed, BndShdBeOfNamedType, BoolExptd,
+  CantBeGeneUtil, CantChgMnng, CantInitTpdf, CaseExptd, ChkUcLc,
+  CmplSColE1, CmpsgHdrWithSelf, ColExptd, CommaExptd,
+  CompHdrFile, ConcOprIlgLast, ConstQalNotHeeded1, ConstQalNotHeeded2,
+  ConstStrun, ConvToUnsig, ConvToUnsig1, CrtdTokTooLong, CstBoolExp,
+  CstExpExptd, CstOnLftSide, CstSwitchExp, DblDefMember,
+  DblDefStrun, DccCantProcDef, DeclExptd, DefaultExptd,
+  DiffIncptblPtr, DirNameExptd, DontInclBodyFile, DontWriteIntoConst,
+  DPragNameExptd, DPragNotAlwd, DWhileNotLinedUp, ElseAlrdSeen,
+  EmbdFctNotAlwd, EmptyStmt, EmptyStrun, EndDPragLineExptd,
+  EndOfLineIgnd, ErrorDir, ExtDeclBeInHdrFile, ExtObjNotDef, ExtraRBra,
+  ExtraSColAtEndMac, ExtrnExptd, FctCantBeInit, FctDeclDefNotAlwd,
+  FctDefViaTpdf, FileOpenFail, FldNotAlwd,
+  FldSizIncor, FltNotEq, FmtExhstd, GroupQual, HzrdConv, HzrdConv1,
+  IdExptd, IdOrSColExptd, IgndCharsOpt, IlgArraySize, IlgAttrib,
+  IlgAttribForFct, IlgBoolDef, IlgCastSource, IlgCastTarget, IlgCastTarget1,
+  IlgCastTo, IlgChar, IlgCharD, IlgCmpsgHdr, IlgCmpsgHdr1,
+  IlgCmpsgHdr2, IlgCrtdTok, IlgDccCmpl, IlgDirName, IlgDPrag, IlgEscSeq,
+  IlgFmtSpe, IlgId, IlgInclArg, IlgInIfExp, IlgInit, IlgInitBU,
+  IlgLftType, IlgOctDig, IlgOpndType, IlgOptForSpe, IlgPrecFld,
+  IlgRhtType, IlgSpeForType, IlgSynt, IlgTCModOpnd, IlgTCOptr, IlgType,
+  IlgTypeForFld, IlgTypes, IllParenMacro, IllPositDecl, IllUndef, IncldAfter,
+  IncohResultType, IncorNevRet, IncorTCModRes, IncorTCResTyp, IncplArray,
+  IncplPar, IncplPtr, IncplRetType, IncplStrunType, IncplType,
+  IncptblAttrib, IncptblPar, IncptblTypes, IndexTypeTooSmall,
+  IndexValTooBig, IneffOrSideEff, InitDP, InptFileErr, IntBitField,
+  IntgrlTypeExptd, IntgrNbExptd, LBraExptd, LegalOnlyInMac, LgtCharCstNotOne,
+  LowerCaseH, LParExptd, LParOutsideMac, MacAlrdDef, MacNameExptd,
+  MayModify, MemberCantBeInit, MisplaLbl, MnlsPtrDiff, MoreStrngType,
+  MoreThanOneAttrib, MsngBrk, MsngConcOpnd, MsngConstQ, MsngEndif, MsngEqual,
+  MsngExp, MsngExtTpdf, MsngFctAttrib, MsngFctName, MsngFctParen,
+  MsngFldWdth, MsngFldWdth1, MsngIF, MsngMacArg, MsngMembName, MsngNevRet,
+  MsngObjTypName, MsngStati, MsngStrunEnum, MsngVoid,
+  NameAlrdInUse, NegIndexVal, NoAttribAlwd, NoCUName,
+  NoDefInHdrFile, /*NoDfngFile,*/ NoDirInDPrag, NoHghrTyp, NoIdAlwdInType,
+  NoIndentIndct, NonCoheDPInFct, NonCommutOper, NonNumCantBeCast, NonPortCastQM,
+  NonPortCmbn, NonPortOpnd, NonPortTC, NonUndfnblMac, NonVisiLabel, NoOrderRel,
+  NoPrecIf, NoQualifAlwd, NoRetAtEnd, NotAFct, NotArrInit, NotArrToNum,
+  NotASCIIChar, NoTCAllows, NotDefTag, NotEnumTypeOrTag, NotExptdType,
+  NotInit, NotInit1, NotInsideLoop, NotInsideLoopOrSwitch,
+  NotInsideSwitch, NotInsideSwitch1, NotLVal, NotLValP,
+  NotMacParForQuo, NotModfbl, NotNamedStrunCst, NotPureSideEffect,
+  NotPureSideEffect1, NotSameNbOfPar, NotSameType, NotStrunInit, NotTypeId,
+  NotUsdEnumCst, NotUsdObj, NotUsdPar, NotVarId, NotVisiChar,
+  NumCstShdBeNamed, NumCstShdBeNamed1, OnlyExtrn, OnlyRegAttrib, Outside01,
+  Overflow, Overflow1, Overflow2, ParAlrdExist, ParMustBeNamed,
+  ParNameExptd, ParNamesNotEq, ParRepreType, ParTypesNotEq, PortCastQM,
+  PossOvfl, PrevCastUsl, PrivNotVisi, PtrExptd, PtrOnFctExptd,
+  PtrShdBeConst, PtrToNum, RBraExptd, RBraOrCommaExptd, RegAttribForAmp,
+  RegVolatIncptbl, ResRepreType, ResulPtrNotHghsTyp, RetPtrOnLclAd,
+  RParExptd, RParOrCommaExptd, RSBrExptd, SameEnumCst, SameParName,
+  SColExptd, SColExptd1, SepDeclStmt, ShdBeBlk, ShdBeInHdrFile, ShdBePrntzBool,
+  ShdntBePtrOnArr, SideEffInMacPar, SimplAsgnExptd, SizeofCharCst,
+  SizeofDontEval, SlowingInit, StaFctNotDef, StddefNotIncl, StmtExptd,
+  StrCstExptd, StringTooLong, StrunEnumDeclNotAlwd, SysError, TagNotVisi, TagQM,
+  TargLabelNotVisi, TCAlrdDef, TCNotAtLvl0,
+  TooManyBraLvl, TooManyFmtSpe, TooManyIniz, TooManyMacArg,
+  TooManyMacPar, TooManyMsg, TooManyParForMain, TrnctdId, TryPermut, TypeExptd,
+  TypeNotParal, UnclosedCmt, UnclosedDP, UncomputAd, UndefEnum, UndefFctId,
+  UndefId, UndefLabel, UndefPtdSize, UndefResul, UndefSize, UndefStrun,
+  UndefTag, Underflow, UndfndId, UnFnshArgList, UnFnshCharCst, UnFnshCmt,
+  UnFnshFileName, UnFnshStrCst, UnknDPrag, UnknId,
+  UnknMacro, UnknMember, UnknOption, UnreachStmt, UnsigDiffNotNeg, UnsigNonNeg,
+  UnsuitFldType, UnusedEnumCst, UnusedFct, UnusedId, UnusedLabel, UnusedMacPar,
+  UnusedPar, UnusedTag, UnusedTypeId, UnusedVar, UnusedVar1,
+  UpCaseTypName, UseIndexTypForPtr, UseTC, UslAttrib,
+  UslCast, UslCastTo, UslDPrag, UslFctQual, UslInitBU, UslNoDefault,
+  UslObj, UslTypSpe, VariNotVari, VoidNotAlone, VoidNotAlwd,
+  WarnAlrdOff, WarnAlrdOn, WhileExptd, WrngCUnit,
+  WrngFullEnum, WrngHdrFile, WrngNb, WrngNb1, WrngSameVal, WrngSizeof, ZifWarn,
+
+  EndErr, Warn2 = SIGN_BIT, Warn1 = (SIGN_BIT>>1)&INT_MAX, CWarn = Warn1>>1,
+  NoDispLine = CWarn>>1, PossErr = NoDispLine>>1, Rdbl = PossErr>>1,
+  EndErrInfoBits} Terr;
+/*~ zif (EndErr > EndErrInfoBits - 1) "Too many error messages !" */
+#define Warn3	(Warn2 | Warn1)
+#define WarnMsk	Warn3
+/* Warnings not to be delivered if inside system macro */
+#define CWarn1	Warn1 | CWarn
+#define CWarn2	Warn2 | CWarn
+#define CWarn3	Warn3 | CWarn
+
+/* Definitions for 'universal' storage blocks */
+typedef struct _TqElt6 TqElt6;
+#define SizeUnivBlk	5
+typedef union {void *bid1; long bid2;} TallocUnit;
+struct _TqElt6 {
+  TallocUnit bid[SizeUnivBlk];  /* to get space for 'SizeUnivBlk'
+						      universal memory units. */
+  TqElt6 *next;  /* must come last (so as not to destroy content of freed block,
+		    which may be used some more just after freeing (cf, for
+		    example, 'shared' flag in freeTypeElt() ). */
+};
+/*~ zif (size_t)&(((TqElt6 *)0)->next) + sizeof(((TqElt6 *)0)->next) != sizeof(
+			      TqElt6) "Field 'next' of TqElt6 not last field" */
+#undef SizeUnivBlk
+
+/* Offsets in array 'natTyp' of predefined types  */
+#ifdef LONGLONG
+#  define DeltaTyp	(LONG - CHAR + 1 + 1)
+#else
+#  define DeltaTyp	(LONG - CHAR + 1)
+#endif
+#define _VOID		(VOID - BNatTyp)
+#define _SBYTE		(CHAR - BNatTyp)
+#define _UBYTE		(_SBYTE + DeltaTyp)
+#define _INT		(INT - BNatTyp)
+#define _UINT		(_INT + DeltaTyp)
+#define _LONG		(LONG - BNatTyp)
+#define _ULONG		(_LONG + DeltaTyp)
+#ifdef LONGLONG
+#  define _LLONG	(_LONG + 1)
+#  define _ULLONG	(_ULONG + 1)
+#else
+#  define _LLONG	_LONG
+#  define _ULLONG	_ULONG
+#endif
+#define _CHAR		(_ULLONG + 1)
+#define _LONGDBL	(_CHAR + 1)
+#define _ENDCNATTYP	(_LONGDBL + 1)
+
+/* Authorization masks */
+#define SigWho		(Byte | Short | Int | Long | LLong)
+#define UnsigWho	(UByte | UShort | UInt | ULong | ULLong)
+#define Who		(SigWho | UnsigWho)
+#define Flt		(Float | Double | LongDbl)  /* "Floating" */
+#define SigAri		(SigWho | Flt)
+#define SigWhoEnum	(SigWho | Enum)
+#define WhoEnum		(Who | Enum)
+#define WhoEnumBool	(WhoEnum | Bool)	    /* "Integral" */
+#define NumEnumBool	(WhoEnumBool | Flt)	    /* "Arithmetic" */
+#define Num		(Who | Flt)
+#define NumEnum		(Num | Enum)
+#define NumBool		(Num | Bool)
+
+/* Flags to manage numeric constants */
+#define NegSeen		1U
+#define SignSeen	(NegSeen << 1)
+#define USeen		(SignSeen << 1)
+#define LSeen		(USeen << 1)
+#define LLSeen		(LSeen << 1)
+#define FltSeen		(LLSeen << 1)
+#define FSeen		(FltSeen << 1)
+#define LDSeen		(FSeen << 1)
+#define OctHex		(LDSeen << 1)
+
+/* Shorthands */
+#define lim		u1._lim
+#define paramList	u1._paramList
+#define memberList	u1._memberList
+#define frstEnumCst	u1._frstEnumCst
+#define tagId		u2._tagId
+#define indexType	u2._indexType
+#define nextTE		u3._nextTE
+#define typeId		u3._typeId
+#define attriba		infoD._attriba
+#define parQal		infoD._parQal
+#define fldSize		infoD._fldSize
+#define fldFl		infoD._fldFl
+#define memberFl	infoD._memberFl
+#define MayModifFl	memberFl
+#define declFl		infoD._declFl
+#define ResulPtrFl	declFl
+#define noNewTypeFl	infoD._noNewTypeFl
+#define SignedInt	infoD._signedInt
+#define SizeofBlFl	noNewTypeFl
+#define initFl		infoD._variousD
+#define notUsedFl	infoD._variousD
+#define paralTypeFl	infoD._variousD1
+#define _paralTypeFl	_variousD1
+#define _prioToCast	_variousD1
+#define attribb		infoS._attribb
+#define kind		infoS._kind
+#define defnd		infoS._defnd
+#define used		infoS._used
+#define undef		infoS._undef  /* for ~Undef(Tag) management */
+#define initlz		infoS._initlz
+#define MsngConstQM	infoS._msngConstQM
+#define variousS1	infoS._variousS1
+#define initBefUsd	variousS1
+#define declInInHdr	variousS1  /* Extrn Obj */
+#define variousS2	infoS._variousS2
+#define inner		variousS2  /* Label */
+#define usedMorThOnce	variousS2  /* ParamMac */
+#define lclAd		variousS2  /* Obj (Ptr) */
+#define notPureBoo	lclAd	   /* Obj (Bool); often managed as lclAd */
+#define variousS3	infoS._variousS3
+#define notVisible	variousS3  /* Tags */
+#define forceUsed	variousS3  /* Param/Obj */
+#define reallyUsed	variousS3  /* ParamMac */
+#define variousS4	infoS._variousS4
+#define pureBoolAskd	variousS4  /* Obj (Bool) */
+#define noErrTypInd	variousS4  /* Obj (Array/Ptr) : to prevent multiple
+						       warnings on IndexType. */
+#define VariousS5	infoS._variousS5
+#define	Dmodfd		VariousS5  /* Param/obj (Array/Ptr) */
+#define VariousS6	infoS._variousS6
+#define	MayModif	VariousS6  /* Param */
+#define	CheckConst	VariousS6  /* Obj */
+#define qualif		infoT._qualif
+#define generic		infoT._generic
+#define shared		infoT._shared
+#define paralTyp	infoT._paralTyp
+#define sysTpdf		infoT._sysTpdf
+#define noFreeDepdt	infoT._noFreeDepdt
+#define noOwner		infoT._noOwner
+#define stopFreeing	infoT._stopFreeing
+#define rootTyp		infoT._rootTyp
+#define variousT	infoT._variousT
+#define pvNr		variousT  /* Fct: PseudoVoid/NeverReturns */
+#define variousT1	infoT._variousT1
+#define errSiz		variousT1  /* Array/Strun (to prevent multiple
+							   errors 'size = 0'. */
+#define intPoss		variousT1  /* EnumCst in sysHdrFiles */
+#define litCsta		variousT1  /* Num */
+#define SynthQualif	infoT._synthQualif
+#define algn		infoT._algn
+#define enumVal		u1._enumVal
+#define nstLvla		u1._nstLvla
+#define nameb		u1._nameb
+#define noPar		u1._noPar
+#define declaringFile	u2._declaringFile
+#define listAlwdFiles	u2._listAlwdFiles
+#define nxtEnumCst	u2._nxtEnumCst
+#define namedType	u2._namedType
+#define sVal		u1._sVal
+#define uVal		u1._uVal
+#define pVal		u1._pVal
+#define pseudoAttrib	u2.s21._pseudoAttrib
+#define rEvlbl		u2.s21._rEvlbl
+#define ValMltplDef	u2.s21._valMltplDef
+#define errEvl		u2.s21._errEvl
+#define cstImpsd	u2.s21._cstImpsd
+#define lValFl		u2.s21._lValFl
+#define lEvlbl		u2.s21._lEvlbl
+#define lclAdr		u2.s21._lclAdr
+#define notPureBool	lclAdr
+#define oldUsed		u2.s21._oldUsed
+#define litCst		u2.s21._litCst
+#define LitCstOutsMac	u2.s21._litCstOutsMac
+#define inhibWaNPB	u2.s21._inhibWaNPB
+#define unsigDiff	u2.s21._unsigDiff
+#define PointedByObj	u2.s21._pointedByObj
+#define PointingOnObj	u2.s21._pointingOnObj
+#define FctCallSeen	u2.s21._fctCallSeen
+#define Einfo		u2._eInfo
+#define ptrSem		u2._ptrSem
+#define dpType		u2._dpType
+#define numVal		u2._numVal
+#define val		u3._val
+#define hCod		u3._hCod
+
+/* Shared typedefs */
+typedef char Tchar;
+typedef const Tchar *Tstring;
+typedef Tchar *TstringNC;
+
+typedef Tchar TnbBuf1[Log10MaxLongNb +1+1+1];  /* possible sign, leading digit,
+								 ending '\0'. */
+typedef TnbBuf1 TnbBuf;		/* buffer type for bufLongToS() */
+typedef Tchar TnameBuf1[MaxLgtId + 1];
+typedef TnameBuf1 TnameBuf;	/* buffer type for bufNameToS() */
+
+typedef ubyte TnameAtom;  /* for local representation of nameString (<length>,
+						  <nameSpace>, <characters>). */
+typedef const TnameAtom	*CTname;
+typedef TnameAtom *TnameNC;
+typedef CTname Tname, TlitString;
+
+typedef int TnstLvl, TcharStream, TcharTok;
+typedef int TenumCst;  /* must stay 'int', for enum constants of 'int' type */
+typedef uint ThCode, TmacLvl, TmacExpnd, TmsgParIndex /*~LiteralCst*/, TlineNb;
+
+#ifdef LONGLONG
+typedef LONGLONG TcalcS;
+typedef unsigned LONGLONG TcalcU;
+#else
+typedef long TcalcS;
+typedef ulong TcalcU;
+#endif
+
+typedef enum {Terse=-1 /* for efficiency */, HalfVerbo, FullVerbo} Tverbo;
+
+typedef enum {VerifCast = -3, VerifCastF, StrictChk, NoCheck, Cmpar, LitString,
+  Asgn, ExtDcl, FctCall, IlgIcp, CCheck1, CCheck, CStrictChk, CStrChkExtDcl
+} TkTypeEquiv;
+/*~ zif NoCheck != (TkTypeEquiv)0 "NoCheck must be nul (cf 'compatType')" */
+
+typedef enum {ObjectSpace, TagSpace, LabelSpace, DeltdMac} TnameSpace;
+
+typedef ulong Thistory /*~RootType*/;
+#define H_EMPTY	(Thistory)0
+#define H_ARROW	H_EMPTY
+#define H_DOT	(H_ARROW + 1)
+#define H_PTR	(H_DOT + 1)
+#define H_ARRAY	(H_PTR + 1)
+#define SizeHistElt 2
+#define MskHistElt (((Thistory)1 << SizeHistElt) - 1)
+/*~ zif (H_ARRAY > MskHistElt) "Bad value for SizeHistElt" */
+#define MaxHistDescr sizeof(Thistory)*CHAR_BIT/SizeHistElt
+
+typedef uint Tattrib /*~RootType*/;
+#define NoAttrib  (Tattrib)0	/* here for efficiency; NoAttrib, Stati chked */
+#define StatiL	  (NoAttrib + 1)/* 'local' static; must be here (cf attrib()) */
+#define Stati	  (StatiL + 1)  /*   together (cf funcDef(), initOrSizFld()). */
+#define Extrn	  (Stati + 1)	/* Stati, Extrn checked together */
+#define Typdf 	  (Extrn + 1)	/* Typdf, Extrn checked together (cf decl() ) */
+#define Auto	  (Typdf + 1)	/* Auto, Reg at end of enum (cf checkInit(),  */
+#define Reg	  (Auto + 1)	/*			     declObj(), ...). */
+#define MaxAttrib  Reg
+/*~ zif ((int)MaxAttrib != EAttrib - BAttrib) "Pb with Tattrib" */
+/*~ zif (Typdf != NoAttrib + 4) "Constraints of Tattrib not heeded" */
+
+typedef uint Tqualif /*~RootType*/;
+#define NoQualif   (Tqualif)0
+#define ConstQal   (Tqualif)1
+#define VolatQal   (ConstQal << 1)
+#define MaxQualif  VolatQal
+
+#define IntDelType	(int)DelType
+typedef enum {
+  Void=0, Bool, Byte=Bool<<1, UByte=Byte<<1, Short=UByte<<1, UShort=Short<<1,
+  Int=UShort<<1, UInt=Int<<1, Long=UInt<<1, ULong=Long<<1,
+#ifdef LONGLONG
+  LLong=ULong<<1, ULLong=LLong<<1,
+#else
+  LLong=Long /*~SameValue*/, ULLong=ULong /*~SameValue*/,
+#endif
+  Float=ULLong<<1, Double=Float<<1, LongDbl=Double<<1, Enum=LongDbl<<1,
+  DelType=Enum<<1,
+  Ptr=DelType, Array=Ptr+IntDelType,  /* Ptr/Array checked together (cf
+						  primQualif(), authzdType(). */
+  Fct=Array+IntDelType, VFct=
+#define X7FFF 0x7FFF
+#if INT_MAX == X7FFF
+   ~INT_MAX
+   /*~ zif Fct > X7FFF "Problem..." */
+#else
+   Fct+IntDelType
+#endif
+   , /* Fct/VFct checked together (cf IsFct macro); Array/VFct checked together
+					   (cf IsArrFct macro, compatType()). */
+  Struc=VFct+IntDelType, Union=Struc+IntDelType	   /* Struc/Union checked
+						 together (cf IsStrun macro). */
+} TtypeSort;
+/* TtypeSort constraint 1 : Fct, VFct, Struc, Union supposed to be last (see
+		 'cast' check on types in term10(), see also expr(), exprN(). */
+/* zif Fct != Void + __extent(TtypeSort) - IntDelType*3
+					  "TtypeSort constraint 1 not heeded" */
+/* TtypeSort constraint 2 : Array just after Ptr (see primQualif()/LPAR) */
+/*~ zif Array != Ptr + IntDelType "TtypeSort constraint 2 not heeded" */
+/* (Weak) TtypeSort constraint 3 : Enum just before DelType (see compatType(),
+						   typeToS(), NumBoolOther ). */
+/*~ zif Enum != DelType >> 1 "TtypeSort constraint 3 not heeded" */
+/* (Weak) TtypeSort constraint 4 : Array just before Fct (see IsArrFct macro); 
+				       VFct just after Fct (see IsFct macro). */
+/* zif VFct != Array + IntDelType*2 "TtypeSort constraint 4 not heeded" */
+/* TtypeSort constraint 5 : 'Uxx' just after 'xx' (see computeCstType(),
+							     specialCaseOp(). */
+/*~ zif UByte!=Byte<<1 || GapNxtVarie!=2 "TtypeSort constraint 5 not heeded" */
+/* TtypeSort constraint 6 : arithmetic types to be adjacent, and in increasing
+					width order (cf management of casts). */
+#ifdef LONGLONG
+/*~ zif LongDbl-Byte != 0x1FFE "TtypeSort constraint 6 not heeded" */
+#define PosDelT	15
+/*~ zif 1<<PosDelT != IntDelType "PosDelT != log2(DelType)" */
+#else
+/*~ zif LongDbl-Byte != 0x7FE "TtypeSort constraint 6 not heeded" */
+#define PosDelT	13
+/*~ zif 1<<PosDelT != IntDelType "PosDelT != log2(DelType)" */
+#endif
+#undef IntDelType
+
+typedef uint Tkind /*~RootType*/;
+#define Param	 (Tkind)0
+#define Obj	 (Param + 1)
+#define Type	 (Obj + 1)
+#define EnumTag	 (Type + 1)
+#define StrunTag (EnumTag + 1)
+#define EnumCst	 (StrunTag + 1)
+#define Label	 (EnumCst + 1)
+#define ParamMac (Label + 1)
+#define MaxKind	 ParamMac  /* if Tkind modified, don't forget to modify
+							      table tabKind ! */
+/* Tkind constraint 1: Obj after Param ; both at beginning of enum Tkind
+(cf declObj(), freeSeman() ). */
+/*~ zif (Param!=(Tkind)0 || Obj!=Param+1) "Tkind constraint 1 not heeded" */
+/* Tkind constraint 2: Type before EnumTag before StrunTag before EnumCst
+   before Label; all of them at the end of enum Tkind (except for ParamMac)
+					    (cf freeSeman(), term10()/IDENT). */
+/*~ zif (Type != MaxKind - 5) "Tkind constraint 2 not heeded" */
+
+typedef uint Talgn /*~RootType*/;
+#define Alig0	(Talgn)0
+#define Alig1	(Alig0 + 1)
+#define Alig2	(Alig1 + 1)
+#define Alig3	(Alig2 + 1)
+#define MaxAlgn Alig3
+
+typedef struct _TmngtPriv TmngtPriv;
+
+typedef struct _TtypeElt TtypeElt;
+typedef TtypeElt *TpTypeElt;
+typedef const TtypeElt *TpcTypeElt;
+
+typedef uint TparQal /*~RootType*/;
+#define NoParQal	(TparQal)0
+#define ResulTypV	(NoParQal + 1)
+#define GenericV	(ResulTypV + 1)
+#define UtilityV	(GenericV + 1)
+#define MaxParQal	UtilityV
+
+#define NbBitsAttrib	3
+/*~ zif (MaxAttrib >= (Tattrib)1 << NbBitsAttrib)
+				       "Bad field size for storing attribute" */
+#define NbBitsParQal	2
+/*~ zif (MaxParQal >= (TparQal)1 << NbBitsParQal)
+		    "Bad field size for storing formal parameter d-qualifier" */
+typedef struct {
+  uint    _fldSize:SmallestWdthInt;  /* also to force efficient alignment */
+  Tattrib _attriba:NbBitsAttrib;
+  TparQal _parQal:NbBitsParQal;
+  bool    _fldFl:1;
+  bool    _memberFl:1;
+  bool    _declFl:1;
+  bool    _noNewTypeFl:1;
+  bool    _signedInt:1;
+  bool    _variousD:1;
+  bool    _variousD1:1;
+#define NbFlags	7
+#define Pad	INT_BIT - SmallestWdthInt - NbBitsAttrib - NbBitsParQal- NbFlags
+  uint    :Pad;  /* to force efficient alignment */
+} TinfoDecl;
+#undef NbBitsParQal
+#undef NbFlags
+#undef Pad
+ 
+typedef struct _TdeclElt TdeclElt;
+typedef TdeclElt *TpDeclElt;
+typedef TpDeclElt TdeclList;  /* 'parallel' type, to differentiate a list from
+					   a pointer on elements of the list. */
+
+struct _TdeclElt {
+  Tname          idName;
+  ThCode         hCode;
+  TpcTypeElt     type;
+  TinfoDecl	 infoD;
+  TdeclList      cdr;
+};
+
+#define NbBitsKind	3
+/*~ zif MaxKind >= (Tkind)1<<NbBitsKind
+				 "Bad field size for storing 'Tkind' objects" */
+typedef struct {
+  Tattrib _attribb:NbBitsAttrib;
+  Tkind   _kind:NbBitsKind;
+  bool    _defnd:1;
+  bool    _used:1;	/* 'used value/object'; for array parameters (passed by
+			   address), only 'used object'. */
+  bool    _undef:1;
+  bool    _initlz:1;
+  bool    _msngConstQM:1;
+  bool    _variousS1:1;
+  bool    _variousS2:1;
+  bool    _variousS3:1;
+  bool    _variousS4:1;
+  bool    _variousS5:1;
+  bool    _variousS6:1;
+#define NbFlags	11
+#define Pad	INT_BIT - NbBitsAttrib - NbBitsKind - NbFlags
+  uint    :Pad;  /* to force efficient alignment */
+#undef NbFlags
+#undef Pad
+} TinfoSeman;
+#undef NbBitsKind
+
+typedef struct _TsemanElt TsemanElt;
+struct _TsemanElt {
+  TinfoSeman	infoS;
+  TpcTypeElt	type;  /* NULL if defined by defineId() */
+  union {
+    TpcTypeElt	_namedType;	 /* Type */
+    Tstring	_declaringFile;  /* Obj */
+    TmngtPriv	*_listAlwdFiles; /* Tags */
+    TsemanElt	*_nxtEnumCst;	 /* EnumCst */
+  } u2;
+  union {
+    TenumCst	_enumVal;	/* EnumCst */
+    Tname	_nameb;		/* Type, Tags, Obj */
+    TnstLvl	_nstLvla;	/* Label (to prevent 'goto's from entering
+								     blocks). */
+    uint	_noPar;		/* ParamMac */
+    TsemanElt	*_bid;		/* only for systematic reasons (see
+							    freeSemanElt() ). */
+  } u1;
+  TlineNb	defLineNb;
+  Tstring	defFileName;
+};
+
+#define NbBitsQualif	2
+/*~ zif (MaxQualif >= (Tqualif)1<<NbBitsQualif)
+					 "Bad field size for storing Tqualif" */
+#define NbBitsAlign	2
+/*~ zif (MaxAlgn >= (Talgn)1<<NbBitsAlign) "Bad field size for storing Talgn" */
+typedef struct {
+  Tqualif _qualif:NbBitsQualif;
+  bool    _paralTyp:1;	 /* 'parallel' typeElt */
+  bool    _sysTpdf:1;	 /* system typedef */
+  bool    _generic:1;
+  bool    _noOwner:1;	 /* (beginning of) type chain owned by no-one */
+  bool    _shared:1;	 /* someone (not you) owns this type element, and he is
+				     the only one that can modify or free it! */
+  bool    _noFreeDepdt:1; /* don't free dependants (member/param list,
+								  indexType). */
+  bool    _stopFreeing:1; /* end of not owned (prefix of) type chain */
+  bool    _rootTyp:1;	  /* root type */
+  bool    _variousT:1;
+  bool    _variousT1:1;
+  Tqualif _synthQualif:NbBitsQualif; /* for struct/union */
+  Talgn   _algn:NbBitsAlign;
+#define NbFlags	10
+#define Pad	INT_BIT - NbBitsQualif - NbBitsQualif - NbBitsAlign - NbFlags
+  uint    :Pad;  /* to force efficient alignment */
+#undef NbFlags
+#undef Pad
+} TinfoType;
+#undef NbBitsQualif
+#undef NbBitsAlign
+
+struct _TtypeElt {
+  TtypeSort	typeSort;	/* must (up to 'size') come first (cf
+					    initialization of array 'natTyp'. */
+  TinfoType	infoT;
+  size_t	size;		/* size of objects of the type (0 => incomplete
+								       type). */
+			       /* *doIt* size in bits (for err in '>>', '<<') */
+  union {
+    size_t	_lim;		/* Array: index limit (-(1U) if incorrect or
+				   non positive size-giving expression, 0 if
+				   unspecified). */
+    TsemanElt	*_frstEnumCst;	/* Enum				      */
+    TdeclList	_paramList;	/* Fct, VFct			      */
+    TdeclList	_memberList;	/* Struct/Union (root element)	      */
+  } u1;
+  union {
+    TpcTypeElt	_indexType;	/* Array, Ptr: type of size-giving
+					   expression (NULL if invalid type). */
+    TsemanElt	*_tagId;	/* Struct/Union/Enum			      */
+  } u2;
+  union {
+    TpcTypeElt	_nextTE;	/* points on next element of type chain,      */
+    TsemanElt	*_typeId;	/*  or, for 'parallel' type elements, on
+				    parallel type identifier. */
+  } u3;
+};
+/*~ zif (size_t)&(((TtypeElt*)0)->nextTE) + sizeof(((TtypeElt*)0)->nextTE) !=
+		sizeof(TtypeElt) "Beware, freed typeElt may still be used..." */
+
+typedef union {
+  ulong _eInfo;
+  struct {
+    Tattrib _pseudoAttrib: NbBitsAttrib;
+    bool _rEvlbl: 1;	/* True if constant expression */
+    bool _valMltplDef: 1; /* True if constant expression has several possible
+								      values. */
+    bool _errEvl: 1;	/* True if error (overflow) occurred
+							   during evaluation. */
+    bool _cstImpsd: 1;	/* True if type imposed by constant */
+    bool _lValFl: 1;	/* True if operand has address */
+    bool _lEvlbl: 1;	/* True if address is constant (for 'auto' class,
+		       if address stays constant during function evaluation). */
+    bool _lclAdr: 1;	/* True if address inside stack */
+    bool _oldUsed:1;	/* previous value of 'used' bit */
+    bool _litCst: 1;	/* True if there exists an unnamed constant in expr */
+    bool _litCstOutsMac: 1; /* True if unnamed constant not found in macro */
+    bool _inhibWaNPB:1; /* True => inhibit warnings on 'notPureBool' */
+    bool _unsigDiff: 1;	/* True if diff. of unsigned met in expression */
+    bool _pointedByObj: 1;/* True if expr. is pointed by 'ptrId' */
+    bool _pointingOnObj:1;/* True if expr. points on 'ptrId' */
+
+    bool _fctCallSeen:1;
+  } s21;
+} TREInfo;
+typedef struct {
+  TpcTypeElt type;         /* NULL indicates type error in expression */
+  TsemanElt *ptrId;	   /* pointer on (root) identifier */
+  Thistory  hist;	   /* for objects not constants */
+  union {      /* values of expression (if evaluable: flag 'xEvlbl' set) */
+    TcalcS	     _sVal;	/* numeric value (if signed) */
+    TcalcU	     _uVal;	/* numeric value (if unsigned) */
+    const char       *_pVal;	/* pointer value  ('char *', so that it can
+								be compared). */
+  } u1;
+  Ttok       topOper;		/* top operator of the expression tree */
+  TmacLvl    macLvl;
+  TREInfo    u2;
+} TresulExp;
+/*~zif sizeof(((TresulExp *)0)->u2) > sizeof(ulong)
+		      "Einfo = 0 won't reset all bit fields in structure s21" */
+#undef NbBitsAttrib
+
+typedef struct {
+  Ttok  tok;
+  Tname	name;
+  bool	error;  /* cannot be in a union with 'name', because of macro
+							 expanding to string. */
+  union {
+    TsemanElt      *_ptrSem;
+    TcalcS	   _numVal;
+    TpcTypeElt     _dpType;
+  } u2;
+  union {
+    uint	   _val;
+    ThCode	   _hCod;
+  } u3;
+} TvalTok;
+
+#endif  /* ifndef DC_TH */
+/* End DC.TH */

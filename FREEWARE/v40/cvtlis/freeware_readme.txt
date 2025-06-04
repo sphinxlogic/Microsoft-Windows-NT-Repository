@@ -1,0 +1,86 @@
+CVTLIS V3.2, UTILITIES, Convert .LIS files back to source files
+
+                                 CVTLIS V3.2
+                   Copyright © 1994,1998, Hunter Goatley.
+                            All rights reserved.
+
+CVTLIS converts .LIS files from the VMS Source Listings on CD back to the
+appropriate source files.  The following file types are recognized:
+
+	Language	Type		Output file type
+	---------	----		----------------
+	MACRO-32	(VAX)		.MAR
+	AMACRO-32	(Alpha)		.MAR
+	BLISS-32	(VAX)		.B32
+	BLISS-32E	(Alpha)		.B32E
+	BLISS-64	(Alpha)		.B64
+	MACRO-64	(Alpha)		.M64
+	VAX C		(VAX)		.C
+	DEC C		(VAX/Alpha)	.C
+	SDL		(VAX/Alpha)	.SDL
+	CDU		(VAX/Alpha)	.CLD
+	MESSAGE		(VAX/Alpha)	.MSG
+	VAX PL/I	(VAX)		.PLI
+	DEC PL/I	(Alpha)		.PLI
+	VAX Pascal	(VAX)		.PAS
+	DEC Pascal	(VAX/Alpha)	.PAS
+
+CVTLIS is written in BLISS and will compile and run on both OpenVMS VAX
+and OpenVMS Alpha.
+
+CVTLIS is highly dependent on the .LIS format produced for the source
+listings CDs.  Fortunately, most of the VMS programmers follow rigorous
+source code formats, so this program will successfully convert most
+listing files.
+
+To build an executable, either execute @LINK.COM or go to the [.SOURCE]
+subdirectory and rebuild it using MMK.
+
+To use CVTLIS, define a foreign symbol to run the program and supply a
+.LIS file name on the command line:
+
+	$ cvtlis :== $dev:[dir]cvtlis.exe
+	$ cvtlis [v61.dcl]recallsub.lis
+
+--------------------------------------------------------------------------------
+Files in this directory:
+
+AAAREADME.DOC			This file
+AAAREADME.TOO			Revision history
+CVTLIS.ALPHA_OLB		CVTLIS library (Alpha)
+CVTLIS.OLB			CVTLIS object library (VAX)
+LINK.COM			Command procedure to link the executables
+
+Files in [.SOURCE]:
+
+CVTLIS.B32			BLISS source file for CVTLIS.
+CVTLIS_MSG.MSG			MESSAGE source file for CVTLIS error messages.
+DESCRIP.MMS			MMS/MMK description file for building CVTLIS.
+FPARSE.B32			Routine to parse file specifications.
+
+--------------------------------------------------------------------------------
+CONTACTING THE AUTHOR
+
+Comments, suggestions, and questions about this software can be directed to
+the author at one of the following addresses:
+
+Mail:	Hunter Goatley
+	P.O. Box 51745
+	Bowling Green, KY 42102-6745
+
+E-mail:	goathunter@PROCESS.COM
+
+--------------------------------------------------------------------------------
+COPYRIGHT NOTICE
+
+This software is COPYRIGHT © 1994,1998, HUNTER GOATLEY. ALL RIGHTS RESERVED.
+Permission is granted for not-for-profit redistribution, provided all source
+and object code remain unchanged from the original distribution, and that
+all copyright notices remain intact.
+
+DISCLAIMER
+
+This software is provided "AS IS".  The author makes no representations or
+warranties with respect to the software and specifically disclaim any
+implied warranties of merchantability or fitness for any particular
+purpose.

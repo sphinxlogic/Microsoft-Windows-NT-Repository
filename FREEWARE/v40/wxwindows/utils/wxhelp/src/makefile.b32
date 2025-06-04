@@ -1,0 +1,73 @@
+#
+# File:		makefile.b32
+# Author:	Patrick Halke
+# Created:	1995
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds 32bit wxhelp utility.
+
+# WXWIN and BCCDIR are set by parent make
+
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makeb32.env
+
+WXLIBDIR = $(WXDIR)\lib
+WXINC = $(WXDIR)\include\msw
+WXBASESRC = $(WXDIR)\src\base
+WXBASEINC = $(WXDIR)\include\base
+WXLIB = $(WXLIBDIR)\wx32.lib
+HYPLIB = $(WXLIBDIR)\hytext.lib
+HYPINC = $(WXDIR)\utils\hytext\src
+LIBS=$(WXLIB) cw32 import32 $(HYPLIB)
+
+TARGET=wxhelp
+
+# Default is to output RTF for WinHelp
+!ifndef WINHELP
+WINHELP=-winhelp
+!endif
+
+!if "$(FINAL)" == "0"
+LINKFLAGS=/v /Tpe /L$(WXLIBDIR);$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS= -v
+!else
+LINKFLAGS=/Tpe /L$(WXLIBDIR);$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS =
+!endif
+
+CPPFLAGS=$(DEBUG_FLAGS) $(OPT) -I$(HYPINC) @$(CFG)
+
+OBJECTS = wxhelp.obj
+
+$(TARGET).exe:	$(OBJECTS) $(TARGET).def $(TARGET).res
+  tlink32 $(LINKFLAGS) @&&!
+c0w32.obj $(OBJECTS)
+$(TARGET)
+nul
+$(LIBS)
+$(TARGET).def
+!
+        brc32 -K $(TARGET).res
+
+.$(SRCSUFF).obj:
+	bcc32 $(CPPFLAGS) -c {$< }
+
+.c.obj:
+	bcc32 $(CPPFLAGS) -P- -c {$< }
+
+
+wxhelp.obj: wxhelp.$(SRCSUFF) wxhelp.h $(HYPINC)\hytext.h
+
+
+$(TARGET).res :      $(TARGET).rc $(WXDIR)\include\msw\wx.rc
+    brc32 -r /i$(BCCDIR)\include /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa $(TARGET)
+
+clean:
+        -erase *.obj *.exe *.res *.map *.rws
+
+

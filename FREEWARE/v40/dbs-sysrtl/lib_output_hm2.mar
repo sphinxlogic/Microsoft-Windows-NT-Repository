@@ -1,0 +1,193 @@
+	.title	lib_output_hm2
+	.ident	/X1-002/
+
+;+
+; Version:	X1-002
+;
+; Facility:	Library routines.
+;
+; Abstract:	To format a 512 byte buffer as if it was a Files-11 homeblock.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	26-Jul-1991, DBS, Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS, Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	This routine will format the contents of a 512 byte buffer to show
+;	the contents as if they were a Files-11 homeblock.  No checking is
+;	done to establish the validity of the block - this is up to the
+;	caller.
+;
+; Calling Sequence:
+;	call lib_output_hm2 (%val(%loc(buffer)))
+;		- or -
+;	pushab	buffer
+;	calls	#1, g^lib_output_hm2
+;
+; Formal Argument(s):
+;	buffer.rl.v	Address of the first byte of the buffer.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	Output is directed to SYS$OUTPUT.
+;
+; Completion Codes:
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	.external	lib$put_output
+
+	$hm2def
+	$ssdef
+	$gblini GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+arg_count=1
+buffer=4
+
+	set_psect _sys_data
+
+	alloc_string	lib_faobuf, 1024
+
+homeblock_fao1:	.ascid -
+	"ODS Version !UB.!UB!12* ClusterSize    !10UB   CheckSums    !XW,!XW!/"-
+	"HomeLBN       !10UL   AltHomeLBN     !10UL   AltIdxLBN   !10UL!/"-
+	"HomeVBN       !10UW   AltHomeVBN     !10UW   AltIdxVBN   !10UW!/"-
+	"IBmapLBN      !10UL   IBmapVBN       !10UW   IBmapSize   !10UW"
+homeblock_fao2:	.ascid -
+	"Maximum files !10UW   Reserved files !10UW   Device type !10UW!/"-
+	"Relative Vol. !10UW   Set count      !10UW   Window size !10UB!/"-
+	"Extend size   !10UW   LRU limit      !10UB   Volume char !6* !XW!/"-
+	"Serial number !10UL   Volume owner   !%U"
+homeblock_fao3:	.ascid -
+	"!10<Sec Mask!>!XL  !14<Protect!>!XW  "-
+	"!14<FileProt!>!XW  !14<RecProt!>!XW"
+homeblock_fao4:	.ascid -
+	"!15<Initialized on!>!%D  !15<Revision date!>!%D!/"-
+	"!22<Min retention!>!%D  !22<Max retention!>!%D"
+homeblock_fao5:	.ascid -
+	\!24<Structure name!>"!AF"  !24<Volume name!>"!AF"!/\-
+	\!24<Owner name!>"!AF"  !24<Format!>"!AF"!/\
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+lib_output_hm2, ^m<r2,r3,r4,r5,r6>
+
+	cmpw	(ap), #arg_count
+	beql	20$
+	bgtr	10$
+	movl	#ss$_insfarg, r0
+	brw	90$
+10$:	movl	#ss$_ovrmaxarg, r0
+	brw	90$
+
+20$:	movl	buffer(ap), r2
+
+	$fao_s	ctrstr=homeblock_fao1, -
+		outbuf=lib_faobuf_ds, -
+		outlen=lib_faobuf, -
+		p1=hm2$b_struclev(r2), -
+		p2=hm2$b_strucver(r2), -
+		p3=hm2$w_cluster(r2), -
+		p4=hm2$w_checksum1(r2), -
+		p5=hm2$w_checksum2(r2), -
+		p6=hm2$l_homelbn(r2), -
+		p7=hm2$l_alhomelbn(r2), -
+		p8=hm2$l_altidxlbn(r2), -
+		p9=hm2$w_homevbn(r2), -
+		p10=hm2$w_alhomevbn(r2), -
+		p11=hm2$w_altidxvbn(r2), -
+		p12=hm2$l_ibmaplbn(r2), -
+		p13=hm2$w_ibmapvbn(r2), -
+		p14=hm2$w_ibmapsize(r2)
+	display lib_faobuf
+
+	$fao_s	ctrstr=homeblock_fao2, -
+		outbuf=lib_faobuf_ds, -
+		outlen=lib_faobuf, -
+		p1=hm2$l_maxfiles(r2), -
+		p2=hm2$w_resfiles(r2), -
+		p3=hm2$w_devtype(r2), -
+		p4=hm2$w_rvn(r2), -
+		p5=hm2$w_setcount(r2), -
+		p6=hm2$b_window(r2), -
+		p7=hm2$w_extend(r2), -
+		p8=hm2$b_lru_lim(r2), -
+		p9=hm2$w_volchar(r2), -
+		p10=hm2$l_serialnum(r2), -
+		p11=hm2$l_volowner(r2)
+	display lib_faobuf
+
+	$fao_s	ctrstr=homeblock_fao3, -
+		outbuf=lib_faobuf_ds, -
+		outlen=lib_faobuf, -
+		p1=hm2$l_sec_mask(r2), -
+		p2=hm2$w_protect(r2), -
+		p3=hm2$w_fileprot(r2), -
+		p4=hm2$w_recprot(r2)
+	display lib_faobuf
+
+	addl3	#hm2$q_credate, r2, r3
+	addl3	#hm2$q_revdate, r2, r4
+	addl3	#hm2$q_retainmin, r2, r5
+	addl3	#hm2$q_retainmax, r2, r6
+	$fao_s	ctrstr=homeblock_fao4, -
+		outbuf=lib_faobuf_ds, -
+		outlen=lib_faobuf, -
+		p1=r3, -
+		p2=r4, -
+		p3=r5, -
+		p4=r6
+	display lib_faobuf
+
+	addl3	#hm2$t_strucname, r2, r3
+	addl3	#hm2$t_volname, r2, r4
+	addl3	#hm2$t_ownername, r2, r5
+	addl3	#hm2$t_format, r2, r6
+	$fao_s	ctrstr=homeblock_fao5, -
+		outbuf=lib_faobuf_ds, -
+		outlen=lib_faobuf, -
+		p1=#hm2$s_strucname, -
+		p2=r3, -
+		p3=#hm2$s_volname, -
+		p4=r4, -
+		p5=#hm2$s_ownername, -
+		p6=r5, -
+		p7=#hm2$s_format, -
+		p8=r6
+	display lib_faobuf
+
+90$:	ret
+
+	.end

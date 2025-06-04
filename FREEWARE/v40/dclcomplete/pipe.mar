@@ -1,0 +1,765 @@
+        .Title  Pipes
+;+++
+; Pipes Etc...
+;       An attempt to allow redirection, multiple commands and
+;       piping on one line.  This is very incomplete and definitely
+;       a hack.  This was written to test out some minor changes to
+;       DCLcomplete and not really meant as a production program.
+;
+;       This code is copyright Ramon Curiel 1994.  Non-commercial
+;       distribution is allowed, but contributions to my hacking
+;       fund are always welcome.
+;       
+;       To use this program do the following
+;
+; Compiling/linking:
+;       $ MACRO PIPE
+;       $ LINK PIPE
+;       Note:   If you are using a version of VMS prior to V5.5
+;               you will need to change the subroutine complete
+;               see complete subroutine for details.
+;
+; Installing:
+;       $ PIPE :== $pipedevice:[pipedir]PIPE.EXE
+;       $ RUN DCLCOMPLETE
+;;
+;
+; Known Problems:
+;       In order for this to work the last command for any subprocess
+;       needs to send an EOF or the $STO/I=0 will be interpreted as 
+;       part of the input stream of the next piped command...
+;       This will require a ^Y and then manually stopping subprocesses.
+;       Oh, well...it almost works :-) Example of problem:
+;
+;         $ WRT :== $WRITE SYS$OUTPUT
+;         $ PIPE WRT "Hello" ; WRT "There" | TYPE SYS$INPUT
+;         Hello
+;         There
+;         sto/i=0
+;
+; at which point things hang.  Ctrl/Y gets it out, but it leaves a stray
+; process to be killed off.
+;
+;
+; Note:
+;       This is a demonstration program on what you might do with
+;       dclcomplete...Quoting Don Stokes  "You can hold me
+;       responsible if it makes you feel better, but if you think
+;       I'm going to guarantee this crap, you've got another thing
+;       coming.... 8-)"
+;
+;       "Questions, bug reports, money, bug fixes, kudos, money,
+;       offers, money etc to"
+;
+; Author:
+;       Ramon M. Curiel, Jr.
+;       SRI International
+;       333 Ravenswood Ave.
+;       Menlo Park, Ca. 94025
+;
+;       phone:  (415)859-6073
+;       Fax:    (415)859-3668
+;       EMail:  ray@sri.com
+;
+; Date:
+;        7-Jul-94
+; Modification History:
+; HG001         Hunter Goatley                   5-AUG-1994 01:05
+;       Add .IFs for pre-VMS V5.5 code.
+;
+; RMC003        Ramon M. Curiel                 14-Jul-94
+;       Allow input redirection as well as output.  This requires
+;       a change to how we do redirection.  Add routines 
+;       Check_Do_Redirect and Write_To_MBX (should be Channel).
+;
+; RMC002        Ramon M. Curiel                 12-Jul-94
+;       Change how we do redirection and fix problem in Multi_Cmds
+;       introduced by changing call to Complete.
+;
+; RMC001        Ramon M. Curiel                 11-Jul-94
+;       Fix Complete routine to correctly stop the next process in
+;       the chain.  Use RMS to open the MBX and close it to signal
+;       EOF.  Then "$Sto/I=0" the next process.
+;
+;---
+        $DVIDEF
+        $FABDEF                         ;FILE ACCESS BLOCK DEFINITIONS
+        $IODEF                  ;       $QIO function codes
+        $PSLDEF
+        $QUIDEF
+
+.IF DEFINED QUI$_AUTOSTART_ON           ;This symbol was added to VMS V5.5
+VMS55 = 1
+.ENDC
+
+.IF DEFINED VMS55
+        $CMBDEF
+.ENDC
+
+Arg1 = 4 * 1
+Arg2 = 4 * 2
+Arg3 = 4 * 3
+Arg4 = 4 * 4
+Arg5 = 4 * 5
+Arg6 = 4 * 6
+Arg7 = 4 * 7
+Arg8 = 4 * 8
+Arg9 = 4 * 9
+ArgA = 4 * 10
+ArgB = 4 * 11
+ArgC = 4 * 12
+ArgD = 4 * 13
+ArgE = 4 * 14
+ArgF = 4 * 15
+EFN_Last = 20
+;
+;Local Vars for Pipe_it
+;
+                PTmp = .
+                     . = 0
+SProc:          .long   0               ;Count of SUBIds...
+EFN:            .long   0
+PID:            .BLKQ   16              ;Process PID
+InChan:         .BLKW   16              ;MBX Input Chan
+OutChan:        .BlkW   16              ;MBX Output chan
+;
+; Items below are reusable
+Flags:          .Long   0
+PItmLst:        .blkb   6*12            ;room for 6 Items...
+InNam:          .Blkb   64              ;InMBX Name
+OutNam:         .blkb   64              ;OutMBx Name
+
+                PLocal = .
+                        . = PTmp
+
+        .PSECT  $PLIT$,LONG,RD,NOWRT,NOEXE
+
+Login:  .ascii  /sys$system:loginout.exe/
+L_Sz  = . - login
+c1:     .ascii  /Pipe: /
+c1_sz = . - c1
+
+
+
+Asgn_O: .ascii  "DEFINE/USER SYS$OUTPUT "
+Asg_O_Sz = . - Asgn_O
+Asgn_I: .ascii  "DEFINE/USER SYS$INPUT "
+ASG_I_SZ = . - ASGN_I
+
+;;;Debug = 1                    ;Debugging switch
+        .If defined DEBUG
+debug1: .ascid  /called Write_To_MBX/
+debug2: .ascid  /called Check_Do_Redirect/
+debug3: .ascid  /called Redirect_Execute/
+debug4: .ascid  /called multiple_cmds/
+debug5: .ascid  /called pipe_it/
+debug6: .ascid  /called complete/
+debug7: .ascid  /Called Lib$Spawn/
+        .Endc
+;
+; OWN STORAGE:
+;
+        .PSECT  $OWN$,LONG,RD,WRT,NOEXE
+
+
+        .PSECT  $CODE$,LONG,RD,NOWRT,EXE
+
+;+++
+; Write_To_MBX
+;       write a string to a channel
+; Input:
+;       Arg1    - Address of channel to MBX
+;       Arg2    - String to write
+; Output:
+;       return status of QIO
+;---
+        .Entry  Write_To_MBX,-
+                ^M<r2,r3,r4,r5>
+        .If defined debug
+        pushaq  debug1
+        calls   #1,G^Lib$Put_Output
+        .endc
+        movl    #lib$_invarg,r0
+        cmpb    (ap),#2                 ;need to Args
+        bneq    100$
+        movaq   -(sp),r2                ;iosb
+        movl    arg1(ap),r3             ;channel
+        movl    Arg2(ap),r4             ;string
+
+        $QioW_S Chan=(r3),Func=#IO$_WriteVBlk,-
+                iosb=(R2),-             ;reuse iosb 
+                p1=@4(r4),p2=(r4),p4=#^X01010000
+        blbc    r0,100$
+        movl    (r2),r0
+100$:   Ret
+
+;+++
+; Check for Input/output redirect and then write...
+; Input:
+;       Arg1    - Channel
+;       Arg2    - String to check
+; ----
+        .Entry  Check_Do_Redirect,-
+                ^M<r2,r3,r4,r5,r6,r7,r8,r9>
+        .If defined debug
+        pushaq  debug2
+        calls   #1,G^Lib$Put_Output
+        .endc
+        cmpb    (ap),#2
+        blss    100$
+        movaq   -(Sp),r6
+        movq    @Arg2(Ap),(r6)  ;Store it here for now
+        Tstw    (r6)
+        beql    100$
+;;;     pushl   r6
+;;;     Calls   #1,G^Lib$Put_Output
+        movaq   -(sp),r7
+        moval   -(sp),4(r7)
+        clrl    (r7)
+        movl    #^a/ <  /,@4(r7)
+        matchc  #3,@4(r7),-
+                (r6),@4(r6)
+        beql    200$            ;nope then call w/o redirect
+        movl    #^A/ >  /,@4(r7)
+        matchc  #3,@4(r7),-
+                (r6),@4(r6)
+        beql    150$            ;nope then call w/o redirect
+        Callg   (ap),G^Write_To_MBX
+100$:   Ret
+150$:
+        ADDW3   #ASG_O_SZ,-
+                R2,(R7)         ;GET SIZE OF COMMAND
+        SUBL2   (R7),SP         ;ALLOCATE BUFFER
+        MOVL    SP,4(R7)        ;SAVE IT
+        MOVQ    R2,R8           ;SAVE FILENAME
+        MOVC3   #ASG_O_SZ,-
+                ASGN_O,-
+                @4(R7)          ;FILL BUFFER WITH DEF/USER
+        brb     210$
+200$:
+        ADDW3   #ASG_I_SZ,-
+                R2,(R7)         ;GET SIZE OF COMMAND
+        SUBL2   (R7),SP         ;ALLOCATE BUFFER
+        MOVL    SP,4(R7)        ;SAVE IT
+        MOVQ    R2,R8           ;SAVE FILENAME
+        MOVC3   #ASG_I_SZ,-
+                ASGN_I,-
+                @4(R7)          ;FILL BUFFER WITH DEF/USER
+210$:   MOVC3   R8,(R9),(R3)    ;ADD FILE TO END
+        subw2   r8,(r6)         ;Strip output device
+        subw2   #3,(r6)         ;strip " > "
+        movl    Arg1(Ap),r8
+        pushl   r7
+        pushl   r8
+        Calls   #2,Check_Do_Redirect
+        BLBC    R0,100$
+        pushl   r6
+        pushl   r8
+        Calls   #2,Check_Do_Redirect
+        brb     100$
+
+;+++
+; Redirect and Execute:
+;       This routine checks for redirection and changes the
+;       output channel (Arg3) to the file specified...
+; Input:
+;       Arg1    - Command to Execute
+;       Arg2    - Input channel
+;       Arg3    - Output channel
+;       Arg4    - Flags
+;       Arg5    - Process name
+;       Arg6    - process id
+;       Arg7    - completetion status
+;       Arg8    - Event flag num
+;       Arg9    - AST Address
+;       Arg10   - AST Argument
+;---    Arg11   - prompt...
+;---    Arg12   - CLI
+;
+;---
+        .Entry  Redirect_Execute,-
+                ^M<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+        .If defined debug
+        pushaq  debug3
+        calls   #1,G^Lib$Put_Output
+        .endc
+        cmpb    (Ap),#3
+        blss    100$            ;assume Args okay but don't search
+;;;;    pushl   Arg1(ap)
+;;;;    calls   #1,G^Lib$Put_Output
+        movl    Arg1(Ap),r6     ;Store it here for now
+        beql    101$
+        Tstw    (r6)
+        beql    101$
+        movaq   -(sp),r7
+        moval   -(sp),4(r7)
+        movl    #^a/ >  /,@4(r7)
+        matchc  #3,@4(r7),-
+                (r6),@4(r6)
+        beql    200$            ;nope then call w/o redirect
+        movl    #^A/ <  /,@4(r7)
+        matchc  #3,@4(r7),-
+                (r6),@4(r6)
+        beql    200$            ;nope then call w/o redirect
+        
+        .If defined debug
+        pushaq  debug7
+        calls   #1,G^Lib$Put_Output
+        .endc
+100$:   callg   (ap),G^Lib$Spawn
+101$:   Ret
+200$:
+        movl    Arg2(Ap),r9     ;do We have input device?
+        bneq    210$
+        $CreMBX_S -
+                Chan=inchan(r11)[r10],- ;
+                promsk=#^XFF0F          ;
+205$:   blbc    r0,101$                 ;Return with Error
+        movaq   -(sp),r9
+        movl    #64,(r9)
+        movab   InNam(r11),4(r9)        ;
+        pushl   r9
+        pushaw  InChan(r11)[r10]
+        Calls   #2,GetName
+210$:   pushl   ArgA(ap)
+        pushl   Arg9(ap)
+        pushl   Arg8(ap)
+        pushl   Arg7(ap)
+        pushl   Arg6(ap)
+        pushl   Arg5(ap)
+        pushl   Arg4(ap)
+        pushl   Arg3(Ap)        ;new output file/device
+        pushl   r9              ;old input device
+        pushl   #0              ;send commands on another channel
+        .If defined debug
+        pushaq  debug7
+        calls   #1,G^Lib$Put_Output
+        .endc
+        calls   #10,G^Lib$Spawn
+        BLBC    R0,205$         ;RETURN AN ERROR
+        movaw   InChan(r11)[r10],r8
+
+        pushl   r6
+        pushl   r8
+        Calls   #2,G^Check_Do_Redirect
+
+290$:   tstl    Arg2(Ap)
+        bneq    300$
+        pushr   #^m<r0,r1>
+        movl    #0,(r9)
+        movl    r8,4(r9)
+        pushl   r9
+        calls   #1,Complete
+        popr    #^m<r0,r1>
+        blbc    r0,400$
+300$:   Ret
+400$:   $exit_S R0
+
+;====
+; Multiple_Commands:
+;       Check for multiple commands
+; Input:
+;       Arg1    - Command to Execute
+;       Arg2    - Input channel
+;       Arg3    - Output channel
+;       Arg4    - Flags
+;       Arg5    - Process name
+;       Arg6    - process id
+;       Arg7    - completetion status
+;       Arg8    - Event flag num
+;       Arg9    - AST Address
+;       Arg10   - AST Argument
+;       -Arg11  - prompt...
+;       -Arg12  - CLI
+; Implicit Input:
+;       r11,r10 unchanged...
+;
+
+        .Entry  Multi_CMDS,-
+                ^M<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+        .If defined debug
+        pushaq  debug4
+        calls   #1,G^Lib$Put_Output
+        .endc
+        cmpb    (Ap),#3
+        blss    100$            ;assume args okay but don't search
+;;;     movaq   -(sp),r6
+;;;     movq    @Arg1(Ap),(r6)  ;Store it here for now
+        movl    Arg1(ap),r6
+        movaq   -(sp),r7
+        movaq   -(sp),r8
+        moval   -(sp),4(r8)
+        movl    #^a/ ;  /,@4(r8)
+        movzwl  #3,(r8)         ;initialize descriptor
+        matchc  (r8),@4(r8),-
+                (r6),@4(r6)
+        tstl    r0
+        beql    200$            ;nope then call w/o redirect
+100$:   callg   (ap),G^Redirect_Execute
+101$:   Ret
+200$:
+        movq    r2,(r7)         ;output device (file)
+        subw2   (r7),(r6)       ;Strip output device
+        subw2   #3,(r6)         ;strip " > "
+        movl    Arg2(Ap),r9     ;do We have input device?
+        bneq    210$
+        $CreMBX_S -
+                Chan=inchan(r11)[r10],- ;
+                promsk=#^XFF0F          ;
+        blbc    r0,101$                 ;Return with Error
+        movaq   -(sp),r9
+        movl    #64,(r9)
+        movab   InNam(r11),4(r9)        ;
+        pushl   r9
+        pushaw  InChan(r11)[r10]
+        Calls   #2,GetName
+210$:   pushl   ArgA(ap)
+        pushl   Arg9(ap)
+        pushl   Arg8(ap)
+        pushl   Arg7(ap)
+        pushl   Arg6(ap)
+        pushl   Arg5(ap)
+        pushl   Arg4(ap)
+        pushl   Arg3(ap)        ;output file/device
+        pushl   r9              ;old input device
+        pushl   r6              ;shortened string...
+        calls   #10,G^Redirect_Execute
+        blbc    r0,101$
+        movaq   -(Sp),r6        ;get new descriptor
+        movw    inchan(r11)[r10],-
+                r5
+300$:
+        movq    (r7),(r6)       ;copy input line
+        matchc  (r8),@4(r8),-
+                (r6),@4(r6)
+                                ;don't really need to check
+        movl    r2,(r7)         ;output device (file)
+        beql    310$            ;all done
+        movl    r3,4(r7)        ;point to next
+        subw2   (r7),(r6)       ;Strip output device
+        subw2   #3,(r6)         ;strip " ; "
+310$:
+        movzwl  (r6),r2
+        beql    399$
+        pushl   r6
+        pushaw  inchan(r11)[r10]
+        Calls   #2,Check_Do_Redirect
+        BLBC    R0,315$
+        tstw    (r7)
+        bneq    300$            ;do next command
+315$:   tstl    Arg2(ap)        ;input device
+        bneq    399$            ;okay skip
+320$:
+        movl    #0,(r7)
+        movaw   inchan(r11)[r10],-
+                4(r7)
+        pushl   r7
+        calls   #1,Complete
+399$:   movl    #SS$_Normal,r0  ;I think...
+        brw     101$
+
+        
+;+++
+; Pipe_It:
+;       Routine to create subprocesses to execute commands
+;       with output and maybe input to a mailbox
+; Input:
+;       Arg1(ap)        - Work Area
+;       Arg2(ap)        - Command to execute
+;       Arg3(ap)        - MBX for input to Arg2...
+; output:
+;       ????
+;---
+        .Entry  Pipe_It,-
+                ^M<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+        .If defined debug
+        pushaq  debug5
+        calls   #1,G^Lib$Put_Output
+        .endc
+        movl    Arg1(Ap),r11            ;Get address of working buffer
+        movl    (r11),r10               ;r10 is the index
+        incl    (r11)                   ;increment the count
+        movaq   -(Sp),r9                        ;Allocate descriptor
+        movaq   -(Sp),r8                        ;allocate longword for
+        movl    Arg3(Ap),r6
+        movl    #^a/    /,(r8)
+        movb    #^a/|/,1(r8)            ;space list_char space
+        movq    @Arg2(Ap),(r9)          ;get ready
+;;;     pushl   r9
+;;;     calls   #1,G^Lib$Put_output
+        MatchC  #3,(r8),-                       ;Check for
+                (r9),-                          ; Redirect Chars in
+                @4(r9)                          ; Input Buffer
+        tstl    r0
+        beql    20$                             ;Yes all Done
+        tstl    r6                              ;anything there?
+;;;     beql    10$                             ;nope - shouldn't be here
+        clrl    r5
+        brw     31$
+10$:    Movl    #SS$_Normal,r0          ;All Done nothing to do...
+11$:    RET
+20$:    movl    r2,r0
+        beql    10$
+        addl2   #3,r0
+        subw2   r0,(r9)                         ;get length of first command
+        movq    r2,(r8)                         ;Second command in R8 now
+
+        $CreMBX_S -
+                Chan=outchan(r11)[r10],-        ;
+                promsk=#^XFF0F          ;
+        blbc    r0,11$                  ;Return with Error
+        pushaw  outchan(r11)[r10]       ;Go Fire up the next command
+        pushl   r8                      ;
+        pushl   r11
+        Calls   #3,Pipe_It              ;
+        blbs    r0,30$
+25$:    pushr   #^M<r0,r1>
+        $Dassgn_S Chan=outchan(r11)[r10]
+        popr    #^M<r0,r1>
+        brb     11$                     ;return Error
+
+30$:    movaq   -(sp),r5
+        movl    #64,(r5)
+        movab   OutNam(r11),4(r5)       ;
+        pushl   r5
+        pushaw  OutChan(r11)[r10]
+        Calls   #2,GetName
+        blbc    r0,25$
+31$:
+        clrl    r7
+        tstl    r6
+        beql    40$
+35$:    movw    (r6),InChan(r11)[r10]   ;
+        movaq   -(sp),r7
+        movl    #64,(r7)
+        movab   InNam(r11),4(r7)        ;
+        pushl   r7
+        pushaw  InChan(r11)[r10]
+        Calls   #2,GetName
+40$:    movl    #10,r3
+;;;;    movzwl  outchan(r11)[r10],r1
+;;;;    PUSHL   R1                      ;Ast Param
+        movaq   PID(r11)[r10],r1
+        movaw   outchan(r11)[r10],4(r1) ;use high longword for channel
+        movl    r10,(r1)                ;save index here
+        pushl   r1
+        PUSHAB  complete                ;AST Adr
+70$:    pushab  Flags(r11)              ;EFN
+72$:    PUSHL   #0                      ;final status
+        pushl   #0                      ;unless of course we're first
+        PUSHL   #0                      ;Proces name
+        movl    #1,(r8)
+        pushl   r8                      ;NoWait
+        pushl   r5                      ;Output Device MBX
+        pushl   r7                      ;input
+        pushl   r9
+        calls   r3,G^Multi_CMDS
+80$:    blbc    r0,200$
+100$:
+        Decb    Flags(r11)              ;Decrement
+        Ret
+200$:
+        pushr   #^m<r0>                 ;save status
+        TSTW    OUTCHAN(R11)[r10]
+        BEQL    210$
+        $Dassgn_S -
+                Chan=OutChan(r11)[r10]
+210$:
+        TSTW    INCHAN(r11)[R10]
+        BEQL    220$
+        $Dassgn_S -
+                Chan=INChan(r11)[r10]
+220$:   popr    #^m<r0>                 ;restore status
+        brb     100$
+
+Complete:
+;+++
+; Subprocess completion routine.  We come here when we are finished
+; processing in a subprocess.  The input of the next process must
+; be terminated and then we send a "$Sto/i=0" to the next process.
+; Except for the last process (the first command) we must open the
+; mbx as a file and then close it to signal eof.  The next line will
+; be treated correctly...
+; Input:
+;       Arg1    - Quadword
+;               L0 is a copy of r10 (index count into block)
+;                  used as flag to determine if we should kill...
+;               L1 is address of channel to MBX.
+; Output:
+;       Channel is closed and the process down the line is stop/id=0.
+;
+; For Versions of VMS prior to 5.5 see changes to be made at
+;       label 410$.
+;---
+        .WORD   ^m<R2,r3,R4,r5,r6,r7>
+        .If defined debug
+        pushaq  debug6
+        calls   #1,G^Lib$Put_Output
+        .endc
+
+        movab   -FAB$K_BLN(sp),r7
+        MOVL    R7,SP                   ;ALLOCATE THE SPACE
+        MOVC5   #0,(SP),#0,#FAB$K_BLN,(SP) ;ZERO FAB AND RAB
+        ASSUME  FAB$B_BLN EQ FAB$B_BID+1
+        MOVW    #FAB$K_BLN@8!FAB$C_BID,- ;SET BLOCK LENGTH AND ID FIELDS
+                FAB$B_BID(R7)
+        BISB    #FAB$M_PUT,FAB$B_FAC(R7);GET ACCESS ONLY
+        MOVL    Arg1(Ap),r2
+        bneq    401$
+400$:   brw     420$
+401$:
+
+
+        Tstw    @4(r2)
+        beql    400$                    ;nothing to do...
+        movaq   -(sp),r6
+        moval   -(sp),r5
+        MOVAQ   -(SP),R4
+        MOVaq   -(Sp),R3
+        subl2   #64,sp
+        movl    sp,4(r4)
+        movl    #64,(r4)
+        pushl   r4
+        pushl   4(r2)
+        calls   #2,GetName
+;;;     pushl   r4
+;;;     calls   #1,G^Lib$Put_Output     ;tell us which channel
+        $Dassgn_S chan=@4(r2)           ;close the channel we're using
+        movq    #^A"$sto/i=0",(r3)
+        movb    (r4),FAB$B_FNS(r7)
+        movl    4(r4),FAB$L_FNA(r7)
+
+        movl    (r2),r6
+        beql    410$
+405$:
+;;;;    pushaq  debug
+;;;;    calls   #1,G^lib$put_Output
+        $open   (r7)
+        blbc    r0,420$                 ;device is gone all done...
+        $close  (r7)
+        blbc    r0,450$
+
+410$:
+;
+; comment out next line for versions of VMS prior to V5.5
+.IF DEFINED VMS55
+        pushl   #CMB$M_WriteOnly        ;going to open a channel for write
+.ENDC
+        pushl   #0                      ;no mbx
+        pushl   #0                      ;no acc mode
+        pushl   r5                      ;address of channel
+        pushl   r4                      ;device name
+;
+; Change next line to calls #4,G^Sys$Assign for VMS prior to V5.5
+.IF DEFINED VMS55
+        calls   #5,G^sys$Assign         ;assign the channel
+.IFF
+        calls   #4,G^sys$Assign         ;assign the channel
+.ENDC
+        $Qiow_S Chan=(r5),Func=#IO$_WriteVBlk,-
+                iosb=(R4),-
+                p1=(r3),p2=#8,p4=#^X01010000
+        $Dassgn_S chan=(r5)
+420$:
+        Ret
+450$:   $Exit_S R0
+
+GetName:
+;++
+; Routine to return name of a device  given an open channel
+; to the device
+; Input:
+;       arg1    - Address of open channel
+;       arg2    - Descriptor to return device name in.
+; Output:
+;       arg2    - descriptor of device name...
+;---
+        .word   ^M<r2,r3,r4,r5,r6,r7,r8>
+        subl2   #<2*3*4>,sp
+        movl    sp,r6
+        movl    r6,r2
+        movaq   -(sp),r5                ;iosb
+        movl    Arg1(Ap),r7
+        movl    Arg2(Ap),r8
+        movw    (r8),(r2)+              ;Output device buffer length
+        movw    #DVI$_devnam,(r2)+      ;Unit Number is all we need
+        movl    4(r8),(r2)+             ;Store here
+        clrq    (r2)+                   ;Zero the list and end it
+        $GetDVIW_S -                    ;Need to Get the name
+                Chan=(r7),-             ;for later use...
+                ItmLst=(r6),-
+                Iosb=(r5)               ;r2 has location of IOSB
+        blbc    r0,100$                 ;Report Errors...
+        movl    (r5),r0
+9$:     blbc    r0,100$                 ;Check 
+        movl    4(r8),r4
+        movzwl  (r8),r1
+
+10$:    decl    r1
+        beql    20$
+        cmpb    #32,(r4)[r1]
+        beql    10$
+20$:
+        movl    r1,(r8)                 ;length
+;;;     pushl   r8
+;;;     Calls   #1,G^Lib$Put_Output
+        movl    #SS$_Normal,r0
+100$:   Ret
+
+GetChan:
+        .word   ^M<r2,r3,r4,r5,r6,r7,r8>
+        subl2   #<2*3*4>,sp
+        movl    sp,r6
+        movl    r6,r2
+        movaq   -(sp),r5                ;iosb
+        movl    Arg1(Ap),r7
+        movl    Arg2(Ap),r8
+        movw    #4,(r2)+                ;Output device buffer length
+        movw    #DVI$_refcnt,(r2)+      ;Unit Number is all we need
+        movl    r8,(r2)+                ;Store here
+        clrq    (r2)+                   ;Zero the list and end it
+        $GetDVIW_S -                    ;Need to Get the name
+                Chan=(r7),-             ;for later use...
+                ItmLst=(r6),-
+                Iosb=(r5)               ;r2 has location of IOSB
+        blbc    r0,100$                 ;Report Errors...
+        movl    (r5),r0
+100$:   Ret
+
+
+
+Clean_Up:
+        .Word   ^m<r2>
+        Ret
+
+
+Pipe:
+        .word   0
+        subl2   #PLocal,sp
+        movl    sp,r10
+        movc5   #0,(r10),#0,-
+                #<Plocal-1>,(r10)               ;init area...
+        movl    #EFN_Last,Flags(r10)            ;Event Flags for use
+        subl2   #512,Sp
+        movl    sp,r5
+        movaq   -(Sp),r6
+        movzwl  #512,(r6)
+        movl    r5,4(r6)
+        movaq   -(sp),r7
+        movzwl  #c1_sz,(r7)
+        movab   c1,4(r7)
+        pushl   r6
+        pushl   r7
+        pushl   r6
+        Calls   #3,G^Lib$Get_Foreign
+        blbc    r0,10$
+;;      pushl   r6
+;;      Calls   #1,G^Lib$Put_Output
+        pushl   #0
+        PUSHl   r6
+        pushl   r10
+        calls   #3,Pipe_it
+        blbc    r0,10$
+        $WaitFR_S EFN=#EFN_Last
+10$:    Ret
+        .End    Pipe

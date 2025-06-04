@@ -1,0 +1,922 @@
+%title 'glob'
+module glob (
+	    ident = 'V1.08',
+    	    main=glob,
+	    addressing_mode (external=general)
+	    ) =
+begin
+ 
+!
+! ****************************************************************************
+! *									     *
+! *  Copyright (c) 1984, 1986						     *
+! *  by Digital Equipment Corporation, Maynard, Mass.			     *
+! * 									     *
+! *  This software is furnished under a license and may be used and  copied  *
+! *  inclusion of the above copyright notice.  This software or  any  other  *
+! *  copies  thereof may not be provided or otherwise made available to any  *
+! *  other person.  No title to and ownership of  the  software  is  hereby  *
+! *  transferred.							     *
+! * 									     * 
+! *  The information in this software is subject to change  without  notice  *
+! *  and  should  not  be  construed  as  a commitment by Digital Equipment  *
+! *  Corporation.							     *
+! * 									     *
+! *  Digital assumes no responsibility for the use or  reliability  of  its  *
+! *  software on equipment which is not supplied by Digital.		     *
+! *									     *
+! ****************************************************************************
+!
+
+!++
+!
+! Facility:	GLOB - global symbol extractor
+!
+! Abstract:	Forms a list of symbols to be made universal, or declared
+!		as external literals, or whatever.
+!
+!	UNIVERSAL SYMBOL LISTER:
+!
+!		When building a shareable library, it's often a problem
+!		to include UNIVERSAL=xxxx link options for all global
+!		symbols which should be made universal.  GLOB helps to
+!		solve that problem:
+!
+!	    1)	Perform an initial linking operation in order to get an 
+!    		.STB file with all global symbol definitions (UNIV=* is
+!		only legal by virtue of the /NOEXE)
+!
+!		e.g. $ LINK /SHARE/NOEXE/SYMBOLS=FOO  FOO,BAR,SYS$INPUT:/OPTIONS
+!		     UNIVERSAL=*
+!
+!	    2)	Then, run GLOB on the .STB file to produce a file containing
+!		all the UNIVERSAL options you need (and only those you need).
+!
+!		e.g. $ RUN GLOB
+!		     _Language:  UNIV
+!		     _Facility:  FOO$
+!		     _File:      FOO
+!
+!    	        The default input filetype is .STB; the output file has the
+!		same name as the input, but with filetype .OPT instead.
+!
+!	    3)  Finally, do the real link, including the UNIVERSAL options
+!		in the options input (note that if you have any other options
+!		such as CLUSTER they should probably precede the .OPT)
+!
+!		e.g. $ LINK /SHARE=FOOSHR  FOO,BAR,FOO.OPT/OPTIONS
+!
+!
+!	PARAMETER LISTER:
+!
+!		The main use for this mode is to prepare a list of
+!		condition codes to be declared as EXTERNAL LITERALs
+!		in a Bliss program, or in #DEFINEs in a C program,
+!		or whatever.
+!
+!		Supported languages are: Basic, Bliss, C, Cobol, DCL,
+!		Fortran, Pascal, PLI.
+!
+!	    1)  Compile the message source to get an object module which
+!		contains the condition code symbols.  It's irrelevant
+!		whether the .OBJ contains the message text (/FILE_NAME
+!		and /TEXT can be used any way you wish) but the condition
+!		values must be global symbols (don't use /NOSYMBOLS).
+!
+!		e.g. $ MESSAGE FOO/FILE_NAME=FOOMSG
+!
+!	    2)  Now run GLOB to extract the symbols definitions and produce
+!		a file containing definitions appropriate to your language.
+!
+!		e.g. $ RUN GLOB
+!		     _Language:  BLISS
+!		     _Facility:  FOO$
+!		     _File:	 FOO
+!
+!		The default filetypes depend on the language specified.
+!
+!	    3)  Finally, all you have to do is to use the require file in
+!		your program or library.
+!
+!		e.g. REQUIRE 'FOO'; if the language is Bliss.
+!
+!
+!	ROLL YOUR OWN MODE:
+!
+!		In case neither of the above modes is quite what you're
+!		looking for, and you don't really feel like hacking the
+!		sources of GLOB, then there's a mode of operation which
+!		simply extracts global symbols from a .OBJ or .STB file
+!		and writes them to a text file... you can then edit this
+!		file, or run it through a DCL procedure, or whatever.
+!
+!		e.g. $ RUN GLOB
+!		     _Language:  NULL
+!		     _Facility:  FOO$
+!		     _File:      FOO
+!
+!		The default input filetype is .OBJ; the output file will
+!		have type .TMP and with the same name as the input.
+!
+!
+! Environment:	VAX/VMS
+!		Can be run either with RUN or by means of the DCL
+!		foreign command interface.
+!
+! Author:	Dave Porter
+!		European Network Engineering
+!
+! Created:	27-Apr-1984
+!
+! Modified by:
+!
+! 1.01	01-May-1984  Dave Porter
+!	. Add a '$' to facility name if not specified
+!	. Don't pass entry point names to GOT_SYM - these should
+!	  be in tranfer vectors and hence universal anyway (ta, Dave
+!	  Garrod)
+!
+! 1.02	25-May-1984  Dave Porter
+!	Make it possible to produce external literal definitions as
+!	well. Add NULL mode while we're at it.
+!
+! 1.03	15-Jun-1984  Dave Porter
+!	Use .OPT instead of .UNV for output filetype for mode U.
+!
+! 1.04  02-Jul-1984  Dave Porter
+!	Error on closing output file was incorrectly signalled
+!	as glob$_closin !
+!
+! 1.05	04-Oct-1984  Dave Porter
+!	In 'U' and 'E' mode, only output absolute symbols. This
+!	is a hack to prevent names of 'internal global data'
+!	symbols from being passed to the outside world. It's not
+!	clear that this solution is generally the right thing to
+!	do, so I might have to rework this later.
+!
+! 1.06	17-Feb-1986  Dave Porter
+!	Add support for Basic, C, Cobol, DCL, Fortran, Pascal and
+!	PLI, so that Dave Garrod can use this program rather than
+!	his slow old .COM file.
+!
+! 1.07	3-Oct-1989  Dave Porter
+!	Add language 'vaxc' to generate 'globalvalue' definitions.
+!
+! 1.08	4-Oct-1989  Dave Porter
+!	Don't add a '$' to facility name if it ends with underscore;
+!	this is a hack to accommodate users who don't have dollar
+!	signs in symbols.
+!
+!--
+
+%sbttl 'well i do declare'
+
+!
+! Include files:
+!
+library 'sys$library:starlet';
+library 'sys$library:tpamac';
+
+!
+! External references:
+!
+external routine
+    str$append,
+    str$copy_r,
+    lib$tparse,
+    lib$get_foreign,
+    lib$matchc;
+
+!
+! Forward references:
+!
+forward routine
+    got_sym;
+
+!
+! Error codes (using the shareable messages)
+! - we have to swipe the CLI facility code (3) because use of shared 
+! messages requires a 'known' facility
+!
+$shr_msgdef (
+	    glob, 3,   local,
+	    (openin,   severe),
+	    (openout,  severe),
+	    (closein,  severe),
+	    (closeout, severe),
+	    (readerr,  severe),
+	    (writeerr, severe),
+	    (badlogic, severe)
+	    );
+
+!
+! Standard descriptor
+!
+structure
+    descrip [o, p, s, e; n=8] =
+	[n]
+	(descrip+o)<p, s, e>
+	;
+
+!
+! Preset for a null dynamic descriptor
+!
+macro
+    preset_dynamic (dummy) =
+	preset
+	    (
+	    [dsc$b_class]   = dsc$k_class_d,
+	    [dsc$b_dtype]   = dsc$k_dtype_t,
+	    [dsc$w_length]  = 0,
+	    [dsc$a_pointer] = 0
+	    )
+    % ;
+
+!
+! Preset for a static descriptor. 
+!
+macro
+    preset_static (string, length) =
+	preset
+	    (
+	    [dsc$b_class]   = dsc$k_class_s,
+	    [dsc$b_dtype]   = dsc$k_dtype_t,
+        %if %length eql 0
+        %then
+    	    [dsc$a_pointer] = 0,
+    	    [dsc$w_length]  = 0
+        %else
+	%if %length eql 1
+	%then
+    	    %if %isstring(string)
+    	    %then
+		[dsc$a_pointer] = uplit byte (string),
+		[dsc$w_length]  = %charcount (string)
+    	    %else
+		%error ('Argument to PRESET_STATIC must be string')
+    	    %fi
+	%else
+	%if %length eql 2
+	%then
+	    [dsc$a_pointer] = (string),
+	    [dsc$w_length]  = (length)
+	%else
+	    %error ('Too many arguments to PRESET_STATIC')
+	%fi
+        %fi
+	%fi
+    	    )
+    % ;
+
+
+%sbttl 'mainline code'
+global routine glob =
+
+!++
+! Functional description:
+!
+! Reads an .STB file and prepares a file containing
+! a list of likely-looking symbols, in either external 
+! literal or universal symbol format.
+!
+! Formal parameters:
+!
+! None (called as a foreign command)
+!
+! Routine value/completion code:
+!
+! Always exits with ss$_normal
+!
+! Signals:
+!
+! glob$_openin	 = error opening input file
+! glob$_openout	 = error opening output file
+! glob$_closein	 = error closing input file
+! glob$_closeout = error closing output file
+! glob$_readerr	 = file read error
+! glob$_writeerr = file write error
+! glob$_badlogic = we am broken
+!
+!--
+
+    begin
+
+    switches
+	structure (ref vector[,byte]);
+
+    compiletime 
+	num_modes = 0;
+
+    macro
+	$genmodes [] =
+	    literal $$$mode(%remaining);
+	    bind intyp  = plit($$$intyp(%remaining))  : vector;
+	    bind outtyp = plit($$$outtyp(%remaining)) : vector;
+	    bind protyp = plit($$$protyp(%remaining)) : vector;
+	% ,
+
+	$$$mode [modnam, in, out, proto] =
+	    %name(mode_, modnam) = %number(num_modes)
+	    %assign(num_modes, num_modes+1)
+	% ,
+
+	$$$intyp [modnam, in, out, proto] = 
+    	    uplit byte (%ascic %string('.', in))
+	% ,
+
+	$$$outtyp [modnam, in, out, proto] =
+    	    uplit byte (%ascic %string('.', out))
+	% ,
+
+	$$$protyp [modnam, in, out, proto] =
+	    %ascid %string(proto)
+	% ;
+
+    !
+    ! Define all supported modes of operation, the default filetypes
+    ! for each of these modes, and the FAO string used to format the
+    ! output in each case.
+    ! 
+    $genmodes(
+    	     null,	obj,  tmp,	'!AC !XL',
+    	     univ, 	stb,  opt, 	'UNIVERSAL=!AC',
+	     basic, 	obj,  bas,	'EXTERNAL LONG CONSTANT !AC',
+	     bliss,	obj,  req, 	'EXTERNAL LITERAL !AC;',
+	     b32,	obj,  r32, 	'EXTERNAL LITERAL !AC;',
+	     c,		obj,  h,   	'#define !AC 0x!XL',
+	     cobol,	obj,  lib, 	'    88 !AC VALUE IS EXTERNAL !-!AC.',
+	     dcl,	obj,  com, 	'$ !AC == %X!XL',
+	     fortran,	obj,  for,	'!_INTEGER*4 !AC!/!_PARAMETER (!-!AC = ''!XL''X)',
+	     pascal,	obj,  pas, 	'!_!AC = %X!XL;',
+	     pli,	obj,  pli,	'DECLARE (!AC) GLOBALREF VALUE FIXED BINARY STATIC;',
+	     vaxc,	obj,  h,	'globalvalue !AC;'
+	     );
+
+    !
+    ! Local data - referenced by TPARSE tables hence OWN 
+    !
+    own
+        mode    : initial(0),
+        prompt  : initial(0),
+	fac_dsc : descrip preset_dynamic(),
+	fil_dsc : descrip preset_dynamic(),
+	cmd_dsc : descrip preset_dynamic();
+
+    !
+    ! More local data
+    !
+    local
+        status,
+	tp_blk  : block[tpa$k_length0,byte] initial(tpa$k_count0,tpa$m_abbrev),
+
+	!
+	! File input buffer, RMS structures, and expanded filespec buffer
+	!
+	in_buf  : vector[obj$c_maxrecsiz,byte],
+	in_fab  : $fab_decl,
+	in_rab  : $rab_decl,
+	in_nam  : $nam_decl,
+	in_fil  : vector[256,byte],
+        in_dnm  : ref vector[,byte],
+
+	!
+	! RMS structures, and expanded filespec buffer
+	!
+	out_fab : $fab_decl,
+	out_rab : $rab_decl,
+	out_nam : $nam_decl,
+	out_fil : vector[256,byte],
+	out_dnm : ref vector[,byte],
+
+	!
+	! Descriptors for expanded filespecs, for use in error reports
+	!
+	in_fil_dsc  : descrip preset_static('?'),
+	out_fil_dsc : descrip preset_static('?'),
+
+	!
+	! Format of output
+	!
+	format : ref descrip;
+
+    !
+    ! Action routine to parse end of line - prompt for more input
+    ! (prompt string is given by the TPARSE 'parameter' cell)
+    !
+    routine prs_eos =
+	begin
+	builtin ap;
+	map ap : ref block[,byte];
+	local status;
+	status = lib$get_foreign(cmd_dsc, .ap[tpa$l_param], 0, prompt);
+	ap[tpa$l_stringptr] = .cmd_dsc[dsc$a_pointer];
+	ap[tpa$l_stringcnt] = .cmd_dsc[dsc$w_length];
+	.status
+	end;
+    
+    !
+    ! Action routine to parse a string - copy to descriptor
+    ! (destination string is given by the TPARSE 'parameter' cell)
+    !
+    routine prs_str =
+	begin
+	builtin ap;
+	map ap : ref block[,byte];
+	str$copy_r(.ap[tpa$l_param], ap[tpa$l_tokencnt], .ap[tpa$l_tokenptr])
+	end;
+
+    !
+    ! State tables to parse 'lang fac_name file_spec' with prompting
+    !
+    $init_state(tp_tbl, tp_key);
+    $state(st_mod,
+	(tpa$_eos,    st_mod,    prs_eos,,, %ascid'_Language: '),
+	('BASIC',     st_fac,	 ,mode_basic,  mode),
+	('BLISS',     st_fac,    ,mode_bliss,  mode),
+	('B32',       st_fac,    ,mode_b32,    mode),
+        ('C*',	      st_fac,    ,mode_c,      mode),
+	('COBOL',     st_fac,    ,mode_cobol,  mode),
+	('DCL',       st_fac,    ,mode_dcl,    mode),
+	('NULL',      st_fac,    ,mode_null,   mode),
+	('FORTRAN',   st_fac,    ,mode_fortran,mode),
+	('PASCAL',    st_fac,    ,mode_pascal, mode),
+	('PLI',	      st_fac,    ,mode_pli,    mode),
+	('UNIVERSAL', st_fac,    ,mode_univ,   mode),
+	('VAXC',      st_fac,	 ,mode_vaxc,   mode)
+	);
+    $state(st_fac,
+	(tpa$_eos,    st_fac,    prs_eos,,, %ascid'_Facility: '),
+        ('*',         st_fil),
+	(tpa$_symbol, st_fil,    prs_str,,, fac_dsc)
+	);
+    $state(st_fil,
+	(tpa$_eos,    st_fil,    prs_eos,,, %ascid'_File:     '),
+	((the_rest),  tpa$_exit, prs_str,,, fil_dsc)
+	);
+
+    !
+    ! Subexpression to parse rest of the line
+    !
+    $state(the_rest,
+    	(tpa$_eos,    tpa$_fail),
+        (tpa$_lambda)
+        );
+    $state(the_rest_1,
+	(tpa$_eos,    tpa$_exit),
+	(tpa$_any,    the_rest_1)
+	);
+
+
+    !
+    ! Get command line and parse it 
+    !
+    status = lib$tparse (tp_blk, tp_tbl, tp_key);
+    if not .status
+    then 
+    	if .status eql rms$_eof 
+	then 
+	    return ss$_normal 
+	else 
+	    signal_stop(.status);
+
+    !
+    ! Add a terminal '$' to the facility name
+    !
+    if .fac_dsc[dsc$w_length] neq 0
+    then
+	if .fac_dsc[dsc$a_pointer][.fac_dsc[dsc$w_length]-1] neq '$' and
+	   .fac_dsc[dsc$a_pointer][.fac_dsc[dsc$w_length]-1] neq '_'
+	then
+	    str$append(fac_dsc, %ascid '$');
+
+    !
+    ! Set up mode-dependent parameters
+    !
+    format  = .protyp[.mode];
+    in_dnm  = .intyp[.mode];
+    out_dnm = .outtyp[.mode];
+
+    !
+    ! Preset input and output file descriptors to file spec as read
+    !
+    in_fil_dsc[dsc$a_pointer] = out_fil_dsc[dsc$a_pointer] = .fil_dsc[dsc$a_pointer];
+    in_fil_dsc[dsc$w_length]  = out_fil_dsc[dsc$w_length]  = .fil_dsc[dsc$w_length];
+
+
+
+    !
+    ! Initialise for input file open
+    !
+    $fab_init(
+	fab=in_fab,
+	nam=in_nam,
+	fna=.fil_dsc[dsc$a_pointer],
+	fns=.fil_dsc[dsc$w_length],
+        dna=in_dnm[1],
+	dns=.in_dnm[0],
+	fac=get,
+	fop=sqo
+	);
+    $nam_init(
+	nam=in_nam,
+	esa=in_fil,
+	ess=255,
+	rsa=in_fil,
+	rss=255
+	);
+    $rab_init(
+	fab=in_fab,
+	rab=in_rab,
+        ubf=in_buf,
+        usz=obj$c_maxrecsiz
+	);
+
+    !
+    ! Open input file, saving pointer to 'best' spec for future messages
+    !
+    status = $open(fab=in_fab);
+    if .in_nam[nam$b_rsl] neq 0
+    then
+        begin
+	in_fil_dsc[dsc$a_pointer] = .in_nam[nam$l_rsa];
+	in_fil_dsc[dsc$w_length]  = .in_nam[nam$b_rsl];
+	end
+    else
+    if .in_nam[nam$b_esl] neq 0
+    then
+        begin
+	in_fil_dsc[dsc$a_pointer] = .in_nam[nam$l_esa];
+	in_fil_dsc[dsc$w_length]  = .in_nam[nam$b_esl];
+	end;
+    if not .status
+    then
+	signal_stop(glob$_openin, 1, in_fil_dsc, .in_fab[fab$l_sts], .in_fab[fab$l_stv]);
+
+    !
+    ! Connect input record stream
+    !
+    status = $connect(rab=in_rab);
+    if not .status 
+    then
+	signal_stop(glob$_openin, 1, in_fil_dsc, .in_fab[rab$l_sts], .in_fab[rab$l_stv]);
+
+    !
+    ! Now initialise output data structures... same as input filespec
+    ! but with different file type (depends on mode)
+    !
+    $fab_init(
+	fab=out_fab,
+	nam=out_nam,
+	dna=out_dnm[1],
+	dns=.out_dnm[0],
+	fac=put,
+	fop=(ofp,sqo,tef),
+    	rfm=var,
+    	rat=cr
+	);
+    $nam_init(
+	nam=out_nam,
+	esa=out_fil,
+	ess=255,
+	rsa=out_fil,
+	rss=255,
+        rlf=in_nam
+	);
+    $rab_init(
+	fab=out_fab,
+	rab=out_rab
+	);
+
+    !
+    ! Open output file
+    !
+    status = $create(fab=out_fab);
+    if .out_nam[nam$b_rsl] neq 0
+    then
+        begin
+	out_fil_dsc[dsc$a_pointer] = .out_nam[nam$l_rsa];
+	out_fil_dsc[dsc$w_length]  = .out_nam[nam$b_rsl];
+	end
+    else
+    if .out_nam[nam$b_esl] neq 0
+    then
+        begin
+	out_fil_dsc[dsc$a_pointer] = .out_nam[nam$l_esa];
+	out_fil_dsc[dsc$w_length]  = .out_nam[nam$b_esl];
+	end;
+    if not .status 
+    then
+	signal_stop(glob$_openout, 1, out_fil_dsc, .out_fab[fab$l_sts], .out_fab[fab$l_stv]);
+
+    !
+    ! Connect output record stream
+    !
+    status = $connect(rab=out_rab);
+    if not .status 
+    then
+	signal_stop(glob$_openout, 1, out_fil_dsc, .out_fab[rab$l_sts], .out_fab[rab$l_stv]);
+
+
+
+    !
+    ! Loop reading records from the file until there are no more to read
+    !
+    while status = $get(rab=in_rab) do
+	begin
+	local
+	    ptr    : ref block[,byte],
+	    endptr : ref block[,byte];
+
+	!
+	! Point to start and end of record
+	!
+        ptr    = .in_rab[rab$l_rbf];
+        endptr = .ptr + .in_rab[rab$w_rsz];
+
+	!
+	! If this record is a GSD record...
+	!
+	if .ptr lssu .endptr and .ptr[obj$b_rectyp] eql obj$c_gsd
+	then
+	    begin
+	    ptr = .ptr + 1;
+
+	    !
+	    ! Process all sub-records, depending on the subtype.
+	    ! (We have to be able to understand them all, even if not
+	    !  symbol definitions, in order to be able to find the 
+	    !  following sub-records)
+	    !
+	    while .ptr lssu .endptr do
+		case .ptr[0,0,8,0] from 0 to gsd$c_maxrectyp of
+		    set
+
+		    [obj$c_gsd_psc]:
+		    	! 
+		    	! Psect definition
+		    	!
+		    	ptr = ptr[gps$t_name] + .ptr[gps$b_namlng];
+
+		    [obj$c_gsd_spsc]:
+		    	! 
+		    	! Psect from shareable library
+		    	!
+		    	ptr = ptr[sgps$t_name] + .ptr[sgps$b_namlng];
+
+		    [obj$c_gsd_sym]:
+		        !
+		    	! Symbol definition or reference
+		        !
+			if .ptr[gsy$v_def]
+			then
+			    begin
+    			    if not .ptr[gsy$v_rel]
+    			    then
+			        got_sym(.format, out_rab, out_fil_dsc, fac_dsc,
+    					 ptr[sdf$b_namlng], .ptr[sdf$l_value]);
+			    ptr = ptr[sdf$t_name] + .ptr[sdf$b_namlng];
+			    end
+			else
+			    ptr = ptr[srf$t_name] + .ptr[srf$b_namlng];
+
+		    [obj$c_gsd_symw]:
+		        !
+		    	! Symbol definition - word psect
+		        !
+			begin
+			if .ptr[gsy$v_def] 
+    		        then 
+    			    if not .ptr[gsy$v_rel]
+    			    then
+			        got_sym(.format, out_rab, out_fil_dsc, fac_dsc,
+    					 ptr[sdf$b_namlng], .ptr[sdf$l_value]);
+			ptr = ptr[sdfw$t_name] + .ptr[sdfw$b_namlng];
+			end;
+
+		     [obj$c_gsd_lsy]:
+			!
+			! Local symbol definition/reference
+			!
+			if .ptr[gsy$v_def]
+			then
+			    ptr = ptr[lsdf$t_name] + .ptr[lsdf$b_namlng]
+			else
+			    ptr = ptr[lsrf$t_name] + .ptr[lsrf$b_namlng];
+
+		    [obj$c_gsd_epm]:
+			!
+			! Entry point mask
+			!
+			ptr = ptr[epm$t_name] + .ptr[epm$b_namlng];
+
+		    [obj$c_gsd_epmw]:
+			!
+			! Entry point mask - word psect
+			!
+			ptr = ptr[epmw$t_name] + .ptr[epmw$b_namlng];
+
+		    [obj$c_gsd_lepm]:
+			!
+			! Local entry point mask
+			!
+			ptr = ptr[lepm$t_name] + .ptr[lepm$b_namlng];
+
+		    [obj$c_gsd_pro]:
+			!
+			! Procedure with formal argument definitions
+			!
+    			begin
+			local arg;
+			ptr = ptr[pro$t_name] + .ptr[pro$b_namlng];
+			arg = .ptr[fml$b_maxargs];
+			ptr = .ptr + 2;
+			incr a from 1 to .arg do
+			    ptr = ptr[arg$b_bytecnt] + 1 + .ptr[arg$b_bytecnt];
+			end;
+ 
+    		    [obj$c_gsd_prow]:
+			!
+			! Procedure with formal argument defs - word psect
+			!
+    			begin
+			local arg;
+			ptr = ptr[prow$t_name] + .ptr[prow$b_namlng];
+			arg = .ptr[fml$b_maxargs];
+			ptr = .ptr + 2;
+			incr a from 1 to .arg do
+			    ptr = ptr[arg$b_bytecnt] + 1 + .ptr[arg$b_bytecnt];
+			end;
+
+    		    [obj$c_gsd_lpro]:
+    			!
+			! Local procedure with formal arg definitions
+			!
+    			begin
+			local arg;
+			ptr = ptr[lpro$t_name] + .ptr[lpro$b_namlng];
+			arg = .ptr[fml$b_maxargs];
+			ptr = .ptr + 2;
+			incr a from 1 to .arg do
+			    ptr = ptr[arg$b_bytecnt] + 1 + .ptr[arg$b_bytecnt];
+			end;
+
+		    [obj$c_gsd_idc]:
+			!
+			! Identity check 
+			!
+			begin
+			ptr = ptr[idc$t_name] + .ptr[idc$b_namlng];
+			ptr = ptr[1,0,8,0] + .ptr[0,0,8,0];
+			ptr = ptr[1,0,8,0] + .ptr[0,0,8,0];
+			end;
+				    
+		     [obj$c_gsd_env]:
+			!
+			! Environment definition/reference
+			!
+			ptr = ptr[env$t_name] + .ptr[env$b_namlng];
+
+		    [inrange, outrange]:
+			!
+			! Should never get here...
+			!
+			signal(glob$_badlogic, 0);
+
+		    tes;
+
+    	    !
+	    ! End of processing a GSD record
+	    !
+	    end;
+
+	!
+	! End of loop getting records from input file
+	!
+	end;
+
+    !
+    ! Check that it was EOF and not an error
+    !
+    if .status neq rms$_eof
+    then
+	signal_stop(glob$_readerr, 1, in_fil_dsc, .in_rab[rab$l_sts], .in_rab[rab$l_stv]);
+
+
+
+    !
+    ! Close down files
+    !
+    status = $close(fab=in_fab);
+    if not .status 
+    then
+	signal_stop(glob$_closein, 1, in_fil_dsc, .in_fab[fab$l_sts], .in_fab[fab$l_stv]);
+    status = $close(fab=out_fab);
+    if not .status 
+    then
+	signal_stop(glob$_closeout, 1, out_fil_dsc, .out_fab[fab$l_sts], .out_fab[fab$l_stv]);
+
+    !
+    ! All done
+    !
+    ss$_normal
+
+    end;
+
+%sbttl 'process one symbol'
+routine got_sym (
+		format      : ref descrip,
+    		out_rab     : ref $rab_decl,
+    		out_fil_dsc : ref descrip,
+    		fac_dsc     : ref descrip,
+    		symbol      : ref vector[,byte],
+    		value	    : long
+    		) =
+
+!++
+! Functional description:
+!
+! Processes one symbol definition.
+!
+! If the symbol name starts with 'fac$' but isn't an internal global
+! of the form 'fac$$' then it will be written to the output file
+! in a universal option
+!
+! Formal parameters:
+!
+! format.rt.dx       = FAO string to compose output
+! out_rab.mr.r       = RAB for open output file
+! out_fil_dsc.rt.dx1 = filespec for output file (for error messages)
+! fac_dsc.rt.dx1     = facility name with appended $
+! symbol.rt.r        = ascic string for symbol name
+! value.rl.v	     = symbol value
+!
+! Routine value / completion codes:
+!
+! As returned from the file output (or ss$_normal if no I/O)
+!
+! Signals:
+! 
+! glob$_writeerr = file write error
+!
+!--
+
+    begin
+ 
+    local
+	status : initial (ss$_normal),
+    	op_buf : vector[80,byte] volatile,
+        op_dsc : descrip preset_static (op_buf,80),
+	ptr    : initial(op_buf),
+	len    : initial(0);
+
+    !
+    ! If this symbol is strictly longer than 'fac$'
+    !  and it starts with 'fac$'
+    !
+    if .symbol[0] gtr .fac_dsc[dsc$w_length]
+    then
+	if begin
+    	   local tmp_dsc : descrip preset_static (symbol[1],.symbol[0]);
+	   lib$matchc(.fac_dsc, tmp_dsc) eql 1
+	   end
+	then
+	    begin
+
+	    !
+	    ! format output data
+	    !
+	    status = $faol (
+			    outbuf=op_dsc, outlen=len,
+			    ctrstr=.format, prmlst=symbol
+			   );
+	    if not .status then signal_stop (glob$_badlogic, 0, .status);
+
+	    !
+            ! output a line at a time (splitting around cr/lfs)
+            !
+	    while .len gtr 0 do
+		begin
+		local eol;
+		eol = ch$find_sub(.len, .ptr, 2, uplit byte(%x'0d',%x'0a'));
+		if .eol eql 0 then eol = .ptr + .len;
+		out_rab[rab$w_rsz] = .eol - .ptr;
+		out_rab[rab$l_rbf] = .ptr;
+		len = .len + .ptr - (.eol + 2);
+		ptr = .eol + 2;
+	    	status = $put(rab=.out_rab);
+		if not .status
+		then
+		    signal_stop(glob$_writeerr, 1, .out_fil_dsc, .out_rab[rab$l_sts], .out_rab[rab$l_stv]);
+		end;
+
+	    !
+	    ! End of symbol output
+	    ! 
+	    end;
+
+    .status
+
+    end;
+
+end
+eludom

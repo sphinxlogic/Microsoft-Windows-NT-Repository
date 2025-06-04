@@ -1,0 +1,1091 @@
+module ppl$choose (ident='V62-002', addressing_mode (external=general)) =
+begin
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1986 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+!
+
+!++
+!
+! FACILITY:	PPL Facility of the VAX RTL (Parallel Processing Library)
+!
+! ABSTRACT:
+!
+!	This module contains code to choose a common set of addresses amoung
+!	two or more distinct processes.  It contains no user-visible services.
+!
+! ENVIRONMENT:	VAX/VMS user mode
+!
+! AUTHOR: Peter D Gilbert, CREATION DATE:  7-OCT-1986
+!
+! MODIFIED BY:
+!
+!	X01-000		Original
+!
+!	X01-001		Set ident to 'X01-000'.			CMF 26-Jan-1987
+!
+!	X01-002		Correct ident to match cms res number.	CMF 26-JAN-1987
+!
+!	X01-003		Change signal PPL$_INSVIRMEM to 	CMF 26-JAN-1987
+!			return the same.
+!
+!			Change signal syserror for a call to
+!			LIB$GET_VMS to return PPL$_INSVIRMEM.
+!
+!			Chanet the signal PPL$_INSVIRMEM for a call
+!			to LIB$FREE_VM to signal syserror.  We should
+!			never get that error!
+!
+!	X01-004		Make changes suggested by Peter Gilbert	CMF  29-JAN-1987
+!			to handle voting correctly is a process
+!			goes away before its votes are counted.
+!
+!			added comments.
+!
+!			Delete all occurences of !!!.
+!
+!			To comment all occurences of %variant.
+!
+!			Uncomment some %varriant code that had
+!			been truned off during debugging.
+!
+!	X01-005		The CH$MOVE in PPL$$RESERVE_ADDRESSES is CMF 07-FEB-1987
+!			mis-initializing the proto SECT BLOCK ( e.g., the
+!			SECT_V_FINAL flag is being set ).  This problem
+!			was corrected by Peter D Gilbert on FEB 5, 1987.
+!
+!	X01-006		To correct the placement of proto	CMF 11-FEB-1987
+!			flag clearing code.
+!
+!	X01-007		Added an additional test of a flag 	CMF 12-FEB-1987
+!			zsect[sect_v_we_choose] when looking
+!			at traversing a section.
+!			Correction provided by Peter D Gilbert.
+!
+!	X01-008		Handle bad status from other ppl rtns.	DLR 31-JUL-1987
+!
+!	V051-001	- Removed PPLSECT_V_DEBUG flag		WWS 09-Sep-1988
+!			- Reformatted debuggin messages
+!			- Replaced local PPLSECT by global PPL$$GL_PPLSECT
+!			- Changed CTX_A_MY_PROC to CTX_L_MY_PROC
+!			- Removed Sect numbering
+!			- Changed calls to PPL$$TELL to use
+!			    DO_RESERVED_ADDRESSES flag
+!
+!	V053-002	- Changed calls to DEBUG_MSG_ macro 	WWS 09-May-1989
+!			    to pass a string literal instead
+!			    of an %ascid
+!
+!	V053-003	- Implemented new memory arbitartion	WWS 08-Jun-1989
+!			    algorithm, replacing routines
+!			    ppl$$reserve_addresses & ppl$choose_addresses
+!
+!	V053-004	- Added PPL$$Reserve_Shared_Memory and	WWS 14-Jun-1989
+!			    PPL$$Reserve_Section
+!			- Removed obsoleted code
+!
+!	V053-005	- Fixed deadlock bug, not releasing 	WWS 24-Jul-1989
+!			    top-lock on error.
+!
+!	V053-006	- Added critical_regions to		PJC  7-Aug-1989
+!			    ppl$choose_address around mutexs.
+!
+!	V053-007	- Added a check inside of ppl$$reserve_ PJC 13-Sep-1989
+!			    section on csect[sect_l_we_chose].  
+!			    Allows memory to be placed where user
+!			    specifies irregardless of risk.
+!	
+!	V053-008	- Rearranged AST handling within	PJC 19-Sep-1989 
+!			    ppl$$reserve_addresses
+!
+!	V053-009	- Changed all definitions of P0_ADDR	PJC 27-Oct-1989
+!			    to be volatile
+!
+!	V053-010	- Added some interlock sets		PJC 13-Jul-1990
+!
+!	V054-001	- Fix CLD CXO07052/AST Window in	PJC 28-Jun-1991
+!			    relation to grabbing TOP lock
+!
+!	V057-001	- EVMS/Alpha port: perform machine	PJC 12-Nov-1991
+!			    conditional page rounding
+!
+!	V057-002	- PPL$$FIND_SECT now makes use of	PJC 18-Feb-1991
+!			    free sect blocks.
+!
+!	V057-003	- PPL$$RESERVE_SECTION no longer	PJC 03-Mar-1993
+!			    signals badlogic when it finds
+!			    a section that is not final.
+!			- PPL$$CHOOSE_ADDRESSES now copies 
+!			    csect fields to lsect on a
+!			    path where we don't create csect.
+!
+!	V057-004	- Add a lib$get_ef and lib$free_ef to	PJC 06-Aug-1993
+!			    obtain event flags for certain calls
+!	
+!	V057-005	- Convert to use global event flag.	PJC 30-Aug-1993
+!
+!	V062-001	- Rework setting quorum on memory	WWS 15-Aug-1994
+!			  the arbitration barrier so that it
+!			  reflects the number of processes 
+!			  which were actually notified.
+!			- Add synchronization to detect (and
+!			  fail) deadlocks in ASTs attempting
+!			  to start concurrent memory arbitrations.
+!	V062-002	- Re-rework setting the quorum on the	WWS 31-Aug-1994
+!			  arbitration barrier, so it doesn't
+!			  hold the spinlock so long!
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+library	'sys$library:starlet';
+library	'sys$library:xport';
+undeclare %quote $descriptor;
+library	'obj$:ppllib';
+require 'rtlin:rtlpsect';
+
+!
+! FORWARD ROUTINE
+!
+forward routine
+	ppl$$reserve_addresses	:   novalue,
+	ppl$$choose_addresses,
+	ppl$$reserve_section,
+	ppl$$reserve_shared_memory,
+	ppl$$cleanup_memory	:   novalue;
+
+
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! OWN STORAGE:
+!
+
+!
+! PSECT DECLARATION:
+!
+declare_psects (ppl);
+
+!
+! EXTERNAL REFERENCES:
+!
+external routine
+	ppl$$hiber:	novalue,
+	ppl$$gl_system,
+	ppl$$tell,
+	ppl$$init_callback,
+	lib$ast_in_prog,
+	lib$get_vm,
+	lib$get_vm_page,
+	lib$free_vm,
+	lib$free_vm_page;
+
+external
+	ppl$$gl_pplsect	: ref pplsect_block,
+	ppl$$gl_context	: ref ctx_block;	! Our context
+
+
+
+
+
+%sbttl 'PPL$$Find_Sect'
+! The following literals are specified as the "common" param - arg 3 -
+! to ppl$$find_sect.
+
+global literal
+    alloc_local	    = 0,    !allocate with lib$get_vm
+    alloc_common    = 1,    !allocate in pplsect_block
+    dont_alloc	    = 2;    !don't do it
+
+
+global routine ppl$$find_sect (
+	queue_head:	ref vector[2],
+	gsdnam:		ref $bblock [dsc$c_s_bln],
+	common,		! Flags: 0 = local, 1 = common, 2 = don't allocate
+	proto:		ref sect_block
+	) =
+begin
+
+! This routine searches for a sect_block to match the input proto block.
+! If one is not found and allocation is not requested, 0 is returned.
+! If one is not found, but allocation of a local or common sect_block
+! was requested, one is allocated if possible (memory exists).
+! PPL$_INSVIRMEM can result.
+! If all goes well, the return value is the address of the sect_block.
+!
+! A common sect_block is allocated from pplsect space.  A local sect_block
+! is allocated by lib$get_vm.
+
+!ASSUMPTIONS :
+!   If creation of a sect_block is requested, the pplsect exists.
+
+
+builtin
+	nullparameter;
+
+external routine
+	ppl$$allocate;
+
+local
+	start:	ref sect_block,
+	sect:	ref sect_block,
+	temp:	ref sect_block,
+	created: ref sect_block,
+	status;
+
+
+    !+
+    ! Find or create the section description.
+    !-
+
+    created = 0;
+    while
+	(
+	start = queue_head[0] - %fieldexpand_(sect_q_sects, 0);
+	sect = first_sr_(.start, sect_l_sects_f);
+	while true do
+	    (
+	    if sect[base_] eql start[base_] then
+		EXITLOOP TRUE	!continue in outer loop to alloc a sect_blk
+	    elif .sect[sect_w_namelen] eql .gsdnam[dsc$w_length] and
+		    ch$eql (.sect[sect_w_namelen], sect[sect_a_name],
+			    .sect[sect_w_namelen], .gsdnam[dsc$a_pointer]) then
+		EXITLOOP FALSE;	    !leave outer loop too - it's found
+	    sect = next_sr_(.sect, sect_l_sects_f);
+	    )	!inner loop - looking for sect_block
+	)   !end of condition test for outer loop
+    do
+	begin
+
+	!+
+	! We couldn't find it, so create it.
+	!-
+	if .common<1,1,0> then	!user says don't create it
+	    return 0;
+
+	! Search the sect list for a free block.
+	start = queue_head[0] - %fieldexpand_(sect_q_sects, 0);
+        temp = first_sr_(.start, sect_l_sects_f);
+        while ((.created eql 0) and (temp[base_] neq start[base_])) do
+	    begin
+	    if .temp[sect_w_namelen] eql ppl$k_free_sect then
+		begin
+		lock_bit_(temp[sect_v_lock]);
+		if .temp[sect_w_namelen] eql ppl$k_free_sect then
+		    begin
+		    temp[sect_w_namelen] = .gsdnam[dsc$w_length];
+		    ch$move (.gsdnam[dsc$w_length], .gsdnam[dsc$a_pointer],
+			temp[sect_a_name]);
+		    created = .temp;
+		    end;
+		end;
+	    unlock_bit_(temp[sect_v_lock]);
+	    temp = next_sr_(.temp, sect_l_sects_f);
+	    end;
+
+	if (.created eql 0) then
+	    begin
+	    if not .common then     !create a local sect_block
+		begin
+		status = lib$get_vm (%ref(sect_s_bln+ppl$k_namelen), created);
+		if not .status then
+		    return ppl$_insvirmem;
+		end
+	    else	!create a common sect_block from space in the pplsect
+		begin
+		created = ppl$$allocate (sect_s_bln+ppl$k_namelen);
+		if .created leq 0 then
+		    return ppl$_insvirmem; 
+		created = .created + .ppl$$gl_pplsect;	! Virt address
+		end;
+	    end;
+
+	sect = .created;
+
+	if not nullparameter (proto) then
+	    ch$move (sect_s_bln, proto[base_], sect[base_]);
+
+	debug_msg_(2, 'Index: !UL, (ppl$$find_sect) gsdnam: (!UL) "!AS"',
+			.ppl$$gl_context[ctx_l_my_index],
+			sect_s_bln+ppl$k_namelen, gsdnam[base_]);
+
+	!init the sect, and queue it up
+	sect[sect_l_type] = ppl$k_global_section;
+	sect[sect_l_status] = ss$_normal;
+	sect[sect_w_namelen] = .gsdnam[dsc$w_length];
+	ch$move (.gsdnam[dsc$w_length], .gsdnam[dsc$a_pointer],
+		    sect[sect_a_name]);
+	sect[sect_v_perm] = false;
+	sect[sect_l_count] = 0;
+	sect[sect_v_mapped] = 0;
+	while insqti (sect[sect_q_sects], queue_head[0]) do 0;
+
+	end;	!outer loop
+
+
+    !+
+    ! Well, we found it (finally).
+    !-
+    if created[base_] neq 0 and created[base_] neq sect[base_] 
+    then
+	begin
+	lock_bit_(created[sect_v_lock]);
+	created[sect_w_namelen] = ppl$k_free_sect;
+	unlock_bit_(created[sect_v_lock]);
+	end;
+
+    return sect[base_];
+
+end;			! End of Routine PPL$$FIND_SECT
+
+
+
+%sbttl 'PPL$$Choose_Addresses'
+global routine ppl$$choose_addresses 
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   This routine initiates the arbitration process which determines the base
+!   address of a section of shared memory so that the section is mapped to the
+!   same address in all participant's address spaces.
+!
+!   Called by PPL$Create_Shared_Memory and Gen_Routines (for VM zone callback
+!   routines)
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    csect:	ref sect_block,	    ! pointer to common section description
+    lsect:	ref sect_block	    ! pointer to local section description
+    ) =
+! 
+! IMPLICIT INPUTS:
+! 
+!   None
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   None
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_NORMAL
+!   
+!   Any status returned by $ENQ.
+!
+!   Any error returned from PPL$$Reserve_Addresses in a SECT_BLOCK
+! 
+! SIDE EFFECTS:
+! 
+!   The memory arbitration barrier is initialized.
+!--
+    begin
+    local
+	ast_status  : volatile unsigned long,	! used for critical region
+	msg_cnt	    : unsigned long,
+	status	    : unsigned long;
+
+    bind
+	arb_barrier =	.ppl$$gl_pplsect[pplsect_l_arb_barr] +
+			    ppl$$gl_pplsect[base_]  :	csb_block;
+
+
+    ! Sanity check
+    if .ppl$$gl_pplsect eql 0 or .ppl$$gl_context eql 0 then signal(ppl$_badlogic);
+
+    !+
+    ! Set the arbitration-in-progress bit to indicate that we are starting an
+    ! arbitration.  If it was already set and we are running in an AST, then
+    ! that arbitration cannot complete while we are running this AST (and we 
+    ! certainly aren't going to be able to complete the one we're starting) so 
+    ! return an error.
+    !-
+    if testbitssi(ppl$$gl_pplsect[pplsect_v_arb_in_prog]) then
+	if lib$ast_in_prog() then
+	    return ppl$_insvirmem;
+
+    !+
+    ! Seize the top lock to insure that no new processes join while the memory
+    ! arbitration is going on.
+    !
+    ! Loop; enter critical region, try to get the top lock, if you do not get
+    ! it exit critical region (to give ASTs a chance to come in) and try again,
+    ! when you do get the top lock exit loop continuing inside critical region.
+    !-
+
+    while true do
+	begin
+	enter_critical_region_;  ! disable asts
+
+	status = $enqw (                    ! Wait if necessary
+	    efn=    .ppl$$gl_context[ctx_l_ef],
+	    lkmode= lck$k_pwmode,           ! Write, allowing readers
+	    lksb=   top_lksb[base_],
+	    flags=  lck$m_valblk or         ! We want a value block
+		    lck$m_convert or        ! Just converting
+		    lck$m_noqueue or	    ! We want it NOW
+		    .ppl$$gl_system,        ! Possibly a system lock
+	    resnam= 0,
+	    parid=  0,
+	    astadr= 0,
+	    astprm= 0,
+	    blkast= 0,
+	    acmode= psl$c_user);
+
+	if .status nequ ss$_notqueued then exitloop;
+
+	leave_critical_region_;     ! Reenable ASTs to let any pending ones in
+	end;
+
+    if .status then status = .top_lksb[lksb_w_status];
+    if not .status then
+	begin
+	leave_critical_region_;     ! Enable ASTs
+	return .status;
+	end;
+
+    !+
+    ! Re-set the arbitration-in-progress bit, in case we had to wait for
+    ! another arbitration to complete (when that arbitration completed, the
+    ! initiating process would have cleared the flag).
+    !-
+    testbitssi(ppl$$gl_pplsect[pplsect_v_arb_in_prog]);
+
+    !+
+    ! Make sure that some other process did not perform the arbitration for
+    ! THIS section already (eg, while we we're waiting for the Top-Lock).
+    !-
+    if .csect[sect_l_start] eql 0 then 
+	begin
+
+	! Set the quorum on the memory arbitration barrier
+	lock_bit_(arb_barrier[csb_v_lock]);	! Seize barrier mutex
+	arb_barrier[csb_w_csmax] = .ppl$$gl_pplsect[pplsect_w_curr_procs];
+	arb_barrier[csb_w_csval] = .ppl$$gl_pplsect[pplsect_w_curr_procs];
+	unlock_bit_(arb_barrier[csb_v_lock]);! Visibility operation
+
+	!+
+	! Send a message to each process in the application (except ourself) to
+	! perform the arbitration; count the number of processes participating
+	! in the arbitration and modify the barrier if necessary.
+	!-
+
+	msg_cnt = 1;		    ! Count ourself
+	incru pindex from 0 to .ppl$$gl_pplsect[pplsect_w_procs]-1 do
+	    begin
+	    if alive_(pindex) and .pindex neq .ppl$$gl_context[ctx_l_my_index] then
+		begin
+		status = ppl$$tell (.pindex,
+				    do_reserve_addresses,
+				    csect[base_] - ppl$$gl_pplsect[base_]);
+		if not .status then return signal(ppl$_badlogic);	! I don't know how to recover... 
+		incr_ (msg_cnt);
+		end;
+	    end;
+
+	if .msg_cnt neq .arb_barrier[csb_w_csmax] then
+	    begin
+	    lock_bit_(arb_barrier[csb_v_lock]);	! Maintain exclusive access.
+	    arb_barrier[csb_w_csval] = .msg_cnt + .arb_barrier[csb_w_csval] -
+		.arb_barrier[csb_w_csmax];
+	    arb_barrier[csb_w_csmax] = .msg_cnt;
+	    unlock_bit_(arb_barrier[csb_v_lock]);! Visibility operation
+	    end;
+
+	! Perform the arbitration ourself
+	ppl$$reserve_addresses(csect[base_]);
+
+	! This lock_bit_ serves as a delay so that we don't release the top-lock
+	! until all the processes have been awakened.  The process doing the waking
+	! is holding this lock, so when it is released, we know we can release the
+	! top-lock
+	lock_bit_(arb_barrier[csb_v_lock]);	! Seize barrier mutex
+	if not queue_empty_(arb_barrier[csb_l_queue_f]) then 
+	    return signal(ppl$_badlogic);	! Sanity check
+	unlock_bit_(arb_barrier[csb_v_lock]);
+
+    end;
+
+    ! Copy result from common sect to local sect
+    lsect[sect_l_start] = .csect[sect_l_start];
+    lsect[sect_l_pages] = .csect[sect_l_pages];
+    lsect[sect_v_final] = .csect[sect_v_final];
+
+    ! The arbitration is over; release the synchronization.
+    testbitcci(ppl$$gl_pplsect[pplsect_v_arb_in_prog]);
+    release_top_lock_(status);
+    leave_critical_region_;	! enable asts
+    if not .status then return .status;
+
+    if not .lsect[sect_l_status] then return .lsect[sect_l_status];
+
+    if not .csect[sect_l_status] then return .csect[sect_l_status];
+
+    ppl$_normal
+
+    end;
+
+
+
+routine reast (
+	sigvec:	ref $bblock,	! Signal vector
+	mchvec:	ref $bblock,	! Mechanism vector
+	enavec:	ref vector	! Enable vector
+	) =
+begin
+    assert_(ss$_wasset neq 0)
+    if .sigvec[chf$l_sig_name] eql ss$_unwind and ..enavec[1] eql ss$_wasset
+    then
+	$setast (enbflg=true);
+    return ss$_resignal;
+
+end;			! End of Routine REAST
+
+
+
+%sbttl 'PPL$$Reserve_Addresses'
+global routine ppl$$reserve_addresses
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   This routine (named for historical reasons) performs the arbitration process
+!   to determine the location of a shared section of memory and possibly maps
+!   the global section.
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    csect   :   ref sect_block	    ! Section description, in common memory
+    )
+! 
+! IMPLICIT INPUTS:
+! 
+!   The largest P0 address in this process, returned by $GETJPI
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   The csect and lsect blocks for the section
+! 
+! COMPLETION CODES:
+! 
+    : NOVALUE =
+! 
+! SIDE EFFECTS:
+! 
+!   The virtual address space is extended.
+!--
+    begin   ! ppl$$reserve_addresses
+
+    local
+	status	    :   unsigned long,
+	iosb	    :	vector [4,word],
+	list	    :   $itmlst_decl(items = 2),
+	P0_addr	    :   volatile unsigned long,	! Base address of first free page in P0
+	astact	    :   bitvector[%bpval],	! Bits indicating modes with active ASTs
+	zot0	    :   unsigned long,	! Unused longword returned by $GetJPI
+	zot1	    :   unsigned long,	! Unused longword returned by $GetJPI
+	mkr	    :   ref mkr_block,
+	lsect	    :   ref sect_block,	! Section description, in local memory
+	gsdnam	    :   $bblock[dsc$c_s_bln],	! Section name descriptor
+	start	    :   ref csb_block,
+	ast_status  :	unsigned volatile long;
+
+    bind
+	arb_barrier =	.ppl$$gl_pplsect[pplsect_l_arb_barr] +
+			    ppl$$gl_pplsect[base_]  :	csb_block;
+
+
+    debug_msg_(0, 'Index: !UL, entering ppl$$reserve_addresses',
+		    .ppl$$gl_context[ctx_l_my_index]);
+    debug_msg_(1, 'Index: !UL, entering ppl$$reserve_addresses',
+		    .ppl$$gl_context[ctx_l_my_index]);
+
+    ! Sanity check
+    if .ppl$$gl_pplsect eql 0 then return signal(ppl$_badlogic);
+    
+    !+
+    ! Determine whether we are at AST level, and while we are there, determine
+    ! the first available address to map the section at
+    !-
+    $itmlst_init(itmlst = list,
+		    (itmcod = jpi$_astact,
+			bufadr = astact,
+			bufsiz = %allocation(astact),
+			retlen = zot0),
+		    (itmcod = jpi$_frep0va,
+			bufadr = P0_addr,
+			bufsiz = %upaddr,
+			retlen = zot1));
+
+    status = $getjpiw (
+	    efn	    = .ppl$$gl_context[ctx_l_ef],
+	    itmlst  = list,
+	    iosb    = iosb);
+    if not .status then 
+	signal_stop (ppl$_syserror, 0, .status);
+
+    if not .astact[psl$c_user] then
+	begin			! No, we're not at AST level
+	debug_msg_(2, 'Index: !UL, (ppl$$reserve_addresses) Disabling ASTs',
+			.ppl$$gl_context[ctx_l_my_index]);
+
+	enter_critical_region_;  ! disable ASTs
+	end;
+
+    !+
+    ! We are now guaranteed to be running at AST level, which is assumed to
+    ! make us the ONLY thread of execution running in this process.  This is
+    ! necessary so that no other thread can change the address space between
+    ! the time we start the arbitration and the time we actually map (sic) the
+    ! resulting addresses.
+    !-
+
+    ! Maximize the P0 address
+    lock_bit_(csect[sect_v_lock]);
+    debug_msg_(8, %string('Index: !UL, (ppl$$reserve_addresses) Section "!AD"',
+			  '!/!_!_My max P0 address: !XL,  Proposed: !XL'),
+			.ppl$$gl_context[ctx_l_my_index],
+			.csect[sect_w_namelen], csect[sect_a_name],
+			.P0_addr, .csect[sect_l_start]);
+
+    if .csect[sect_l_start] lss .P0_addr then csect[sect_l_start] = .P0_addr;
+    unlock_bit_(csect[sect_v_lock]);
+
+    lock_bit_(arb_barrier[csb_v_lock]);	! Seize barrier mutex
+    decr_(arb_barrier[csb_w_csval]);	! Decrement quorum down-counter
+    debug_msg_(8, %string('Index: !UL, (ppl$$reserve_addresses) ',
+			  'ARB barrier value decremented to !UW'),
+			.ppl$$gl_context[ctx_l_my_index],
+			.arb_barrier[csb_w_csval]);
+    if .arb_barrier[csb_w_csval] eqlu 0 then
+	begin	! We met quorum
+	csect[sect_v_final] = true;	! The arbitration is complete
+
+	start = arb_barrier[csb_q_queue] - %fieldexpand_(mkr_l_flink,0);
+	mkr = first_sr_(.start, mkr_l_flink);
+
+	! Wake everybody up
+	until queue_empty_(arb_barrier[csb_l_queue_f]) do
+	    begin
+
+	    while remq_busy_(remqhi(arb_barrier[csb_q_queue], mkr))
+		do 0;
+
+	    testbitssi(mkr[mkr_v_valid]);
+
+	    status = $wake (pidadr = mkr[mkr_l_pid]);
+
+	    ! Some might die while sleeping...
+	    if not .status then
+	    	if (.status eql ss$_nonexpr) then
+		    ungrab_marker_(mkr)	    ! Alive processes will do this themselves
+		else 
+		    if .csect[sect_l_status] then  ! Report first bad status
+			csect[sect_l_status] = .status;
+	    end;
+
+	unlock_bit_ (arb_barrier[csb_v_lock]);
+	end
+    else if .arb_barrier[csb_w_csval] gtr 0 then
+	begin	! We have not met quorum yet, go to sleep
+	grab_marker_(mkr);		! also clears mkr_v_valid	
+
+	while insq_busy_(insqti(mkr[mkr_l_flink], arb_barrier[csb_q_queue]))
+	    do 0;
+
+	testbitssi(mkr[mkr_v_flag]);
+
+	unlock_bit_ (arb_barrier[csb_v_lock]);
+
+	! Sleep until the other's finish (don't use PPL$$Hiber, just sleep!)
+	while (isclear_i(mkr[mkr_v_valid])) do $hiber;
+	$wake();		    ! spurrious wake-up for main-line code.
+
+	testbitcci(mkr[mkr_v_flag]);
+
+	ungrab_marker_(mkr);
+	end
+    else
+	begin	! Error:  the count went negative
+	unlock_bit_ (arb_barrier[csb_v_lock]);
+        if not .astact[psl$c_user] then
+	    leave_critical_region_;  ! Enable ASTs
+	return signal (ppl$_badlogic);
+	end;
+
+    status = ppl$$reserve_section(csect[base_], .P0_addr);
+
+    !+
+    ! Create a local section description for this new section in this process
+    !-
+    gsdnam[dsc_l_length] = .csect[sect_w_namelen];
+    gsdnam[dsc$a_pointer] = csect[sect_a_name];
+
+    lsect = ppl$$find_sect (ppl$$gl_context[ctx_q_sects], gsdnam[base_],
+				alloc_local, csect[base_]);
+
+    if not .astact[psl$c_user] then
+        leave_critical_region_;  ! Enable ASTs
+
+    if .lsect eqlu ppl$_insvirmem or .lsect leq 0 then signal(ppl$_insvirmem);
+    
+    lsect[sect_l_status] = .status;
+
+    debug_msg_(0, 'Index: !UL, ppl$$reserve_addresses complete.',
+		.ppl$$gl_context[ctx_l_my_index]);
+
+    end; ! ppl$$reserve_addresses
+
+
+
+%sbttl 'PPL$$Reserve_Section'
+global routine ppl$$reserve_section
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   This routine reserves an address range.  If the memory is for a VM zone
+!   area, the global section is mapped as well.
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    csect   :	ref sect_block,	    ! Pointer to common section description
+    P0_addr :	volatile unsigned long	    ! Address end of P0 region
+    ) = 
+! 
+! IMPLICIT INPUTS:
+! 
+!   The common section description list
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   None
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_Normal	    -	    Normal successful completion
+!
+!   PPL$_NONPIC	    -	    The section cannot be mapped at specified addresses
+! 
+! SIDE EFFECTS:
+! 
+!   The virtual address space is expanded
+!--
+    begin   ! ppl$$reserve_section
+
+    local
+	inadr	:   vector[2, long, unsigned],	! Starting/ending addresses
+	retadr	:   vector[2, long, unsigned],	! Starting/ending addresses
+	flags	:   unsigned long,		! Flags to $CRMPSC
+	gsdnam	:   $bblock[dsc$c_s_bln],	! Section name descriptor
+	status	:   unsigned long;
+
+
+    ! Don't reserve anything if we haven't finished arbitrating.
+    if not .csect[sect_v_final] then return ppl$_normal;
+
+    ! Don't bother 
+    if .csect[sect_w_namelen] eql ppl$k_free_sect then return ppl$_deleted;
+
+    !+
+    ! On EVMS PPL continues to work and store pages in terms
+    ! of 512 byte pagelets so the following calculation using
+    ! %uppage is correct.
+    !-
+
+    inadr[0] = .csect[sect_l_start];
+    inadr[1] = .inadr[0] + .csect[sect_l_pages] * %uppage - 1;
+
+    ! If the user chose the addresses, then don't worry about any of this.
+    if not .csect[sect_v_we_chose] then return ppl$_normal;
+
+    ! Insure that we are not overmapping existing pages
+    if .inadr[0] lssa .P0_addr then
+!	if .inadr is in a "hole" then OK
+!	else
+	    return ppl$_nonpic;
+	
+    if .csect[sect_v_getvm] then
+	begin
+	!+
+	! This section is for a VM zone, so create or map it now.
+	!
+	! The following assumptions are made in mapping a VM zone section:
+	!
+	!   The section is global, writable, demand zero, and pagefile-backed.
+	!   The section has the same characteristics as the PPLSECT, eg,
+	!	permanence, system-wide, protection.
+	!-
+	flags = sec$m_gbl or sec$m_dzro or sec$m_wrt or sec$m_pagfil;
+	if (.ppl$$gl_pplsect[pplsect_l_mem_flags] and sec$m_perm) neq 0 then
+	    flags = .flags or sec$m_perm;
+	if (.ppl$$gl_pplsect[pplsect_l_mem_flags] and sec$m_sysgbl) neq 0 then
+	    flags = .flags or sec$m_sysgbl;
+
+	gsdnam[dsc_l_length] = .csect[sect_w_namelen];
+	gsdnam[dsc$a_pointer] = csect[sect_a_name];
+
+	status = $crmpsc (
+		     inadr  = inadr,
+		     retadr = retadr,
+		     acmode = psl$c_user,
+		     flags  = .flags, 
+		     gsdnam = gsdnam,
+		     ident  = 0,		    ! Match all
+		     chan   = 0,		    ! Pagefile-backed section
+		     pagcnt = .csect[sect_l_pages],
+		     vbn    = 0,
+		     prot   = .ppl$$gl_pplsect[pplsect_l_prot]);
+
+	if .status then csect[sect_v_mapped] = true;
+
+	end
+    else
+	begin
+	!+
+	! This section is for shared memory.  Create the address space so that
+	! nothing else (ie, $EXPREG, LIB$Get_VM) will use it, but don't
+	! actually map the section until the process explicitly requests it
+	!-
+
+	status = $cretva (
+		     inadr  = inadr,
+		     retadr = retadr,
+		     acmode = psl$c_user);
+	end;
+	
+    if .status then
+	if .csect[sect_v_callback] then
+	    begin
+	    !+
+	    ! This "section" is for VM zone callback jacket routines.  It is
+	    ! not actually shared, since the actual callback routines (which
+	    ! these call) may not be at the same addresses in each process, but
+	    ! these routines must be at the same address in each process, since
+	    ! LIB$Get_VM knows where they are in the process which created the
+	    ! zone, and will assume that they are in the same place in any
+	    ! other process which accesses the zone.
+	    !-
+	    local
+		mem_desc    :	vector[2];
+
+	    mem_desc[0] = .csect[sect_l_pages] * %uppage;
+	    mem_desc[1] = .csect[sect_l_start];
+	    
+	    status = ppl$$init_callback(mem_desc);
+
+	    end;
+	
+    if not .status then
+	if .csect[sect_l_status] then
+	    csect[sect_l_status] = .status;
+
+    .status
+    
+    end;    ! ppl$$reserve_section
+
+
+
+%sbttl 'PPL$$Reserve_Shared_Memory'
+global routine ppl$$reserve_shared_memory =
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   This routine reserves the address ranges for all of the established shared
+!   memory sections.
+! 
+! FORMAL PARAMETERS:
+!
+!   None
+! 
+! IMPLICIT INPUTS:
+! 
+!   The common section description list
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   None
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_Normal	    -	    Normal successful completion
+!
+!   PPL$_NONPIC	    -	    Section cannot be mapped at specified addresses
+! 
+! SIDE EFFECTS:
+! 
+!   None
+!--
+    begin   ! ppl$$reserve_shared_memory
+
+    local
+	list	    :   $itmlst_decl(items = 2),
+	P0_addr	    :   volatile unsigned long,	! Base address of first free page in P0
+	zot	    :   unsigned long,	! Unused longword returned by $GetJPI
+	start	    :   ref sect_block,	! Sect list head
+	csect	    :   ref sect_block,	! Application-common section description
+	gsdnam	    :   $bblock[dsc$c_s_bln],   ! Section name descriptor
+	lsect	    :   ref sect_block,	! Process-local section description
+	status;
+
+
+    !+
+    ! Determine the first available address to map the sections at
+    !-
+    $itmlst_init(itmlst = list,
+		    (itmcod = jpi$_frep0va,
+			bufadr = P0_addr,
+			bufsiz = %upaddr,
+			retlen = zot));
+	
+    status = $getjpiw (
+	    efn	    =	.ppl$$gl_context[ctx_l_ef],
+	    itmlst  =	list);
+    if not .status then 
+	signal_stop (ppl$_syserror, 0, .status);
+
+    start = ppl$$gl_pplsect[pplsect_q_sects] - %fieldexpand_(sect_l_sects_f, 0);
+    csect = first_sr_(.start, sect_l_sects_f);
+    while .csect neq .start do
+	begin
+	status = ppl$$reserve_section(csect[base_], .P0_addr);
+	if not .status then return .status;
+
+	gsdnam[dsc_l_length] = .csect[sect_w_namelen];
+	gsdnam[dsc$a_pointer] = csect[sect_a_name];
+
+	! Create a local section description for this section in this process
+	lsect = ppl$$find_sect (ppl$$gl_context[ctx_q_sects], gsdnam[base_],
+				    alloc_local, csect[base_]);
+	if .lsect eqlu ppl$_insvirmem or .lsect leq 0 then signal(ppl$_insvirmem);
+    
+	lsect[sect_l_status] = .status;
+    
+	csect = next_sr_(.csect, sect_l_sects_f);
+	end;
+
+    ppl$_normal
+    
+    end;    ! ppl$$reserve_shared_memory
+
+
+
+%sbttl 'PPL$$Cleanup_memory'
+global routine ppl$$cleanup_memory : novalue =
+
+begin
+
+!+
+! Free all the memory we're holding.
+!-
+
+local
+	ast_status:	volatile unsigned long;	    ! Used in critical region
+
+enable
+        reast (ast_status);
+
+    enter_critical_region_;	! disable asts    
+
+    while true do
+	begin
+
+	local
+	    lsect: ref sect_block,
+	    status;
+
+	while remq_busy_(status = remqhi (ppl$$gl_context[ctx_q_sects], lsect))
+	    do 0;
+	if remq_null_( .status )
+	then
+	    exitloop;
+	lsect = .lsect - %fieldexpand_(sect_q_sects,0);
+
+	if .lsect[sect_v_mapped]
+	then
+	    begin
+
+	    !+
+	    ! Unmap the section.  $CRETVA deletes the pages, replacing them with
+	    ! demand zero pages.
+	    !-
+	    local
+		inadr:	vector[2];
+
+	    inadr[0] = .lsect[sect_l_start];
+	    inadr[1] = .lsect[sect_l_start] + .lsect[sect_l_pages]*%uppage - 1;
+
+	    status = $cretva (
+		inadr=	inadr[0],
+		acmode=	psl$c_user);
+
+	    if not .status
+	    then
+		signal (ppl$_syserror, 0, .status);
+	    end;
+
+	if .lsect[sect_w_chan] neq 0
+	then
+	    begin
+	    status = $dassgn (chan = .lsect[sect_w_chan]);
+	    if not .status
+	    then
+		signal (ppl$_syserror, 0, .status);
+	    lsect[sect_w_chan] = 0;
+	    end;
+
+    	!+
+	! Free the storage used to hold the section block.
+	!-
+	debug_msg_(11, 
+		    'Index: !UL, (ppl$$cleanup_memory) free_vm: sect= !XL!_len= !XL',
+		    .ppl$$gl_context[ctx_l_my_index], .lsect,
+		    (sect_s_bln+ppl$k_namelen));
+
+	status = lib$free_vm (%ref(sect_s_bln+ppl$k_namelen),
+	    %ref(lsect[base_]));
+
+	!+
+	! There should never be a problem releasing memory...
+	! however, if there is, we will signal the user.
+	!-
+
+	if not .status
+	then
+	    signal(ppl$_syserror, 0, .status);
+	end;
+
+    leave_critical_region_;	! enable asts
+
+end;			! End of Routine PPL$$CLEANUP_MEMORY
+
+
+end			! End of Module PPL$CHOOSE
+eludom

@@ -1,0 +1,92 @@
+#
+# File:		makefile.dos
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds test example (DOS).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info.
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+THISDIR = $(WXDIR)\samples\test
+WXLIB = $(WXDIR)\lib\wx.lib
+LIBS=$(WXLIB) oldnames libw llibcew commdlg ddeml shell mmsystem
+INC=-I$(WXDIR)\include\base -I$(WXDIR)\include\msw
+DUMMY=$(WXDIR)\src\msw\dummy.obj
+
+# Set this to nothing if using MS C++ 7
+ZOPTION=/Z7
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+!if "$(FINAL)" == "0"
+CPPFLAGS=/AL /W3 /Zi $(ZOPTION) /G2sw /Od $(INC) /YuWX_PREC.H /Dwx_msw /Fp$(WXDIR)\src\msw\wx.pch
+LINKFLAGS=/NOD /CO /ONERROR:NOEXE /SEG:512
+!else
+CPPFLAGS=/AL /W3 /G2sw $(INC) /Ox /YuWX_PREC.H /Dwx_msw /Fp$(WXDIR)\src\msw\wx.pch
+LINKFLAGS=/NOD /ONERROR:NOEXE /SEG:512
+!endif
+
+OBJECTS = test.obj wx_popup.obj _srchdlg.obj
+
+test:    test.exe
+
+all:    wx test.exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos FINAL=$(FINAL)
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos clean
+        cd $(THISDIR)
+
+
+test.exe:      $(DUMMY) $(WXLIB) $(OBJECTS) test.def test.res
+        link $(LINKFLAGS) @<<
+$(DUMMY) $(OBJECTS),
+test,
+NUL,
+$(LIBS),
+test.def
+;
+<<
+        rc -31 -K test.res
+
+test.obj:      wx_popup.h test.$(SRCSUFF) $(DUMMY)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+wx_popup.obj:      wx_popup.$(SRCSUFF) $(DUMMY)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+_srchdlg.obj:      _srchdlg.$(SRCSUFF) srchdlg.h $(DUMMY)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+test.res :      test.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa test
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.sbr
+        -erase *.pdb

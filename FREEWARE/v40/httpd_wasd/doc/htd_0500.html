@@ -1,0 +1,711 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.7.0">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.HTD]HTD.SDML">
+<META NAME="date" CONTENT="Tue, 08 Sep 1998 10:04:12">
+<!--
+WASD (HFRD) VMS Hypertext Services, Copyright (c) 1996-1998 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Server Account and Environment</TITLE>
+</HEAD>
+<BODY>
+<H1>WASD Hypertext Services - Technical Overview</H1>
+[<A HREF="HTD_0600.HTML" TARGET="_self">next</A>] [<A HREF="HTD_0400.HTML" TARGET="_self">previous</A>] [<A HREF="HTD_0001.HTML"TARGET="_top" >contents</A>] [<A HREF="HTD_0500.HTML"TARGET="_top" >full-page</A>]
+<HR>
+
+<A NAME="41">
+<H1>5 - Server Account and Environment</H1>
+</A>
+
+<P>
+ The HTTP server account should be a standard account, preferably in a
+group of its own (definitely at least a non-system, non-user group), with 
+sufficient quotas to handle the expected traffic. 
+
+<A NAME="42">
+<H2><BR><U>5.1 - VMS Account</U></H2>
+</A>
+<P><FONT SIZE=+1 COLOR="#ff0000"><B><U>PROCESS QUOTAS:</U></B></FONT>
+ 
+Server process quotas must be sufficient to support the expected traffic load. 
+In particlular PRCLM must support expected script usage.  BYTLM, BIOLM, DIOL,
+FILLM and PGFLQUO are all significant considerations.  Symptoms of insufficient
+process quotas include:
+<UL>
+<LI> Textual pages OK, but pages with a significant number of images having
+some or all &quot;broken&quot;.
+<LI> Scripts failing mysteriously, particularly when multiple in use
+concurrently.
+</UL>
+ A general rule is more is better, after all, it will only use as much as
+it needs!
+
+<A NAME="43">
+<H3>The following provides <U>a guide</U> to the account:</H3>
+</A>
+
+<PRE>  Username: HTTP$SERVER                      Owner:  HyperText Daemon
+  Account:  HTTPD                            UIC:    [377,377] ([HTTPD,HTTP$SERVER])
+  CLI:      DCL                              Tables: DCLTABLES
+  Default:  HT_ROOT:[HTTP$SERVER]
+  LGICMD:   LOGIN
+  Flags:  Restricted DisNewMail
+  Primary days:   Mon Tue Wed Thu Fri
+  Secondary days:                     Sat Sun
+  Primary   000000000011111111112222  Secondary 000000000011111111112222
+  Day Hours 012345678901234567890123  Day Hours 012345678901234567890123
+  Network:  ##### Full access ######            ##### Full access ######
+  Batch:    ##### Full access ######            ##### Full access ######
+  Local:    -----  No access  ------            -----  No access  ------
+  Dialup:   -----  No access  ------            -----  No access  ------
+  Remote:   -----  No access  ------            -----  No access  ------
+  Expiration:            (none)    Pwdminimum:  6   Login Fails:     0
+  Pwdlifetime:         90 00:00    Pwdchange:      (pre-expired)
+  Last Login:            (none) (interactive), 11-MAY-1995 08:44 (non-interactive)
+  Maxjobs:         0  Fillm:       300  Bytlm:       300000
+  Maxacctjobs:     0  Shrfillm:      0  Pbytlm:           0
+  Maxdetach:       0  BIOlm:       512  JTquota:       1024
+  Prclm:         100  DIOlm:       512  WSdef:         1000
+  Prio:            4  ASTlm:       600  WSquo:         2000
+  Queprio:         0  TQElm:       100  WSextent:     20000
+  CPU:        (none)  Enqlm:       256  Pgflquo:     200000
+  Authorized Privileges:
+    NETMBX    TMPMBX
+  Default Privileges:
+    NETMBX    TMPMBX
+</PRE>
+
+<A NAME="44">
+<H2><BR><U>5.2 - Account Support Files</U></H2>
+</A>
+<P><FONT SIZE=+1 COLOR="#ff0000"><B><U>NOTE:</U></B></FONT>
+ 
+Support procedures often change between versions.  It is always advisable to
+check the versions documentation before installing or updating.
+
+<P> Examples may be found in
+<A TARGET="_top" HREF="/ht_root/example/">HT_ROOT:[EXAMPLE]</A>.
+
+<A NAME="45">
+<H3>HTTPd Executables</H3>
+</A>
+
+<P>
+ Two server executables are built by the package.
+<UL>
+<LI> <B>HTTPD.EXE</B> - This provides native support for Digital
+TCP/IP services (UCX).
+<LI> <B>HTTPD_NETLIB.EXE</B> - This provides NETLIB support for
+packages other than UCX.
+</UL>
+
+<P>
+ Two additional executables are built by the SSL package (see
+<A HREF="htd_1000.html#127" TARGET="_self">10 - Secure Sockets Layer</A>).
+<UL>
+<LI> <B>HTTPD_SSL.EXE</B> - This provides SSL for Digital
+TCP/IP services (UCX).
+<LI> <B>HTTPD_SSL_NETLIB.EXE</B> - This provides SSL based on NETLIB,
+for packages other than UCX.
+</UL>
+
+<A NAME="46">
+<H3>Privileged Image</H3>
+</A>
+
+<P>
+ As this image is to be installed with privileges unauthorized use should 
+be prevented by applying an ACL similar to the following against the 
+executable image: 
+
+<PRE>  $ SET SECURITY HT_EXE:HTTPD.EXE -
+    /ACL=((IDENT=HTTP$SERVER,ACCESS=R+E),(IDENT=*,ACCESS=NONE))
+</PRE>
+
+<P>
+ This can be done once, at installation, or for peace-of-mind 
+<I>(a.k.a. VMS-ish paranoia)</I> at each server startup. 
+
+<P>
+ As the HTTP$SERVER account should be completely unprivileged, and the 
+HTTPd image requires NETMBX, TMPMBX, PRMMBX, PSWAPM, SYSNAM and SYSPRV
+privileges (see the &quot;Nuts and Bolts&quot; document for a description of how
+and why the server uses these privileges).  It must be installed using a
+command similar to the following:
+
+<PRE>  $ INSTALL = "$SYS$SYSTEM:INSTALL/COMMAND_MODE"
+  $ INSTALL ADD HT_EXE:HTTPD.EXE /PRIVILEGE=(ALTPRI,PRMMBX,PSWAPM,SYSPRV,SYSNAM) 
+</PRE>
+ 
+
+<A NAME="47">
+<H3>Logical Names</H3>
+</A>
+
+<P>
+ The following logical names are essential for the operation of the HTTPd 
+server and must be defined before startup:
+<UL>
+<LI> <B>HTTPD$AUTH - </B> location of the
+authentication/authorization configuration file 
+(defined system-wide, or in the job table if server-specific)
+<P>
+<LI> <B>HTTPD$CONFIG - </B> location of the configuration file 
+(defined system-wide, or in the job table if server-specific)
+<P>
+<LI> <B>HTTPD$MAP - </B> location of the mapping rule file 
+(defined system-wide, or in the job table if server-specific)
+<P>
+<LI> <B>HTTPD$MSG - </B> location of the message file 
+(defined system-wide, or in the job table if server-specific)
+<P>
+<LI> <B>HTTPD$GMT - </B> offset from GMT (e.g. &quot;+10:30&quot;,
+&quot;-01:15&quot;). For systems supporting DTSS (e.g. DECnet-Plus) this logical
+may be left undefined, with server time being calculated using the
+SYS$TIMEZONE_DIFFERENTIAL logical.
+<P>
+<LI> <B>HTTPD$LOG - </B> if logging is enabled and no log file name
+specified on the command line, this logical must be defined to locate the
+file.  When a logging period is in use this logical need only contain the
+directory used to store the logs.
+<P>
+<LI> <B>HTTPD$SSL_CERT - </B> when using the SSL executable this
+logical locates the required server certificate.
+<P>
+<LI> <B>CGI-BIN - </B> system logical defining a search list with
+the architecture-specific executable directory first, local script directory
+second, then the common script directory, as a concealed device.
+<P>
+<LI> <B>HT_AUTH - </B> directory containing
+authentication/authorization databases (files)
+<P>
+<LI> <B>HT_EXE - </B> directory containing the executable images
+<P>
+<LI> <B>HT_LOGS - </B> optional definition, for convenient log 
+file specification
+<P>
+<LI> <B>HT_SERVER_LOGS - </B> optional definition, for convenient 
+detached server process log file specification 
+</UL>
+
+<P>
+ The following logical name is created by the executing HTTP server and 
+defines the name of the control mailbox:
+<UL>
+<LI> <B>HTTPD<I>port</I>$CONTROL</B>
+</UL>
+
+<P>
+ The following logical names are created by the executing HTTP server if 
+the HTTPd monitor utility is enabled:
+<UL>
+<LI> <B>HTTPD<I>port</I>$COUNT1</B>
+<LI> <B>HTTPD<I>port</I>$COUNT2</B>
+<LI> <B>HTTPD<I>port</I>$PID</B>
+<LI> <B>HTTPD<I>port</I>$REQUEST</B>
+</UL>
+
+<A NAME="48">
+<H3>Server Process Logging Directory</H3>
+</A>
+
+<P>
+ The server process log directory (output for the detached HTTP server 
+processes) may require explicit access controls for the HTTPd account.  This 
+can be done by applying an ACL similar to the following: 
+
+<PRE>  $ SET SECURITY HT_ROOT:[LOG]SERVER.DIR -
+    /ACL=((IDENT=HTTP$SERVER,ACCESS=R+W+E, OPTIONS=DEFAULT), -
+          (IDENT=HTTP$SERVER,ACCESS=R+W+E), -
+          (IDENT=*,ACCESS=NONE, OPTIONS=DEFAULT), -
+          (IDENT=*,ACCESS=NONE))
+</PRE>
+
+<P>
+ As with the ACL on the server executable this can be done once, at 
+installation (or, if right over the top, at each server startup).  Appropriate 
+disk quotas may also need to be applied.  Also see
+<A HREF="htd_0500.html#62" TARGET="_self">5.3.2.6 - Logging</A>.
+
+<A NAME="49">
+<H3>STARTUP.COM</H3>
+</A>
+
+<P>
+ Putting all this together the HTTP server startup procedure becomes 
+something similar to the supplied example.  It should be called from
+SYSTARTUP_VMS.COM or the site's equivalent.
+
+<P> See <A TARGET="_top" HREF="/ht_root/example/startup.com">
+HT_ROOT:[EXAMPLE]STARTUP.COM</A>
+
+<A NAME="50">
+<H3>STARTUP_LOCAL.COM</H3>
+</A>
+
+<P>
+ This file is automatically executed by the STARTUP.COM procedure
+immediately before the server is actually started.  It is provided to supply
+all the local site's additional startup requirements.  Place site-specific
+server environment startup in here, leaving STARTUP.COM alone as much as
+possible.
+
+<P> See <A TARGET="_top" HREF="/ht_root/example/startup_local.com">
+HT_ROOT:[EXAMPLE]STARTUP_LOCAL.COM</A>
+
+<A NAME="51">
+<H3>HTTPD_BATCH.COM</H3>
+</A>
+
+<P>
+ This procedure is SUBMITted by the server STARTUP.COM using the
+HTTP server account, and simply creates a detached process under the control
+of HTTPD80.COM, or its equivalent.  A parameter may be provided to this
+procedure.  This roughly represents the port number of a server but actually
+represents a file HTTPD'number'.COM which controls a specific server, see
+below.
+
+<P> See <A TARGET="_top" HREF="/ht_root/example/httpd_batch.com">
+HT_ROOT:[EXAMPLE]HTTPD_BATCH.COM</A>
+
+<A NAME="52">
+<H3>HTTPD80.COM</H3>
+</A>
+
+<P>
+ This procedure is suggested for controlling the execution of the HTTPd
+server and it's image.  It is run in the detached process created by
+HTTPD_BATCH.COM.  Multiple instances of this file may be created, each
+having a unique number, for controlling multiple servers, either on an
+individual node or within a cluster.  Actually, just any unique string may be
+used for indentification.
+
+<P> See <A TARGET="_top" HREF="/ht_root/example/httpd80.com">
+HT_ROOT:[EXAMPLE]HTTPD80.COM</A>
+
+<A NAME="53">
+<H3>LOGIN.COM</H3>
+</A>
+
+<P>
+ This procedure provides the HTTP server account login control.
+
+<P> See <A TARGET="_top" HREF="/ht_root/example/login.com">
+HT_ROOT:[EXAMPLE]LOGIN.COM</A>
+
+<A NAME="54">
+<H2><BR><U>5.3 - HTTPd Command Line</U></H2>
+</A>
+
+<P>
+ Command-line qualifiers provide some server startup control as well as
+server runtime control.
+
+<A NAME="55">
+<H3><BR><U>5.3.1 - Server Startup</U></H3>
+</A>
+
+<P>
+ When starting up the server several characteristics of the server may be 
+specified using qualifiers on the command line.  If not specified appropriate 
+defaults are employed.
+<UL>
+<LI> <B>/ACCEPT=</B> comma-separated list of hosts/domains allowed to
+connect to the server
+<P>
+<LI> <B>/AUTHORIZATION=SSL</B> the &quot;SSL&quot; parameter causes all
+authentication (both SYSUAF and HTA database) to be available only via
+&quot;https:&quot; requests (see <A HREF="htd_1000.html#127" TARGET="_self">10 - Secure Sockets Layer</A>)
+<P>
+<LI> <B>/CGI_PREFIX=</B> the prefix to the CGI symbol names created 
+for a script (defaults to &quot;WWW_&quot;, similar to the CERN VMS HTTPd, see 
+<A HREF="htd_1200.html#145" TARGET="_self">12 - Scripting</A>) 
+<P>
+<LI> <B>/DO=</B> command to be performed by the executing server (see
+<A HREF="htd_0500.html#56" TARGET="_self">5.3.2 - Server Command Line Control</A>)
+<P>
+<LI> <B>/FILBUF=</B> number of bytes in the read buffer for files 
+open for processing (i.e. menu files, image mapping configuration files,
+pre-processed HTML files, etc., not direct file transfers) 
+<P>
+<LI> <B>/FORMAT=</B> overrides the configuration parameter
+[LogFormat]
+<P>
+<LI> <B>/REJECT=</B> comma-separated list of hosts/domains not
+allowed to connect to the server
+<P>
+<LI> <B>/[NO]LOG[=name]</B> either disables logging (overrides 
+configuration directive), or enables logging and optionally specifies the log 
+file name (also see section <A HREF="htd_0500.html#47" TARGET="_self">Logical Names</A>, logging 
+is disabled by default).  If the file specification is &quot;SYS$OUTPUT&quot; the
+server issues log entries to &lt;stdout&gt;, allowing user-defined log
+formats to be easily checked and refined.
+<P>
+<LI> <B>/NETBUF=</B> minimum number of bytes in the network read 
+buffer
+<P>
+<LI> <B>/OUTBUF=</B> number of bytes in the output buffer 
+(for direct file transfers, buffered output from menu interpretation,
+HTML-preprocessing, etc.) 
+<P>
+<LI> <B>/PERIOD=</B> overrides the configuration parameter
+[LogPeriod]
+<P>
+<LI> <B>/PORT=</B> overrides the configuration parameter [Port] BUT
+is in turn overridden by the [Service] configuration parameter and /SERVICE=
+qualifier (is really only useful for use with the /DO= qualifier).
+<P>
+<LI> <B>/PRIORITY=</B> server process priority (default is 4)
+<P>
+<LI> <B>/[NO]PROFILE</B> allows SYSUAF-authenticated username
+security profiles to be used for file access (see
+<A HREF="htd_0900.html#120" TARGET="_self">9.6 - SYSUAF-Authenticated Users</A>
+<P>
+<LI> <B>/PROMISCUOUS[=password]</B> server will accept any
+authentication username/password pair (used for testing, demonstrations, etc.)
+<P>
+<LI> <B>/SERVICE=</B> comma-separated, list of server services
+(overrides the [Service] configuration parameter)
+<P>
+<LI> <B>/[NO]SSL[=version]</B> controls Secure Sockets Layer protocol
+behaviour.  The version can be any of &quot;2&quot;, &quot;3&quot; or &quot;23&quot;
+(i.e. both 2 and 3, and the default) specifying which SSL protocol version the
+server will service.
+<P>
+<LI> <B>/SUBBUF=</B> number bytes in a subprocess' SYS$OUTPUT buffer
+<P>
+<LI> <B>/[NO]SWAP</B> controls whether the server process may be 
+swapped out of the balance set (default is swapping disabled)
+<P>
+<LI> <B>/[NO]SYSUAF[=ID,SSL]</B> allows or disallows (D) username
+authentication using the server system's SYSUAF
+(see <A HREF="htd_0900.html#120" TARGET="_self">9.6 - SYSUAF-Authenticated Users</A>, the optional &quot;SSL&quot; parameter causes
+SYSUAF authentication to be available only via &quot;https:&quot; requests
+(see <A HREF="htd_1000.html#127" TARGET="_self">10 - Secure Sockets Layer</A>), and the optional &quot;ID&quot; parameter makes
+SYSUAF authentication only available to account possessing a specific
+identifier.  See <A HREF="htd_0900.html#120" TARGET="_self">9.6 - SYSUAF-Authenticated Users</A>.
+<P>
+<LI> <B>/VERSION</B> merely displays the executable's version string
+and the copyright notice
+</UL>
+
+<P>
+ <B>Note: </B> buffer sizes apply on a per-request (thread) 
+basis, and may be tailored for specific environments at server startup. 
+
+<A NAME="56">
+<H3><BR><U>5.3.2 - Server Command Line Control</U></H3>
+</A>
+
+<P>
+ A foreign command for the HTTPD control functionality will need to be 
+assigned in the adminstration users' LOGIN.COM, for example: 
+
+<PRE>  HTTPD == "$HT_EXE:HTTPD"
+  !HTTPD == "$HT_EXE:HTTPD_NETLIB"
+</PRE>
+
+<P>
+ Some control of the executing server is available from the DCL command
+line on the system on which it is executing. This functionality, via the
+&quot;/DO=&quot; qualifier, is available to the privileged user. If a non-default
+server port, or multiple servers on the one system are being used, then it
+will be necessary to provide a &quot;/PORT=&quot; qualifier with any command, and
+possibly issue it multiple times. Of course, these commands are available from
+batch jobs as well as interactively.
+
+<A NAME="57">
+<H4><BR><U>5.3.2.1 - Accounting</U></H4>
+</A>
+
+<P>
+ Server counters may be zeroed.  These counters are those visible from the
+<I>statistics</I> admininstration menu item and when using the HTTPDMON
+utility.
+
+<PRE>  $ HTTPD /DO=ZERO
+</PRE>
+
+<A NAME="58">
+<H4><BR><U>5.3.2.2 - Authentication</U></H4>
+</A>
+
+<P>
+ See <A HREF="htd_0900.html#103" TARGET="_self">9 - Authentication and Authorization</A>.
+
+<P>
+ The authorization rule file (HTTP$AUTH) may be reloaded.
+
+<PRE>  $ HTTPD /DO=AUTH=LOAD
+</PRE>
+
+<P>
+ The authentication cache may be purged, resulting in re-authentication for
+all subsequent authorization-controlled accesses. This may be useful when
+disabling authorization or if a user has been locked-out due to too many
+invalid password attempts.
+
+<PRE>  $ HTTPD /DO=AUTH=PURGE
+</PRE>
+
+<A NAME="59">
+<H4><BR><U>5.3.2.3 - Cache</U></H4>
+</A>
+
+<P>
+ Server cache control may also be exercised from the server administration
+menu, see <A HREF="htd_1100.html#137" TARGET="_self">11 - Server Administration</A>.  The file cache (see
+<A HREF="htd_1300.html#193" TARGET="_self">13 - Cache</A>) may be enabled, disabled and have it's contents
+purged (declared invalid and reloaded) using
+
+<PRE>  $ HTTPD /DO=CACHE=ON
+  $ HTTPD /DO=CACHE=OFF
+  $ HTTPD /DO=CACHE=PURGE
+</PRE>
+
+<A NAME="60">
+<H4><BR><U>5.3.2.4 - DCL/Scripting Subprocesses</U></H4>
+</A>
+
+<P>
+ These commands can be useful for flushing any currently executing CGIplus
+applications from the server, enabling a new version to be loaded with the
+next access. See <A HREF="htd_1200.html#145" TARGET="_self">12 - Scripting</A>.
+
+<P>
+ All scripting subprocesses, busy with a request or not, can be deleted
+(this may cause the client to lose data).
+
+<PRE>  $ HTTPD /DO=DCL=DELETE
+</PRE>
+
+<P>
+ A gentler alternative is to delete idle subprocesses and mark busy ones
+for deletion when completed processing.
+
+<PRE>  $ HTTPD /DO=DCL=PURGE
+</PRE>
+
+<A NAME="61">
+<H4><BR><U>5.3.2.5 - DECnet Scripting Connections</U></H4>
+</A>
+
+<P>
+ All DECnet connections, busy with a request or not, can be disconnected
+(this may cause the client to lose data).
+
+<PRE>  $ HTTPD /DO=DECNET=DISCONNECT
+</PRE>
+
+<P>
+ Purging is a better alternative, disconnecting idle tasks and marking busy
+ones for disconnection when complete.
+
+<PRE>  $ HTTPD /DO=DECNET=PURGE
+</PRE>
+
+<A NAME="62">
+<H4><BR><U>5.3.2.6 - Logging</U></H4>
+</A>
+
+<P>
+ Server logging control may also be exercised from the server administration
+menu, see <A HREF="htd_1100.html#137" TARGET="_self">11 - Server Administration</A>.
+
+<P>
+ Open a log file. 
+
+<PRE>  $ HTTPD /DO=LOG=OPEN
+</PRE>
+
+<P>
+ Optionally open and specify a log file name.  This overrides any
+/LOG=<I>file-name</I> or HTTPD$LOG specified file name. 
+
+<PRE>  $ HTTPD /DO=LOG=OPEN=<I>file-name</I>
+</PRE>
+
+<P>
+ The log file may be closed and reopened using a different name (allowing
+continuous operation but, for example, with daily log files). This overrides
+any /LOG=<I>file-name</I> or HTTPD$LOG specified file name. 
+
+<PRE>  $ HTTPD /DO=LOG=REOPEN=<I>file-name</I>
+</PRE>
+
+<P>
+ Close the log file. 
+
+<PRE>  $ HTTPD /DO=LOG=CLOSE
+</PRE>
+
+<P>
+ Unwritten log records may be flushed to the file.
+
+<PRE>  $ HTTPD /DO=LOG=FLUSH
+</PRE>
+
+<P>
+ The format and period specification of the log may be changed (only takes
+effect after the next log file open/reopen) using
+
+<PRE>  $ HTTPD /DO=LOG=FORMAT=string
+  $ HTTPD /DO=LOG=PERIOD=string
+</PRE>
+
+<A NAME="63">
+<H4><BR><U>5.3.2.7 - Mapping</U></H4>
+</A>
+
+<P>
+ See <A HREF="htd_0800.html#84" TARGET="_self">8 - Mapping Rules</A>.
+
+<P>
+ The mapping rule file (HTTP$MAP) may be reloaded.
+
+<PRE>  $ HTTPD /DO=MAP
+</PRE>
+
+<A NAME="64">
+<H4><BR><U>5.3.2.8 - Shutdown and Restart</U></H4>
+</A>
+
+<P>
+ Server shutdown may also be exercised from the server administration
+menu, see <A HREF="htd_1100.html#137" TARGET="_self">11 - Server Administration</A>.
+
+<P>
+ The server may be shut down, without loss of existing client requests.
+Connection acceptance is stopped and any existing requests continue to be
+processed until conclusion.
+
+<PRE>  $ HTTPD /DO=EXIT
+</PRE>
+
+<P>
+ The server may be immediately and unconditionally shut down.
+
+<PRE>  $ HTTPD /DO=EXIT=NOW
+</PRE>
+
+<P>
+ The server may be restarted, without loss of existing client requests.
+Connection acceptance is stopped and any existing requests continue to be
+processed until conclusion. This effectively causes the server to exit
+normally and the DCL <I>wrapper</I> procedure to restart it.
+
+<PRE>  $ HTTPD /DO=RESTART
+</PRE>
+
+<P>
+ This variant restarts the server immediately regardless of existing
+connections.
+
+<PRE>  $ HTTPD /DO=RESTART=NOW
+</PRE>
+
+<A NAME="65">
+<H2><BR><U>5.4 - Multi-Homed Hosts With Digital TCP/IP</U></H2>
+</A>
+
+<P>
+ A multi-homed host responds to connections for more than one network
+address. Details on configuring Digital TCP/IP (UCX) for this behaviour may be
+found in the <I>Digital TCP/IP Management</I> manual, section on
+&quot;Subnetwork Routing&quot; (3.4.8 in the November 1995 edition) and
+<I>Digital TCP/IP Management Command Reference</I>, section on
+&quot;SET INTERFACE&quot; (November 1995 edition). The server configuration
+parameter [Service] allows for the processing of requests for multiple
+host-names and/or ports (see <A HREF="htd_0600.html#70" TARGET="_self">6.2 - Directives</A>) while
+conditional mapping rules enhance this basic capability (see
+<A HREF="htd_0800.html#99" TARGET="_self">8.5 - Conditional Mapping</A>).
+
+<P>
+ Assuming an alternate, unused host name exists (for example):
+
+<PRE>  $ UCX
+  UCX&gt; SET HOST "second.host.name" /ADDRESS=131.185.30.2 /ALIAS=("second","SECOND")
+  UCX&gt; [EXIT]
+  $
+</PRE>
+
+<P>
+ The system IP interface can be determined as follows (in this example it
+is SE0, the LO0 is the localhost interface):
+
+<PRE>  UCX&gt; SHOW INTERFACE
+                                                             Packets
+  Interface   IP_Addr         Network mask          Receive          Send     MTU
+
+   SE0        131.185.30.1    255.255.0.0            595567        262764    1500
+   LO0        127.0.0.1       255.0.0.0                   1           573   65535  ?
+  UCX&gt; SHOW INTERFACE SE0 /FULL
+  Interface: SE0
+    IP_Addr: 131.185.30.1      NETWRK: 255.255.0.0       BRDCST: 131.185.255.255
+                        Ethernet_Addr: AA-00-04-00-59-04    MTU:  1500
+  .
+  .
+  .
+    Restarting attempts                  0
+    Successful restarts                  0
+</PRE>
+
+<P>
+ Note the network and broadcast masks of the interface above. The basic
+procedure then is to create a pseudo-interface (the &quot;A&quot; added to the
+hardware device name) as follows:
+
+<PRE>  UCX&gt; SET INTERFACE SEA0 /HOST="second" /NET=255.255.0.0 /BROAD=131.185.255.255
+  UCX&gt; SET PROTOCOL IP /FORWARD
+</PRE>
+
+<P>
+ After the above commands the interfaces should appear as shown below:
+
+<PRE>  UCX&gt; SHOW INTERFACE
+                                                             Packets
+  Interface   IP_Addr         Network mask          Receive          Send     MTU
+
+   SE0        131.185.30.1    255.255.0.0            595567        262764    1500
+   SEA0       131.185.30.2    255.255.0.0               169            99    1500
+   LO0        127.0.0.1       255.0.0.0                   0          2263   65535  ?
+</PRE>
+
+<P>
+ These commands can be done interactively, during each startup, or placed
+in the permanent UCX configuration database once, as follows:
+
+<PRE>  UCX&gt; SET CONFIG INTERFACE SEA0 /HOST="second" /NET=255.255.0.0 /BROAD=131.185.255.255
+  UCX&gt; SET CONFIG PROTOCOL IP /FORWARD
+</PRE>
+
+<A NAME="66">
+<H3>Note: Originating Host Address</H3>
+</A>
+
+<P>
+ Digital TCP/IP Services v4.1 at least, appears to determine an outgoing
+connection's originating host address from the IP address of the
+&quot;highest&quot; pseudo-interface defined (in this case from the SEA0,
+resulting in an apparent source address of 131.185.30.2). This can cause some
+confusion on remote hosts as to the origin of a connection, and otherwise be
+generally undesirable.
+
+<P>
+ A solution appears to be to assign the primary address to the last
+defined interface. This means the original interface must be removed using a
+
+<PRE>  UCX&gt; SET CONFIG NOINTERFACE SE0
+</PRE>
+ then explicitly redefining it and then the new interface, ensuring the
+first is the non-primary address and the second the primary.
+
+<P>
+<HR>
+[<A HREF="HTD_0600.HTML" TARGET="_self">next</A>] [<A HREF="HTD_0400.HTML" TARGET="_self">previous</A>] [<A HREF="HTD_0001.HTML"TARGET="_top" >contents</A>] [<A HREF="HTD_0500.HTML"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

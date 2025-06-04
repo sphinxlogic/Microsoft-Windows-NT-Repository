@@ -1,0 +1,1529 @@
+<TITLE>Routine Analyzer Source File Analysis - ranalyzer.c</TITLE>
+<H2><A NAME="s10034480">ranalyzer.c</a> Source Code</H2>
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00016.html#s10021580">Next file in section</a>; <A HREF="ranalyzer_src00016.html#s10020c80">Previous file in section</a>.<P>
+<H3><A NAME="routines_in_this_file">Routines In This File (Alphabetical)</a></H3>
+<PRE>
+ Line Name
+----- ----
+  116 <A HREF="#d10034600">analyze_file</A>
+  267 <A HREF="#d10034680">analyze_product</A>
+ 1095 <A HREF="#d10039700">cmdopt_author</A>
+  779 <A HREF="#d10039300">cmdopt_callers</A>
+  403 <A HREF="#d10034d00">cmdopt_clear</A>
+  812 <A HREF="#d10039380">cmdopt_depth</A>
+  560 <A HREF="#d10039000">cmdopt_description</A>
+  954 <A HREF="#d10039500">cmdopt_fmt_kwhandler</A>
+  992 <A HREF="#d10039580">cmdopt_format</A>
+ 1039 <A HREF="#d10039600">cmdopt_htmlbyfile</A>
+ 1067 <A HREF="#d10039680">cmdopt_htmlxref</A>
+  653 <A HREF="#d10039200">cmdopt_language</A>
+  505 <A HREF="#d10034f00">cmdopt_list</A>
+  467 <A HREF="#d10034e00">cmdopt_log</A>
+  904 <A HREF="#d10039480">cmdopt_noreport</A>
+  531 <A HREF="#d10034f80">cmdopt_outprefix</A>
+  844 <A HREF="#d10039400">cmdopt_report</A>
+  587 <A HREF="#d10039080">cmdopt_separate</A>
+  387 <A HREF="#d10034c80">cmdopt_set</A>
+  419 <A HREF="#d10034d80">cmdopt_trace</A>
+  750 <A HREF="#d10039280">cmdopt_urlprefix</A>
+   38 <A HREF="#d10034580">get_parser</A>
+ 1206 <A HREF="#d10039880">main</A>
+ 1110 <A HREF="#d10039780">show_help</A>
+</PRE>
+<HR>
+<PRE>BEGINNING OF FILE
+</PRE>
+<HR>
+<PRE>
+     1: /****************************************************************************/
+     2: /*									    */
+     3: /*  FACILITY:	Routine Analyzer					    */
+     4: /*									    */
+     5: /*  MODULE:	Main Module						    */
+     6: /*									    */
+     7: /*  AUTHOR:	Steve Branam, Network Product Support Group, Digital	    */
+     8: /*		Equipment Corporation, Littleton, MA, USA.		    */
+     9: /*									    */
+    10: /*  DESCRIPTION: This is the main module for Routine Analyzer. It contains  */
+    11: /*  the main routine, command option handlers, and the main application	    */
+    12: /*  routines for processing product and source files.			    */
+    13: /*									    */
+    14: /*  REVISION HISTORY:							    */
+    15: /*									    */
+    16: /*  V1.0-00 27-JAN-1995 Steve Branam					    */
+    17: /*									    */
+    18: /*	Modified help logic when insufficient arguments supplied and	    */
+    19: /*	cleaned up help.						    */
+    20: /*									    */
+    21: /*  V0.1-00 24-AUG-1994 Steve Branam					    */
+    22: /*									    */
+    23: /*	Original version.						    */
+    24: /*									    */
+    25: /****************************************************************************/
+    26: 
+    27: #define MAIN_MODULE			    /* This is the main module.	    */
+    28: #include &lt;ctype.h&gt;
+    29: #include "ranalyzer.h"
+    30: 
+    31: 
+    32: extern language_element c_parser();
+    33: extern language_element bliss_parser();
+    34: extern language_element dcl_parser();
+    35: extern language_element text_parser();
+    36: 
+    37: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034580">ROUTINE</A> <A HREF="ranalyzer_xrf00008.html#x10034580">get_parser</A>. Go to: 
+<A HREF="#d10034600">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+    38: PARSER get_parser(
+    39: /* Returns the parser function appropriate for the source language, based   */
+    40: /* on the file name extension.						    */
+    41: 
+    42:     char    *aSourceName,
+    43: 	    /* (READ, BY ADDR):  					    */
+    44: 	    /* Source file name string.					    */
+    45: 
+    46:     char    **aParserName
+    47: 	    /* (WRITE, BY ADDR):  					    */
+    48: 	    /* Parser name string ptr, set to parser name string.	    */
+    49: 
+    50: )	/* Returns ptr to parser function.				    */
+    51: 	/*****************************************************************--*/
+    52: 
+    53: {
+    54:     KEYWORD_DEFINITION			    /* Current keyword definition.  */
+    55: 	    *curkwdef;
+    56:     LANGUAGE_TRANSLATION		    /* Current language trans.	    */
+    57: 	    *curtrans;
+    58:     char    *extstr;			    /* File extension ptr.	    */
+    59: 
+    60:     if (global_langtable() == NULL) {
+    61: 	set_lang_table(list_entries(global_langlist()));
+    62: 	for (curkwdef = global_langtable();
+    63: 	    (curtrans = remove_lang()) != NULL;
+    64: 	    curkwdef++) {
+    65: 	    set_kwdef_keyword(curkwdef, lang_fext(curtrans));
+    66: 	    set_kwdef_minlen(curkwdef, strlen(lang_fext(curtrans)));
+    67: 	    set_kwdef_code(curkwdef, lang_code(curtrans));
+    68: 	    free_lang(curtrans);
+    69: 	}
+    70:     }
+    71: 
+    72: 
+    73:     /*+									    */
+    74:     /*	Scan back from end of file name string for file extension. If not   */
+    75:     /*	found, can't identify parser. Otherwise, locate end of extension    */
+    76:     /*	string and compare it to known file extensions.			    */
+    77:     /*-									    */
+    78: 
+    79:     for (extstr = &amp;aSourceName[strlen(aSourceName)];
+    80: 	extstr &gt;= aSourceName &amp;&amp; *extstr != FILE_EXT_SEPARATOR;
+    81: 	extstr--);
+    82:     if (extstr &lt; aSourceName) {
+    83: 	printf("ERROR: No file extension specified for file %s\n", aSourceName);
+    84: 	return NULL;
+    85:     }
+    86:     else {
+    87: 	extstr++;
+    88: 	switch (translate_keyword(extstr, global_langtable())) {
+    89: 	case LANGUAGE_UNKNOWN:		    /* No matches on file type.	    */
+    90: 	    printf(
+    91: 	    "ERROR: Unable to identify source language for file %s\n",
+    92: 		aSourceName);
+    93: 	    return NULL;
+    94: 	    break;
+    95: 	case LANGUAGE_TEXT:
+    96: 	    *aParserName = "text (no language structure)";
+    97: 	    return text_parser;
+    98: 	    break;
+    99: 	case LANGUAGE_DCL:
+   100: 	    *aParserName = "DCL";
+   101: 	    return dcl_parser;
+   102: 	    break;
+   103: 	case LANGUAGE_CC:
+   104: 	    *aParserName = "C";
+   105: 	    return c_parser;
+   106: 	    break;
+   107: 	case LANGUAGE_BLISS:
+   108: 	    *aParserName = "BLISS";
+   109: 	    return bliss_parser;
+   110: 	    break;
+   111: 	}
+   112:     }
+   113: }
+</PRE>
+END get_parser. Go to: <A HREF="#d10034580">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   114: 
+   115: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034600">ROUTINE</A> <A HREF="ranalyzer_xref.html#x10034600">analyze_file</A>. Go to: 
+<A HREF="#d10034680">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   116: int analyze_file(
+   117: /* Analyze the code in a product source file, using the designated parser.  */
+   118: /* This adds routine definition entries for every routine defined in the    */
+   119: /* file, and for every unknown routine referenced in the file. Unknown	    */
+   120: /* routines are expected to be defined later in the file, in another file,  */
+   121: /* or in another product (i.e. a run-time library).			    */
+   122: 
+   123:     char    *aSourceName,
+   124: 		/* (READ, BY ADDR):					    */
+   125: 		/* Source file name string.				    */
+   126: 
+   127:     int	    vTabSize,
+   128: 		/* (READ, BY ADDR):					    */
+   129: 		/* Source file tab size.				    */
+   130: 
+   131:     PARSER  aParser,
+   132: 		/* (READ, BY ADDR):					    */
+   133: 		/* Source language parse routine, called to return the next */
+   134: 		/* token from the source file.				    */
+   135: 
+   136:     char    *aLangName
+   137: 		/* (READ, BY ADDR):					    */
+   138: 		/* Language name string.				    */
+   139: 
+   140: )	/* Returns status indication:					    */
+   141: 	/*  1	- File analyzed successfully.				    */
+   142: 	/*  0   - File not analyzed successfully.			    */
+   143: 	/*****************************************************************--*/
+   144: 
+   145: {
+   146:     DEFINITION				    /* Current routine definition.  */
+   147: 	    *curdef = NULL;		  
+   148:     DEFINITION				    /* Referenced routine	    */
+   149: 	    *refdef;			    /* definition.		    */
+   150:     REFERENCE				    /* Current routine reference.   */
+   151: 	    *curref;
+   152:     SOURCEFILE
+   153: 	    *curfile;			    /* Current source file.	    */
+   154:     FILE    *sourcefile;		    /* Source file ptr.		    */
+   155:     char    element[MAX_ROUTINE_NAME + 1];  /* Language element buffer.	    */
+   156: 		
+   157:     language_element			    /* Type of language element.    */
+   158: 	    element_type;
+   159:     long    sourceline;		    /* Line number in source file.  */
+   160: 		
+   161:     /*+									    */
+   162:     /*	Add a new source file entry to the source file list, then analyze   */
+   163:     /*	the language elements in the source file, adding definition and	    */
+   164:     /*	reference entries for routines found.				    */
+   165:     /*-									    */
+   166: 
+   167: 					    /* Open source file.	    */
+   168:     if ((sourcefile = fopen(aSourceName, "r")) == NULL) {
+   169: 	printf("ERROR: Unable to open source file %s for input\n",
+   170: 	    aSourceName);
+   171: 	return 0;
+   172:     }
+   173:     else {				    /* Create new source file entry */
+   174: 					    /* and add it to list.	    */
+   175: 	curfile = new_file(aSourceName, vTabSize);
+   176: 	add_file(curfile);		    
+   177: 	list_file_begin(curfile, aLangName);
+   178: 	new_list_line(curfile);
+   179: 					    /* Process next source language */
+   180: 					    /* element.			    */
+   181: 	while ((element_type = (*aParser)(sourcefile, curfile, element,
+   182: 				    &amp;sourceline)) != END_OF_SOURCE) {
+   183: 	    switch(element_type) {
+   184: 	    case PARSE_ERROR:
+   185: 
+   186: 		    /*+							    */
+   187: 		    /*	Parser believes some source construct is invalid,   */
+   188: 		    /*	give up on this file.				    */
+   189: 		    /*-							    */
+   190: 	    
+   191: 		    fclose(sourcefile);
+   192: 		    return 0;
+   193: 		    break;
+   194: 	    case ROUTINE_DEF_BEGIN:
+   195: 
+   196: 		    /*+							    */
+   197: 		    /*	Start of a routine found: Get its definition entry  */
+   198: 		    /*	for this file and save begin line number. Add a	    */
+   199: 		    /*	source reference, passing this def as the caller as */
+   200: 		    /*	well as the definition so that it will be inserted  */
+   201: 		    /*	in alphabetical order.				    */
+   202: 		    /*-							    */
+   203: 					    
+   204: 		    curdef = find_def(element, curfile);
+   205: 		    set_def_begin(curdef, sourceline);
+   206: 		    add_srcref(curfile, new_ref(sourceline, curdef, curdef));
+   207: 		    list_def_begin(curfile, curdef);
+   208: 		    break;
+   209: 	    case ROUTINE_DEF_END:
+   210: 
+   211: 		    /*+							    */
+   212: 		    /*	End of a routine found: Save end line number and    */
+   213: 		    /*	clear current definition context.		    */
+   214: 		    /*-							    */
+   215: 
+   216: 		    set_def_end(curdef, sourceline);
+   217: 		    inc_source_routines(curfile);
+   218: 		    inc_source_rlength(curfile, def_length(curdef));
+   219: 		    inc_source_calls(curfile, def_num_calls(curdef));
+   220: 		    list_def_end(curfile, curdef);
+   221: 		    curdef = NULL;	    
+   222: 		    break;
+   223: 	    case ROUTINE_REF:
+   224: 
+   225: 		    /*+							    */
+   226: 		    /*	Routine reference found: Make sure this is inside a */
+   227: 		    /*	routine definition (as opposed to a static data	    */
+   228: 		    /*	initializer macro or some other construct that the  */
+   229: 		    /*	parser has misconstrued as a routine call). Find    */
+   230: 		    /*	the definition of the referenced routine, add a	    */
+   231: 		    /*	reference entry for it to current routine being	    */
+   232: 		    /*	defined, and add a caller entry to it for the	    */
+   233: 		    /*	current routine.				    */
+   234: 		    /*-							    */
+   235: 
+   236: 		    if (curdef != NULL) {   
+   237: 			refdef = find_def(element, NULL);
+   238: 			curref = new_ref(sourceline, refdef, curdef);
+   239: 			add_ref(curdef, curref);    
+   240: 		        list_ref(curfile, curref);
+   241: 			curref = new_ref(sourceline, refdef, curdef);
+   242: 			add_caller(refdef, curref);
+   243: 		    }
+   244: 		    break;
+   245: 	    }
+   246: 	}
+   247: 
+   248: 	/*+								    */
+   249: 	/*  Parser has reached the end of the source file, close it and	    */
+   250: 	/*  roll up all file counts to total product counters.		    */
+   251: 	/*-								    */
+   252: 
+   253: 	fclose(sourcefile);
+   254: 	inc_total_comments(source_comments(curfile));
+   255: 	inc_total_statements(source_statements(curfile));
+   256: 	inc_total_mixed(source_mixed(curfile));
+   257: 	inc_total_empty(source_empty(curfile));
+   258: 	inc_total_routines(source_routines(curfile));
+   259: 	inc_total_rlength(source_rlength(curfile));
+   260: 	inc_total_calls(source_calls(curfile));
+   261: 	list_file_end(curfile);
+   262: 	return 1;
+   263:     }
+   264: }
+</PRE>
+END analyze_file. Go to: <A HREF="#d10034600">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   265: 
+   266: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034680">ROUTINE</A> <A HREF="ranalyzer_xref.html#x10034680">analyze_product</A>. Go to: 
+<A HREF="#d10034c80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   267: int analyze_product(
+   268: /* Processes a product definition file. This file contains a line for the   */
+   269: /* product name, then one line for each product source file.  Analyzes the  */
+   270: /* source code in each product source file, then produces analysis reports  */
+   271: /* for the product.							    */
+   272: 
+   273:     char    *aProductName
+   274: 		/* (READ, BY ADDR):					    */
+   275: 		/* Product file name string.				    */
+   276: 		
+   277: )	/* Returns status indication:					    */
+   278: 	/*  1	- Product analyzed successfully.			    */
+   279: 	/*  0   - Product not analyzed successfully.			    */
+   280: 	/*****************************************************************--*/
+   281: 
+   282: {
+   283:     FILE    *productfile;		    /* Product file ptr.	    */
+   284: 					    /* Product name buffer.	    */
+   285:     char    productname[MAX_PRODUCT_NAME + 1];  
+   286:     char    sourcebuf[MAX_FILE_NAME + 1];   /* Source file line buffer.	    */
+   287:     char    sourcename[MAX_FILE_NAME + 1];  /* Source file name buffer.	    */
+   288:     char    outputname[MAX_FILE_NAME + 1];  /* Output file name buffer.	    */
+   289:     PARSER  *parser;			    /* Parser function for source   */
+   290: 					    /* language.		    */
+   291:     char    *parsername;		    /* Parser language name ptr.    */
+   292:     int	    tabsize;			    /* File tab size.		    */
+   293: 
+   294:     /*+									    */
+   295:     /*	Analyze each source file listed in the product definition file.	    */
+   296:     /*	Abort if the product file cannot be opened or an error occurs	    */
+   297:     /*	during analysis. The appropriate parser must be determined	    */
+   298:     /*	individually for each file.					    */
+   299:     /*-									    */
+   300: 
+   301: 					    /* Open product file.	    */
+   302:     if ((productfile = fopen(aProductName, "r")) == NULL) {
+   303: 	printf("ERROR: Unable to open product file %s for input\n",
+   304: 	    aProductName);
+   305: 	return 0;
+   306:     }
+   307:     else if (fgets(productname, sizeof(productname), productfile) == NULL) {
+   308: 	printf("ERROR: Unable to read product name from file %s\n",
+   309: 	    aProductName);
+   310: 	return 0;
+   311:     }
+   312:     else {
+   313: 	productname[strlen(productname) - 1] = '\0';
+   314: 	set_product_name(productname);
+   315: 	list_product_begin(aProductName);
+   316: 					    /* Get next source file name.   */
+   317: 	while (fgets(sourcebuf, sizeof(sourcebuf), productfile) != NULL) {
+   318: 
+   319: 	    if (sscanf(sourcebuf, "%s %d", sourcename, &amp;tabsize) &lt; 2) {
+   320: 		tabsize = TAB_SIZE;
+   321: 	    }
+   322: 					    /* Get parser for file type and */
+   323: 					    /* analyze file.		    */
+   324: 	    if ((parser = get_parser(sourcename, &amp;parsername)) == NULL
+   325: 		|| !analyze_file(sourcename, tabsize, parser, parsername)) {
+   326: 		fclose(productfile);
+   327: 		return 0;
+   328: 	    }
+   329: 	}
+   330: 	fclose(productfile);
+   331: 	list_analysis_complete(aProductName);
+   332:     }
+   333: 
+   334:     /*+									    */
+   335:     /*	Write alphabetical reports (ordered by routine name): defined and   */
+   336:     /*	undefined routines; calls/callers for defined routines; and call    */
+   337:     /*	trees for defined routines. Before the last report, duplicate	    */
+   338:     /*	references must be trimmed from the routine definitions so that	    */
+   339:     /*	minimal call trees can be generated (i.e. a routine will appear	    */
+   340:     /*	only once in a given level of a call tree).			    */
+   341:     /*-									    */
+   342: 
+   343:     if (rpt_html_enabled()) {
+   344: 	assign_xreffiles();
+   345: 	assign_byfilefiles();
+   346:     }
+   347:     if (rpt_defined_enabled())
+   348: 	report_defined(make_filename(outfile_prefix(), OUTFILE_SUFFIX_DEFLIST,
+   349: 	    report_filext(), outputname));
+   350:     if (rpt_undefined_enabled())
+   351: 	report_undefined(make_filename(outfile_prefix(), OUTFILE_SUFFIX_UNDEFLIST,
+   352: 	    report_filext(), outputname));
+   353:     if (rpt_calls_enabled())
+   354: 	report_calls(make_filename(outfile_prefix(), OUTFILE_SUFFIX_CALLS,
+   355: 	    report_filext(), outputname));
+   356:     discard_dup_refs();			    /* Trim duplicate refs.	    */
+   357: #if 0
+   358:     if (rpt_trees_enabled())
+   359: 	report_call_trees(make_filename(outfile_prefix(), OUTFILE_SUFFIX_CALLTREES,
+   360: 	    report_filext(), outputname));
+   361: #endif
+   362:     if (rpt_xrefs_enabled())
+   363: 	report_xrefs(make_filename(outfile_prefix(), OUTFILE_SUFFIX_XREF,
+   364: 	    report_filext(), outputname));
+   365: 
+   366:     /*+									    */
+   367:     /*	Sort the file definitions by source file and beginning line number  */
+   368:     /*	and write the defined routines in this order. Finally, report the   */
+   369:     /*	product files.							    */
+   370:     /*-									    */
+   371: 
+   372:     sort_file_order();
+   373:     if (rpt_byfile_enabled())
+   374: 	report_by_file(make_filename(outfile_prefix(), OUTFILE_SUFFIX_BYFILE,
+   375: 	    report_filext(), outputname));
+   376:     if (rpt_files_enabled())
+   377: 	report_files(make_filename(outfile_prefix(), OUTFILE_SUFFIX_FILES,
+   378: 	    report_filext(), outputname));
+   379:     if (rpt_source_enabled())
+   380: 	report_source(OUTFILE_SUFFIX_SOURCE);
+   381: 
+   382:     list_product_end(aProductName);
+   383:     return 1;				    /* Successful completion	    */
+   384: }
+</PRE>
+END analyze_product. Go to: <A HREF="#d10034680">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   385: 
+   386: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034c80">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10034c80">cmdopt_set</A>. Go to: 
+<A HREF="#d10034d00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   387: int cmdopt_set(
+   388: /* Common command line option handler to set simple toggle options.	    */
+   389: 
+   390:     int	    vToggleFlag
+   391: 	    /* (READ, BY VAL):						    */
+   392: 	    /* Toggle flag to set.					    */
+   393: 
+   394: )	/* Returns 1 to indicate successful processing of this option.	    */
+   395: 	/*****************************************************************--*/
+   396: 
+   397: {
+   398:     set_option(vToggleFlag);
+   399:     return 1;
+   400: }
+</PRE>
+END cmdopt_set. Go to: <A HREF="#d10034c80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   401: 
+   402: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034d00">ROUTINE</A> <A HREF="ranalyzer_xrf00001.html#x10034d00">cmdopt_clear</A>. Go to: 
+<A HREF="#d10034d80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   403: int cmdopt_clear(
+   404: /* Common command line option handler to clear simple toggle options.	    */
+   405: 
+   406:     int	    vToggleFlag
+   407: 	    /* (READ, BY VAL):						    */
+   408: 	    /* Toggle flag to clear.					    */
+   409: 
+   410: )	/* Returns 1 to indicate successful processing of this option.	    */
+   411: 	/*****************************************************************--*/
+   412: 
+   413: {
+   414:     clear_option(vToggleFlag);
+   415:     return 1;
+   416: }
+</PRE>
+END cmdopt_clear. Go to: <A HREF="#d10034d00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   417: 
+   418: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034d80">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10034d80">cmdopt_trace</A>. Go to: 
+<A HREF="#d10034e00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   419: int cmdopt_trace(
+   420: /* Command line option handler to set specified traces.			    */
+   421: 
+   422:     int	    vOptCode,
+   423: 	    /* (READ, BY VAL):						    */
+   424: 	    /* Option keyword translation code, ignored by this routine.    */
+   425: 
+   426:     char    *aValStr
+   427: 	    /* (READ, BY ADDR):						    */
+   428: 	    /* Option value string, preceded by equal sign.		    */
+   429:     
+   430: )	/* Returns status code:						    */
+   431: 	/*  1	- Successful processing of this option.			    */
+   432: 	/*  0	- Report keywords missing.				    */
+   433: 	/*****************************************************************--*/
+   434: 
+   435: {
+   436: 					    /* Trace option keyword	    */
+   437: 					    /* dispatch table.		    */
+   438:     static KEYWORD_DEFINITION keywords[] = {
+   439: 	{"memalloc",	3, cmdopt_set,  TRACE_MEM_ENABLE},
+   440: 	{"strings",	3, cmdopt_set,  TRACE_STR_ENABLE},
+   441: 	{"objects",	3, cmdopt_set,  TRACE_OBJ_ENABLE},
+   442: 	{"reports",	3, cmdopt_set,  TRACE_RPT_ENABLE},
+   443: 	{"plevel",	3, cmdopt_set,  TRACE_PLEVEL_ENABLE},
+   444: 	{"blevel",	3, cmdopt_set,  TRACE_BLEVEL_ENABLE},
+   445: 	{"parser",	3, cmdopt_set,  TRACE_PARSER_ENABLE},
+   446: 	{NULL,		0, NULL}	    /* End of table.		    */
+   447:     };
+   448: 
+   449:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR &amp;&amp; *aValStr != '\0') {
+   450: 	if (!process_keyword(aValStr, keywords)) {
+   451: 	    printf("ERROR: Unable to process %ctrace option",
+   452: 		CMDLINE_OPTION_SWITCH);
+   453: 	    return 0;
+   454: 	}
+   455: 	else {
+   456: 	    return 1;
+   457: 	}
+   458:     }
+   459:     else {
+   460: 	printf("ERROR: %ctrace option requires trace type keyword or list\n",
+   461: 	    CMDLINE_OPTION_SWITCH);
+   462: 	return 0;
+   463:     }
+   464: }
+</PRE>
+END cmdopt_trace. Go to: <A HREF="#d10034d80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   465: 
+   466: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034e00">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10034e00">cmdopt_log</A>. Go to: 
+<A HREF="#d10034f00">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   467: int cmdopt_log(
+   468: /* Command line option handler to set log file for stdout logging.	    */
+   469: 
+   470:     int	    vOptCode,
+   471: 	    /* (READ, BY VAL):						    */
+   472: 	    /* Option keyword translation code, ignored by this routine.    */
+   473: 
+   474:     char    *aValStr
+   475: 	    /* (READ, BY ADDR):						    */
+   476: 	    /* Option value string, preceded by equal sign.		    */
+   477:     
+   478: )	/* Returns status code:						    */
+   479: 	/*  1	- Successful processing of this option.			    */
+   480: 	/*  0	- Log file name missing, or file cannot be opened.	    */
+   481: 	/*****************************************************************--*/
+   482: 
+   483: {
+   484:     /*+									    */
+   485:     /*	If a file name value has been supplied, reopen stdout on that file. */
+   486:     /*-									    */
+   487: 
+   488:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR &amp;&amp; *aValStr != '\0') {
+   489: 	if (freopen(aValStr, "w", stdout) != NULL) {
+   490: 	    return 1;
+   491: 	}
+   492: 	else {
+   493: 	    printf("ERROR: Unable to open log file %s for output\n", aValStr);
+   494: 	    return 0;
+   495: 	}
+   496:     }
+   497:     else {
+   498: 	printf("ERROR: %clog option requires log file name\n",
+   499: 	    CMDLINE_OPTION_SWITCH);
+   500: 	return 0;
+   501:     }
+   502: }
+</PRE>
+END cmdopt_log. Go to: <A HREF="#d10034e00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   503: 
+   504: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034f00">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10034f00">cmdopt_list</A>. Go to: 
+<A HREF="#d10034f80">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   505: int cmdopt_list(
+   506: /* Command line option handler to enable listing file. Attempts to create   */
+   507: /* listing file.							    */
+   508: 
+   509:     /* No arguments.							    */
+   510: 
+   511: )	/* Returns status code:						    */
+   512: 	/*  1	- Successful processing of this option.			    */
+   513: 	/*  0	- Unable to open listing file.				    */
+   514: 	/*****************************************************************--*/
+   515: 
+   516: {
+   517:     char    name[MAX_FILE_NAME + 1];		/* Listing file name.	    */
+   518: 
+   519:     set_option(LIST_ENABLE);
+   520:     if (open_list_file(make_filename(outfile_prefix(), OUTFILE_SUFFIX_LIST,
+   521: 	    OUTFILE_EXT_LIST, name)) == NULL) {
+   522: 	printf("ERROR: Unable to open listing file %s for output\n", name);
+   523: 	return 0;
+   524:     }
+   525:     else {
+   526: 	return 1;
+   527:     }
+   528: }
+</PRE>
+END cmdopt_list. Go to: <A HREF="#d10034f00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   529: 
+   530: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10034f80">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10034f80">cmdopt_outprefix</A>. Go to: 
+<A HREF="#d10039000">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   531: int cmdopt_outprefix(
+   532: /* Command line option handler to set report file output prefix.	    */
+   533: 
+   534:     int	    vOptCode,
+   535: 	    /* (READ, BY VAL):						    */
+   536: 	    /* Option keyword translation code, ignored by this routine.    */
+   537: 
+   538:     char    *aValStr
+   539: 	    /* (READ, BY ADDR):						    */
+   540: 	    /* Option value string, preceded by equal sign.		    */
+   541:     
+   542: )	/* Returns status code:						    */
+   543: 	/*  1	- Successful processing of this option.			    */
+   544: 	/*  0	- Prefix missing.					    */
+   545: 	/*****************************************************************--*/
+   546: 
+   547: {
+   548:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR &amp;&amp; *aValStr != '\0') {
+   549: 	set_outfile_prefix(aValStr);
+   550: 	return 1;
+   551:     }
+   552:     else {
+   553: 	printf("ERROR: %coutprefix option requires prefix string\n",
+   554: 	    CMDLINE_OPTION_SWITCH);
+   555: 	return 0;
+   556:     }
+   557: }
+</PRE>
+END cmdopt_outprefix. Go to: <A HREF="#d10034f80">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   558: 
+   559: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039000">ROUTINE</A> <A HREF="ranalyzer_xrf00001.html#x10039000">cmdopt_description</A>. Go to: 
+<A HREF="#d10039080">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   560: int cmdopt_description(
+   561: /* Command line option handler to set the product description file name.    */
+   562: 
+   563:     int	    vOptCode,
+   564: 	    /* (READ, BY VAL):						    */
+   565: 	    /* Option keyword translation code, ignored by this routine.    */
+   566: 
+   567:     char    *aValStr
+   568: 	    /* (READ, BY ADDR):						    */
+   569: 	    /* Option value string, preceded by equal sign.		    */
+   570:     
+   571: )	/* Returns status code:						    */
+   572: 	/*  1	- Successful processing of this option.			    */
+   573: 	/*  0	- Option value out of range.				    */
+   574: 	/*****************************************************************--*/
+   575: 
+   576: {
+   577:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR) {
+   578: 	set_product_description(aValStr);
+   579: 	return 1;
+   580:     }
+   581:     printf("ERROR: %cdescription option requires file name\n",
+   582: 	CMDLINE_OPTION_SWITCH);
+   583:     return 0;
+   584: }
+</PRE>
+END cmdopt_description. Go to: <A HREF="#d10039000">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   585: 
+   586: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039080">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10039080">cmdopt_separate</A>. Go to: 
+<A HREF="#d10039200">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   587: int cmdopt_separate(
+   588: /* Command line option handler to set list of routines for which separate   */
+   589: /* call trees MUST be generated if they call anything. The option value is  */
+   590: /* the name of a file containing a list of routine names, one per line.	    */
+   591: 
+   592:     int	    vOptCode,
+   593: 	    /* (READ, BY VAL):						    */
+   594: 	    /* Option keyword translation code, ignored by this routine.    */
+   595: 
+   596:     char    *aValStr
+   597: 	    /* (READ, BY ADDR):						    */
+   598: 	    /* Option value string, preceded by equal sign.		    */
+   599:     
+   600: )	/* Returns status code:						    */
+   601: 	/*  1	- Successful processing of this option.			    */
+   602: 	/*  0	- List file name missing, or file cannot be opened.	    */
+   603: 	/*****************************************************************--*/
+   604: 
+   605: {
+   606:     FILE    *sepfile;			    /* Sep routine list file ptr.   */
+   607:     int	    rcount;			    /* Routine name count.	    */
+   608:     char    rname[MAX_ROUTINE_NAME * 2];    /* Routine name buffer.	    */
+   609:     char    **rlist;			    /* Ptr to routine name list.    */
+   610:     
+   611:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR &amp;&amp; *aValStr != '\0') {
+   612: 	if ((sepfile = fopen(aValStr, "r")) != NULL) {
+   613: 						/* Count lines in file.	    */
+   614: 	    for (rcount = 0; fgets(rname, sizeof(rname), sepfile) != NULL;
+   615: 		rcount++);
+   616: 					    /* Allocate routine name list   */
+   617: 					    /* and terminate it.	    */
+   618: 	    rlist = malloc((rcount + 1) * sizeof(char *));
+   619: 	    rlist[rcount] = NULL;
+   620: 
+   621: 	    /*+								    */
+   622: 	    /*	Reset to beginning of file. For each line in file, get the  */
+   623: 	    /*	routine name, stripping the ending newline. Allocate memory */
+   624: 	    /*	for it, copy the name to the memory, and put the memory ptr */
+   625: 	    /*	in the routine name list.				    */
+   626: 	    /*-								    */
+   627: 
+   628: 	    fseek(sepfile, 0, SEEK_SET); 
+   629: 	    while (rcount-- &gt; 0) {
+   630: 		fgets(rname, sizeof(rname), sepfile);
+   631: 		rname[strlen(rname) - 1] = '\0';
+   632: 		rlist[rcount] = strcpy(malloc(strlen(rname) + 1), rname);
+   633: 	    }
+   634: 	    fclose(sepfile);
+   635: 	    set_separate_list(rlist);	    /* Save list in global db.	    */
+   636: 	    return 1;
+   637: 	    
+   638: 	}
+   639: 	else {
+   640: 	    printf("ERROR: Unable to open separate routine file %s for input\n",
+   641: 		aValStr);
+   642: 	    return 0;
+   643: 	}
+   644:     }
+   645:     else {
+   646: 	printf("ERROR: %cseparate option requires routine list file name\n",
+   647: 	    CMDLINE_OPTION_SWITCH);
+   648: 	return 0;
+   649:     }
+   650: }
+</PRE>
+END cmdopt_separate. Go to: <A HREF="#d10039080">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   651: 
+   652: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039200">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10039200">cmdopt_language</A>. Go to: 
+<A HREF="#d10039280">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   653: int cmdopt_language(
+   654: /* Command line option handler to set list of source file extension	    */
+   655: /* language translations.						    */
+   656: 
+   657:     int	    vOptCode,
+   658: 	    /* (READ, BY VAL):						    */
+   659: 	    /* Option keyword translation code, ignored by this routine.    */
+   660: 
+   661:     char    *aValStr
+   662: 	    /* (READ, BY ADDR):						    */
+   663: 	    /* Option value string, preceded by equal sign.		    */
+   664:     
+   665: )	/* Returns status code:						    */
+   666: 	/*  1	- Successful processing of this option.			    */
+   667: 	/*  0	- Language file name missing, file cannot be opened, or	    */
+   668: 	/*	  invalid language definition found.			    */
+   669: 	/*****************************************************************--*/
+   670: 
+   671: {
+   672:     static KEYWORD_DEFINITION languages[] = {
+   673: 	{"text",	3, NULL, LANGUAGE_TEXT},
+   674: 	{"dcl",		3, NULL, LANGUAGE_DCL},
+   675: 	{"bliss",	3, NULL, LANGUAGE_BLISS},
+   676: 	{"c",		1, NULL, LANGUAGE_CC},
+   677: 	{NULL,          0, NULL}	    /* End of table.		    */
+   678:     };
+   679:     FILE    *langfile;			    /* Lang translation file ptr.   */
+   680:     char    translation[512];		    /* Translation string buffer.   */
+   681:     char    *fextbegin;			    /* File extension ptr.	    */
+   682:     char    *fextend;			    /* File extension end ptr.	    */
+   683:     SOURCE_LANGUAGE			    /* Language identification.	    */
+   684: 	    langcode;
+   685: 					    /* Check for equal sign and	    */
+   686: 					    /* make sure there is a file.   */
+   687:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR &amp;&amp; *aValStr != '\0') {
+   688: 	if ((langfile = fopen(aValStr, "r")) != NULL) {
+   689: 	
+   690: 					    /* For each line, locate	    */
+   691: 					    /* beginning of text.	    */
+   692: 	    while (fgets(translation, sizeof(translation), langfile) != NULL) {
+   693: 		translation[strlen(translation) - 1] = '\0';
+   694: 		for (fextbegin = translation;
+   695: 		    *fextbegin != '\0' &amp;&amp; isspace(*fextbegin) &amp;&amp;
+   696: 		    *fextbegin != CMDLINE_OPTION_COMMENT;
+   697: 		    fextbegin++);
+   698: 					    /* Ignore comment lines. Find   */
+   699: 					    /* end of translation field and */
+   700: 					    /* process translation.	    */
+   701: 		if (*fextbegin != CMDLINE_OPTION_COMMENT) {
+   702: 		    for (fextend = fextbegin;
+   703: 			*fextend &gt; ' ' &amp;&amp; *fextend != CMDLINE_OPTION_SEPARATOR;
+   704: 			fextend++);
+   705: 		    if (*fextend != CMDLINE_OPTION_SEPARATOR
+   706: 			|| !isalnum(*(fextend + 1))) {
+   707: 			printf(
+   708: 		    "ERROR: Invalid language definition in language file %s\n",
+   709: 			    aValStr);
+   710: 			printf(
+   711: 		    "       Language name missing in definition %s\n",
+   712: 			    fextbegin);
+   713: 			fclose(langfile);
+   714: 			return 0;
+   715: 		    }
+   716: 		    else {
+   717: 			*fextend++ = '\0';
+   718: 			if ((langcode = translate_keyword(fextend,
+   719: 			    languages)) == LANGUAGE_UNKNOWN) {
+   720: 			    printf(
+   721: 		    "ERROR: Invalid language definition in language file %s\n",
+   722: 			    aValStr);
+   723: 			    printf("       Language %s unknown\n", fextend);
+   724: 			    fclose(langfile);
+   725: 			    return 0;
+   726: 			}
+   727: 			else {
+   728: 			    add_lang(new_lang(fextbegin, langcode));
+   729: 			}
+   730: 		    }
+   731: 		}
+   732: 	    }
+   733: 	    fclose(langfile);
+   734: 	    return 1;
+   735: 	}
+   736: 	else {
+   737: 	    printf("ERROR: Unable to open language file %s for input\n",
+   738: 		aValStr);
+   739: 	    return 0;
+   740: 	}
+   741:     }
+   742:     else {
+   743: 	printf("ERROR: %clanguage option requires language file name\n",
+   744: 	    CMDLINE_OPTION_SWITCH);
+   745: 	return 0;
+   746:     }
+   747: }
+</PRE>
+END cmdopt_language. Go to: <A HREF="#d10039200">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   748: 
+   749: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039280">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10039280">cmdopt_urlprefix</A>. Go to: 
+<A HREF="#d10039300">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   750: int cmdopt_urlprefix(
+   751: /* Command line option handler to set HTML URL prefix.			    */
+   752: 
+   753:     int	    vOptCode,
+   754: 	    /* (READ, BY VAL):						    */
+   755: 	    /* Option keyword translation code, ignored by this routine.    */
+   756: 
+   757:     char    *aValStr
+   758: 	    /* (READ, BY ADDR):						    */
+   759: 	    /* Option value string, preceded by equal sign.		    */
+   760:     
+   761: )	/* Returns status code:						    */
+   762: 	/*  1	- Successful processing of this option.			    */
+   763: 	/*  0	- Prefix missing.					    */
+   764: 	/*****************************************************************--*/
+   765: 
+   766: {
+   767:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR &amp;&amp; *aValStr != '\0') {
+   768: 	set_url_prefix(aValStr);
+   769: 	return 1;
+   770:     }
+   771:     else {
+   772: 	printf("ERROR: %curlprefix option requires prefix string\n",
+   773: 	    CMDLINE_OPTION_SWITCH);
+   774: 	return 0;
+   775:     }
+   776: }
+</PRE>
+END cmdopt_urlprefix. Go to: <A HREF="#d10039280">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   777: 
+   778: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039300">ROUTINE</A> <A HREF="ranalyzer_xrf00001.html#x10039300">cmdopt_callers</A>. Go to: 
+<A HREF="#d10039380">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   779: int cmdopt_callers(
+   780: /* Command line option handler to set maximum number of callers to allow    */
+   781: /* inline expansion of routine call subtrees.				    */
+   782: 
+   783:     int	    vOptCode,
+   784: 	    /* (READ, BY VAL):						    */
+   785: 	    /* Option keyword translation code, ignored by this routine.    */
+   786: 
+   787:     char    *aValStr
+   788: 	    /* (READ, BY ADDR):						    */
+   789: 	    /* Option value string, preceded by equal sign.		    */
+   790:     
+   791: )	/* Returns status code:						    */
+   792: 	/*  1	- Successful processing of this option.			    */
+   793: 	/*  0	- Option value out of range.				    */
+   794: 	/*****************************************************************--*/
+   795: 
+   796: {
+   797:     int	    maxcallers;			    /* Option value.		    */
+   798: 
+   799:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR) {
+   800: 	maxcallers = atoi(aValStr);
+   801: 	if (maxcallers &gt;= MIN_MAX_CALLERS &amp;&amp; maxcallers &lt;= MAX_MAX_CALLERS) {
+   802: 	    set_max_callers(maxcallers);
+   803: 	    return 1;
+   804: 	}
+   805:     }
+   806:     printf("ERROR: %ccallers option requires value between %d and %d\n",
+   807: 	CMDLINE_OPTION_SWITCH, MIN_MAX_CALLERS, MAX_MAX_CALLERS);
+   808:     return 0;
+   809: }
+</PRE>
+END cmdopt_callers. Go to: <A HREF="#d10039300">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   810: 
+   811: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039380">ROUTINE</A> <A HREF="ranalyzer_xrf00001.html#x10039380">cmdopt_depth</A>. Go to: 
+<A HREF="#d10039400">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   812: int cmdopt_depth(
+   813: /* Command line option handler to set maximum call tree expansion depth.    */
+   814: 
+   815:     int	    vOptCode,
+   816: 	    /* (READ, BY VAL):						    */
+   817: 	    /* Option keyword translation code, ignored by this routine.    */
+   818: 
+   819:     char    *aValStr
+   820: 	    /* (READ, BY ADDR):						    */
+   821: 	    /* Option value string, preceded by equal sign.		    */
+   822:     
+   823: )	/* Returns status code:						    */
+   824: 	/*  1	- Successful processing of this option.			    */
+   825: 	/*  0	- Option value out of range.				    */
+   826: 	/*****************************************************************--*/
+   827: 
+   828: {
+   829:     int	    maxdepth;			    /* Option value.		    */
+   830: 
+   831:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR) {
+   832: 	maxdepth = atoi(aValStr);
+   833: 	if (maxdepth &gt; 0 &amp;&amp; maxdepth &lt; MAX_TREE_DEPTH) {
+   834: 	    set_max_tree_depth(maxdepth);
+   835: 	    return 1;
+   836: 	}
+   837:     }
+   838:     printf("ERROR: %cdepth option requires value between %d and %d\n",
+   839: 	CMDLINE_OPTION_SWITCH, 1, MAX_TREE_DEPTH - 1);
+   840:     return 0;
+   841: }
+</PRE>
+END cmdopt_depth. Go to: <A HREF="#d10039380">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   842: 
+   843: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039400">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10039400">cmdopt_report</A>. Go to: 
+<A HREF="#d10039480">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   844: int cmdopt_report(
+   845: /* Command line option handler to set specified report generation.	    */
+   846: 
+   847:     int	    vOptCode,
+   848: 	    /* (READ, BY VAL):						    */
+   849: 	    /* Option keyword translation code, ignored by this routine.    */
+   850: 
+   851:     char    *aValStr
+   852: 	    /* (READ, BY ADDR):						    */
+   853: 	    /* Option value string, preceded by equal sign.		    */
+   854:     
+   855: )	/* Returns status code:						    */
+   856: 	/*  1	- Successful processing of this option.			    */
+   857: 	/*  0	- Report keywords missing.				    */
+   858: 	/*****************************************************************--*/
+   859: 
+   860: {
+   861: 					    /* Report option keyword	    */
+   862: 					    /* dispatch table.		    */
+   863:     static KEYWORD_DEFINITION keywords[] = {
+   864: 	{"defined",	3, cmdopt_clear,    RPT_DEFINED_DISABLE},
+   865: 	{"undefined",	3, cmdopt_clear,    RPT_UNDEFINED_DISABLE},
+   866: 	{"calls",	3, cmdopt_clear,    RPT_CALLS_DISABLE},	    
+   867: 	{"trees",	3, cmdopt_clear,    RPT_TREES_DISABLE},	    
+   868: 	{"xrefs",	3, cmdopt_clear,    RPT_XREFS_DISABLE},	    
+   869: 	{"files",	3, cmdopt_clear,    RPT_FILES_DISABLE},	    
+   870: 	{"byfile",	3, cmdopt_clear,    RPT_BYFILE_DISABLE},	    
+   871: 	{"source",	3, cmdopt_clear,    RPT_SOURCE_DISABLE},	    
+   872: 	{NULL,		0, NULL}	    /* End of table.		    */
+   873:     };
+   874: 
+   875:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR &amp;&amp; *aValStr != '\0') {
+   876:     
+   877: 					    /* Disable all reports, then    */
+   878: 					    /* enable only those specified  */
+   879: 	set_option( RPT_DEFINED_DISABLE |   /* by keyword.		    */
+   880: 		     RPT_UNDEFINED_DISABLE |
+   881: 		     RPT_CALLS_DISABLE |
+   882: 		     RPT_TREES_DISABLE |
+   883: 		     RPT_XREFS_DISABLE |
+   884: 		     RPT_BYFILE_DISABLE |
+   885: 		     RPT_FILES_DISABLE |
+   886: 		     RPT_SOURCE_DISABLE);
+   887: 	if (!process_keyword(aValStr, keywords)) {
+   888: 	    printf("ERROR: Unable to process %creport option",
+   889: 		CMDLINE_OPTION_SWITCH);
+   890: 	    return 0;
+   891: 	}
+   892: 	else {
+   893: 	    return 1;
+   894: 	}
+   895:     }
+   896:     else {
+   897: 	printf("ERROR: %creport option requires report type keyword or list\n",
+   898: 	    CMDLINE_OPTION_SWITCH);
+   899: 	return 0;
+   900:     }
+   901: }
+</PRE>
+END cmdopt_report. Go to: <A HREF="#d10039400">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   902: 
+   903: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039480">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10039480">cmdopt_noreport</A>. Go to: 
+<A HREF="#d10039500">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   904: int cmdopt_noreport(
+   905: /* Command line option handler to suppress specified report generation.	    */
+   906: 
+   907:     int	    vOptCode,
+   908: 	    /* (READ, BY VAL):						    */
+   909: 	    /* Option keyword translation code, ignored by this routine.    */
+   910: 
+   911:     char    *aValStr
+   912: 	    /* (READ, BY ADDR):						    */
+   913: 	    /* Option value string, preceded by equal sign.		    */
+   914:     
+   915: )	/* Returns status code:						    */
+   916: 	/*  1	- Successful processing of this option.			    */
+   917: 	/*  0	- Report keywords missing.				    */
+   918: 	/*****************************************************************--*/
+   919: 
+   920: {
+   921: 					    /* No-report option keyword	    */
+   922: 					    /* dispatch table.		    */
+   923:     static KEYWORD_DEFINITION keywords[] = {
+   924: 	{"defined",	3, cmdopt_set,    RPT_DEFINED_DISABLE},
+   925: 	{"undefined",	3, cmdopt_set,    RPT_UNDEFINED_DISABLE},
+   926: 	{"calls",	3, cmdopt_set,    RPT_CALLS_DISABLE},	    
+   927: 	{"trees",	3, cmdopt_set,    RPT_TREES_DISABLE},	    
+   928: 	{"xrefs",	3, cmdopt_set,    RPT_XREFS_DISABLE},	    
+   929: 	{"files",	3, cmdopt_set,    RPT_FILES_DISABLE},	    
+   930: 	{"byfile",	3, cmdopt_set,    RPT_BYFILE_DISABLE},	    
+   931: 	{"source",	3, cmdopt_set,    RPT_SOURCE_DISABLE},	    
+   932: 	{NULL,		0, NULL}	    /* End of table.		    */
+   933:     };
+   934: 
+   935:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR &amp;&amp; *aValStr != '\0') {
+   936: 	if (!process_keyword(aValStr, keywords)) {
+   937: 	    printf("ERROR: Unable to process %cnoreport option",
+   938: 		CMDLINE_OPTION_SWITCH);
+   939: 	    return 0;
+   940: 	}
+   941: 	else {
+   942: 	    return 1;
+   943: 	}
+   944:     }
+   945:     else {
+   946: 	printf(
+   947: 	    "ERROR: %cnoreport option requires report type keyword or list\n",
+   948: 	    CMDLINE_OPTION_SWITCH);
+   949: 	return 0;
+   950:     }
+   951: }
+</PRE>
+END cmdopt_noreport. Go to: <A HREF="#d10039480">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   952: 
+   953: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039500">ROUTINE</A> <A HREF="ranalyzer_xrf00001.html#x10039500">cmdopt_fmt_kwhandler</A>. Go to: 
+<A HREF="#d10039580">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   954: int cmdopt_fmt_kwhandler(
+   955: /* Common keyword handler for format command line option.		    */
+   956: 
+   957:     report_output_format
+   958:     	    vFormat
+   959: 	    /* (READ, BY VAL):						    */
+   960: 	    /* Format code.						    */
+   961: 
+   962: )	/* Returns status flag:						    */
+   963: 	/*  1	- Successful processing of this option.			    */
+   964: 	/*  0	- Conflicting format option specified.			    */
+   965: 	/*****************************************************************--*/
+   966: 
+   967: {
+   968:     if (rpt_text_enabled() || report_format() != FORMAT_TEXT) {
+   969: 	puts("ERROR: Conflicting format options specififed");
+   970: 	return 0;
+   971:     }
+   972:     else {
+   973: 	switch (vFormat) {
+   974: 	case FORMAT_TEXT:
+   975: 	    set_option(RPT_TEXT_ENABLE);	/* Text has special flag.   */
+   976: 	case FORMAT_SDML:
+   977: 	case FORMAT_HTML:
+   978: 	    set_report_format(vFormat);
+   979: 	    break;
+   980: 	case FORMAT_RTF:
+   981: 	case FORMAT_WINHELP:
+   982: 	case FORMAT_VMSHELP:
+   983: puts("Sorry, the RTF, WINHELP, and VMSHELP formats are not yet implemented");
+   984: return 0;
+   985: 	    break;
+   986: 	}
+   987:         return 1;
+   988:     }
+   989: }
+</PRE>
+END cmdopt_fmt_kwhandler. Go to: <A HREF="#d10039500">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   990: 
+   991: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039580">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10039580">cmdopt_format</A>. Go to: 
+<A HREF="#d10039600">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   992: int cmdopt_format(
+   993: /* Command line option handler to set report output format.		    */
+   994: 
+   995:     int	    vOptCode,
+   996: 	    /* (READ, BY VAL):						    */
+   997: 	    /* Option keyword translation code, ignored by this routine.    */
+   998: 
+   999:     char    *aValStr
+  1000: 	    /* (READ, BY ADDR):						    */
+  1001: 	    /* Option value string, preceded by equal sign.		    */
+  1002:     
+  1003: )	/* Returns status code:						    */
+  1004: 	/*  1	- Successful processing of this option.			    */
+  1005: 	/*  0	- Format keyword missing.				    */
+  1006: 	/*****************************************************************--*/
+  1007: 
+  1008: {
+  1009: 					    /* Format option keyword	    */
+  1010: 					    /* dispatch table.		    */
+  1011:     static KEYWORD_DEFINITION keywords[] = {
+  1012: 	{"text",        3, cmdopt_fmt_kwhandler,    FORMAT_TEXT},
+  1013: 	{"sdml",        3, cmdopt_fmt_kwhandler,    FORMAT_SDML},
+  1014: 	{"html",        3, cmdopt_fmt_kwhandler,    FORMAT_HTML},
+  1015: 	{"rtf",		3, cmdopt_fmt_kwhandler,    FORMAT_RTF},
+  1016: 	{"winhelp",	3, cmdopt_fmt_kwhandler,    FORMAT_WINHELP},
+  1017: 	{"vmshelp",	3, cmdopt_fmt_kwhandler,    FORMAT_VMSHELP},
+  1018: 	{NULL,		0, NULL}	    /* End of table.		    */
+  1019:     };
+  1020: 
+  1021:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR &amp;&amp; *aValStr != '\0') {
+  1022: 	if (!process_keyword(aValStr, keywords)) {
+  1023: 	    printf("ERROR: Unable to process %cformat option",
+  1024: 		CMDLINE_OPTION_SWITCH);
+  1025: 	    return 0;
+  1026: 	}
+  1027: 	else {
+  1028: 	    return 1;
+  1029: 	}
+  1030:     }
+  1031:     else {
+  1032: 	printf("ERROR: %cformat option requires report format keyword\n",
+  1033: 	    CMDLINE_OPTION_SWITCH);
+  1034: 	return 0;
+  1035:     }
+  1036: }
+</PRE>
+END cmdopt_format. Go to: <A HREF="#d10039580">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+  1037: 
+  1038: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039600">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10039600">cmdopt_htmlbyfile</A>. Go to: 
+<A HREF="#d10039680">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+  1039: int cmdopt_htmlbyfile(
+  1040: /* Command line option handler to set maximum number of entries of HTML	    */
+  1041: /* output to allow per by-file file.					    */
+  1042: 
+  1043:     int	    vOptCode,
+  1044: 	    /* (READ, BY VAL):						    */
+  1045: 	    /* Option keyword translation code, ignored by this routine.    */
+  1046: 
+  1047:     char    *aValStr
+  1048: 	    /* (READ, BY ADDR):						    */
+  1049: 	    /* Option value string, preceded by equal sign.		    */
+  1050:     
+  1051: )	/* Returns status code:						    */
+  1052: 	/*  1	- Successful processing of this option.			    */
+  1053: 	/*  0	- Value missing.					    */
+  1054: 	/*****************************************************************--*/
+  1055: 
+  1056: {
+  1057:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR) {
+  1058: 	set_max_html_byfile(atoi(aValStr));
+  1059: 	return 1;
+  1060:     }
+  1061:     printf("ERROR: %chtmlbyfile option requires value\n",
+  1062: 	CMDLINE_OPTION_SWITCH);
+  1063:     return 0;
+  1064: }
+</PRE>
+END cmdopt_htmlbyfile. Go to: <A HREF="#d10039600">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+  1065: 
+  1066: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039680">ROUTINE</A> <A HREF="ranalyzer_xrf00002.html#x10039680">cmdopt_htmlxref</A>. Go to: 
+<A HREF="#d10039700">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+  1067: int cmdopt_htmlxref(
+  1068: /* Command line option handler to set maximum number of entries of HTML	    */
+  1069: /* output to allow per call xref file.					    */
+  1070: 
+  1071:     int	    vOptCode,
+  1072: 	    /* (READ, BY VAL):						    */
+  1073: 	    /* Option keyword translation code, ignored by this routine.    */
+  1074: 
+  1075:     char    *aValStr
+  1076: 	    /* (READ, BY ADDR):						    */
+  1077: 	    /* Option value string, preceded by equal sign.		    */
+  1078:     
+  1079: )	/* Returns status code:						    */
+  1080: 	/*  1	- Successful processing of this option.			    */
+  1081: 	/*  0	- Value missing.					    */
+  1082: 	/*****************************************************************--*/
+  1083: 
+  1084: {
+  1085:     if (*aValStr++ == CMDLINE_OPTION_SEPARATOR) {
+  1086: 	set_max_html_xref(atoi(aValStr));
+  1087: 	return 1;
+  1088:     }
+  1089:     printf("ERROR: %chtmlxref option requires value\n",
+  1090: 	CMDLINE_OPTION_SWITCH);
+  1091:     return 0;
+  1092: }
+</PRE>
+END cmdopt_htmlxref. Go to: <A HREF="#d10039680">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+  1093: 
+  1094: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039700">ROUTINE</A> <A HREF="ranalyzer_xrf00001.html#x10039700">cmdopt_author</A>. Go to: 
+<A HREF="#d10039780">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+  1095: int cmdopt_author(
+  1096: /* Command line option handler to show program author for posterity (gee,   */
+  1097: /* I'm embarrassed!).							    */
+  1098: 
+  1099:     /* No arguments.							    */
+  1100: 
+  1101: )	/* Returns 0 to indicate that this option is totally bogus!
+  1102: 	/*****************************************************************--*/
+  1103: 
+  1104: {
+  1105:     printf("%s %s\n%s\n", PROGRAM_IDENT, PROGRAM_COPYRIGHT, PROGRAM_AUTHOR);
+  1106:     return 0;
+  1107: }
+</PRE>
+END cmdopt_author. Go to: <A HREF="#d10039700">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+  1108: 
+  1109: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039780">ROUTINE</A> <A HREF="ranalyzer_xrf00029.html#x10039780">show_help</A>. Go to: 
+<A HREF="#d10039880">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+  1110: void show_help(
+  1111: /* Prints help information to stdout and EXITS PROGRAM.			    */
+  1112: 
+  1113:     /* No arguments.							    */
+  1114: 
+  1115: )	/* No return value.      					    */
+  1116: 	/*****************************************************************--*/
+  1117: 
+  1118: {
+  1119:     printf("%s %s\n\n", PROGRAM_IDENT, PROGRAM_COPYRIGHT);
+  1120:     puts(PROGRAM_PARAMS);
+  1121:     printf(PROGRAM_HELP, CMDLINE_OPTION_SWITCH);
+  1122:     puts(
+  1123: "\nWhere: product_file is the product definition file listing the source files");
+  1124:     puts(
+  1125: "          to be analyzed.");
+  1126:     puts(
+  1127: "       options are the following (they may be abbreviated):");
+  1128: #if 0 /* This help is too long and is incomplete! */
+  1129:     printf(
+  1130: "          %chelp - Show this full help and exit.\n", CMDLINE_OPTION_SWITCH);
+  1131:     printf(
+  1132: "          %clist - Create listing file &lt;output_prefix&gt;%s%s\n",
+  1133: 	CMDLINE_OPTION_SWITCH, OUTFILE_SUFFIX_LIST, OUTFILE_EXT_LIST);
+  1134:     printf(
+  1135: "          %csilent - Disable stdout logging.\n", CMDLINE_OPTION_SWITCH);
+  1136:     printf(
+  1137: "          %cbrief - Brief stdout logging.\n", CMDLINE_OPTION_SWITCH);
+  1138:     printf(
+  1139: "          %coutprefix=output_prefix - Output file pathname and filename prefix;\n",
+  1140: 	CMDLINE_OPTION_SWITCH);
+  1141:     puts(
+  1142: "             suffixes and extensions will be added to this prefix to create");
+  1143:     puts(
+  1144: "             full output file names.");
+  1145:     printf(
+  1146: "          %cdefinition - Log routine definitions.\n", CMDLINE_OPTION_SWITCH);
+  1147:     printf(
+  1148: "          %creference - Log routine references.\n", CMDLINE_OPTION_SWITCH);
+  1149:     printf(
+  1150: "          %cseparate=sep_file - Name of file containing routine names for which\n             separate trees must always be generated if they call anything.\n",
+  1151: 	CMDLINE_OPTION_SWITCH);
+  1152:     printf(
+  1153: "          %clanguage - Name of file containing language definitions of the\n            form &lt;ext&gt;=&lt;language&gt;, where &lt;ext&gt; is a file type extension, and\n            &lt;language&gt; is one of the keywords \"c\", \"bliss\", or \"text\".\n",
+  1154: 	CMDLINE_OPTION_SWITCH);
+  1155:     printf(
+  1156: "          %cnoinline - Generate separate call trees for all routines that call\n              anything.\n",
+  1157: 	CMDLINE_OPTION_SWITCH);
+  1158:     printf(
+  1159: "          %ctext - Format reports as plain text files (default).\n",
+  1160: 	CMDLINE_OPTION_SWITCH);
+  1161:     printf(
+  1162: "          %csdml - Format reports as Standard Digital Markup Language for\n              VAX Document.\n",
+  1163: 	CMDLINE_OPTION_SWITCH);
+  1164:     printf(
+  1165: "          %chtml - Format reports as Hyper Text Markup Language for World-\n              Wide Web browsers.\n",
+  1166: 	CMDLINE_OPTION_SWITCH);
+  1167:     printf(
+  1168: "          %ccallers=N - Set max callers for inline subtrees to N\n              (range %d-%d, default %d).\n",
+  1169: 	CMDLINE_OPTION_SWITCH, MIN_MAX_CALLERS, MAX_MAX_CALLERS,
+  1170: 	DEF_MAX_CALLERS);
+  1171: #else
+  1172:     printf("          %chelp                       %cauthor\n",
+  1173: 	CMDLINE_OPTION_SWITCH, CMDLINE_OPTION_SWITCH);
+  1174:     printf("          %coptions=opt_file           %ctrace=debug_list\n",
+  1175: 	CMDLINE_OPTION_SWITCH, CMDLINE_OPTION_SWITCH);
+  1176:     printf("          %clog=log_file               %clist\n",
+  1177: 	CMDLINE_OPTION_SWITCH, CMDLINE_OPTION_SWITCH);
+  1178:     printf("          %csilent                     %cbrief\n",
+  1179: 	CMDLINE_OPTION_SWITCH, CMDLINE_OPTION_SWITCH);
+  1180:     printf("          %coutprefix=outfile_prefix   %curlprefix=url_prefix\n",
+  1181: 	CMDLINE_OPTION_SWITCH, CMDLINE_OPTION_SWITCH);
+  1182:     printf("          %cformat=report_format       %cseparate=sep_file\n",
+  1183: 	CMDLINE_OPTION_SWITCH, CMDLINE_OPTION_SWITCH);
+  1184:     printf("          %clanguage=lang_file         %cdescription=desc_file\n",
+  1185: 	CMDLINE_OPTION_SWITCH, CMDLINE_OPTION_SWITCH);
+  1186:     printf("          %cdefinition                 %creference\n",
+  1187: 	CMDLINE_OPTION_SWITCH, CMDLINE_OPTION_SWITCH);
+  1188:     printf("          %ccallers=n                  %cdepth=n\n",
+  1189: 	CMDLINE_OPTION_SWITCH, CMDLINE_OPTION_SWITCH);
+  1190:     printf("          %creport=report_list         %cnoreport=report_list\n",
+  1191: 	CMDLINE_OPTION_SWITCH, CMDLINE_OPTION_SWITCH);
+  1192:     printf("          %chtmlbyfile=n               %chtmlxref=n\n",
+  1193: 	CMDLINE_OPTION_SWITCH, CMDLINE_OPTION_SWITCH);
+  1194:     printf("          %cnoinline\n",
+  1195: 	CMDLINE_OPTION_SWITCH);
+  1196: #endif
+  1197: 	
+  1198:     if (list_enabled()) {		    /* Close the listing file if    */
+  1199: 	fclose(list_file());		    /* one was created.		    */
+  1200:     }
+  1201:     
+  1202:     exit(0);				    /* End the program!		    */
+  1203: }
+</PRE>
+END show_help. Go to: <A HREF="#d10039780">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+  1204: 
+  1205: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10039880">ROUTINE</A> <A HREF="ranalyzer_xrf00013.html#x10039880">main</A>. Go to: 
+<A HREF="#d10021680">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+  1206: main(
+  1207: /* Program main routine.						    */
+  1208: 
+  1209:     int	    vArgc,
+  1210: 	    /* (READ, BY VAL):						    */
+  1211: 	    /* Number of program argument strings in aArgv.		    */
+  1212: 
+  1213:     char    *aArgv[]
+  1214: 	    /* (READ, BY ADDR):						    */
+  1215: 	    /* List of program argument strings.			    */
+  1216: 
+  1217: )	/* Returns system success code.					    */
+  1218: 	/*****************************************************************--*/
+  1219: 
+  1220: {
+  1221: 					    /* Main program command line    */
+  1222: 					    /* argument options dispatch    */
+  1223: 					    /* table.			    */
+  1224:     static KEYWORD_DEFINITION options[] = {
+  1225: 	{"options",     3, process_options_file},
+  1226: 	{"help",	3, show_help},
+  1227: 	{"trace",	3, cmdopt_trace},
+  1228: 	{"log",         3, cmdopt_log},	    
+  1229: 	{"list",        3, cmdopt_list},    
+  1230: 	{"silent",      3, cmdopt_set,	LOG_SILENT_ENABLE},  
+  1231: 	{"brief",       3, cmdopt_set,	LOG_BRIEF_ENABLE},   
+  1232: 	{"outprefix",   3, cmdopt_outprefix},
+  1233: 	{"format",	3, cmdopt_format},
+  1234: 	{"description", 3, cmdopt_description},
+  1235: 	{"definition",  3, cmdopt_set,	LOG_DEF_ENABLE},
+  1236: 	{"reference",   3, cmdopt_set,	LOG_REF_ENABLE},
+  1237: 	{"separate",    3, cmdopt_separate},
+  1238: 	{"language",	3, cmdopt_language},
+  1239: 	{"noinline",    3, cmdopt_set,	TREE_INLINE_DISABLE},
+  1240: 	{"urlprefix",   3, cmdopt_urlprefix},
+  1241: 	{"callers",	3, cmdopt_callers},
+  1242: 	{"depth",	3, cmdopt_depth},
+  1243: 	{"report",	3, cmdopt_report},
+  1244: 	{"noreport",    3, cmdopt_noreport},
+  1245: 	{"htmlbyfile",	5, cmdopt_htmlbyfile},
+  1246: 	{"htmlxref",	5, cmdopt_htmlxref},
+  1247: 	{"author",	3, cmdopt_author},
+  1248: 	{NULL,          0, NULL}	    /* End of table.		    */
+  1249:     };
+  1250: 
+  1251:     /*+									    */
+  1252:     /*	Make sure enough required arguments were specified, then process    */
+  1253:     /*	the optional arguments and analyze the product files. If no	    */
+  1254:     /*	arguments, show brief help. If first argument is an option, show    */
+  1255:     /*	full help regardless of which options were specified. Note that	    */
+  1256:     /*	showing full help terminates the program without any further	    */
+  1257:     /*	processing of the command line, even if all the arguments are ok.   */
+  1258:     /*-									    */
+  1259:     
+  1260:     if (vArgc &lt; 2) {
+  1261: 	puts(PROGRAM_PARAMS);
+  1262:         printf(PROGRAM_HELP, CMDLINE_OPTION_SWITCH);
+  1263:     }
+  1264:     else if (*aArgv[1] == CMDLINE_OPTION_SWITCH) {
+  1265: 	    show_help();
+  1266:     }
+  1267:     else {
+  1268: 					    /* Disable these reports by	    */
+  1269: 					    /* default.			    */
+  1270: 	set_option(RPT_CALLS_DISABLE | RPT_TREES_DISABLE);
+  1271: 	
+  1272: 	set_max_callers(DEF_MAX_CALLERS);
+  1273: 	set_max_html_byfile(DEF_MAX_HTML_BYFILE);
+  1274: 	set_max_html_xref(DEF_MAX_HTML_XREF);
+  1275: 	set_max_tree_depth(MAX_TREE_DEPTH + 1);
+  1276: 	if (process_options(vArgc, aArgv, 2, options)) {
+  1277: 	    add_lang(new_lang("DAT", LANGUAGE_TEXT));
+  1278: 	    add_lang(new_lang("TXT", LANGUAGE_TEXT));
+  1279: 	    add_lang(new_lang("COM", LANGUAGE_DCL));
+  1280: 	    add_lang(new_lang("C",   LANGUAGE_CC));
+  1281: 	    add_lang(new_lang("H",   LANGUAGE_CC));
+  1282: 	    add_lang(new_lang("BLI", LANGUAGE_BLISS));
+  1283: 	    add_lang(new_lang("REQ", LANGUAGE_BLISS));
+  1284: 	    add_lang(new_lang("R32", LANGUAGE_BLISS));
+  1285: 	    analyze_product(aArgv[1]);
+  1286: 	    if (list_enabled()) {
+  1287: 		fclose(list_file());
+  1288: 	    }
+  1289: 	}
+  1290:     }
+  1291: }
+</PRE>
+END main. Go to: <A HREF="#d10039880">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+  1292: 
+<HR>
+END OF FILE
+
+TOTAL: 24 routines, 50 Avg Length
+</PRE>
+<HR>
+
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00016.html#s10021580">Next file in section</a>; <A HREF="ranalyzer_src00016.html#s10020c80">Previous file in section</a>.<P>

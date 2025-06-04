@@ -1,0 +1,1297 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980, 1987, 1988                               *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	Generates the PL/I language output from the SDL tree
+
+author:
+	C.T. Pacy
+date:
+	revised 22-DEC-1980	ctp
+	revised 30-JUN-1982	ls		version 1.5 changes
+	revised 15-AUG-1982	ls		version 1.6 changes
+	revised 04-OCT-1982	ls		version 1.7 changes
+	revised 30-NOV-1982	ls		add comments flag
+	revised 20-Feb-1984	kd		make changes necessary
+						to change the pli backend
+						into a shareable image for
+						V2.0.
+        revised 13-Feb-1990  William R. Vales   Make changes to record
+                             Robert Thomson     dependency data for VMS VDE
+                                                system builder. (see CHANGE LOG)
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    12-Nov-1984	|  kd	| Add change log.  Add ident field (2-0).  Make fix 
+		|	| for bug #53.
+________________!_______!______________________________________________________
+    19-Nov-1984	|  kd	| 2-1. Make fix for case where structure
+		|	|       or union has an unsigned type.
+________________!_______!______________________________________________________
+    22-Mar-1985	|  kd	| 2-2  Add like attribute for type name support
+________________!_______!______________________________________________________
+    24-Mar-1985	|  kd	| 2-3  Put out size constant for top-level aggregates.
+________________|_______|______________________________________________________
+    15-May-1985	|  kd	| 2-4  Put out entry parameters in a vertical list.
+________________|_______|______________________________________________________
+     6-Jun-1985	|  kd	| 2-5  Add a close for output file.
+________________|_______|______________________________________________________
+    11-Jun-1985	|  kd	| T2.9-0 Make the backend ident be the sdl version
+________________|_______|______________________________________________________
+    17-Jun-1985	|  kd	| T2.9-1 Duplicate entry declarations for entries with
+		|	|	 no parameters.
+________________|_______|______________________________________________________
+    18-Jun-1985	|  kd	| T2.9-2 More problems with ENTRY return attributes.
+________________|_______|______________________________________________________
+    18-Jun-1985	|  kd	| T2.9-3 Fix parmnode to put out end of line comments.
+________________|_______|______________________________________________________
+    21-Aug-1985	|  kd	| T2.9-4 Change comments flag to sdl$v_comment_opt.
+________________|_______|______________________________________________________
+    26-Feb-1985	|  pc	| V3.0-2 Fixed itemnode case so semicolon comes out at
+                |       |  end of structure dcl, when last member used like.
+________________|_______|______________________________________________________
+
+    Modification History for PLI project:
+
+    001	    06-Sep-1985		Karen Michaels
+    o Changed unsigned byte, word and longword to translate to fixed bin(7),
+      fixed bin(15) and fixed bin(31).
+    o Changed unsigned quadword parameters to translate to any.
+    o Changed address(entry) value parameters to translate to entry value.
+    o If any parameter of a procedure has a default value or it is optional
+      made the procedure options variable.
+    o If an aggregate is passed as a parameter, make the parameter declaration
+      1 like aggregate_name
+
+    002	    18-Sep-1985		Karen Michaels
+    Added in special processing for the following typenames:
+    USERPARM - ANY [VALUE]
+    FILEPROT - BIT(16) ALIGNED [VALUE]
+    ADDRESS_RANGE - (2) POINTER
+    ADDRESS - ANY VALUE
+    ASTADR - ENTRY VALUE
+    VARYING_ARG - ANY [VALUE]
+    NULLARG - ANY [VALUE]
+    *_MASK - BIT(n) ALIGNED [VALUE]
+    ENTRYADDR - ENTRY	(if its an output parameter)
+                ENTRY VALUE (otherwise)
+
+    003	     7-Aug-1986		Kent Glossop
+    Several parameter typename processing changes to match the new VMS
+    typenames used by the RTL, to deal with the fact that we only matched
+    upper case parameter types, etc.  Also, misc. clean-up.
+
+    004	     19-Aug-1986	Kent Glossop
+    If no comment was specified for a parameter and a parameter name was
+    specified, use the parameter name as the comment.  (Should this be
+    enabled by default or not?)
+
+    005	    21-Jan-1987		Karen Michaels
+    Implemented DEFAULT 0 => OPTIONAL and OPTIONAL => OPTIONAL TRUNCATE
+
+    006	    24-Jan-1987		Kent Glossop
+    Use V3 features to get better parameter declarations, particularly
+    for the RTL definitions.  This includes:
+
+	- Arrays passed by reference that do not have bounds specified
+	  are now generated as "(*) REFERENCE type" rather than "(0:0) type".
+
+	- Fixed length strings passed by descriptor now come out as
+	  CHARACTER(n) DESCRIPTOR in place of CHARACTER(*).
+
+	- Unknown length strings passed by reference now come out as
+	  CHARACTER(*) REFERENCE.
+
+	- Items other than array, character and bit parameters that
+	  are passed by descriptor now explicitly have the DESCRIPTOR
+	  attribute added.
+
+    007	    24-Jan-1987		Kent Glossop
+    Make all language keywords come out in lower case.  (Previously,
+    most, but not all, were lower case.)
+
+    008	    25-Jan-1987		Kent Glossop
+    Changed parameter type VARANGE to ADDRESS_RANGE.
+    Removed type FUNCODE.
+    Changed parameter type VARIES to VARYING_ARG.
+
+    009	    28-Jan-1987		Kent Glossop
+    Make the PL/I project-specific parts of this file compile using
+    /VARIANT=PLI.  The default version is for distribution with SDL.
+
+    010	    22-Feb-1987		Kent Glossop
+    Make the PL/I project variant emit OPTIONAL even if the DEFAULT
+    value is not 0.
+
+    011	    10-Mar-1987		Kent Glossop
+    Change the PL/I project-specific sections from being conditional
+    compilation code to being based on the /VMS_DEVELOPMENT qualifier.
+
+Things that should still be done (as of 10-Mar-1987):
+
+    - Implement ANY CHARACTER(*) for RTL-style string parameters.
+
+    - Implement LIST and remove the use of OPTIONS(VARIABLE).
+
+    - Fix the problem with structures as the last parameter.
+
+    	    12-Mar-1987		John Ward (VAX SDL Development)
+    Received this PL/I project-private SDL backend from Kent Glossop, who has
+    modified it so that the output is identical to the current (12-Mar-1987)
+    "real" PL/I SDL backend when /VMS_DEVELOPMENT is not specified.  If
+    /VMS_DEVELOPMENT is specified, it yields the behavior needed to process
+    STARLET.
+
+    The differences for /VMS_DEVELOPMENT are:
+
+	- UNSIGNED BYTE, UNSIGNED WORD, and UNSIGNED LONGWORD come out as
+	  FIXED BINARY instead of BIT.
+
+	- Special VMS TYPENAME values are recognized.
+
+	- DEFAULT n for n<>0 generates OPTIONAL.  (It doesn't generate
+	  OPTIONAL for /NOVMS case.)
+
+    Continuing with the modification history for VAX SDL:
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+    12-Mar-1987	|  jgw	| T3.1-0    Enhancements for LIST parameter option.
+		|	|	    Also:  Put back check for VARIABLE attribute
+		|	|	    which had been accidentally removed during
+		|	|	    PL/I group modifications; changed %REPLACE
+		|	|	    to %replace (for consistency) in "Item
+		|	|	    Node" section; initialized output buffer
+		|	|	    (buf) to '' at outer-level declaration.
+________________!_______!______________________________________________________
+    23-Mar-1987	|  jgw	| T3.1-1    Enhancements for RTL_STR_DESC attribute.
+________________!_______!______________________________________________________
+     2-Apr-1987	|  jgw	| X3.1-2    Bumped version number and switched from T
+		|	|	    to X in version number, since X is used for
+		|	|	    development releases.
+________________!_______!______________________________________________________
+    20-Apr-1987	|  jgw	| X3.1-3    Added handling of COMPLEX data types.
+		|	|	    Also, changed a reference (near the
+		|	|	    beginning of CASE(NOD$K_PARMNODE) from
+		|	|	    "nod$b_type" to "nod$w_datatype" because
+		|	|	    it was checking its value against
+		|	|	    typ$k_union -- which cannot be a value
+		|	|	    of nod$b_type.
+________________!_______!______________________________________________________
+    05-May-1987	|  jgw	| X3.1-4    Added handling of unknown (`*') LENGTH for
+		|	|	    CHARACTER strings.
+________________!_______!______________________________________________________
+    15-May-1987	|  jgw	| X3.1-5    Fixed bug:  REFERENCE attribute was not
+		|	|	    being put out for parameters explicitly
+		|	|	    declared with REFERENCE in SDL.  Removed
+		|	|	    special check for REFERENCE with a (*)
+		|	|	    extent parameter.  The rule is:  REFERENCE
+		|	|	    is now put out whenever REFERENCE was
+		|	|	    specified explicitly in the SDL source.
+________________!_______!______________________________________________________
+    13-Nov-1987 |  dls  | V3.1-6    changed the if statement in the outputnode
+                |       |           routine to a do while, and removed the
+                |       |           call to outputnode to do away with 
+                |       |           recurssion that was causing memory 
+                |       |           consuption in the pli backend.
+________________!_______!______________________________________________________
+    19-Nov-1987 |  jgw	| V3.1-7    Completed the last bug fix by changing the
+                |       |           name of the first formal parameter of the
+		|	|	    routine OUTPUTNODE and assigning its value
+		|	|	    to the "walking" pointer p.
+________________!_______!______________________________________________________
+    18-Jan-1988	|  PG	| X3.2-0    Add CONSTANT STRING
+________________|_______|______________________________________________________
+    02-Feb-1988	|  jg	| X3.2-1    User defined types / Entry point return
+		|	|	    types
+________________|_______|______________________________________________________
+    18-Feb-1988	|  jg	| X3.2-2 Add support for conditional compilation and
+		|	|	  LITERAL.
+________________|_______|______________________________________________________
+    08-Jul-1988	|  jgw	| X3.2-3 All behavior previously under the control of
+		|	|	  the /VMS_DEVELOPMENT qualifier has been
+		|	|	  placed instead under the control of the
+		|	|	  new /PLI_DEVELOPMENT qualifier.
+________________|_______|______________________________________________________
+    14-Jul-1988	|  jgw	| T3.2-4 Fixed bug whereby spurious blank lines were
+		|	|	  being output during processing of items
+		|	|	  included via a READ statement.
+________________|_______|______________________________________________________
+    19-Aug-1988	|  jgw	| T3.2-5 Removed comment delimiters surrounding DCL
+		|	|	  statements generated from ITEMs defined with
+		|	|	  the TYPEDEF attribute.
+________________|_______|______________________________________________________
+    07-Sep-1988	|  jgw	| T3.2-6 Relocated the block of code in PUTTYPE dealing
+		|	|	 with items of type TYP$K_USER so that optional
+		|	|	 attributes would not be ignored when processing
+		|	|	 items of this type.
+________________|_______|______________________________________________________
+    28-Sep-1988	|  jgw	| T3.2-7 Called PUTTYPE for a parameter of a pre-defined
+		|	|	 aggregate type so that appropriate attributes
+		|	|	 can be generated.  Modified the check for a
+		|	|	 pre-defined type name in PUTTYPE to make it
+		|	|	 generic (i.e., work for parameter nodes as well
+		|	|	 as item nodes).  Removed the declaration and
+		|	|	 uses of TMPBUF.
+________________|_______|______________________________________________________
+    13-FEB-1990 |  WRV  | X3.2-VMS1 Modifiers are members of VMS tools group.
+                |  RHT  |           Added code for file dependency recording for
+                |       |           VMS VDE system builder.
+________________|_______|______________________________________________________
+     1-Apr-1992	|  jak	| EV1-3 Changed test for (*) dimension to also look for
+		|	|	nod$v_vardim flag and not just (0:0) dimensions.
+		|	|	(0:0) is a legitimate dimension and could occur.
+________________|_______|______________________________________________________
+    21-Jul-1992	|  jak	| EV1-18 Added new datatypes.
+    27-Jul-1992	|  	|	Uncommented code to put out 'LIKE' for 
+		|	|	structure/union.  Was commented out somewhere 
+		|	|	between V3.2-12 and EV1-2 for unknown reason.
+________________|_______|______________________________________________________
+    17-Dec-1992	|  jak	| EV1-20 Bug fix: typeinfo2 is ptr to aggregate node 
+		|	|	only if ^v_bound.  If v_bound, typeinfo2 points 
+		|	|	item node for based ptr.
+________________|_______|______________________________________________________
+    29-Apr-1993 |  jak  | EV1-24 Bug fix: generated syntax for unsupported types 
+		|	|	defined as arrays was incorrect if the thing using 
+		|	|	the type was itself an array.  
+		|	|	Would generate "(N) (2)" rather than "(N,2)"
+________________|_______|______________________________________________________
+		|  jak  | EV1-24 Bug fix: ITEM foo XYZ, where XYZ is a structure 
+		|	|	or union typedef, was terminating with a "," rather 
+		|	|	than a ";" because it expected to see a "bottom" 
+		|	|	item following the structure/union.
+________________|_______|______________________________________________________
+    20-Oct-1994	|  RC	| EV1-40    Native Alpha port.  See SDLGETFNM.PLI.
+________________|_______|______________________________________________________
+*/
+%replace MODULE_IDENT by 'EV1-40';
+
+sdl$output: proc (out_file, def_filename, sdl$_shr_data) 
+	    options(ident(MODULE_IDENT));
+
+/* INCLUDE FILES */
+%include 'sdl$library:sdlnodef.in';	/* node structure definition */
+%include 'sdl$library:sdltypdef.in';	/* data type definitions */
+%include 'sdl$library:sdlshr.in';	/* entry and external definitions */
+%include 'sdl$library:sdlmsgdef.in';	/* error reporting */
+%include 'SDL$LIBRARY:sdlgetfnm.in';
+
+    
+/* CONSTANTS */
+%replace line_length by 132;		/* output file line length */ 
+%replace lang_ext by '.pli';
+%replace lang_name by 'PLI';		/* Language name for conditional - jg */
+%replace false by '0'b;						/* jg */
+%replace true by '1'b;						/* jg */
+
+/*
+ * The following array gives the PL/I equivalents for SDL data types
+ */
+	dcl types(36) char (32) var;				/* jg */
+ 
+/*
+ * The following initialization of the types array is done with
+ * assignments so that the numeric values of the symbols used for
+ * indices do not have to be known 
+ */
+ 
+	types = '';
+	types(typ$k_address)='pointer';
+	types(typ$k_byte)='fixed binary(7)';
+	types(typ$k_char)='character';
+	types(typ$k_boolean)='bit(1) aligned';
+	types(typ$k_decimal)='fixed decimal';
+	types(typ$k_double)='float binary(53)';
+	types(typ$k_float)='float binary(24)';
+	types(typ$k_grand)='float binary(53)';
+	types(typ$k_huge)='float binary(113)';
+	types(typ$k_double_complex)='any';
+	types(typ$k_float_complex)='any';
+	types(typ$k_grand_complex)='any';
+	types(typ$k_huge_complex)='any';
+	types(typ$k_longword)='fixed binary(31)';
+	types(typ$k_octaword)='bit(128) aligned';
+	types(typ$k_quadword)='bit(64) aligned';
+	types(typ$k_vield)='bit';
+	types(typ$k_word)='fixed binary(15)';
+	types(typ$k_structure)='';
+	types(typ$k_union)='union';
+	types(typ$k_any)='any';
+
+	types(typ$k_integer)		= 'fixed bin(31)';
+	types(typ$k_integer_byte)	= 'fixed bin(7)';
+	types(typ$k_integer_word)	= 'fixed bin(15)';
+	types(typ$k_integer_long)	= 'fixed bin(31)';
+	types(typ$k_pointer)		= 'pointer';
+	types(typ$k_pointer_long)	= 'pointer';
+	types(typ$k_integer_quad)	= '(2) fixed bin(31)';
+	types(typ$k_pointer_quad)	= '(2) pointer';
+
+	if sdl$v_alpha_opt then 
+	    do;
+	types(typ$k_integer_hw)		= '(2) fixed bin(31)';
+	types(typ$k_pointer_hw)		= '(2) pointer';
+	types(typ$k_hardware_integer)	= '(2) fixed bin(31)';
+	types(typ$k_hardware_address)	= '(2) pointer';
+	    end;
+	else 
+	    do;
+	types(typ$k_integer_hw)		= 'fixed bin(31)';
+	types(typ$k_pointer_hw)		= 'pointer';
+	types(typ$k_hardware_integer)	= 'fixed bin(31)';
+	types(typ$k_hardware_address)	= 'pointer';
+	    end;
+
+/*
+ * These equivalents are used for unsigned data types
+ */
+	dcl unsigned (36) char (32) var;
+
+	unsigned = types;
+	if sdl$v_pli_opt
+	then do;
+	    unsigned(typ$k_byte)	= 'fixed binary(7)';
+	    unsigned(typ$k_word)	= 'fixed binary(15)';
+	    unsigned(typ$k_longword)	= 'fixed binary(31)';
+	    unsigned(typ$k_quadword)	= 'bit(64) aligned';
+	    unsigned(typ$k_octaword)	= 'bit(128) aligned';
+	    unsigned(typ$k_integer)	= 'fixed bin(31)';
+	    unsigned(typ$k_integer_byte)= 'fixed bin(7)';
+	    unsigned(typ$k_integer_word)= 'fixed bin(15)';
+	    unsigned(typ$k_integer_long)= 'fixed bin(31)';
+	    unsigned(typ$k_integer_quad)= 'bit(64) aligned';
+	    if sdl$v_alpha_opt then 
+		do;
+	    unsigned(typ$k_integer_hw)		= '(2) fixed bin(31)';
+	    unsigned(typ$k_hardware_integer)	= '(2) fixed bin(31)';
+		end;
+	    else 
+		do;
+	    unsigned(typ$k_integer_hw)		= 'fixed bin(31)';
+	    unsigned(typ$k_hardware_integer)	= 'fixed bin(31)';
+		end;
+	    end;
+	else do;
+	    unsigned(typ$k_byte)	= 'bit(8) aligned';
+	    unsigned(typ$k_word)	= 'bit(16) aligned';
+	    unsigned(typ$k_longword)	= 'bit(32) aligned';
+	    unsigned(typ$k_quadword)	= 'bit(64) aligned';
+	    unsigned(typ$k_octaword)	= 'bit(128) aligned';
+	    unsigned(typ$k_integer)	= 'bit(32) aligned';
+	    unsigned(typ$k_integer_byte)= 'bit(8) aligned';
+	    unsigned(typ$k_integer_word)= 'bit(16) aligned';
+	    unsigned(typ$k_integer_long)= 'bit(32) aligned';
+	    unsigned(typ$k_integer_quad)= 'bit(64) aligned';
+	    if sdl$v_alpha_opt then 
+		do;
+	    unsigned(typ$k_integer_hw)		= 'bit(64) aligned';
+	    unsigned(typ$k_hardware_integer)	= 'bit(64) aligned';
+		end;
+	    else 
+		do;
+	    unsigned(typ$k_integer_hw)		= 'bit(32) aligned';
+	    unsigned(typ$k_hardware_integer)	= 'bit(32) aligned';
+		end;
+	    end;
+
+
+/* LOCAL VARIABLES */
+	dcl out_file char(128) var ;
+	dcl def_filename char(132) var;
+	dcl output_file file output record sequential;
+	dcl xptr ptr;
+	dcl buf char(1024) var init('');
+	dcl based_string char(1024) var based;
+	dcl i fixed bin(31);
+	dcl tab char initial (byte(9));
+	dcl tag char(2);
+	dcl process_conditional bit init (false);		/* jg */
+
+/* EXTERNALS */
+	dcl LIB$AB_UPCASE globalref readonly char(256);
+
+/************************* MAIN PROCEDURE **************************/
+
+/* 
+ * Output the little SDL header with time and date info 
+ */
+
+    on undefinedfile (output_file) 
+	begin;
+	    call errmsg (sdl$_shr_data, sdl$_outfilopn,,(sdl$gt_filename));
+	    goto exit;
+	end;
+
+/* first open up the output file */
+			/* concatenate the extension for the language */
+	open file (output_file) title (out_file) 
+			environment (default_file_name( def_filename||lang_ext),
+				     user_open (sdl$getfnm) );
+	outfile = output_file;	/* equate the file with the file variable 
+					in the shared structure */	
+
+	call sdl$header(sdl$_shr_data, '/*','*/',line_length);
+
+
+/* 
+ * Begin at the root of the tree, and let it go 
+ */
+	call outputnode(tree_root->nod$a_flink,tree_root,0);
+
+/* Get the fully resolved language specific output file and
+   and move it the shared data area for the front-end. The reultant
+   name will be recorded as a file dependency for the VDE system builder.
+*/
+	vde_lang_file = sdl$gt_filename;
+ 
+	close file (output_file);
+EXIT:
+	return;
+
+ 
+/*
+ * 
+ **************************** OUTPUTNODE ****************************
+ * 
+ * This is a recursive routine that travels through the SDL tree and
+ * outputs the appropriate data declaration for each tree node.  Each
+ * node describes a data object
+ */
+
+OUTPUTNODE:	proc (initp,startp,level);
+
+/*
+ * parameters:	initp	= address of node to output
+ * 		startp	= address of where we started (i.e. where to 
+ * 			  stop in traversing a circular list )
+ * 		level	= level number of aggregate (incremented by 1
+ * 			  with each sub-aggregate
+ */
+
+  dcl (initp,p,startp,q) ptr;
+  dcl level fixed bin(31);
+  dcl (temp1,temp2) char(128) var;
+ 
+/*
+ * "p" will walk the associated list, if one exists.
+ */
+  p = initp;
+
+/*
+ * Case on the node type and go do the appropriate processing 
+ */
+  do while (p ^= startp);
+	goto case(p->nod$b_type);
+
+ 
+CASE (NOD$K_ROOTNODE):		/* Root node */
+
+/*
+ * Nothing done here except to move on to list of module
+ * nodes of which this is the head
+ */
+
+	buf='';
+	goto common_2;
+
+ 
+CASE (NOD$K_COMMNODE):		/* Comment node */
+
+/*
+ * Clear the buffer and let the common stuff output the comment line
+ */
+	buf='';
+	goto common;
+ 
+
+CASE (NOD$K_CONSTNODE):		/* Constant node */
+
+/*
+ * Do a straightforward %replace statement for the constant node
+ * (Output masks as bit strings, all others as integers)
+ */
+ 
+	buf='%replace '||p->nod$t_name||' by ';
+	if p->nod$v_mask then
+		buf=buf||''''||char(unspec(p->nod$l_typeinfo))||'''b;';
+	else
+		if p->nod$w_datatype = typ$k_char then do;
+			temp1 = p->nod$a_typeinfo2->based_string;
+			call sdl$cvtstr(temp1, temp2, '''''''');
+			buf=buf||''''||temp2||''';';
+			end;
+		else
+			buf=buf||trim(p->nod$l_typeinfo)||';';
+	goto common;
+
+ 
+CASE (NOD$K_ENTRYNODE):		/* Entry node */
+
+/*
+ * Declare an external entry point
+ */
+	buf='dcl '||p->nod$t_name||' entry ';
+
+/*
+ * If it has parameters, then do down the parameter list
+ */
+	if p->nod$a_child^=null() 
+	then do;
+		buf=buf||'(';
+		call sdl$putline (outfile, buf, line_length);
+		buf = tab;
+		call outputnode(p->nod$a_child->nod$a_flink,
+			p->nod$a_child,level);
+		buf = buf || ')';
+		end;
+
+/*
+ * If it's a function, output the datatype
+ */
+	if p->nod$w_datatype^=0 & p->nod$w_datatype^=typ$k_void	    /* jg */
+	then do;
+	    call sdl$putline (outfile, buf,line_length);
+	    buf= tab ||'returns (';
+	    call puttype(p);
+	    buf=buf||')';
+	    end;
+
+/*
+ * If the VARIABLE attribute was explicitly specified,
+ * put out the appropriate PL/I attribute:  options(variable)
+ */
+	if p->nod$v_variable then
+	    buf=buf||' options(variable)';
+
+/*
+ * Put out the semicolon which terminates the entry declaration.
+ */
+	buf=buf||';';
+
+/* 
+ * If there is attached comment, then append it to end of line and 
+ * output it 
+ */
+	if p->nod$a_comment^=null() & sdl$v_comment_opt 
+	then do;
+		if buf ^= '' then
+			buf= fill(buf,40);
+		buf=buf||'/*'||p->nod$a_comment->based_string;
+		buf=fill(buf,76)||'*/';
+		end;
+	call sdl$putline (outfile, buf,line_length);
+	buf='';
+	goto common_3;
+
+ 
+CASE (NOD$K_ITEMNODE):		/* Item node */
+
+	if p->nod$v_declared then goto common;	/* ignore declared item */
+/*
+ * If we're doing a scalar item, or at the beginning of an aggregate
+ * declaration, then begin the DECLARE statement
+ */
+	if level=1 then  do;
+		if p->nod$w_datatype=typ$k_structure |
+		   p->nod$w_datatype=typ$k_union 
+		then do;
+		    /* put out size constant */
+		     if substr(p->nod$t_naked,1,1) < 'a' then
+			    tag = 'S_';
+		     else
+			    tag = 's_';
+		    buf='%replace '||p->nod$t_prefix||
+			tag||p->nod$t_naked||' by '||
+			trim(p->nod$l_fldsiz)||';';
+		    call sdl$putline (outfile, ' ',line_length);
+		    call sdl$putline (outfile, buf,line_length);
+		    buf='dcl '||'1 ';
+		end;
+		else do;
+		    /* not a structure or union */
+		    buf = 'dcl ';
+
+		    /* if type is user, pointing to structure or union,
+		       put a '1' in the buffer, as we are going to use
+		       'like' */
+
+		    if p->nod$w_datatype = typ$k_user &
+			    (p->nod$a_typeinfo2->nod$a_flink->nod$w_datatype =
+						typ$k_structure |
+			     p->nod$a_typeinfo2->nod$a_flink->nod$w_datatype =
+						typ$k_union ) then
+			buf = buf ||'1 ';
+		    end;
+	end;
+/*
+ * If this is an aggregate member then begin a new line by
+ * indenting and putting in the level number 
+ */
+	else 
+		buf='   '||copy(' ',level)||trim(level)||' ';
+/*
+ * No matter what, now we put in the name and the data type 
+ */
+	buf=buf||p->nod$t_name||' ';
+	call puttype(p);
+
+/*
+ * If this is a TYPEDEF'd item, then append the 'based' attribute.  This
+ * cannot be done within puttype (as with a BASED item) as puttype is called
+ * recursively for a user type, pointing to the TYPEDEF'd item.  It must not
+ * out 'based' in that case.
+ */
+	if p->nod$v_typedef then
+	    buf = buf || ' based';
+/*
+ * If this is a structure or aggregate then warn of any non-zero origins 
+ * and append a comma to declaration
+ */
+	if p->nod$w_datatype=typ$k_structure | 
+	    p->nod$w_datatype=typ$k_union then do;
+		if p->nod$v_bottom | 
+		   level = 1 & p->nod$a_typeinfo2 ^= null() & ^p->nod$v_bound then /* EV1-24 */
+		    buf = buf||';';
+		else
+		    buf = buf || ',';
+		if p->nod$l_typeinfo^=0 then
+			buf=buf || '/* WARNING: aggregate has origin of ' ||
+			 trim(p->nod$l_typeinfo) || ' */';
+		end;
+/*
+ * If this is a scalar item or the end of an aggregate, then append
+ * the final semicolon, otherwise  append a comma (for structure members)
+ */
+	else 
+		if level=1 | p->nod$v_bottom then
+			buf=buf||';';
+		else
+			buf=buf||',';
+
+	goto common;
+ 
+
+CASE (NOD$K_MODULNODE):		/* Module node */
+
+/*
+ * Put out the module name as a comment 
+ */
+	call sdl$putline (outfile, ' ',line_length);
+	buf='/*** MODULE '||p->nod$t_name;
+	if p->nod$t_naked ^= '' then
+		buf=buf||' IDENT '||p->nod$t_naked;
+	buf=buf||' ***/';
+	call sdl$putline (outfile, buf,line_length);
+	buf='';
+	goto common;
+ 
+
+CASE(NOD$K_PARMNODE):		/* Parameter node */
+
+/*
+ * Put out the item datatype and append a comma for the parameter
+ * list (extra last comma will be corrected by entry routine) .
+ * If the parameter is an aggregate, put out the first level 
+ * (so as to avoid calling PUTTYPE and getting undesirable
+ * storage attributes) and call a routine to handle the rest of it
+ */
+
+	if p->nod$w_datatype=typ$k_structure | 
+	   p->nod$w_datatype=typ$k_union then do;
+		buf=buf||'1 ';
+
+	       /*
+	        * PUTTYPE will generate the LIKE clause and
+		* appropriate attributes.
+		*/
+		call puttype(p);
+
+		/* 
+		 * See if this will be an optional or truncate parameter
+		 */
+		call set_optional(p);
+
+		if p->nod$a_flink ^= startp then
+		    buf=buf||',';
+		/*call putparm(p->nod$a_typeinfo2->nod$a_child->nod$a_flink,
+			p->nod$a_typeinfo2->nod$a_child,level+1);*/
+		if p->nod$a_comment^=null() & sdl$v_comment_opt 
+		then do;
+			if buf ^= '' then
+				buf= fill(buf,40);
+			buf=buf||'/*'||p->nod$a_comment->based_string;
+			buf=fill(buf,76)||'*/';
+			end;
+		end;
+	else do;
+
+	    if sdl$v_pli_opt
+	    then do;
+		/* 
+		 * Check for special cases.  (Upcase the typename to
+		 * catch the RTL typenames, which are in lower case...)
+		 */
+		p->nod$t_typename = translate(p->nod$t_typename,LIB$AB_UPCASE);
+		select;
+		    when(p->nod$t_typename = 'FILE_PROTECTION') do;
+			buf = buf || 'bit(16) aligned';
+			if p->nod$v_value then
+			    buf = buf || ' value';
+			end;
+		    when(p->nod$t_typename = 'ADDRESS_RANGE')
+			buf = buf || '(2) pointer';
+		    when(p->nod$t_typename = 'ADDRESS') do;
+			if p->nod$v_value
+			then
+			    buf = buf || 'any';
+			else
+			    buf = buf || 'pointer';
+			end;
+		    when(p->nod$t_typename = 'ASTADR') 
+			buf = buf || 'entry value';
+		    when(p->nod$t_typename = 'VARYING_ARG') do;
+			buf= buf || 'any';
+			if p->nod$v_value then
+			    buf = buf || ' value';
+			end;
+		    when(p->nod$t_typename = 'NULLARG') do;
+			buf = buf || 'any';
+			if p->nod$v_value then
+			    buf = buf || ' value';
+			end;
+		    when(p->nod$t_typename = 'MASK_BYTE') do;
+			buf = buf || 'bit(8) aligned';
+			if p->nod$v_value then
+			    buf = buf || ' value';
+			end;
+		    when(p->nod$t_typename = 'MASK_WORD') do;
+			buf = buf || 'bit(16) aligned';
+			if p->nod$v_value then
+			    buf = buf || ' value';
+			end;
+		    when(p->nod$t_typename = 'MASK_LONGWORD') do;
+			buf = buf || 'bit(32) aligned';
+			if p->nod$v_value then
+			    buf = buf || ' value';
+			end;
+		    when(p->nod$t_typename = 'PROCEDURE') 
+			if p->nod$v_out then
+			    buf = buf || 'entry';
+			else
+			    buf = buf || 'entry value';
+		    when(p->nod$t_typename = 'USER_ARG') do;
+			buf = buf || 'any';
+			if p->nod$v_value then
+			    buf = buf || ' value';
+			end;
+		    when(p->nod$t_typename = 'AST_PROCEDURE') 
+			if p->nod$v_out then
+			    buf = buf || 'entry';
+			else
+			    buf = buf || 'entry value';
+		    when(p->nod$t_typename = 'ENTRYADR') 
+			if p->nod$v_out then
+			    buf = buf || 'entry';
+			else
+			    buf = buf || 'entry value';
+		    when(p->nod$v_unsigned & p->nod$w_datatype = typ$k_quadword)
+			buf = buf || 'any';
+		    when(p->nod$w_datatype = typ$k_address & p->nod$v_value)
+			buf = buf || 'entry value';
+		    otherwise
+			call puttype(p);
+		    end;
+		end; /* /PLI variant */
+
+	    else do;
+		call puttype(p);
+		end; /* normal */
+
+	    /* 
+	     * See if this will be an optional or truncate parameter
+	     */
+	    call set_optional(p);
+
+	    /*
+	     * If LIST option was specified, append appropriate attribute:
+	     */
+	    if p->nod$v_list then
+		buf = buf || ' list';
+
+	    if p->nod$a_flink ^= startp then
+		    buf=buf||',';
+	    if p->nod$a_comment^=null() & sdl$v_comment_opt 
+	    then do;
+		if buf ^= ''
+		then
+		    buf= fill(buf,40);
+		buf=buf||'/*'||p->nod$a_comment->based_string;
+		buf=fill(buf,76)||'*/';
+		end;
+
+	    if sdl$v_pli_opt
+	    then do;
+		/*
+		 *  If commenting, then use the comment for the parameter
+		 *  if present.  If it isn't, then use the parameter name
+		 *  if present.  (Not currently used.)
+		 */
+		if '0'b /* sdl$v_comment_opt */
+		then
+		    if p->nod$a_comment^=null()
+		    then do;
+			if buf ^= '' then
+				buf= fill(buf,40);
+			buf=buf||'/*'||p->nod$a_comment->based_string;
+			buf=fill(buf,76)||'*/';
+			end;
+		    else
+			if p->nod$t_name ^= ''
+			then do;
+			    if buf ^= '' then
+				buf= fill(buf,40);
+			    buf=buf||'/*'||p->nod$t_name || '*/';
+			    end;
+			    			
+		end; /* /PLI variant */
+
+	    end;
+
+	goto common_2;
+
+CASE (NOD$K_OBJNODE):		/* Object node for pointer items */
+
+/*
+ * Ignore object nodes-- PL/I doesn't care what a pointer is 
+ * pointing to
+ */
+	buf='';
+	goto common_2;
+ 
+
+CASE (NOD$K_HEADNODE):		/* Header node */
+
+/*
+ * Nothing done with head nodes-- just use them to move down a 
+ * circular list 
+ */
+	buf='';
+	goto common_2;
+
+case(nod$k_condnode):						/* jg */
+
+	/* Search for this language in the list */
+
+	q = p->nod$a_typeinfo2->nod$a_flink;
+	do while (^process_conditional & q->nod$b_type = nod$k_objnode);
+	    if q->nod$t_name = lang_name then process_conditional = true;
+	    q = q->nod$a_flink;
+	end;
+
+	/*
+	 * If this language has been found, then children will be processed
+	 * at common_2 at the same level.
+	 *
+	 * Process a comment attached to IFLANGUAGE only if for this language.
+	 */
+	buf = '';
+	if process_conditional then goto common;
+	else goto common_2;
+
+case(nod$k_litnode):						/* jg */
+
+	/* Process literal node */
+
+	buf = p->nod$a_typeinfo2->based_string;
+	goto common;
+
+COMMON:
+/* 
+ * If there is attached comment, then append it to end of line and 
+ * output it 
+ */
+	if p->nod$a_comment^=null() & sdl$v_comment_opt 
+	then do;
+		if buf ^= '' then
+			buf= fill(buf,40);
+		buf=buf||'/*'||p->nod$a_comment->based_string;
+		buf=fill(buf,76)||'*/';
+		end;
+
+       /*
+        * If we have an item that has been included via a READ statement
+	* and there is no attached attached comment, suppress the generation
+	* of the blank line (i.e., a line containing only a single tab
+	* character).  [JGW, T3.2-4]
+	*/
+	else
+	    if p->nod$v_declared & (buf = tab) then
+	        buf = '';
+
+	call sdl$putline (outfile, buf,line_length);
+	buf='';
+
+COMMON_2:
+	if process_conditional then do;				/* jg */
+	    process_conditional = false;
+	    call outputnode(p->nod$a_child->nod$a_flink,p->nod$a_child,
+				level);
+	    end;
+
+/*
+ * Travel down the child node 
+ */
+	else if p->nod$a_child^=null() & p->nod$b_type ^= nod$k_condnode then
+		call outputnode(p->nod$a_child->nod$a_flink,
+		p->nod$a_child,level+1);
+
+COMMON_3:
+/*
+ * Travel across the circular list to the sibling node 
+ */
+	if p->nod$a_flink ^= startp then do;
+	    call sdl$putline (outfile, buf, line_length);
+	    buf = tab;
+	    end;
+        p = p->nod$a_flink;
+
+        end; /* do while */
+
+  return;
+ 
+ 
+/*
+ ************************** SET_OPTIONAL ****************************
+ *
+ * This routine adds the optional and/or truncate attributes to the 
+ * declaration of a formal parameter.
+ */
+SET_OPTIONAL:	proc(p);
+/*
+ * Parameter:	p	= pointer to current node
+ */
+	dcl p ptr;
+	dcl q ptr;
+	dcl truncate bit(1) aligned init('1'b);
+
+	/*
+	 * If the current parameter is optional make sure all the following
+	 * parameters are optional or default 0.
+	 */
+	if p->nod$v_optional 
+	then do;
+	    if p->nod$a_flink ^= startp
+	    then do;
+		q = p->nod$a_flink;
+		do while(truncate &: q ^= startp);
+		    truncate = q->nod$v_optional | (q->nod$v_default &
+		     q->nod$l_initial = 0);
+		    q = q->nod$a_flink;
+		    end;
+		end;
+	    if truncate
+	    then
+		if p->nod$v_list then
+		    buf=buf||' truncate';
+		else
+		    buf=buf||' optional truncate';
+	    else
+		buf=buf||' optional';
+	    end;
+
+	else
+	    if sdl$v_pli_opt
+	    then do;
+		if p->nod$v_default
+		then
+		    buf=buf||' optional';
+		end;
+	    else do;
+		if p->nod$v_default & p->nod$l_initial = 0
+		then
+		    buf=buf||' optional';
+		end;
+
+end SET_OPTIONAL;
+
+/*
+ ******************************* PUTTYPE ****************************
+ * 
+ * This routine formats the datatype information for an item 
+ */
+
+PUTTYPE:	proc(p);
+/*
+ * Parameter:	p	= pointer to current node
+ */
+	dcl (p,q) ptr;
+	dcl data_type_string char(10) var init ('');
+
+/*
+ * Put out a warning if the data type is one of the
+ * COMPLEX types.
+ */
+	if p->nod$v_complex then
+	    do;
+	    data_type_string = '';
+	    select (p->nod$w_datatype);
+		when (typ$k_float_complex) data_type_string = 'F_FLOATING';
+		when (typ$k_double_complex) data_type_string = 'D_FLOATING';
+		when (typ$k_grand_complex) data_type_string = 'G_FLOATING';
+		when (typ$k_huge_complex) data_type_string = 'H_FLOATING';
+		otherwise do;
+		    call errmsg (sdl$_shr_data, sdl$_bugcheck, p->nod$l_srcline, );
+		    goto exit;
+		    end;
+	    end; /* select */
+	    call errmsg (sdl$_shr_data, sdl$_typnotsup, p->nod$l_srcline, (data_type_string || ' COMPLEX'));
+	    end;
+
+/*
+ * If there is a dimension, append it 
+ */
+	if p->nod$v_dimen 
+	then do;
+		/* If both the lower and upper bounds are 0, then specify
+		   a (*) extent.  ("reference" or "descriptor" is added
+		   after the datatype is emitted, if necessary */
+		if (p->nod$l_lodim = 0) & (p->nod$l_hidim = 0) & p->nod$v_vardim
+		then
+		    buf=buf||'(*) ';
+		else
+		    buf=buf||'('||trim(p->nod$l_lodim)||':'||trim
+		    (p->nod$l_hidim)||') ';
+	end;
+
+       /*
+	* If the parameter is to be passed by RTL_STR_DESC,
+	* indicate that `any' string descriptor will do.
+	*/
+	if p->nod$v_rtl_str_desc then
+	    buf = buf || 'any ';
+/* 
+ * Check for the unsigned attribute-- if present use different
+ * datatype equivalences 
+ */
+/* if this node is a structure or union then the datatype specifies an
+   implicit union.  Don't put out the unsigned type. */
+		if p->nod$v_unsigned & p->nod$w_datatype ^= typ$k_structure 
+		& p->nod$w_datatype ^= typ$k_union
+		& p->nod$w_datatype ^= typ$k_user
+		then
+			buf=buf||unsigned(p->nod$w_datatype);
+		else
+
+/*
+ * Check for type name attribute
+ */
+		if (p->nod$w_datatype = typ$k_structure |
+		    p->nod$w_datatype = typ$k_union) &
+		    ^p->nod$v_bound &
+		    p->nod$a_typeinfo2 ^= null()
+		then do;
+		    buf = buf || 'like ' ||
+			    p->nod$a_typeinfo2->nod$t_name ;
+		    if p->nod$w_datatype = typ$k_union 
+		    then
+			buf = buf || ' union';
+		    end; 
+		else
+
+		   /*
+		    * If this is one of the COMPLEX types *and* we are:
+		    *
+		    *	- putting out a function return type
+		    *	- putting out the type of a structure member
+		    *	- putting out an array type
+		    *
+		    * do *not* use the datatype equivalence array;
+		    * rather, use bit(n) since `any' is not valid in
+		    * the above contexts.
+		    */
+		    if p->nod$v_complex &:
+		       ((p->nod$b_type = nod$k_entrynode) |
+			(p->nod$v_dimen) |
+			(p->nod$a_parent->nod$w_datatype = typ$k_structure) |
+			(p->nod$a_parent->nod$w_datatype = typ$k_union)) then do;
+		        select (p->nod$w_datatype);
+			    when (typ$k_float_complex) buf = buf || 'bit(64)';
+			    when (typ$k_double_complex) buf = buf || 'bit(128)';
+			    when (typ$k_grand_complex) buf = buf || 'bit(128)';
+			    when (typ$k_huge_complex) buf = buf || 'bit(256)';
+			    otherwise do;
+				call errmsg (sdl$_shr_data, sdl$_bugcheck, p->nod$l_srcline, );
+				goto exit;
+				end;
+			end; /* select */
+			end;
+		    else
+
+		       /*
+			* PL/I does not have user-defined types.  If type is
+			* user, first see if it points to an aggregate.  If so,
+			* output 'like'.  Otherwise call puttype recursively
+			* with the address of the real data type and append a
+			* comment with the named type.
+			*/
+			if p->nod$w_datatype = typ$k_user then do;
+			   /*
+			    * Get to the node defining the type.
+			    */
+			    q = p->nod$a_typeinfo2->nod$a_flink;
+			    if q->nod$w_datatype = typ$k_structure |
+			       q->nod$w_datatype = typ$k_union then
+			        buf = buf||'like '||q->nod$t_name;
+			    else do;
+			        call puttype (q);
+			        buf = buf||' /* '||q->nod$t_name||' */ ';
+			        end;
+			    end;
+			else
+
+		           /* 
+			    * Otherwise, just append from the data type
+			    * equivalence array.
+			    */
+			    do; /* EV1-24 */
+			    /* Some types are defined as an array (typically 2 elements) */
+			    /* If so and this is also an array, merge dimensions */
+			    if substr(types(p->nod$w_datatype),1,1) = '(' & 
+			       substr(buf,length(buf)-1,2) = ') ' then 
+				buf = substr(buf,1,length(buf)-2) || ',' 
+				    || substr(types(p->nod$w_datatype),2);
+			    else 
+				buf = buf || types(p->nod$w_datatype);
+			    end;
+
+/* 
+ * Take care of special info for chars-- descriptor option and length
+ */
+	if p->nod$w_datatype = typ$k_char then
+	    if (p->nod$l_typeinfo ~= sdl$k_unknown_length) & (^p->nod$v_rtl_str_desc)
+	    then do;
+		/* Fixed-length */
+		buf = buf || '(' || trim(p->nod$l_typeinfo) || ')';
+	       /*
+		* Add `descriptor' if necessary unless this is an array,
+		* in which case the passing mechanism will be added later.
+		*/
+		if p->nod$v_desc & (^p->nod$v_dimen) then
+		    buf = buf || ' descriptor';
+		end;
+	    else
+		/* Unknown-length */
+		buf = buf || '(*)';
+/* 
+ * Add length for bit fields 
+ */
+	if p->nod$w_datatype=typ$k_vield  then 
+		buf=buf||'('||trim(p->nod$l_typeinfo)||')';
+/* 
+ * Add precision and scale for packed decimal 
+ */
+	if p->nod$w_datatype=typ$k_decimal then 
+		buf=buf||'('||trim(p->nod$l_typeinfo)||','||
+		trim(p->nod$l_typeinfo2)||')';
+/*
+ * Add an explicit passing mechanism if:
+ *
+ *	- This is a known-length array and DESCRIPTOR is needed
+ *	- This is not a character string, bitstring, or array,
+ *	  and DESCRIPTOR is needed.
+ */
+	if p->nod$v_dimen /* array? */
+	then do;
+		/* constant extent by descriptor? */
+		if ((p->nod$l_lodim ~= 0) | (p->nod$l_hidim ~= 0)) & p->nod$v_desc
+		then
+		    buf=buf||' descriptor';
+	    end;
+	else
+	    /* Not an array, string, or bitstring, and DESCRIPTOR was specified */
+	    if (p->nod$w_datatype~=typ$k_char) & (p->nod$w_datatype~=typ$k_vield) & p->nod$v_desc
+	    then
+		buf=buf||' descriptor';
+
+/* 
+ * Append optional attributes of various kinds 
+ */
+	if p->nod$v_varying then
+		buf=buf||' varying';
+	if p->nod$v_value & p->nod$w_datatype ^= typ$k_quadword & p->nod$w_datatype ^= typ$k_octaword then
+	    buf = buf || ' value';
+	else
+	    if p->nod$v_ref then
+		buf = buf || ' reference';
+	if p->nod$v_common then
+		buf=buf||' static external';
+	if p->nod$v_global then
+	    if sdl$v_global_opt then
+		buf=buf||' globaldef';
+	    else
+		buf=buf||' globalref';
+	if p->nod$v_based then do;
+		buf=buf||' based';
+		if p->nod$v_bound then
+			buf=buf||'('||p->nod$a_typeinfo2->nod$t_name||')';
+		end;
+
+    return;
+
+
+end PUTTYPE;
+
+/*
+ ******************************* PUTPARM ****************************
+ *
+ * routine to output an aggregate declaration for a parameter.
+ * The parameter node points back in the tree to the aggregate item node
+ * whose declaration we want to copy (sans names and storage attributes)
+ */ 
+PUTPARM:	proc (p,sp,lev);
+	dcl (p,sp) ptr;
+	dcl lev fixed bin;
+
+    if p^=sp then do;
+	buf=buf||trim(lev)||' ';
+	call puttype(p);
+	buf=buf||',';
+	if p->nod$a_child ^= null() then
+		call putparm (p->nod$a_child->nod$a_flink,p->nod$a_child,
+			lev+1);
+	call putparm (p->nod$a_flink,sp,lev);
+     end;
+end PUTPARM;
+	
+end OUTPUTNODE;
+ 
+end sdl$output;
+

@@ -1,0 +1,341 @@
+MODULE LIBRECDEP (IDENT = 'EV1-40') =
+
+BEGIN
+!
+!                          COPYRIGHT (C) 1989 BY
+!                    DIGITAL EQUIPMENT CORPORATION, MAYNARD
+!                     MASSACHUSETTS.  ALL RIGHTS RESERVED.
+!
+!  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED
+!  ONLY IN ACCORDANCE WITH THE TERMS OF SUCH LICENSE AND WITH THE INCLUSION
+!  OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR ANY OTHER COPIES
+!  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY OTHER
+!  PERSON.  NO TITLE TO AND OWNERSHIP OF THE SOFTWARE IS HEREBY TRANSFERRED.
+!
+!  THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE WITHOUT NOTICE AND
+!  SHOULD NOT BE CONSTRUED AS A COMMITMENT BY DIGITAL EQUIPMENT CORPORATION.
+!
+!  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR RELIABILITY OF ITS
+!  SOFTWARE ON EQUIPMENT THAT IS NOT SUPPLIED BY DIGITAL.
+!
+!
+! WRITTEN BY
+!	Bert Beander		17-May-1989
+!
+! MODIFIED BY
+!	William Vales		05-Oct-1989
+!	William Vales		13-Jan-1990
+!	Roger Cornelis		20-Oct-1994	Native Alpha port.
+!
+! MODULE FUNCTION
+!	This module contains routine LIB$REC_DEPENDENCY, which is the 
+!	routine that programs (such as the linker or compilers) call to 
+!	record build dependency information in the VMS system builder's 
+!	database.
+!
+
+REQUIRE 'SYS$LIBRARY:STARLET';
+
+SWITCHES
+    ADDRESSING_MODE(EXTERNAL = GENERAL, NONEXTERNAL = WORD_RELATIVE);
+
+PSECT
+    GLOBAL = VDE$GLOBAL	(PIC, NOSHARE, WRITE, NOEXECUTE, ALIGN(4),
+			ADDRESSING_MODE(LONG_RELATIVE)),
+    OWN    = VDE$OWN	(PIC, NOSHARE, WRITE, NOEXECUTE, ALIGN(4),
+			ADDRESSING_MODE(LONG_RELATIVE)),
+    CODE   = VDE$CODE	(PIC, SHARE, NOWRITE, EXECUTE, ALIGN(4),
+			ADDRESSING_MODE(WORD_RELATIVE)),
+    PLIT   = VDE$PLIT	(PIC, NOSHARE, NOWRITE, EXECUTE, ALIGN(4),
+			ADDRESSING_MODE(LONG_RELATIVE));
+
+FORWARD ROUTINE
+    LIB$REC_DEPENDENCY: NOVALUE,	! Record dependency information for 
+					!      the VMS system builder
+    CONDITION_HANDLER ;			! Condition handler for 
+					!  	LIB$FIND_IMAGE_SYMBOL
+
+EXTERNAL ROUTINE
+    LIB$FIND_IMAGE_SYMBOL;		! Load a shareable image and return the 
+					!      address of a symbol in that image
+BIND
+    LOGNAME = UPLIT BYTE(%ASCIC		! VDE pagefile section logical name
+		'VDE$PAGEFILE_SECTION'): VECTOR[,BYTE],
+    RECORD_LOGNAME = UPLIT BYTE (%ASCIC ! Defined and defined to TRUE if 
+		'VDE$RECORD_DEPENDENCY')!  dependency data should be recorded
+			:VECTOR[,BYTE],
+    TRUE_STRING = UPLIT BYTE(%ASCIC	! String "TRUE"
+		'TRUE'): VECTOR[,BYTE];
+
+OWN
+    REC_DEP_ADDR: INITIAL(0),		! Address of VDE$REC_DEPENDENCY entry pt
+    STARTED_FLAG: INITIAL(0);		! Flag set when data collection started
+
+LITERAL
+    LIB$_ACTIMAGE = %X'15' * %X'10000'+	! Define literal for system wide error
+		     SHR$_ACTIMAGE + 	!  message that is returned from 
+		     STS$K_ERROR;	!  LIB$FIND_IMAGE_SYMBOL if the 
+					!  shareable image is not found.
+					!  %X'15' is the facility code for LIB$
+
+GLOBAL ROUTINE LIB$REC_DEPENDENCY(FUNCTION_CODE): NOVALUE =
+!
+! FUNCTION
+!	This routine records build dependency information in the database 
+!	that the VMS system builder (the VDE utility) uses to perform 
+!	system builds.  This routine is meant to be called by the linker, 
+!	compilers, and other tools that need to record build dependency 
+!	information.  The build dependency information for a given build 
+!	step consists of the names of the modules that are the inputs to 
+!	the build step and the modules that are the outputs from the build 
+!	step.  When this information is recorded in the VMS system builder 
+!	database, the builder has the dependency information necessary to 
+!	perform minimal system builds.
+!
+!	This routine does not itself record build dependency information.  
+!	Instead, this routine determines if it is called in the context of 
+!	a system build.  If so, it loads in shareable image VDE$RECDEP.EXE 
+!	from the system library and calls entry point VDE$REC_DEPENDENCY 
+!	in that image.  Routine VDE$REC_DEPENDENCY then interprets the 
+!	arguments passed by the caller and records the dependency informa-
+!	tion.  All knowledge of what arguments are allowed and what they 
+!	mean is thus localized in shareable image VDE$RECDEP.EXE; no such 
+!	knowledge is encoded in routine LIB$REC_DEPENDENCY in this module.
+!
+!	The purpose of this arrangement is to permit upward-compatible 
+!	changes in the dependency recording interface to be made by 
+!	simply installing a new version of shareable image VDE$RECDEP.  
+!	There is no need to ever change routine LIB$REC_DEPENDENCY or to 
+!	relink any images that call it.
+!
+!	If this routine is called but not in the context of a VMS system 
+!	build, this routine simply returns immediately.  To make this 
+!	check, this routine checks for the start-recording function code.  
+!	If this function is specified, logical name VDE$PAGEFILE_SECTION 
+!	must be defined and shareable image VDE$RECDEP must be present on 
+!	the system. If this routine is called in the context of a VMS system
+!	build, and it is desirable to record dependency data the logical
+!	name VDE$RECORD_DEPENDENCY must be defined and set to the value TRUE.
+!	Defining and undefining this logical name provides a mechanism to
+!	disable dependency recording in the context of a system build.
+!  	If either logical name is not defined or the logical name 
+!	VDE$RECORD_DEPENDENCY is not set to the value TRUE or if the 
+!	shareable image is not present, this routine simply returns without 
+!	doing any further work.  All other function codes cause this routine 
+!	to return immediately if the start function code failed to initialize 
+!	dependency recording.  As a result, this routine is very cheap to 
+!	call if it is not called in the context of a VMS system build.
+!
+! INPUTS
+!	FUNCTION_CODE - The function code to be passed to routine 
+!		  VDE$REC_DEPENDENCY.  The only function code that 
+!		  LIB$REC_DEPENDENCY recognizes directly is the 
+!		  start function (code = 1) that starts dependency 
+!		  recording.
+!
+! OUTPUTS
+!	None
+!
+
+    BEGIN
+
+    BUILTIN
+	ARGPTR,				! The argument pointer (AP) register
+	CALLG;				! Call with a supplied argument vector
+
+    MAP 
+	FUNCTION_CODE: REF VECTOR [1,LONG];
+
+    LOCAL
+	ATTRIBUTES,			! The $TRNLNM attribute bit mask
+	GBL_SECT_DESC: BLOCK[8,BYTE],	! String descriptor for global section 
+					!      name
+	GBL_SECT_NAME: VECTOR[256,BYTE],! Buffer for the global section name 
+					!      from translation of logical 
+					!      name VDE$PAGEFILE_SECTION
+	GBL_SECT_NAME_LENGTH,		! Length of the returned value string
+	ITEMLIST: $ITMLST_DECL(ITEMS=1),! The $TRNLNM item-list parameter
+	LENGTH,				! Length of the returned value string
+	LOGNAM_DESC: BLOCK[8,BYTE],	! Logical name string descriptor
+	TABNAM_DESC: BLOCK[8,BYTE],	! Table name string descriptor
+	RECORD_DEPENDENCY_BUFFER:	! Buffer for translated logical name
+		    VECTOR[256,BYTE],	!  from VDE$RECORD_DEPENDENCY
+	RECORD_DEPENDENCY_LENGTH,	! Length of the returned value string
+	STATUS;				! Status returned by system service
+
+    ENABLE
+	CONDITION_HANDLER;		! Set up a condition handler
+
+
+
+    ! If this is any function code other than the start function, then 
+    ! call VDE$REC_DEPENDENCY with the caller's argument vector provided 
+    ! data collection has successfully started.  If data collection has 
+    ! not started, just return without doing anything.
+    !
+    IF .FUNCTION_CODE[0] NEQ 1
+    THEN
+	BEGIN
+	IF .STARTED_FLAG THEN STARTED_FLAG = CALLG(ARGPTR(), .REC_DEP_ADDR);
+	RETURN;
+	END;
+
+
+    ! Otherwise, we have the start function code.  Translate logical 
+    ! name VDE$PAGEFILE_SECTION to see if we are running in the context 
+    ! of a VMS build.  Start by setting up string descriptors for the 
+    ! Process Logical Name Table name and for the logical name we wish 
+    ! to look up in that table (VDE$PAGEFILE_SECTION).  Also set the 
+    ! translation attributes.
+    !
+    TABNAM_DESC[DSC$B_CLASS] = DSC$K_CLASS_S;
+    TABNAM_DESC[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    TABNAM_DESC[DSC$W_LENGTH] = 11;
+    TABNAM_DESC[DSC$A_POINTER] = UPLIT BYTE(%ASCII 'LNM$PROCESS');
+    LOGNAM_DESC[DSC$B_CLASS] = DSC$K_CLASS_S;
+    LOGNAM_DESC[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    LOGNAM_DESC[DSC$W_LENGTH] = .LOGNAME[0];
+    LOGNAM_DESC[DSC$A_POINTER] = LOGNAME[1];
+    ATTRIBUTES = LNM$M_CASE_BLIND;
+
+
+    ! Set up an item-list for the buffer that will receive the translation 
+    ! of the logical name and for the variable that will receive the length 
+    ! of the translation.
+    !
+    $ITMLST_INIT(ITMLST = ITEMLIST, 
+	(ITMCOD = LNM$_STRING, 
+	 BUFSIZ = 255, 
+	 BUFADR = GBL_SECT_NAME, 
+	 RETLEN = GBL_SECT_NAME_LENGTH));
+
+
+    ! Call the $TRNLNM system service to translate the specified logical 
+    ! name to its associated first value string.  If no such logical name 
+    ! was found, we are not in the context of a VMS system build and we 
+    ! return immediately to the caller.
+    !
+    STATUS = $TRNLNM(ATTR = ATTRIBUTES, TABNAM = TABNAM_DESC, 
+			LOGNAM = LOGNAM_DESC, ITMLST = ITEMLIST);
+    IF .STATUS EQL SS$_NOLOGNAM THEN RETURN;
+    IF NOT .STATUS THEN SIGNAL(.STATUS);
+
+
+    ! Translate logical name VDE$RECORD_DEPENDENCY to see if we should
+    ! record dependency information. This logical must be defined and
+    ! and must be defined to the value TRUE for dependency recording to
+    ! occur. Start by setting up string descriptors for the 
+    ! Process Logical Name Table name and for the logical name we wish 
+    ! to look up in that table (VDE$RECORD_DEPENDENCY). Also set the 
+    ! translation attributes.
+    !
+    TABNAM_DESC[DSC$B_CLASS] = DSC$K_CLASS_S;
+    TABNAM_DESC[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    TABNAM_DESC[DSC$W_LENGTH] = 11;
+    TABNAM_DESC[DSC$A_POINTER] = UPLIT BYTE(%ASCII 'LNM$PROCESS');
+    LOGNAM_DESC[DSC$B_CLASS] = DSC$K_CLASS_S;
+    LOGNAM_DESC[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    LOGNAM_DESC[DSC$W_LENGTH] = .RECORD_LOGNAME[0];
+    LOGNAM_DESC[DSC$A_POINTER] = RECORD_LOGNAME[1];
+    ATTRIBUTES = LNM$M_CASE_BLIND;
+
+
+    ! Set up an item-list for the buffer that will receive the translation 
+    ! of the logical name and for the variable that will receive the length 
+    ! of the translation.
+    !
+    $ITMLST_INIT(ITMLST = ITEMLIST, 
+	(ITMCOD = LNM$_STRING, 
+	 BUFSIZ = 255, 
+	 BUFADR = RECORD_DEPENDENCY_BUFFER, 
+	 RETLEN = RECORD_DEPENDENCY_LENGTH));
+
+
+    ! Call the $TRNLNM system service to translate the specified logical 
+    ! name to its associated first value string.  If no such logical name 
+    ! was found return. Check if the translated string is the string TRUE.
+    ! If so, we can continue on and record dependencies. If it is not the 
+    ! string TRUE return from this routine.
+    !
+    STATUS = $TRNLNM(ATTR = ATTRIBUTES, TABNAM = TABNAM_DESC, 
+			LOGNAM = LOGNAM_DESC, ITMLST = ITEMLIST);
+    IF .STATUS EQL SS$_NOLOGNAM THEN RETURN;
+    IF NOT .STATUS THEN SIGNAL(.STATUS);
+    IF CH$NEQ (.RECORD_DEPENDENCY_LENGTH,RECORD_DEPENDENCY_BUFFER,
+	       .TRUE_STRING [0], TRUE_STRING [1]) NEQ 0
+    THEN
+	RETURN;
+
+
+    ! We are running in the context of a VDE build.  Now see if shareable 
+    ! image VDE$RECDEP exists on the system, load it into memory, and get 
+    ! the address of the VDE$REC_DEPENDENCY entry point.  If the shareable 
+    ! image does not exist, just return.
+    !
+    STATUS = LIB$FIND_IMAGE_SYMBOL(
+		%ASCID 'VDE$RECDEP', 
+		%ASCID 'VDE$REC_DEPENDENCY', 
+		REC_DEP_ADDR);
+    IF NOT .STATUS THEN RETURN;
+    IF .REC_DEP_ADDR EQL 0 THEN RETURN;
+
+
+    ! We are running in the context of a VDE build and the VDE$RECDEP 
+    ! shareable image was found.  Now call VDE$REC_DEPENDENCY with the 
+    ! start function code and pass it the name of the pagefile section.  
+    ! After that, the start function has been performed, and we return.
+    !
+    GBL_SECT_DESC[DSC$B_CLASS] = DSC$K_CLASS_S;
+    GBL_SECT_DESC[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+    GBL_SECT_DESC[DSC$W_LENGTH] = .GBL_SECT_NAME_LENGTH;
+    GBL_SECT_DESC[DSC$A_POINTER] = GBL_SECT_NAME;
+    STARTED_FLAG = (.REC_DEP_ADDR)(%REF(1), GBL_SECT_DESC);
+    RETURN;
+
+    END;
+
+
+ROUTINE CONDITION_HANDLER(SIGVEC, MECHVEC, ENBLVEC) =
+!
+! FUNCTION
+!	The purpose of this routine is to check for the condition that 
+!	the shareable image cannot be located by LIB$FIND_IMAGE_SYMBOL.  
+!	This condition is a system wide condition that gets signalled by 
+!	LIB$FIND_IMAGE_SYMBOL in the form of LIB-E-ACTIMAGE.  If this 
+!	condition is detected we unwind to terminate LIB$REC_DEPENDENCY
+! 	gracefully.  This has the result of suppressing the printing of 
+!	the condition.  All other condition codes are resignalled.
+!
+! INPUTS
+!	SIGVEC	- A pointer to the Signal Argument vector for the signalled
+!		  condition.
+!
+!	MECHVEC	- A pointer to the Mechanism Argument vector for the signalled
+!		  condition.  (This parameter is ignored here.)
+!
+!	ENBLVEC	- A pointer to the Enable Argument vector for the signalled
+!		  condition.  (This parameter is ignored here.)
+!
+! OUTPUTS
+!	This handler returns SS$_RESIGNAL as its value or unwinds the stack.
+!
+
+    BEGIN
+
+    MAP
+	SIGVEC: REF VECTOR[,LONG];	! Pointer to signal argument vector
+
+
+
+    ! Pick up the condition value from the signal argument vector.  
+    ! Check for image activation error.  If so, the shareable image 
+    ! cannot be located, so we unwind to terminate LIB$REC_DEPENDENCY.  
+    ! All other conditions are resignalled.
+    !
+    IF .SIGVEC[1] NEQ LIB$_ACTIMAGE THEN RETURN SS$_RESIGNAL;
+    SETUNWIND();
+    RETURN 1;
+
+    END;
+
+END ELUDOM

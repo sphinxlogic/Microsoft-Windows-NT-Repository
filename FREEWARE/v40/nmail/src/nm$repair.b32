@@ -1,0 +1,2358 @@
+%title 'Nmail queue rebuilder'
+module nm$repair(
+    	        ident='17',
+    	        addressing_mode(external=general)
+                ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1987, 1988, 1989, 1991, 1992, 1993, 1994
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	8-Aug-1987
+!
+! Revision history:
+!
+!   01	24-Jan-1989
+!	Check job status so we can warn about 'error in execution'
+!	problems - otherwise job can get left in queue for ever.
+!
+!   02	3-Feb-1989
+!	Support for 'foreign message' files (can't be read in
+!	record mode)
+!
+!   03	5-Feb-1989
+!	Replace calls to NM$READ_CTL_EOK by calls to NM$READ_CTL,
+!	since that routine can now handle the _EOK case. 
+!
+!   04	23-Feb-1989
+!	Use NM$RESUBMIT_JOB instead of NM$SUBMIT_JOB
+!
+!   05	25-Feb-1989
+!	Add handler to deallocate dynamic strings on unwind
+!
+!   06  27-Feb-1991
+!	Change usage of queue status flags - incompatibility
+!	with new batch/print subsystem.  This version will
+!	work with both pre-1990 and 1990-design queue managers.
+!	
+!   07  16-Dec-1991	Cathy Wright
+!	ALPHA specific changes
+!
+!   08	7-May-1992
+!	Merge VAX and ALPHA cases
+!
+!   09	9-May-1992
+!	Defensive code - zero out old entry number before
+!	calling $GETQUI to do a "display job".   See comments
+!	in NM$SHOW.B32 for more details.
+!
+!   10	1-Jul-1992
+!	. Scatter a few VOLATILEs around the place to fix up
+!	  some ALPHA problems
+!	. Replace unnecessary CALLGs with standard routine calls
+!
+!   11	4-Jul-1992
+!	Add more VOLATILEs
+!
+!   12	3-Sep-1992
+!	Don't allow JBC$_NOJOBCTX as an expected status from 
+!	a QUI$_DISPLAY_FILE call; this was an erroneous 
+!	bit of cut'n'paste work. 
+!
+!   13	22-Apr-1993
+!	Fix file-id formatting - byte 5 has the high-order
+!	part of the file number.
+!
+!   14	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!
+!   15	15-Nov-1993
+!	Implement return-to-sender option for unqueued files.
+!	Implement /BEFORE and /SINCE actions for screening
+!	out unqueued files.
+!
+!   16	17-Nov-1993
+!	If we can't find out the original submission time
+!	(e.g., bad control file) then display the file's
+!	creation time instead.
+!
+!   17	14-Jan-1994
+!	Tweaks to JBC$_xxx status use, in the interest of
+!	consistency.
+!--
+
+
+!
+! Library calls                                            
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+! 
+! Internal routines
+!
+forward routine
+    nm$get_qstrings,
+    nm$summary,
+    nm$scan_queue,
+    nm$scan_dir,
+    nm$add_file,
+    nm$analyze_file,
+    nm$analyze_file_1,
+    nm$lost_file,
+    nm$multi_files,
+    nm$read_check,
+    nm$ask,
+    nm$flush_list,
+    nm$flush_job,
+    nm$queue_job,
+    nm$release_job,
+    nm$mark_file,
+    nm$lock_dir,
+    nm$unlock_dir,
+    nm$wrtmsg	  : novalue,
+    nm$chand;   
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+
+%sbttl 'macros and module-wide data'
+
+!
+! Macros
+!
+macro 
+    $inc(addr) =
+	begin
+	addr = .addr + 1;
+	if .addr eql 0 then addr = .addr - 1;
+	end
+    %,
+
+    $dec(addr) =
+	begin
+	if .addr neq 0 then addr = .addr - 1;
+	end
+    %;
+
+
+!
+! Module-wide data
+!
+own
+    filelist	: ref block[,byte],			! Root for file tree
+    filecount	: long,	     				! Count of files in tree
+    buffer      : block[nm$s_ctl_buf,byte] alias,	! File I/O buffer
+    buflen      : alias,				! Size of data in buffer
+    queue_list  : descrip initial($dynamic),		! Nmail queue list
+    before	: vector[2],				! Latest date-time	
+    since	: vector[2],				! Earliest date-time
+    reason	: ref descrip,				! Reason for cancellation
+    badcount	: alias,				! Bad files found
+    unquedcount : alias,				! Files not queued
+    mquedcount  : alias,				! Multiply queued files
+    lostcount   : alias,				! Lost files
+    mfilejcount : alias,				! Jobs with >1 files 
+    undircount  : alias,				! Files not in work directory
+    mdirfcount  : alias,				! Files entered in dir >once
+    retaincount : alias,				! Jobs retained in queue
+    holdcount   : alias,				! Jobs held in queue
+    weirdcount	: alias,				! Jobs with weird status
+    delcount    : alias,				! Files deleted
+    cancount	: alias,				! Jobs cancelled
+    subcount	: alias,				! Jobs submitted
+    relcount	: alias,				! Jobs released
+    bdatecount	: alias,				! Skipped, wrong date
+    signalcount : volatile;				! Errors signalled
+
+%sbttl 'structure definitions'
+ 
+!
+! Node representing one file, stored in a database structured as
+! a binary tree.
+!
+macro
+    tr$l_left   = 00,0,32,0   %,		! Left link
+    tr$l_right  = 04,0,32,0   %,		! Right link
+    tr$w_rsvd   = 08,0,16,0   %,		! Reserved to RTL tree routines
+    tr$w_size   = 10,0,16,0   %,		! Block size in bytes
+    tr$r_fileid = 12,0,00,0   %,		! 28-byte file ID
+    tr$q_fspec  = 40,0,00,0   %,		! Descriptor for filespec
+      tr$w_fs_len = 40,0,16,0 %,		!  Length
+      tr$a_fs_ptr = 44,0,32,0 %,		!  String pointer
+    tr$b_indir  = 48,0,08,0   %,   		! Number of times in directory
+    tr$b_inque  = 49,0,08,0   %,		! Number of times in queue
+    tr$w_flags  = 50,0,16,0   %,		! Flags
+    tr$l_qefl   = 52,0,32,0   %,		! Head of queue/entry list
+    tr$l_qebl   = 56,0,32,0   %;		! Tail of ditto
+literal
+    tr$s_node 	= 60;	     			! Size of fixed part of node
+macro
+    tree = block[tr$s_node,byte] %;
+
+!
+! Subnode representing an entry in an Nmail queue; these subnodes
+! are queued off the main file node.
+!
+macro  
+    qe$l_flink  = 00,0,32,0   %,		! Forward link
+    qe$l_blink  = 04,0,32,0   %,		! Backward link
+    qe$w_namlen = 08,0,16,0   %,		! Queue name length
+    qe$w_entry  = 10,0,16,0   %,		! Entry number
+    qe$a_namptr = 12,0,32,0   %,		! Queue name pointer
+    qe$l_jobsts = 16,0,32,0   %;		! Job status bits
+literal
+    qe$s_node   = 20;				! Size of node
+macro
+    qeblock = block[qe$s_node,byte] %;
+
+%sbttl 'question-and-answer data'
+
+!
+! Fixed strings
+!
+bind 
+    null  = %ascid'',
+    lpar  = %ascid' (',
+    rpar  = %ascid'): ',
+    slash = %ascid'/';
+
+!
+! Short strings used in questions
+!                   
+own
+    strings_set : initial(false),
+    askdel	: descrip initial($dynamic),
+    asksub	: descrip initial($dynamic),
+    askrel	: descrip initial($dynamic),
+    askflu	: descrip initial($dynamic),
+    askcan	: descrip initial($dynamic),
+    xxyes	: descrip initial($dynamic),
+    xxno	: descrip initial($dynamic),
+    xxdel	: descrip initial($dynamic),
+    xxcan	: descrip initial($dynamic),
+    netuser	: descrip initial($dynamic),
+    unkuser	: descrip initial($dynamic),
+    represn	: descrip initial($dynamic) alias;
+
+!
+! Structure to map the NM$_xxx codes to string descriptors
+!
+bind
+    strings_list = plit(
+		       nm$_anaskdel,  askdel,
+		       nm$_anasksub,  asksub,
+		       nm$_anaskrel,  askrel,
+		       nm$_anaskflu,  askflu,
+		       nm$_anaskcan,  askcan,
+		       nm$_xxyes,     xxyes,
+		       nm$_xxno,      xxno, 
+	   	       nm$_xxdel,     xxdel,
+		       nm$_xxcan,     xxcan,
+		       nm$_annetu,    netuser,
+		       nm$_anunku,    unkuser,	
+		       nm$_represn,   represn
+		       ) : vector;
+
+!
+! Stuff used in command parsing. This complicated arrangement is to
+! cater for language-independence; each of the bytevectors below
+! represents the valid set of answers to some question: the question-
+! marks will be overwritten at run time with the valid characters.
+!
+literal
+    ans$k_yes = 1,
+    ans$k_no  = 2,                           
+    ans$k_del = 3,
+    ans$k_can = 4;
+own        
+    ans_yn  : vector[5,byte]
+	      initial(byte(4,'?',ans$k_yes,'?',ans$k_no)),
+    ans_ynd : vector[7,byte] 
+	      initial(byte(6,'?',ans$k_yes,'?',ans$k_no,'?',ans$k_del)),
+    ans_ync : vector[7,byte] 
+	      initial(byte(6,'?',ans$k_yes,'?',ans$k_no,'?',ans$k_can));
+
+%sbttl 'check nmail system consistency'
+global routine nm$repair (flags : block[,byte], beforep, sincep, reasonp) =
+
+!++
+! Functional description:
+!
+! This routine is called to check the consistency of the Nmail
+! queues, and optionally to effect repairs.  Its major function 
+! is to ensure that for every file in the work directory there
+! is exactly one entry in the queues, and that for every queue 
+! entry there is a file. It also checks that files are valid
+! Nmail control files, at least to the extent of having a valid
+! header record.
+!
+! The 'before' and 'since' parameters are provided to allow 
+! some degree of selection over which unqueued files are selected
+! for resubmission.  For example, if there are a mixture of recent
+! and old unqueued work files, then it might be useful to make two
+! calls to nm$repair - the first specifying a 'before' date and
+! the return-to-sender flag, and the second with no date and no
+! such flag.   Thus, older messages will be returned, and the more
+! recent messages will be retried.
+!
+! Formal parameters:
+!
+! flags.rl.v    = control flags
+!		   anl$v_repair -> repair damage
+!		   anl$v_conf   -> ask user to confirm repairs
+!		   anl$v_hold   -> submit jobs /hold
+!		   anl$v_rts    -> unqueued files to be returned to sender
+!		   anl$v_before -> consider only msgs created before stated time
+!		   anl$v_since  -> consider only msgs created after stated time
+! beforep.rq.r  = 'before' date if anl$v_before set
+! sincep.rq.r   = 'since' date if anl$v_since set
+! reasonp.rt.dx = reason text if anl$v_rts set
+!
+! Routine values:
+!
+! status.wlc.v = completion status
+!                                   
+!--
+
+    begin
+              
+    local
+	status   : initial(true),
+	phase    : initial(0),
+	rpt_fid  : block[nm$s_fileid,byte],
+	dir_chan : initial(0);
+
+    !
+    ! Stuff dates some globally-accessible place
+    !
+    if .flags[anl$v_before] then $movq(.beforep, before);
+    if .flags[anl$v_since]  then $movq(.sincep, since);
+    reason = .reasonp;
+
+    !
+    ! The routine flow is arranged as a 'while' loop, checking on 
+    ! status after each phase.  This affords a somewhat more readable
+    ! structure than if-then'ing on the status from each phase, and is
+    ! more pleasant than the execrable 'leave' construction.
+    !
+    while .status do
+	case (phase = .phase+1) from 1 to 8 of
+	    set
+	
+	    [1]:
+		!
+		! Initialisation: load strings and open listing file
+    		!
+	      	begin
+    		if .flags[anl$v_repair] and not .strings_set
+    		then
+     		    strings_set = nm$get_qstrings();
+		if .reason[dsc$w_length] eql 0
+		then
+		    reason = represn;
+    		nm$create_rptsho_file(rpt_fid, null);
+		end;
+
+	    [2]:
+		!
+		! Lock directory whilst we're building up the
+		! file list, to ensure consistency
+		!
+		status = nm$lock_dir(dir_chan);
+
+	    [3]:
+    		!
+    		! Build up lists of files in queue
+    		!
+    		status = nm$scan_queue(.flags);
+              
+	    [4]:
+    		!
+    		! Build up lists of files in work directory
+    		!
+    		status = nm$scan_dir(.flags);
+
+	    [5]:
+		!
+		! Unlock directory (need to do that now so we
+		! can delete files if necessary)
+		!
+		status = nm$unlock_dir(dir_chan);
+
+	    [6]:
+    		!
+    		! Now go do a consistency check for each file in turn
+    		!
+    		lib$traverse_tree(filelist, nm$analyze_file, .flags);
+
+	    [7]:
+		!
+		! Make final checks, issue final messages
+		!
+		status = nm$summary();
+
+	    [8]:
+    		!                              
+		! All done, exit from the loop
+    		!
+		begin
+		status = ss$_normal;
+		exitloop;
+		end;
+
+	    tes;
+
+    !
+    ! Fall out here on some error or on completion of all phases
+    !
+    nm$close_rpt_file(false);
+    return .status
+
+    end;
+
+%sbttl 'assemble questions'
+routine nm$get_qstrings =
+
+!++
+! Functional description:
+!
+! Loads the pieces of string needed to ask the questions and
+! parse the answers when in /CONFIRM mode
+!
+! Formal parameters:
+!
+! none
+!
+! Routine values:
+!
+! status.wlc.v = true (always)
+!
+!--
+
+    begin
+    switches structure(ref vector[,byte]);
+
+    !
+    ! Load the question strings
+    ! 
+    nm$load_strings(strings_list);
+
+    !
+    ! Set up the valid answers. This has two aspects: setting up the 
+    ! valid-answer vectors with the initial letter of each valid answer, 
+    ! and appending the valid answers to the questions so that the user 
+    ! knows what he's allowed to type.
+    !
+    ans_yn[1]  = .xxyes[dsc$a_pointer][0];
+    ans_yn[3]  = .xxno[dsc$a_pointer][0];
+    ans_ynd[1] = .xxyes[dsc$a_pointer][0];
+    ans_ynd[3] = .xxno[dsc$a_pointer][0];
+    ans_ynd[5] = .xxdel[dsc$a_pointer][0];
+    ans_ync[1] = .xxyes[dsc$a_pointer][0];
+    ans_ync[3] = .xxno[dsc$a_pointer][0];
+    ans_ync[5] = .xxcan[dsc$a_pointer][0];
+    str$concat(askdel, askdel, lpar, xxyes, slash, xxno, rpar);
+    str$concat(asksub, asksub, lpar, xxyes, slash, xxno, slash, xxdel, rpar);
+    str$concat(askrel, askrel, lpar, xxyes, slash, xxno, slash, xxcan, rpar);
+    str$concat(askflu, askflu, lpar, xxyes, slash, xxno, rpar);
+    str$concat(askcan, askcan, lpar, xxyes, slash, xxno, rpar);
+
+    !
+    ! All okay
+    !
+    true
+    end;
+
+%sbttl 'end-of-run summary'
+routine nm$summary =
+
+!++
+! Functional description:
+!
+! This routine prints out all the accumulated error and 
+! fixup counters, as an end-of-run summary.
+!
+! Formal parameters:
+!
+! none            
+!
+! Routine value:
+!                  
+! status.wlc.v = status, always true:
+!
+!--
+
+    begin
+
+    own
+	totalcount : alias,
+	fixupcount : alias;
+                   
+    !
+    ! Output control vector
+    !
+    bind
+	errlist = plit(
+		      totalcount,   totalcount,  nm$_ansumm,
+		      badcount,     totalcount,  nm$_anbadcnt,
+		      unquedcount,  totalcount,  nm$_anunqcnt,
+		      mquedcount,   totalcount,  nm$_anmqucnt,
+		      lostcount,    totalcount,  nm$_anloscnt,
+		      mfilejcount,  totalcount,  nm$_anmfjcnt,
+		      undircount,   totalcount,  nm$_anundcnt,
+		      mdirfcount,   totalcount,  nm$_anmdfcnt,
+		      retaincount,  totalcount,  nm$_anretcnt,
+		      holdcount,    totalcount,  nm$_anhldcnt,
+		      weirdcount,   totalcount,  nm$_anwrdcnt,
+		      signalcount,  totalcount,  nm$_ansigcnt,
+		      fixupcount,   fixupcount,  nm$_anaction,
+		      delcount,     fixupcount,  nm$_andelcnt,
+		      cancount,     fixupcount,  nm$_ancancnt,
+		      subcount,     fixupcount,  nm$_ansubcnt,
+		      relcount,	    fixupcount,  nm$_anrelcnt
+		      ) : vector;
+                                 
+    !               
+    ! Total all the counters
+    !
+    totalcount = fixupcount = 0;
+    incr i from 0 to .errlist[-1]-1 by 3 do
+	.errlist[.i+1] = ..errlist[.i+1] + ..errlist[.i];
+
+    !
+    ! If no problems detected, say so briefly
+    !
+    if .totalcount eql 0
+    then
+	begin
+	nm$wrtmsg(nm$_anzero);
+	return true;
+	end;
+                                             
+    !
+    ! Otherwise, list problems by category
+    !
+    incr i from 0 to .errlist[-1]-1 by 3 do
+	if ..errlist[.i] neq 0
+	then
+	    nm$wrtmsg(.errlist[.i+2], 1, ..errlist[.i]);  
+
+    !
+    ! Finish off list with a nice blank line
+    !
+    nm$wrtmsg(nm$_text, 1, null);
+        
+    true
+    end;
+
+%sbttl 'scan all queues for files'
+routine nm$scan_queue (flags : block[,byte]) =
+
+!++                              
+! Functional description:
+!
+! Scans Nmail queues. For each file found in the queue, an
+! entry is made in the internal database.
+!                    
+! Formal parameters:
+!
+! flags.rl.v = control flags
+!
+! Routine value:
+!
+! status.wlc.v = true if operation is generally successful
+!		 false on some error fatal to continued operation
+!
+!--
+
+    begin
+
+    !
+    ! Internal routine to check the existence of a file; needed
+    ! so's we can trap any signals generated by the I/O routines.
+    !
+    routine lookup(fid) =
+	begin
+	enable nm$chand;
+	nm$open_ctl_file(.fid, buffer, buflen, true);
+	nm$close_ctl_file(false);
+	true
+	end;
+
+    !
+    ! Storage for returned queue information items
+    !
+    local
+	filespec_buff	: vector[nm$s_filespec,byte] alias,
+	filespec_len	: word alias,
+	file_id		: block[nm$s_fileid,byte] alias,
+	entry_num	: alias,
+	job_sts		: block[%upval,byte] alias,
+	queue_sts	: block[%upval,byte] alias,
+	active_jobs	: alias,
+	job_limit	: alias;
+
+    !
+    ! Other scratch bits and pieces. 
+    !
+    local 
+	status,
+	srch_wild    : initial(qui$m_search_wildcard) alias,
+     	srch_all     : initial(qui$m_search_all_jobs) alias;
+        
+    !
+    ! Items lists for the various 'display' functions to be requested.
+    !
+    local
+	dpy_queue : $itemlist(
+			qui$_search_name,         0,             0,             0,
+			qui$_search_flags,        %upval,        srch_wild,     0,
+		        qui$_queue_status,        %upval,        queue_sts,     0,
+			qui$_executing_job_count, %upval,	 active_jobs,	0,
+			qui$_job_limit,		  %upval,        job_limit,     0
+			),
+	dpy_job   : $itemlist(
+			qui$_search_flags,        %upval,        srch_all,      0,
+			qui$_entry_number,        %upval,        entry_num,     0,
+			qui$_job_status,	  %upval,	 job_sts,       0
+			),
+	dpy_file  : $itemlist(
+			qui$_file_identification, nm$s_fileid,   file_id,       0,
+			qui$_file_specification,  nm$s_filespec, filespec_buff, filespec_len
+		        );
+
+    !
+    ! Process each queue in turn.
+    !      
+    str$free1_dx(queue_list);
+    while nm$next_queue(queue_list, dpy_queue) do
+	begin
+                                                                                
+	!
+	! Establish queue context for job controller
+	!                                          
+	status = nm$getqui(qui$_cancel_operation, %ref(0));
+	if not .status then signal_stop(nm$_jbc, 0, .status);
+	status = nm$getqui(qui$_display_queue, dpy_queue);
+	if not .status then signal_stop(nm$_jbc, 0, .status);
+
+	! 
+	! Old job controllers used the queue status a little
+	! differently.  Massage the bits to make them compatible
+	! with the 1990 design job controller.
+	!
+	queue_sts = nm$massage_qstatus(.queue_sts, .active_jobs, .job_limit);
+
+	!
+	! Check that queue is fully stopped
+	!
+	if not .queue_sts[qui$v_queue_stopped]
+	then
+	    begin
+	    signal_stop(nm$_queact, 1, dpy_queue);
+	    return nm$_queact;
+	    end;
+
+	!
+	! Process all jobs in queue
+	!
+	while begin
+	      entry_num = 0;
+	      status = nm$getqui(qui$_display_job, dpy_job);
+	      if not .status
+	      then 
+		  if .status neq jbc$_nomorejob and
+		     .status neq jbc$_nosuchjob
+		  then
+		      signal_stop(nm$_jbc, 0, .status);
+	      .status
+	      end
+        do
+            begin
+	    local
+		found_files : initial(0), 
+		lost_files  : initial(0),
+		file_nodes  : vector[nm$k_maxfile];
+
+	    !   
+	    ! Process all files in job (only one expected)
+	    ! 
+	    while begin
+		  status = nm$getqui(qui$_display_file, dpy_file);
+		  if not .status
+		  then 
+		      if .status neq jbc$_nomorefile and
+			 .status neq jbc$_nosuchfile
+		      then
+		          signal_stop(nm$_jbc, 0, .status);
+		  .status
+		  end
+	    do
+		begin
+
+		! 
+		! Check that the file exists
+		!
+		status = lookup(file_id);
+		if .status 
+		then
+		    begin
+		    bind node = file_nodes[.found_files] : ref tree;
+
+		    !  
+		    ! If there are too many files to handle in this job then
+		    ! stop looking at this point
+		    !
+		    if .found_files geq nm$k_maxfile
+		    then
+			begin	
+			signal(nm$_filofl2);
+			exitloop; 
+			end
+		    else
+			found_files = .found_files + 1;
+
+	   	    !
+		    ! Add entry to internal file database; add queue/entry
+		    ! block to the file node.
+		    !
+		    node = nm$add_file(file_id, filespec_buff, .filespec_len);
+		    if .node neq 0
+                    then 
+		    	begin 
+ 		        local qe : ref qeblock;
+ 		    	builtin insque; 
+			$inc(node[tr$b_inque]);
+		    	status = lib$get_vm(%ref(qe$s_node), qe);
+		    	if not .status then signal_stop(nm$_instree, 1, .filecount, .status);
+		    	qe[qe$w_entry]  = .entry_num;
+		    	qe[qe$w_namlen] = .dpy_queue[0] and %x'ffff';
+		    	qe[qe$a_namptr] = .dpy_queue[1];
+			qe[qe$l_jobsts] = .job_sts;
+	   	    	insque(.qe, .node[tr$l_qebl]);
+		    	end;                           
+
+		    end
+
+	        !
+ 		! Ooops, non-existent or inaccessible file
+                !
+		else                                                   
+		    lost_files = .lost_files + 1;
+                         
+		!
+		! End of file-loop
+		!
+		end;
+                
+	    !
+	    ! If there was more than one file in the job, offer to
+	    ! burst the job into many single-file jobs.
+	    !
+	    if .found_files gtr 1
+	    then
+		begin
+	  	status = nm$multi_files(dpy_queue, .entry_num, .flags, .found_files, file_nodes);
+		if .status then lost_files = 0;
+		end;
+
+  	    ! 
+	    ! If there was at least one bum file in the job, give
+	    ! the user the option of deleting the job.
+   	    ! 
+	    if .lost_files gtr 0
+	    then
+		nm$lost_file(dpy_queue, .entry_num, .flags, .lost_files);
+
+	    !	
+	    ! End of job-loop
+	    !                
+	    end;
+
+	!                           
+	! End of queue-loop                                              
+	!
+	end;
+
+    !
+    ! Tell job controller we're done
+    !
+    status = nm$getqui(qui$_cancel_operation, %ref(0));
+    if not .status then signal_stop(nm$_jbc, 0, .status);
+                            
+    true
+    end; 
+
+%sbttl 'scan work directory'
+routine nm$scan_dir (flags : block[,byte]) =
+
+!++                              
+! Functional description:
+!
+! Scans Nmail work directory. For each file found, an
+! entry is made in the internal database.
+!                    
+! Formal parameters:
+!
+! flags.rl.v = control flags
+!
+! Routine value:
+!
+! status.wlc.v = true if operation is generally successful
+!		 false on some error fatal to continued operation
+!
+!--
+
+    begin  
+
+    !
+    ! Action routine to handle one file successfully found
+    !
+    routine scansuc(fab : ref $fab_decl) : novalue =
+	begin
+	bind nam = fab[fab$l_nam] : ref $nam_decl;
+	local node : ref tree;
+	node = nm$add_file(nam[nam$t_dvi], .nam[nam$l_rsa], .nam[nam$b_rsl]);
+	if .node neq 0 then $inc(node[tr$b_indir]);
+	end;
+
+    !
+    ! Action routine to handle search error
+    !
+    routine scanerr(fab : ref $fab_decl) : novalue =
+	begin
+	enable nm$chand;
+	if .fab[fab$l_sts] neq rms$_fnf
+	then
+	    nm$rms_error(nm$_search, .fab);
+	end;
+
+    !                                     
+    ! Local data
+    !
+    local
+	fab : $fab_decl,
+     	nam : $nam_decl alias,
+	exp : vector[nm$s_filespec,byte] alias,
+	res : vector[nm$s_filespec,byte] alias;
+
+    !
+    ! Set up FAB and NAM blocks for directory search
+    !
+    $fab_init(
+	     fab=fab,
+	     fns=%charcount('*.*;*'),
+	     fna=uplit byte('*.*;*'),
+	     dns=.nm$gt_work_def[0],
+	     dna=nm$gt_work_def[1],
+	     lnm_mode=psl$c_exec,
+	     nam=nam
+	     );
+    $nam_init(
+	     nam=nam, 
+	     esa=exp,
+	     ess=nm$s_filespec,
+	     rsa=res,
+	     rss=nm$s_filespec,
+	     nop=noconceal
+	     ); 
+
+    !
+    ! Go and search the work directory; all files and errors are
+    ! handled by action routines declared above.
+    !
+    lib$file_scan(fab, scansuc, scanerr);
+    lib$file_scan_end(fab);
+
+    true
+    end;
+
+%sbttl 'add file to analysis database'
+routine nm$add_file (
+		    fileid : ref vector[,byte],
+		    fbuff  : ref vector[,byte], 
+		    flen
+		    ) =  
+                    
+!++
+! Functional description:
+!
+! Adds a file to the internal file list.  The list is maintained
+! as a binary tree, with the file ID used as the key into the tree.
+!
+! Formal parameters:
+!
+! fileid.rr.r = 28-byte file ID
+! fbuff.rt.r  = buffer containing full file specification
+! flen.rl.v   = length of filespec
+!
+! Routine value:
+!
+! newnode.wa.v  = address of node in database
+!		  (0 if the insertion failed)
+!--
+
+    begin
+
+    external literal
+	lib$_keyalrins;
+
+    !                             
+    ! Action routine to compare a file ID with the file ID stored in
+    ! an existing node in the database.
+    !
+    routine cmptree (fidd : ref descrip, node : ref tree) =
+ 	ch$compare(
+		  nm$s_fileid, .fidd[dsc$a_pointer], 
+		  nm$s_fileid, node[tr$r_fileid]
+		  );
+
+    !                                  
+    ! Action routine to allocate a new node in the database.
+    !
+    routine alloctree (fidd : ref descrip, nodeptr : ref tree, len) =
+	begin
+	bind
+	    node = .nodeptr : ref tree;
+	local
+	    status; 
+	status = lib$get_vm(len, node);
+	if not .status then return .status;
+	ch$fill(0, tr$s_node, .node);
+	ch$move(nm$s_fileid, .fidd[dsc$a_pointer], node[tr$r_fileid]);
+	node[tr$w_size] = .len;
+	node[tr$l_qebl] = node[tr$l_qefl] = node[tr$l_qefl];
+	true      
+	end;
+
+    !
+    ! Local data
+    !                
+    local  
+	fid_dsc : descrip initial(nm$s_fileid, .fileid),
+	newnode : ref tree,
+	status;    
+                       
+    !                     
+    ! Insert entry in analysis database.  If an entry already exists
+    ! for this file-ID, then no insertion is done.
+    !
+    status = lib$insert_tree(
+			    filelist, fid_dsc, %ref(0),
+    			    cmptree, alloctree, newnode, tr$s_node+.flen
+			    );
+    if not .status then signal_stop(nm$_instree, 1, .filecount, .status);
+
+    !
+    ! If a new node was created, add the filespec to the node. We 
+    ! allocated enough room at the end of the node, so as to avoid 
+    ! worrying about D-strings.
+    !
+    if .status neq lib$_keyalrins 
+    then 
+	begin
+	filecount = .filecount + 1;
+        ch$move(.flen, .fbuff, .newnode+tr$s_node);
+        newnode[tr$w_fs_len] = .flen;
+        newnode[tr$a_fs_ptr] = .newnode+tr$s_node;
+	end;
+    
+    !
+    ! Return the node address to the caller
+    !
+    .newnode
+
+    end;
+
+%sbttl 'analyze and repair condition of one file'
+routine nm$analyze_file (node : ref tree, flags : block[,byte]) =
+
+!++
+! Functional description:
+!
+! This routine is called once for every file represented in
+! the internal database (after the complete database has been 
+! constructed).  It merely passes the call on to NM$ANALYZE_FILE_1,
+! which does all the work.  This routine only exists to get
+! another level of stack frame, so that we always return 'true' to
+! the tree traversal routine, which aborts the scan on an error
+! status.
+!
+! Formal parameters:
+!
+! node.rr.r  = database node representing the file
+! flags.rl.v = control flags
+!		anl$v_repair -> repair damage
+!		anl$v_conf   -> ask user to confirm repairs
+!		anl$v_hold   -> submit jobs /hold
+!		anl$v_rts    -> unqueued files to be returned to sender
+!		anl$v_before -> consider only msgs created before stated time
+!		anl$v_since  -> consider only msgs created after stated time
+!
+! Routine value:
+!
+! status.wlc.v = always true
+!
+!-- 
+
+    begin
+    nm$analyze_file_1(.node, .flags);
+    true
+    end;
+
+%sbttl 'analyze and repair condition of one file'
+routine nm$analyze_file_1 (node : ref tree, flags : block[,byte]) =
+
+!++
+! Functional description:
+!                                                                  
+! This routine is called once for every file represented in
+! the internal database (after the complete database has been 
+! constructed).  It performs consistency checks for the file,
+! and takes appropriate repair action.
+!
+! Formal parameters:
+!
+! node.rr.r  = database node representing the file
+! flags.rl.v = control flags
+!		anl$v_repair -> repair damage
+!		anl$v_conf   -> ask user to confirm repairs
+!		anl$v_hold   -> submit jobs /hold
+!		anl$v_rts    -> unqueued files to be returned to sender
+!		anl$v_before -> consider only msgs created before stated time
+!		anl$v_since  -> consider only msgs created after stated time
+!
+! Routine value:
+!                      
+! status.wlc.v = true, unless routine was unwound
+!		 by some signalled error
+!		                    
+!-- 
+
+    begin
+
+    !
+    ! Macro to write out a message, preceded by the standard info
+    ! about which file we're working on.  
+    !
+    macro
+	$filemsg[] = 
+	    begin
+	    nm$write_rpt_vec(fileargs);
+	    nm$wrtmsg(%remaining);
+	    skip = true;
+	    end
+	%;
+
+    !
+    ! Local data
+    !
+    bind
+	fid = node[tr$r_fileid]+nam$s_dvi : block[,byte];
+    local
+	xfrom	   : descrip initial($dynamic) volatile,
+	qtime	   : vector[2] initial(0,0) alias,
+	ctlflg	   : block[%upval,byte] initial(0),
+	bad_file   : initial(true),                   
+	delete	   : initial(false),
+	submit	   : initial(false),
+	release	   : initial(false),
+	cancel 	   : initial(false),
+	flush	   : initial(false),
+	rts	   : initial(false),
+	wrongdate  : initial(false),
+	skip	   : initial(false),
+	fileargs   : vector[12],
+	answer,
+       	status;
+
+    !
+    ! No Nmail errors are fatal to continued operation
+    !
+    enable nm$chand (xfrom);
+
+    !
+    ! Make up a message vector for printing the file specification
+    ! with.  We're set up to display the creation time from the file;
+    ! once we know it's a good file, then we display the submission
+    ! time and the 'from' address instead.
+    !
+    fileargs[0]  = 10 or put_txt;
+    fileargs[1]  = nm$_anfile;
+    fileargs[2]  = 4;
+    fileargs[3]  = node[tr$q_fspec];
+    fileargs[4]  = .fid[fid$w_num] + 65536*.fid[fid$b_nmx];
+    fileargs[5]  = .fid[fid$w_seq];
+    fileargs[6]  = .fid[fid$b_rvn];
+    fileargs[7]  = nm$_anfildt; ! -> nm$_anfrom;
+    fileargs[8]  = 2;
+    fileargs[9]  = xfrom;
+    fileargs[10] = qtime;
+		     
+    ! 
+    ! Open the file and check whether this is a real control file. 
+    ! Note that we deal with empty files and invalid files here (by 
+    ! allowing the user to take appropriate repair action).  Other more
+    ! serious errors cause this routine to be unwound, and the user will
+    ! have to fix the problem without our help.
+    !                                                            
+    nm$open_ctl_file(node[tr$r_fileid], buffer, buflen, true, qtime);
+    bad_file = not nm$read_check(xfrom, ctlflg, qtime);
+    if .xfrom[dsc$w_length] neq 0 then fileargs[7] = nm$_anfrom;
+
+    !
+    ! If any of the date-selection qualifiers were specified, decide
+    ! whether this message is eligible for processing or not.   This 
+    ! will only be meaningful if we decide that the file needs to
+    ! be resubmitted.   We need qtime >= since and qtime < before. 
+    !
+    if not .bad_file
+    then
+	begin
+    	if .flags[anl$v_since] and $cmpq(qtime, since) lss 0
+    	then 
+	    wrongdate = not nm$_an2old;
+    	if .flags[anl$v_before] and $cmpq(qtime, before) geq 0
+    	then
+	    wrongdate = not nm$_an2new;
+	end;
+    
+    !
+    ! Check that the file showed up in the Nmail work directory.  If it
+    ! didn't, then this doesn't stop anything working, but on the other hand
+    ! it shouldn't happen using only supported software (unless just maybe 
+    ! the definition of NM$WORK was changed and we're still emptying out the
+    ! the old directory).  No action can or needs be taken.
+    !
+    if .node[tr$b_indir] eql 0
+    then
+	begin
+	undircount = .undircount + 1; 
+	$filemsg(nm$_anundir); 
+	end;
+
+    !
+    ! Check that the same file wasn't entered into the work directory 
+    ! more than once.  If it was, then either some serious screwing 
+    ! around has been going on, or else a bad logical name has resulted
+    ! in two paths to the same file. We dare not meddle with this.
+    !
+    if .node[tr$b_indir] gtr 1 
+    then 
+	begin
+	mdirfcount = .mdirfcount + 1;
+	$filemsg(nm$_anmuldir, 1, .node[tr$b_indir]);
+	end;
+
+    !
+    ! If this is a bad control file, then we may want to delete it.
+    ! (If it happens to be entered in the Nmail queue, then we need
+    !  to take care of that as well).  We only allow deletion if the
+    ! file is in the Nmail work directory; if it's elsewhere, all you
+    ! can do is cancel it -- it's too dodgy to allow random files to 
+    ! be deleted.
+    !
+    if .bad_file  
+    then
+	begin
+	badcount = .badcount + 1;
+	$filemsg(not .bad_file);
+	if .flags[anl$v_repair]
+	then
+	    if .node[tr$b_indir] eql 1
+	    then
+
+		!
+		! Subcase: bad file, entered in work directory exactly once
+		!
+	        begin
+	        answer = nm$ask(.flags, askdel, ans_yn);
+	        if .answer eql ans$k_yes 
+		then 
+		    begin
+		    delete = true;
+		    if .node[tr$b_inque] neq 0 then cancel = true;
+		    end;
+	        end
+
+	    else if .node[tr$b_inque] neq 0
+	    then
+
+		!
+		! Subcase: bad file, not in work directory (or entered in 
+		! directory more than once!) but in Nmail queue.
+		!              
+		begin
+	        answer = nm$ask(.flags, askcan, ans_yn);
+	        if .answer eql ans$k_yes then cancel = true;
+	        end;
+
+	end;            
+                     
+    !      
+    ! Check that the file is entered in the queues.  If it isn't, 
+    ! then we submit it or delete it - this is easy stuff.
+    !
+    if .node[tr$b_inque] eql 0 and not .bad_file
+    then
+	begin
+	unquedcount = .unquedcount + 1;
+        $filemsg(nm$_anunque);
+	if .flags[anl$v_repair]
+	then
+	    if .wrongdate 
+	    then
+
+		!
+		! Subcase - message skipped on basis of creation date
+		! 
+	        begin
+	    	nm$wrtmsg(not .wrongdate);
+		bdatecount = .bdatecount + 1
+		end
+
+	    else
+		
+		!
+		! Subscase - normal repair action
+		!
+	    	begin
+	    	if .flags[anl$v_rts]
+	    	then
+		    if .ctlflg[ctl$v_norpt] 
+		    then 
+		        nm$wrtmsg(nm$_annorpt)
+		    else
+		        rts = true;
+	    	answer = nm$ask(.flags, asksub, ans_ynd);
+	    	if .answer eql ans$k_yes then submit = true;
+	    	if .answer eql ans$k_del then delete = true;
+	    	end;
+     
+	end;
+
+    !
+    ! Check that the file isn't in the queues more than once. If it
+    ! is, then we need to get rid of all but one occurrence.
+    !
+    if .node[tr$b_inque] gtr 1 and not .bad_file
+    then
+	begin  
+	mquedcount = .mquedcount + 1;
+	$filemsg(nm$_anmulque, 1, .node[tr$b_inque]);
+	if .flags[anl$v_repair] 
+	then
+	    begin
+	    answer = nm$ask(.flags, askflu, ans_yn);
+	    if .answer eql ans$k_yes then flush = true;
+	    end;                            
+	end;
+
+    !
+    ! If this is a good file with exactly one queue entry, then
+    ! worry about the status of the job
+    !
+    if .node[tr$b_inque] eql 1 and not .bad_file 
+    then
+	begin  
+	bind 
+	    qe     = node[tr$l_qefl] : ref qeblock,
+	    jobsts = qe[qe$l_jobsts] : block[,byte];
+	local
+	    offer : initial(false);
+	if .jobsts[qui$v_job_inaccessible] or 
+	   .jobsts[qui$v_job_refused] or
+	   .jobsts[qui$v_job_suspended]
+	then
+	    begin
+	    weirdcount = .weirdcount + 1;
+	    $filemsg(nm$_anweird, 1, .qe[qe$w_entry]);
+	    offer = true;
+	    end;
+	if .jobsts[qui$v_job_holding] and not .flags[anl$v_hold]
+	then
+	    begin
+	    holdcount = .holdcount + 1;
+            $filemsg(nm$_anheld, 1, .qe[qe$w_entry]);
+	    offer = true;
+	    end;
+	if .jobsts[qui$v_job_retained]
+	then
+	    begin
+	    retaincount = .retaincount + 1;
+            $filemsg(nm$_anstuck, 1, .qe[qe$w_entry]);
+	    offer = true;
+	    end;
+	if .flags[anl$v_repair] and .offer
+	then
+	    begin
+	    answer = nm$ask(.flags, askrel, ans_ync);
+	    if .answer eql ans$k_yes then release = true;
+	    if .answer eql ans$k_can then cancel = delete = true;
+	    end;
+	end;
+
+    !                                
+    ! Remove queue entries if required.  We remove them all if the file
+    ! is being deleted or the job is being cancelled, we leave one if it's 
+    ! a flush.
+    !
+    if .flush or .cancel
+    then
+	nm$flush_list(.node, .cancel);
+
+    !
+    ! Close control file, deleting it if required.
+    !
+    nm$close_ctl_file(.delete);
+    if .delete 
+    then 
+	begin
+	nm$wrtmsg(nm$_andelok, 1, node[tr$q_fspec]); 
+	delcount = .delcount + 1;
+	end;
+
+    !                                         
+    ! Submit file to queue if requested (we better not have deleted it!).
+    ! If there are no double colons in the 'from' address then we use
+    ! that address as the username for the submission, otherwise we use
+    ! our own username.
+    !
+    if .submit
+    then                                       
+	begin
+	if .rts then nm$mark_file(node[tr$r_fileid], .reason);
+	nm$queue_job(node[tr$r_fileid], xfrom, .flags[anl$v_hold]);
+	end;
+
+    !
+    ! If we were asked to release a stuck job, then do that now (note
+    ! that release can't be true at the same time as submit or delete)
+    !
+    if .release
+    then
+	begin
+	bind qe = node[tr$l_qefl] : ref qeblock;
+	local queue : descrip initial(.qe[qe$w_namlen], .qe[qe$a_namptr]);
+	nm$release_job(queue, .qe[qe$w_entry], .flags[anl$v_hold]);
+	end;
+
+    !
+    ! All checked. Spit out a blank line if we need to do it
+    ! to keep things neat.                                
+    ! 
+    if .skip then nm$wrtmsg(nm$_text, 1, null);
+
+    !
+    ! That's it
+    !
+    str$free1_dx(xfrom);
+    true                       
+
+    end;
+
+%sbttl 'deal with lost file'
+routine nm$lost_file (
+		     queue : ref descrip, 
+		     entry, 
+		     flags : block[,byte],
+		     count
+		     ) =
+
+!++
+! Functional description:
+!
+! This routine is invoked for files which are listed in a queue 
+! entry but which don't appear to exist. We offer to delete
+! the queue entry.
+!
+! Formal parameters:
+!
+! queue.rt.ds = queue name
+! entry.rl.v  = entry number
+! flags.rl.v  = control flags
+!		  anl$v_repair -> repair damage
+!		  anl$v_conf   -> ask user to confirm repairs
+! count.rl.v  = count of lost files in this job
+!
+! Routine value:
+!          
+! canned.wl.v = true if job cancelled
+!
+!--
+
+    begin
+    
+    enable nm$chand;
+
+    local
+	canned : initial(false);     
+
+    !
+    ! Keep running total of lost files
+    !
+    lostcount = .lostcount + .count;
+
+    !
+    ! Inform user of situation, confirm whether job should
+    ! be cancelled, and do it if so
+    !
+    nm$wrtmsg(nm$_anlost, 1, .entry);
+    if .flags[anl$v_repair] 
+    then
+	if nm$ask(.flags, askcan, ans_yn) eql ans$k_yes 
+	then 
+	    canned = nm$flush_job(.queue, .entry);
+                                         
+    !
+    ! Issue blank line and return
+    !
+    nm$wrtmsg(nm$_text, 1, null);
+
+    .canned
+    end;               
+
+%sbttl 'process job with more than one file'
+routine nm$multi_files (
+		       queue : ref descrip, 
+		       entry, 
+		       flags : block[,byte],
+		       count,
+		       nodes : ref vector
+		       ) =
+
+!++
+! Functional description:
+!
+! This routine is invoked for jobs which contain more than one
+! file.    We offer to cancel the job; the files will be left around
+! to be processed in the next pass, and hence resubmitted.
+!
+! Formal parameters:
+!
+! queue.rt.ds = queue name
+! entry.rl.v  = entry number
+! flags.rl.v  = control flags
+!		  anl$v_repair -> repair damage
+!		  anl$v_conf   -> ask user to confirm repairs
+! count.rl.v  = count of files in job
+! nodes.ra.r  = vector of file node pointers
+!
+! Routine value:
+!
+! canned.wl.v = true if job cancelled          
+!
+!--
+
+    begin
+
+    builtin
+	remque;
+    
+    local
+	canned :  initial(false);
+
+    enable nm$chand;
+
+    !
+    ! Keep running total of jobs with more than one file
+    !
+    mfilejcount = .mfilejcount + 1;
+
+    !
+    ! Inform user of situation, confirm whether job should
+    ! be cancelled, and do it if so
+    !
+    nm$wrtmsg(nm$_an2file, 2, .entry, .count);                    
+    if .flags[anl$v_repair] 
+    then
+	if nm$ask(.flags, askcan, ans_yn) eql ans$k_yes
+	then 
+	    begin 
+
+	    !
+	    ! Cancel job
+	    !
+	    canned = nm$flush_job(.queue, .entry);
+
+	    !
+	    ! Remove all queue/entry blocks for this job from all 
+	    ! file nodes supplied
+            !
+	    incr i from 0 to .count-1 do
+		if .nodes[.i] neq 0
+	        then
+		    begin
+		    bind node = nodes[.i] : ref tree;
+		    local qe : ref tree initial(.node[tr$l_qefl]);
+		    while .qe neq node[tr$l_qefl] do
+			begin
+			if .qe[qe$w_entry] eql .entry 
+		        then
+			    begin
+       			    local 
+				pred : ref tree,
+				temp : ref tree;
+			    pred = .qe[qe$l_blink];
+			    if not remque(.qe, temp)
+			    then
+				lib$free_vm(%ref(qe$s_node), temp);
+			    $dec(node[tr$b_inque]);
+			    qe = .pred;
+			    end;
+			qe = .qe[qe$l_flink];
+			end;
+		   end;
+	    
+	    !
+	    ! End of if-want-to-cancel clause
+	    !
+	    end;  
+                                                       
+    !
+    ! Issue blank line and return
+    !
+    nm$wrtmsg(nm$_text, 1, null);
+
+    .canned
+    end;
+
+%sbttl 'do a read-check of the control file'
+routine nm$read_check (sender : ref descrip, ctlflg : ref vector[,byte], qtime : ref vector[2]) =
+       
+!++
+! Functional description:
+!
+! Read through the control file to validate it
+!
+! Formal parameters:
+!
+! sender.wt.dx = sender's name, extracted from file
+! ctlflg.wb.r  = control file flags, extracted from file
+! qtime.wq.r   = submission date/time, extracted from file
+!
+! Routine value:
+!
+! status.wlc.v = ss$_normal if valid control file
+!		 some appropriate error otherwise
+!--
+
+    begin
+
+    local
+	chk,
+	forn,
+	blk,
+	fmt,
+	vbn  : vector[2],
+	dsc1 : descrip,
+	dsc2 : descrip;
+                                                                    
+    !
+    ! The first record is supposed to be the control record: check it.
+    !
+    if not nm$read_ctl(true) then return nm$_anempty;
+    chk =  nm$chk_ctl_file(buffer, .buflen);
+    if not .chk then return (if .chk eql 0 then nm$_anbadf else nm$_anobsf);
+
+    !
+    ! Save interesting things from the control record
+    !
+    forn      = .buffer[ctl$v_for];
+    blk       = .buffer[ctl$v_blk];
+    fmt	      = .buffer[ctl$b_form];
+    vbn[0]    = .buffer[ctl$l_sotvbn];
+    vbn[1]    = .buffer[ctl$l_eotvbn];
+    ctlflg[0] = .buffer[ctl$b_flags];
+    $movq(buffer[ctl$q_qued], .qtime);
+
+    !
+    ! Some flag bit combinations make no sense, check that
+    ! things look good
+    !
+    if .forn and not .blk then return nm$_anflmix;
+
+    !
+    ! Next is the 'from' record - we need to treat that specially,
+    ! to extract the sender's address
+    !
+    if not nm$read_ctl(true) then return nm$_anpreof;
+    dsc1[dsc$a_pointer] = buffer;
+    dsc1[dsc$w_length]  = .buflen;
+    if not nm$parse_token(dsc1, dsc2, dsc1) then return nm$_anunkfr;
+    str$copy_dx(.sender, dsc2);
+
+    !
+    ! The rest of the file looks like this:
+    !		Address, address, ...
+    !		Terminator record
+    !		To, CC, subject, ...
+    !		Terminator record
+    !	        [Pad record for alignment]
+    !		Text, text, text, ...
+    !		Terminator
+    ! So, we just read until we hit the third terminator. Note,
+    ! the pad record cannot be confused with a terminator since it's
+    ! always even length.
+    !
+    ! Files containing foreign messages are slightly different;
+    ! we cannot read the text by records.  For those, we just
+    ! validate up until the end-of-header terminator.  The text
+    ! will be validated below.
+    !
+    incr i from 1 to 3-.forn do
+	do
+	    begin
+	    if not nm$read_ctl(true) then return nm$_anpreof;
+	    end
+	until 
+	    (.buflen eql 1 and .buffer[byte0] eql 0);
+
+    !
+    ! For block-aligned files check the VBN pointers in the
+    ! control record.
+    !
+    if .blk
+    then
+	if .vbn[0] eql 0 or .vbn[1] eql 0
+	then
+
+	    !
+	    ! No stored VBNs.  If this is a current control file,
+	    ! that's an error.
+	    !
+            begin
+	    if .fmt gequ 5 then return nm$_anxvbn;
+	    end
+
+	else
+
+	    !
+	    ! Read the first and last blocks of the file
+	    !
+	    incr i from 0 to 1 do
+	    	begin
+	    	nm$point_vbn(.vbn[.i]);
+	    	if not nm$read_ctl_blk(1, true) then return nm$_anpreof;
+	    	end;
+
+    !
+    ! If we get here it's pretty good
+    !
+    ss$_normal
+
+    end;
+
+%sbttl 'ask question'
+routine nm$ask (flags : block[,byte], prompt, legal : ref vector[,byte]) =
+
+!++
+! Functional description:
+!
+! This routine asks a question on the SYS$COMMAND device, and
+! parses the single-character reply.  Language-independence is
+! catered for.
+!
+! Formal parameters:
+!
+! flags.rl.v    = control flags
+!	   	    anl$v_conf -> ask the question
+! prompt.rt.dx  = prompt string
+! legal.rbu.r   = counted byte string containing all legal answers
+!		  in format	char1, ans$k_one, char2, ans$k_two, ...
+!		  (the default answer is 'char1')
+!
+! Routine value:
+!
+! ans.wl.v = ans$k_xxx code corresponding to the first character
+!	     of user input (zero in case of I/O error)
+!
+!--
+
+    begin                   
+
+    external routine
+	lib$get_command;
+                 
+    local
+	status;
+
+    !
+    ! Go through the question-and-answer nonsense.  The loop
+    ! is to keep us here until we've seen a valid answer.
+    !
+    while .flags[anl$v_conf] do
+	begin
+	local
+	    ibuff : vector[8,byte] alias,
+	    input : descrip initial(8,ibuff),
+	    char;
+                                      
+	!
+	! Get command, check for errors.
+	!
+    	status = lib$get_command(input, .prompt, input);
+	if not .status 
+	then 
+	    begin
+    	    if .status neq rms$_eof then signal(.status);
+            return 0;
+	    end;
+	str$upcase(input, input);
+
+	!
+	! Determine first non-blank character in input string.
+	! If string was entirely blank, return default.
+	!
+	char = begin          
+	       incr i from 0 to .input[dsc$w_length]-1 do
+		   if .ibuff[.i] neq 32 and .ibuff[.i] neq 9
+		   then
+		       exitloop .ibuff[.i]
+	       end;
+	if .char lss 0 then exitloop;
+
+	!
+     	! Check first character against valid replies; if valid,
+	! return the offset (in the 'legal' string) to the given reply.
+	!
+	incr i from 1 to .legal[0] by 2 do
+	    if .char eql .legal[.i] then return .legal[.i+1];
+
+	!
+	! Invalid reply, keep looping
+	!
+	end;
+
+    !
+    ! Here if input was blank, or else we're not asking for user
+    ! confirmation. Return the default answer (the first one in 'legal').
+    !
+    return (if .legal[0] geq 2 then .legal[2] else 0);
+
+    end;
+
+%sbttl 'flush jobs which reference file'
+routine nm$flush_list (node : ref tree, all)  =
+
+!++
+! Functional description:
+!
+! All queued jobs, or possibly all except one job, which 
+! reference a given control file are cancelled.
+!
+! Formal parameters:
+!
+! node.mt.r = database entry for file
+! all.rl.v  = if true, delete all queue entries
+!	      if false, retain one queue entry
+!
+! Routine value:
+!
+! canned.wl.v = true if at least one job cancelled
+!
+!--
+
+    begin
+
+    builtin 
+	insque,
+	remque;
+
+    local
+	kept_qe : ref qeblock initial(0), 
+	qe      : ref qeblock initial(0),
+	canned  : initial(false);
+
+    !
+    ! If we've got to keep one, then peel the first one from
+    ! the list for safe keeping
+    !
+    if not .all 
+    then 
+	if not remque(.node[tr$l_qefl], qe) then kept_qe = .qe;
+
+    !
+    ! Flush the list
+    !
+    until remque(.node[tr$l_qefl], qe) do
+	begin
+	local queue : descrip initial(.qe[qe$w_namlen], .qe[qe$a_namptr]);
+	if nm$flush_job(queue, .qe[qe$w_entry]) then canned = true;
+	lib$free_vm(%ref(qe$s_node), qe);
+	$dec(node[tr$b_inque]);
+	end;                               
+    
+    !
+    ! Put back any saved block
+    !
+    if .kept_qe neq 0 then insque(.kept_qe, .node[tr$l_qebl]);
+
+    .canned       
+    end;
+
+%sbttl 'flush one job'
+routine nm$flush_job (queue : ref descrip, entry : alias) =
+
+!++
+! Functional description:
+!
+! Cancels the indicated job    
+!
+! Formal parameters:
+!
+! queue.rt.ds = queue name
+! entry.rl.v  = entry number
+!
+! Routine value:
+!
+! canned.wl.v = true if job cancelled
+!
+!--
+
+    begin
+
+    local 
+	status,      
+        del_job : $itemlist(
+		    sjc$_queue,        .queue[dsc$w_length], .queue[dsc$a_pointer], 0,
+		    sjc$_entry_number, %upval,               entry,                 0
+		    );
+    	
+    status = nm$sndjbc(sjc$_delete_job, del_job);
+    if not .status 
+    then
+	begin
+	if .status eql jbc$_nosuchjob
+	then
+	    signal(nm$_nonxjob)
+	else 
+	    signal(nm$_jbc, 0, .status);
+	return .status;
+	end;
+
+    nm$wrtmsg(nm$_ancanok, 1, .entry);
+    cancount = .cancount + 1;
+                     
+    true
+    end;
+
+%sbttl 'submit job to queue'
+routine nm$queue_job (
+		     fileid : ref block[,byte], 
+		     sender : ref descrip,
+		     hold
+		     ) =
+
+!++
+! Functional description:
+!
+! Submits the given file to the Nmail queue. If 'hold' is false then
+! the job is ready for immediate execution; if 'hold' is true then the
+! job is submitted with /HOLD in effect and will not run until released.
+! The job is created under the username of the sender, if possible.
+!
+! Formal parameters:
+!
+! fileid.rr.r  = file-ID of file to submit
+! sender.rt.dx = sender of mail message
+! hold.rl.v    = true if job should be held in queue
+!
+! Routine value:
+!
+! subbed.wl.v = true if job submitted ok
+!
+!--
+
+    begin
+        
+    bind                                      
+	ccolon = uplit byte('::');
+
+    local
+	jobname  : descrip initial(.nm$gt_jobname[0], nm$gt_jobname[1]),
+	queue    : descrip initial(.nm$gt_queue[0],   nm$gt_queue[1]),
+	uname    : initial(unkuser),
+	entry    : alias,
+	status;
+
+    map
+        netuser : alias;
+        
+    !
+    ! If this message is from a local sender, enter it into the queue
+    ! with a username equal to the sender's name, otherwise use an
+    ! ersatz name.
+    !
+    if .sender[dsc$w_length] neq 0
+    then
+        if ch$find_sub(.sender[dsc$w_length], .sender[dsc$a_pointer], 2, ccolon) eql 0
+        then
+	    uname = .sender
+        else
+	    uname = netuser;
+    
+    !
+    ! Submit the job and report any failure
+    !
+    status = nm$resubmit_job(
+			    .fileid, jobname, queue, 
+		 	    0, 0,	   ! no /after, default priority
+			    .uname, 0, 0,  ! UIC and account not known
+			    .hold and 1,   ! maybe /hold
+			    entry          ! returned entry number
+			    );
+    if not .status 
+    then
+	begin
+	signal(nm$_resub, 2, jobname, queue, .status);
+	return .status;
+	end;
+
+    !
+    ! Issue appropriate success message
+    !
+    nm$wrtmsg((if .hold then nm$_anholdok else nm$_ansubok), 2, .entry, queue);
+    subcount = .subcount + 1;
+
+    true
+    end;
+
+%sbttl 'mark file for cancellation'
+routine nm$mark_file (fileid, rtext : ref descrip) =
+
+!++
+! Functional description:
+!
+! Given a file-id, this routine opens that file, checks it's
+! a valid control file, and then marks the file for later
+! cancellation by the daemon.
+!
+! Formal parameters:
+! 
+! fileid.rr.r = file-id of control file
+! rtext.rt.dx = reason text string
+!
+! Routine values:
+!
+! status.wl.v = true if message file was modified
+!	      = false otherwise
+!
+!--
+
+    begin
+
+    literal
+	maxuser = 32;
+    local
+	ctl_rfa : vector[3,word],
+        can_rfa : vector[3,word],
+        canbuf  : block[can$s_hdr+maxuser,byte],
+        userlen;
+
+    !
+    ! Open the control file, read the first record (the control record)
+    !
+    nm$open_ctl_file(.fileid, buffer, buflen, false);
+    nm$read_ctl();
+
+    !
+    ! Ensure it's still a control file (it ought to be, we checked before)
+    !
+    if not nm$chk_ctl_file(buffer, .buflen) 
+    then 
+	begin
+	signal(nm$_badfil);
+	return nm$_badfil;
+	end;
+
+    !
+    ! Make sure the sender is willing to accept the returned message
+    ! (norpt is set true for messages submitted by the daemon)
+    !
+    if .buffer[ctl$v_norpt]
+    then
+	begin
+	signal(nm$_nonret);
+	return nm$_nonret;
+	end;
+
+    !
+    ! Do nothing if already marked for return
+    !
+    if .buffer[ctl$v_can]
+    then
+	begin
+    	nm$close_ctl_file(false);
+	return nm$_jobcan;
+	end;
+
+    !
+    ! Prepare cancellation details
+    !
+    ch$fill(0, can$s_hdr, canbuf);
+    canbuf[can$b_type] = can$k_rep;
+    $gettim(timadr=canbuf[can$q_time]);
+    nm$username(canbuf[can$t_user], maxuser, userlen);
+
+    !
+    ! If supported, write a cancellation details record, and point
+    ! the control record to the cancellation record, after flushing 
+    ! to make sure it has really got into the file.
+    !
+    if .buffer[ctl$b_form] gequ 6
+    then
+	begin
+	nm$get_rfa(ctl_rfa);
+    	nm$point_eof_ctl();
+	nm$write_ctl(canbuf, can$s_hdr+.userlen);
+	nm$get_rfa(can_rfa);
+	if .rtext[dsc$w_length] neq 0
+	then
+	    nm$write_ctl(.rtext[dsc$a_pointer], minu(.rtext[dsc$w_length],255));
+	nm$write_ctl(uplit(0), 1);
+        nm$flush_ctl();
+        nm$read_by_rfa(ctl_rfa);
+	buffer[ctl$w_canrfa0] = .can_rfa[0];
+	buffer[ctl$w_canrfa2] = .can_rfa[1];
+	buffer[ctl$w_canrfa4] = .can_rfa[2];
+	end;
+
+    !
+    ! All valid; set flags to show the job is to
+    ! be cancelled, and close the file again.
+    !
+    buffer[ctl$v_can]   = true;
+    buffer[ctl$v_noret] = false;
+    nm$update_ctl();
+    nm$close_ctl_file(false);
+
+    true
+    end;
+
+%sbttl 'release blocked job'
+routine nm$release_job  (queue : ref descrip, entry : alias, hold) =
+
+!++
+! Functional description:
+!
+! Released the specified job, which is assumed to be held, or
+! waiting until a specified time, or retained by the system.
+! If 'hold' is false then the job is ready for immediate execution; 
+! if 'hold' is true then the job is moved from its original state
+! to the explicitly-held state (and the name of this routine doesn't
+! make much sense in that case).
+!
+! Formal parameters:
+!
+! queue.rt.ds = queue name
+! entry.rl.v  = entry number
+! hold.rl.v   = true if job should be held in queue
+!
+! Routine value:
+!
+! status.wl.v = true if job state altered ok
+!
+!--
+
+    begin
+
+    local
+	status;
+    bind
+	maybe_hold_flag = (if .hold then sjc$_hold else sjc$_no_hold);
+    local
+        rel_job : $itemlist(
+  			sjc$_queue,         .queue[dsc$w_length], .queue[dsc$a_pointer], 0,
+			sjc$_entry_number,  %upval,               entry,                 0,
+			sjc$_no_after_time, 0,                    0,                     0,
+			maybe_hold_flag,    0,                    0,                     0
+			);
+
+    status = nm$sndjbc(sjc$_alter_job, rel_job);
+    if not .status 
+    then 
+	begin
+	if .status eql jbc$_nosuchjob
+	then
+	    signal(nm$_nonxjob)
+	else
+	    signal(nm$_jbc, 0, .status);
+	return .status;
+	end;
+
+    nm$wrtmsg((if .hold then nm$_anrelhok else nm$_anrelok), 1, .entry);
+    relcount = .relcount + 1;
+
+    true
+    end;
+
+%sbttl 'lock nmail work directory'
+routine nm$lock_dir (chan : ref vector[1,word]) =
+
+!++
+! Functional description:
+!
+! Opens the directory file for read access, thereby preventing
+! anyone from creating new work files whilst we're running.
+!
+! Formal parametersrs:
+!
+! chan.ww.r = channel number on which directory
+!	      is held open
+!
+! Routine value:
+!
+! status.wlc.v = true if it worked, false if it didn't
+!
+!--
+           
+    begin
+
+    !                                     
+    ! Local data
+    !
+    local 
+	status,
+	fab : $fab_decl,
+     	nam : $nam_decl alias,
+	exp : vector[nm$s_filespec,byte] alias;
+    bind
+	fid = nam[nam$w_fid] : vector[3,word],
+	did = nam[nam$w_did] : vector[3,word];
+
+    !
+    ! Zero caller's channel number, in case of error
+    !
+    chan[0] = 0;
+
+    !
+    ! Set up FAB and NAM blocks for parsing the work file spec
+    ! in order to derive the directory identification.
+    !
+    $fab_init(
+	     fab=fab,
+	     fns=%charcount('.'),
+	     fna=uplit byte('.'),
+	     dns=.nm$gt_work_def[0],
+	     dna=nm$gt_work_def[1],
+	     lnm_mode=psl$c_exec,
+	     fac=(get),
+	     fop=(nam,ufo),
+	     shr=(get,upi),	
+	     nam=nam
+	     );
+    $nam_init(
+	     nam=nam, 
+	     esa=exp,
+	     ess=nm$s_filespec,
+	     nop=noconceal
+	     );
+
+    !
+    ! Parse work directory spec
+    !
+    status = $parse(fab=fab);
+    if not .status then nm$rms_error(nm$_parse, fab);
+
+    !
+    ! Adjust expanded string length so as to only include the
+    ! device/directory field - this is for the benefit of any
+    ! subsequent error messages
+    ! 
+    if .nam[nam$b_esl] neq 0
+    then
+	nam[nam$b_esl] = .nam[nam$l_name] - .nam[nam$l_esa];
+
+    !
+    ! Copy directory ID into file ID slot, and zero the directory
+    ! ID slot.  We want to open the work directory file itself, not some
+    ! file that's in the work directory.
+    ! 
+    fid[0] = .did[0];
+    fid[1] = .did[1];
+    fid[2] = .did[2];
+    did[0] = 0;
+    did[1] = 0;
+    did[2] = 0;
+    
+    !
+    ! Now, open the directory file, telling RMS that we don't want
+    ! it to actually do anything more than open the file (UFO option)
+    !
+    status = $open(fab=fab);
+    if not .status then nm$rms_error(nm$_open, fab);
+	
+    !
+    ! Success - return channel to caller
+    !
+    chan[0] = .fab[fab$l_stv];
+
+    .status
+    end;
+
+%sbttl 'unlock nmail work directory'
+routine nm$unlock_dir (chan : ref vector[1,word]) =
+
+!++
+! Functional description:
+!
+! Closes the directory file, thereby unlocking access to it.
+!
+! Formal parametersrs:
+!
+! chan.ww.r = channel number on which directory
+!	      is held open
+!
+! Routine value:
+!
+! status.wlc.v = true if it worked, false if it didn't
+!
+!--
+
+    begin
+
+    !
+    ! Deassign channel and zero the channel number
+    !
+    $dassgn(chan=.chan[0]);
+    chan[0] = 0;
+
+    true
+    end;
+
+%sbttl 'write message to report file'
+routine nm$wrtmsg : novalue =
+
+!++
+! Functional description:
+!
+! Builds a message vector and calls a routine to
+! write the messages to the output file.
+!
+! Caution: this routine deviates from the VMS calling
+! standard by modifying its argument list.  The argument
+! list must be in R/W storage.
+!
+! Formal parameters:
+!
+! (argument list must be in format of a message vector)
+!
+! Routine values:
+!
+! none
+!
+!--
+
+    begin
+
+    builtin
+	argptr;
+
+    !
+    ! Select text only 
+    !
+    argptr() = .argptr() or put_txt;
+
+    !
+    ! Expand and write messages
+    !
+    nm$write_rpt_vec(argptr());
+
+    end;
+
+%sbttl 'condition handler'
+routine nm$chand (sig : ref block[,byte], mech : ref block[,byte], enb) =
+
+!++
+! Functional description:
+!
+! Condition handler. Fields per-queue-entry errors, puts the appropriate
+! error message in the listing file, and unwinds the stack to the caller
+! of the establisher. All in all, pretty standard stuff.
+!
+! This handler increments signalcount if the error is handled.
+!
+! Formal parameters:
+!
+! sig.mr.r  = signal array
+! mech.mr.r = mechanism array
+! enb.rl.r  = enable-actuals array
+!
+! Routine value/condition codes:
+!
+! status.wlc.v = ss$_resignal (always, but ignored if signal was an NM$_xxx
+!	 	 error because we'll have unwound the stack)
+!
+!--
+
+    begin
+
+    !
+    ! Routine to write one line to the listing file
+    !
+    routine put1line(str) =
+	begin
+	nm$write_rpt_fao(.str);
+	false
+	end;
+
+    bind 
+	args = sig[chf$l_sig_args] : byte,
+	cond = sig[chf$l_sig_name] : block[,byte];
+
+    builtin
+	nullparameter;
+
+    !
+    ! If this is a rundown call, ensure control file 
+    ! gets closed and any dynamic strings are freed.
+    !
+    if .cond eql ss$_unwind
+    then
+	begin
+	nm$rundown_ctl();
+	if not nullparameter(enb) then nm$freestr(.sig, .mech, .enb);
+	end;
+
+    !
+    ! For Nmail errors only, write error message into the listing
+    ! file, and then unwind the stack
+    !
+    if .cond[sts$v_fac_no] eql nmail$_facility
+    then
+	begin 
+	args = .args - 2;
+	$putmsg(msgvec=.sig, actrtn=put1line);
+        args = .args + 2;
+	nm$write_rpt_fao(null);
+	signalcount = .signalcount + 1;
+        $setstatus(mech, .cond);
+	setunwind();
+	end;
+
+    !
+    ! Always say resignal, which is ignored if we're unwinding
+    !
+    ss$_resignal
+
+    end;
+
+end
+eludom

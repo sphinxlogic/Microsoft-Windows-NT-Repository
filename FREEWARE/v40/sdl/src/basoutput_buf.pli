@@ -1,0 +1,117 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* OUTPUT_BUF outputs a buffer to a file.			*/
+/*								*/
+/****************************************************************/
+
+
+
+output_buf: proc(buf);
+					    /********************/
+					    /*			*/
+					    /* OUTPUT_BUF	*/
+					    /*			*/
+					    /********************/
+%replace len by 127; /* leave room for the begining and end of line characters */
+
+
+/*decalre variables */
+declare
+    output_file file record output sequential external,
+    buf char(1024) var,
+    bol_ch char(3)  init (''), 
+    delimiters char(3) static init (' 	,'), /* space,tab, comma */ 
+    t_buf char(1024) var,
+    tmpbuf char(1024) var;
+dcl (i,j) fixed bin;
+
+
+/* declare external functions and subroutines */
+DCL SDL$PUTLINE ENTRY (
+	any,
+	character(1024) VARYING ,
+	fixed binary(31));
+
+
+
+/*********
+    change SYSIN and 132
+********/
+
+
+/************ WHAT ABOUT WHEN AN END OF LINE COMMENT RUNS PAST COLUMN 132
+************* SDL$PUTLINE MUST START THE NEXT LINE WITH A COMMNENT MARKER
+*************/
+
+
+/****	     call sdl$putline (SYSIN, buf, line_length); ******/
+
+    t_buf = buf; 
+    do i=1 to length(t_buf) by len;
+	if length(t_buf)<=len 
+	then do;
+	    t_buf = bol_ch || t_buf;
+	    write file(output_file) from(t_buf);
+	end;
+	else do;
+	    tmpbuf=substr(t_buf,1,len);
+	    do j=len to 1 by -1;
+		    if index(delimiters,substr(tmpbuf,j,1))^=0 then
+			    goto l1;
+	    end;
+l1:
+	    tmpbuf=substr(tmpbuf,1,j);
+	    tmpbuf =  bol_ch || tmpbuf || ' &' ;
+	    write file(output_file) from(tmpbuf);
+	    if( index(tmpbuf,'!') ^= 0 )
+	    then
+		bol_ch = ' ! ';
+
+	    t_buf=substr(t_buf,j+1);
+	    end;
+	end;
+
+
+end output_buf;

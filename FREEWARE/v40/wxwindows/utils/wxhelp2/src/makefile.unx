@@ -1,0 +1,118 @@
+#
+# File:		makefile.unx
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile for wxHelp
+# To make wxHelp and test (to test out wxHelp), type
+#
+# $(MAKE) -f makefile.unx all test
+
+WXDIR = ../../..
+
+# All common UNIX compiler flags and options are now in
+# this central makefile.
+include $(WXDIR)/src/make.env
+
+WXHELPDIR = $(WXDIR)/utils/wxhelp2
+WXHELPINC = $(WXHELPDIR)/src
+DOCDIR = $(WXHELPDIR)/docs
+OBJDIR = objects$(GUISUFFIX)
+
+HYDIR = $(WXDIR)/utils/wxweb
+HYINC = $(HYDIR)/src
+HYLIB = $(HYDIR)/lib/libwxhtml$(GUISUFFIX).a
+
+DOCUTILSDIR = $(WXDIR)/utils/tex2rtf/src
+
+CPPFLAGS = $(XINCLUDE) $(INC) -I$(HYINC) $(GUI) $(DEBUGFLAGS) -DDEBUG=$(DEBUG) $(WARN) $(OPTIONS) $(OPT)
+
+LDFLAGS = $(XLIB) -L$(WXDIR)/lib -L$(HYDIR)/lib -L$(WXHELPDIR)/lib $(EXTRAFLAGS)
+
+XVIEWLDLIBS = -lwxhtml_ol -lwx_ol -lxview -lolgx -lX11 -lm $(COMPLIBS)
+MOTIFLDLIBS = -lwxhtml_motif $(BASICMOTIFLDLIBS) $(COMPLIBS)
+HPLDLIBS = -lwxhtml_hp -lwx_hp -lXm -lXt -lX11 -lm $(COMPLIBS)
+# Default
+LDLIBS=$(XVIEWLDLIBS)
+
+# Make wxHelp only
+all:	$(OBJDIR) wxhelp$(GUISUFFIX)
+
+.SUFFIXES:
+
+motif:
+	cd $(HYDIR)/src; $(MAKE) -f makefile.unx motif OPT='$(OPT)' DEBUG='$(DEBUG)'
+#	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx motif OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx GUI=-Dwx_motif GUISUFFIX=_motif OPT='$(OPT)' DEBUG='$(DEBUG)' LDLIBS='$(MOTIFLDLIBS)' XVIEW_LINK=
+
+xview:
+	cd $(HYDIR)/src; $(MAKE) -f makefile.unx xview OPT='$(OPT)' DEBUG='$(DEBUG)'
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx xview OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx GUI=-Dwx_xview OPT='$(OPT)'
+
+hp:
+	$(MAKE) -f makefile.unx GUI=-Dwx_motif GUISUFFIX=_hp CC=CC DEBUG='$(DEBUG)' DEBUGFLAGS='' WARN='-w' \
+           XINCLUDE='$(HPXINCLUDE)' XLIB='$(HPXLIB)' XVIEW_LINK='' CCLEX='cc' \
+           LDLIBS='$(HPLDLIBS)'
+
+$(OBJDIR)/wxhelp.$(OBJSUFF):	wxhelp.$(SRCSUFF) wxhelp.h
+	$(CC) -c $(CPPFLAGS) -o $@ wxhelp.$(SRCSUFF)
+
+wxhelp$(GUISUFFIX):		$(OBJDIR)/wxhelp.$(OBJSUFF) $(HYLIB) $(WXLIB)
+	$(CC) $(LDFLAGS) -o wxhelp$(GUISUFFIX) $(OBJDIR)/wxhelp.$(OBJSUFF) $(XVIEW_LINK) $(LDLIBS)
+
+$(OBJDIR):
+	mkdir $(OBJDIR)
+
+# A demo app calling wxhelp
+$(OBJDIR)/test.$(OBJSUFF):	test.$(SRCSUFF) $(WXBASEINC)/wx_help.h
+	$(CC) -c $(CPPFLAGS) -o $@ test.$(SRCSUFF)
+
+test$(GUISUFFIX):		$(OBJDIR)/test.$(OBJSUFF) $(WXLIB)
+	$(CC) $(LDFLAGS) -o test$(GUISUFFIX) $(XVIEW_LINK) $(OBJDIR)/test.$(OBJSUFF) $(LDLIBS)
+
+wx:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx
+
+hylib:
+	cd $(HYDIR)/src; \
+	$(MAKE) -f makefile.unx DEBUG='$(DEBUG)'
+
+HTMLDIR=/home/hardy/html/wx/manuals
+
+docs:	ps xlp
+ps:	$(DOCDIR)/manual.ps
+xlp:	$(DOCDIR)/wxhelp.xlp
+html:	$(HTMLDIR)/wxhelp/wxhelp_contents.html
+
+$(WXHELPDIR)/docs/wxhelp.xlp:	$(WXHELPDIR)/docs/manual.tex
+	tex2rtf $(WXHELPDIR)/docs/manual.tex $(WXHELPDIR)/docs/tmp.xlp -twice -xlp
+	sed -e "s/WXHELPCONTENTS/wxHelp Manual/g" < $(WXHELPDIR)/docs/tmp.xlp > $(WXHELPDIR)/docs/wxhelp.xlp
+	/bin/rm -f $(WXHELPDIR)/docs/tmp.xlp
+
+$(WXHELPDIR)/docs/manual.dvi:	$(WXHELPDIR)/docs/manual.tex
+	cd $(WXHELPDIR)/docs; latex manual; latex manual; makeindex manual; latex manual
+
+$(WXHELPDIR)/docs/manual.ps:	$(WXHELPDIR)/docs/manual.dvi
+	cd $(WXHELPDIR)/docs; dvips -f -r < manual.dvi > manual.ps
+
+$(HTMLDIR)/wxhelp/wxhelp_contents.html:	$(WXHELPDIR)/docs/manual.tex
+	tex2rtf $(WXHELPDIR)/docs/manual.tex $(HTMLDIR)/wxhelp2/wxhelp.html -twice -html
+
+cleaneach:
+	rm -f $(OBJDIR)/*.$(OBJSUFF) test$(GUISUFFIX) wxhelp$(GUISUFFIX) core
+
+clean_motif:
+	$(MAKE) -f makefile.unx GUISUFFIX=_motif cleaneach 
+
+clean_ol:
+	$(MAKE) -f makefile.unx GUISUFFIX=_ol cleaneach 
+
+clean_hp:
+	$(MAKE) -f makefile.unx GUISUFFIX=_hp cleaneach 
+
+

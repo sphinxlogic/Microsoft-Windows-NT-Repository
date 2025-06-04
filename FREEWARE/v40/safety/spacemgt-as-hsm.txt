@@ -1,0 +1,155 @@
+The Safety Space Manager as HSM
+
+Note that Safety shelving and unshelving normally uses a pair of command
+files to accomplish its work...these are ultimately renamed filsav and
+filrst...but a number of file pairs named JTFILSAV*.com and JTFILRST*.com
+are present in the kit. You may prefer to use something other than the
+default pair. The default pair will store files in one directory somewhere
+and retrieve from there (with optional compress/decompress),but this 
+area can fill. The *mdir* versions supplied use file ID to spread the
+stored files over many directories. Note too that a Safety server
+can shelve files from disks it handles to somewhere else. If you
+have more than one Safety server, it is possible to have one server
+shelve files to a nearline store, and have a second server handling the
+nearline store notice that this is filling up and shelve files to
+a less-nearline store, in as many steps as you like. Some of the command
+files are starts at doing backup to tape.
+
+Note that all files get stored or restored using normal VMS utilities,
+and the filenames used for storing the files are composed of the first
+part of the original filename plus the file ID. Since a "stub" will
+be left with the original file ID, the shelving operation can always
+be reversed manually, even if Safety isn't present to do it. A menu
+option does however exist in jt_setup.com to let you unshelve everything
+provided there's room enough.
+
+Files are shelved using normal copy or backup, the optional compress
+done using zip (which can be undone on many different system types),
+and can be accessed transparently. Note too that if you choose to use
+the "softlink" capabilities, Safety can be used to allow access to
+"shelved" files directly from the shelved area. However, in doing
+this, note the files must be shelved non-compressed. If you want to
+store them compressed, buy Acorn Squash (a compressing virtual disk)
+or perhaps the Montagar compressing package, and use that in the .com
+files. You can edit filsav.com and filrst.com yourself, but remember
+that what filsav.com shelves, filrst.com must unshelve, and must not
+mess up files. The filrst.com procedure runs BEFORE the file is opened
+by the user; Safety catches the open request before it hits the VMS
+file system.
+
+The following describes the use of Safety as an HSM package. Just
+remember the cautions above. The menus are not tailored in detail
+for simplest use of Safety in an HSM capacity but the MOVEFILE
+command is defined at Safety login to let you select a file or files
+to shelve (and how to shelve them), and there is a site script to
+set shelving policy. This script is menu driven and fairly obvious
+to use.
+
+          Description:
+
+          Safety(HSM) is an add-in to the VMS I/O system which provides VMS
+with the ability to have transparent file migration between active and near
+line storage in one or more steps. When files are migrated ("shelved") from
+normal disk storage to backing storage, a marking is left on them which is
+automatically read so that when the file is opened, it is automatically
+retrieved by Safety(HSM) from nearline storage. Thus, a user or program
+need not be aware at all that such shelving occurred and no operator
+intervention is needed to perform the "unshelving" operation.  This is
+distinguished from operation where a user must first request an archived
+file be reloaded, which requires detailed advance knowledge of such needs.
+The files appear to have been on disk all the time, but in fact the online
+disk space is conserved. It is also distinct from modes of operation where
+a file's location visibly changes. These, too, require that programs be
+told where the new site is, which can be awkward.  Safety(HSM) provides
+total transparency of file migration, invisible to programs and users apart
+from small delays where files must be unshelved. Shelving and unshelving
+can be controlled by scripts which can place files even on sequential
+devices like tape, or store files in compressed form, decompressing
+automatically when the file is accessed.
+
+          In addition, Safety(HSM) provides two unique "soft link"
+abilities which complement unshelving, and manages volume space.
+
+          The basic capabilities of Safety(HSM) are these:
+
+          * Files can be shelved (by space-making script or by command) and
+unshelved automatically from nearline storage when they are opened. The
+process opening the files then sees a successful open with no side effects.
+Shelved files can be stored in compressed form if this is desired, and can
+be stored in any desired location.  Storage of shelved files on tapes or
+the like can be done also.
+
+          * Files can be "soft linked" to other files, even across disks.
+This mode of access can be used for a sort of permanent shelving on another
+volume by truncating the original file to zero blocks. The soft link
+operates extremely fast and causes the file in question to be opened in its
+new location, with the channel restored on close so that again a program
+observes no change, but the file is accessed transparently at its new site.
+Where the new site is a read/write device this can be most effective. The
+file appears to be at its old location, but in fact resides somewhere else.
+
+          * Files can be "soft linked" in a "readonly" mode to another
+file. In this mode, suitable for read-only backing storage, whenever a file
+is opened for read-only access, it is transparently and instantly opened on
+its linked site, wherever that may be on nearline storage.  When such a
+file is opened for any kind of writing, however, it is treated as a shelved
+file and is unshelved and replaced on normal disk before the open is done.
+Thus any read/write access will find the file in a suitable location for
+its open to succeed, transparently.  (Notice that soft linked storage must
+be on disks and must not be in compressed form. The decompression would
+induce an unwanted delay in access.)
+
+          * Disk space can be managed. Whenever an extend or create (or
+inswap) would not have adequate space on disk, Safety(HSM) starts a
+"make-space" script which is tailored by a fullscreen utility to match site
+policy.  This policy can select files based on access time, size, name, or
+characteristics for space making. A utility is provided to simplify policy
+selection. The "make space" script can be run at any time (e.g. in the
+middle of the night) if desired.
+
+          Safety(HSM) tailoring can be done either for the entire system or
+for any number of disks at a time. Thus it is possible to have a multi-tier
+migration strategy with each tier managed by a separate Safety(HSM) server,
+so that files may migrate toward slower storage but still be retrievable
+transparently no matter how far down the hierarchy they have migrated.
+Features of Safety(HSM) can be separately enabled or disabled as well on a
+per server basis should this be desired.
+
+          File migration can also be handled by a simple command which runs
+a menu driven selection of how the file is to migrate and in which mode.
+Provision exists to regenerate file markings in case they are lost or to
+audit the markings. Also, it is possible to specify exempt images which are
+not subject to file unshelving, or to set a process temporarily as exempt
+from unshelving or softlinks, so that operations which must view the disk
+without triggering unshelving can be easily run.
+
+          Safety(HSM) can be run in a mode where there is essentially no
+overhead at all imposed (just a few instructions added along some paths and
+no disk access) for any files except those which need softlinks or possible
+unshelving. There is no limit to how many files may be so marked on a disk.
+A fullscreen setup script allows one to select the Safety(HSM) run modes.
+Even if Safety(HSM) is forced to examine all files for its markings, the
+overhead imposes no added disk access and costs only a tiny added time
+(typically a percent or two) in open intensive applications. In addition,
+Safety(HSM) can be turned off or back on at any convenient point should
+this be desired.
+
+          Support:
+
+          Safety(HSM) runs on VAX VMS 5.5 or greater, AXP VMS 6.1 or
+greater. The same facilities exist across all systems.  Safety(HSM) must be
+installed on each cluster node of a VMScluster where it is to be used but
+imposes no restrictions on types of disk it works for. Safety(HSM) will
+work with any file structure used by VMS, so long as a disk class device is
+used to hold it. It is specifically NOT limited to use with ODS-2 disks.
+Where Safety(HSM) is run on only some nodes of a VMScluster, its features
+will not be usable on the other nodes, but no ill effects will occur.
+
+
+General Cybernetic Engineering
+18 Colburn Lane
+Hollis, NH 03049
+603 465 9517
+
+Glenn C. Everhart
+Everhart@GCE.Com

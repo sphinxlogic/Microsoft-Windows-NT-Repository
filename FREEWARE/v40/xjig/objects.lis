@@ -1,0 +1,1202 @@
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 1 	    
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	      1 
+	      2 #ifndef _global_h
+	      3 #	include "global.h"
+	   9153 #endif
+	   9154 
+	   9155 #include <X11/Xmd.h>
+	   9311 #ifndef VMS
+       X   9312 #include <X11/extensions/shape.h>
+       X   9313 #else
+	   9314 #include <X11/shape.h>
+	   9532 #endif
+	   9533 
+	   9534 #ifndef _mat2_h
+	   9535 #	include "mat2.h"
+	  10135 #endif
+	  10136 #ifndef _objects_h
+	  10137 #	include "objects.H"
+	  10743 #endif
+	  10744 #ifndef _gifx_image_h
+	  10745 #	include "gifx_image.H"
+	  10905 #endif
+	  10906 #ifndef _imgbuff_h
+	  10907 #	include "imgbuff.H"
+	  10950 #endif
+	  10951 #ifndef _vec2_h
+       X  10952 #	include "vec2.h"
+       X  10953 #endif
+	  10954 #ifndef _vec2list_h
+       X  10955 #	include "vec2list.h"
+       X  10956 #endif
+	  10957 #ifndef _color_mapper_h
+	  10958 #	include "color_mapper.H"
+	  10999 #endif
+	  11000 #ifndef _puzzle_h
+	  11001 #	include "puzzle.H"
+	  11068 #endif
+	  11069 
+	  11070 
+	  11071 /******************************************************************************
+	  11072 
+	  11073 PieceFrame    - corner, edge and pin-data of the piece including polygon-spline
+	  11074       Vec2List *vl
+	  11075 RotatedFrame  - position-data including
+	  11076                 window-position, upward-angle and rotated polygin spline
+	  11077       Vec2     winpos
+	  11078       Real     windir
+	  11079       Vec2List *tvl
+	  11080 BitmapPiece   - pixmap with mask of the rotated Piece
+	  11081 		Pixmap   tilemask
+	  11082 PixmapPiece   - pixmap with Puzzle-Image of the rotated Piece
+	  11083 		Pixmap   tilemap
+	  11084 ShadowPiece   - pixmap with Puzzle-Image and ShadowFrame of the rotated Piece
+	  11085 		Pixmap   shadowmask
+	  11086 		Pixmap   shadowmap
+	  11087 PieceObject   - object subclass to be stack-controlled
+	  11088 DBPieceObject - double buffered moves and turns
+	  11089 
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 2 	    
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  11090  ******************************************************************************/
+	  11091 
+	  11092 //  . . . . + . . . . + . . . . + . . . .
+	  11093 //  . . . . . . . . . . . . . . . . . . .
+	  11094 //  . * . . . . . . . . . . . . . . . . .
+	  11095 //  . . . . . . . . . . . . . . . . . . .
+	  11096 //  . . . . . . . . . . . . . . . . . . .
+	  11097 //  . . . . + . . . . + . . . . + . . . .
+	  11098 //  . . . . . . . . . . . . . . . . . . .
+	  11099 //  . * . . . . . . . . . . . . . . . . .
+	  11100 //  . . . . . . . . . * . . * . . . . . .
+	  11101 //  . . * . . . . . . . . . . . . . . . .
+	  11102 //  . . . . * . * . . + . . . . + * . . .
+	  11103 //  . . . . . . . . . . . . . . . . . . .
+	  11104 //  . . . . . . . . . . . . . . . . . . .
+	  11105 //  . . . . . . . . . . . . . . . . . . .
+	  11106 //  . . . . . . . . . . . . . . . . . * .
+	  11107 //  . . . . + . . . . + . . . . + . . . .
+	  11108 //  . . . . . . . . . . . . . . . . . * .
+	  11109 
+	  11110 double PieceFrameSetup::spx[] = {  1, 2.5, 5, 7, 7, 5, 5, 6, 8,13 };
+	  11111 double PieceFrameSetup::spy[] = { 13,12.5,11, 8, 5, 2, 0,-2,-3,-3 };
+	  11112 
+	  11113 
+	  11114 PieceFrameSetup::PieceFrameSetup() {
+	  11115 }
+	  11116 
+	  11117 PieceFrameSetup::~PieceFrameSetup() {
+	  11118 }
+	  11119 
+	  11120 void PieceFrameSetup::Init( const Vec2 &tl, const Vec2 &tr, const Vec2 &br, const Vec2 &bl ) {
+	  11121 	center = (tl+tr+br+bl)/4;
+	  11122 	v[0] = tl-center;
+	  11123 	v[1] = tr-center;
+	  11124 	v[2] = br-center;
+	  11125 	v[3] = bl-center;
+	  11126 	pin[0] = pin[1] = pin[2] = pin[3] = 0;
+	  11127 
+	  11128 #if (0)
+       X  11129 	printf( "%g %g             %g %g\n", (double)tl.X(), (double)tl.Y(), (double)tr.X(), (double)tr.Y() );
+       X  11130 	printf( "center: %g %g\n", (double)center.X(), (double)center.Y() );
+       X  11131 	printf( "%g %g             %g %g\n", (double)bl.X(), (double)bl.Y(), (double)br.X(), (double)br.Y() );
+       X  11132 #endif
+	  11133 }
+	  11134 
+	  11135 void PieceFrame::PositionChanged()	{}
+	  11136 void PieceFrame::DirectionChanged()	{}
+	  11137 
+	  11138 PieceFrame::PieceFrame() {
+	  11139 	vl = 0;
+	  11140 	join_count=1;
+	  11141 }
+	  11142 
+	  11143 PieceFrame::~PieceFrame() {
+	  11144 	if (vl)		delete vl;
+	  11145 }
+	  11146 
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 3 	    
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  11147 const Vec2List &PieceFrame::Init( const PieceFrameSetup &pfs ) {
+	  11148 
+	  11149 	center=pfs.center;
+	  11150 	vl = new Vec2List(MaxSplineLen);
+	  11151 
+	  11152 	for (int i=0;i<4;i++) {
+	  11153 		Vec2	s(pfs.v[i]);
+	  11154 
+	  11155 		if (pfs.pin[i]) {
+	  11156 			int	j;
+	  11157 			Vec2	e(pfs.v[(i+1)%4]);		// end of segment
+	  11158 			Vec2	d=e-s;				// edge vector
+	  11159 
+	  11160 			Vec2	m1=s+pfs.pin[i]*d;		// medium point for pin
+	  11161 			Vec2	bw=(s-m1)/24.0;	// backstep vector to startpoint
+	  11162 			Vec2	fw=(e-m1)/24.0;	// forward vector to endpoint
+	  11163 
+	  11164 			Vec2	n=d/44;
+	  11165 			Vec2	o=(pfs.left[i]?n.TurnLeft():n.TurnRight());
+	  11166 
+	  11167 			*vl |= s;
+	  11168 			for (j=1;j<=HalfSplineLen;j++) {
+	  11169 				*vl |= m1 + pfs.spx[HalfSplineLen-j]*bw + pfs.spy[HalfSplineLen-j]*o;
+	  11170 			}
+	  11171 			for (j=0;j<HalfSplineLen;j++) {
+	  11172 				*vl |= m1 + pfs.spx[j]*fw + pfs.spy[j]*o;
+	  11173 			}
+	  11174 		}
+	  11175 		else {
+	  11176 			*vl |= s;
+	  11177 		}
+	  11178 	}
+	  11179 	// *vl |= pfs.v[0];
+	  11180 	return *vl;
+	  11181 }
+	  11182 
+	  11183 // ===========================================================================
+	  11184 
+	  11185 TwinPieceFrame::TwinPieceFrame() {
+	  11186 	page=0;
+	  11187 }
+	  11188 
+	  11189 TwinPieceFrame::~TwinPieceFrame() {
+	  11190 }
+	  11191 
+	  11192 void TwinPieceFrame::FlipPage() {
+	  11193 	page=1-page;
+	  11194 	DirectionChanged();
+	  11195 }
+	  11196 
+	  11197 // ===========================================================================
+	  11198 
+	  11199 RotatedFrame::RotatedFrame() {
+	  11200 	tvl = 0;
+	  11201 }
+	  11202 RotatedFrame::~RotatedFrame() {
+	  11203 	if (tvl)		delete tvl;
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 4 	    
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  11204 }
+	  11205 
+	  11206 void RotatedFrame::Init( const PieceFrameSetup &pfs ) {
+	  11207 	PieceFrame::Init( pfs );
+	  11208 	windir = 0;
+	  11209 	winpos = Vec2Zero;
+	  11210 }
+	  11211 
+	  11212 int RotatedFrame::CheckForJoin( class RotatedFrame *obj ) {
+	  11213 Real	windir_delta = windir - obj->windir;
+	  11214 
+	  11215 	// check for correct page
+	  11216 	if (page!=obj->page)										return 0;
+	  11217 
+	  11218 	// check for an angle between -10 and +10 degrees
+	  11219 	if (fmod(windir_delta+380.0,360.0)>40)				return 0;
+	  11220 
+	  11221 
+	  11222 Vec2	v1(center - obj->center);
+	  11223 Vec2	v2(winpos - obj->winpos);
+	  11224 Real	help=fabs(windir-obj->windir);
+	  11225 Real	mid_angle;
+	  11226 		if (help>180.0)	mid_angle=fmod((windir+obj->windir+360.0)/2,360.0);
+	  11227 		else					mid_angle=fmod((windir+obj->windir)/2,360.0);
+	  11228 Vec2	erg;
+	  11229 		v2=v2.TurnAngleDeg( -mid_angle );
+	  11230 
+	  11231 		if (page) { erg=Vec2(v1.X()+v2.X(),v1.Y()-v2.Y());
+	  11232 		}
+	  11233 		else			erg=Vec2(v1.X()-v2.X(),v1.Y()-v2.Y());
+	  11234 
+	  11235 
+	  11236 #ifdef DEBUG
+       X  11237 	v2=v2.TurnAngleDeg( mid_angle );
+       X  11238 
+       X  11239 	printf( "ImageA: %6.2f %6.2f  WindowA: %6.2f %6.2f  at angle: %6.2f\n",
+       X  11240 		(double)center.X(), (double)center.Y(), (double)winpos.X(), (double)winpos.Y(), (double)windir );
+       X  11241 	printf( "ImageB: %6.2f %6.2f  WindowB: %6.2f %6.2f  at angle: %6.2f\n",
+       X  11242 		(double)obj->center.X(), (double)obj->center.Y(), (double)obj->winpos.X(), (double)obj->winpos.Y(), 
+       X  11242 (double)obj->windir );
+       X  11243 	printf( "        %6.2f %6.2f          %6.2f %6.2f\n",
+       X  11244 		(double)v1.X(), (double)v1.Y(), (double)v2.X(), (double)v2.Y() );
+       X  11245 
+       X  11246 	v2=v2.TurnAngleDeg( -mid_angle );
+       X  11247 
+       X  11248 	printf( "        angle: %6.2f          %6.2f %6.2f\n",
+       X  11249 			mid_angle, (double)v2.X(), (double)v2.Y() );
+       X  11250 	printf( "                               %6.2f %6.2f\n",
+       X  11251 			(double)erg.X(), (double)erg.Y() );
+       X  11252 #endif
+	  11253 
+	  11254 
+	  11255 	if (erg.Norm()<tile_size/3) {
+	  11256 			DBG0( "***** HIT *****\n" );
+	  11257 			return 1;
+	  11258 	}
+	  11259 	return 0;
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 5 	    
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  11260 }
+	  11261 
+	  11262 void RotatedFrame::PositionChanged() {
+	  11263 }
+	  11264 void RotatedFrame::DirectionChanged() {
+	  11265 	if (tvl)		delete tvl;
+	  11266 	if (!page) {
+	  11267 		tvl = new Vec2List(GetPolyLine());
+	  11268 	}
+	  11269 	else {
+	  11270 		tvl = new Vec2List(vl->Len());
+	  11271 		for (int i=0;i<vl->Len();i++) {
+	  11272 			tvl->AddAt(i,Vec2( -(*vl)[i].X(), (*vl)[i].Y() ));
+	  11273 		}
+	  11274 	}
+	  11275 	tvl->TurnAngleDeg(windir);
+	  11276 }
+	  11277 
+	  11278 // DoJoin:
+	  11279 // A Joined segment in both polylines has to be found. When found
+	  11280 // the points out of that segment are added from the second to the first
+	  11281 // polyline, which will result into the merge of the two outlines.
+	  11282 //
+	  11283 // vl:       +----+----+----+----+----+----+----+----
+	  11284 //           1    2    3    4    s j  e    7    8
+	  11285 // obj->vl:       +----+----+----+----
+	  11286 //                1'   e  i s    4'
+	  11287 // result:   +----+----+----+----+----+----+----+----+----+----
+	  11288 //           1    2    3    4    s    4'   1'   e    7    8
+	  11289 //
+	  11290 // special cases:
+	  11291 // obj->vl:       +----+----+----+----
+	  11292 //                1'   2' i s    4'
+	  11293 //                          e
+	  11294 
+	  11295 int RotatedFrame::FindStartForJoin( class PieceFrame *obj ) {
+	  11296 int i,j;
+	  11297 
+	  11298 	for (i=0;i<obj->vl->Len();i++) {
+	  11299 		for (j=0;j<vl->Len();j++) {
+	  11300 			if (same_point(j,obj,i))		return i;
+	  11301 		}
+	  11302 	}
+	  11303 	return -1;
+	  11304 }
+	  11305 
+	  11306 int RotatedFrame::DoJoin( class RotatedFrame *obj, int i, int swap ) {
+	  11307 int j,k;
+	  11308 
+	  11309 	for (j=0;j<vl->Len();j++) {
+	  11310 		if (same_point(j,obj,i)) {
+	  11311 		// found intersecting point: now find start and end of intersection
+	  11312 			int s,e;	
+	  11313 			int sj;
+	  11314 			int ej;
+	  11315 			int c=1;	
+	  11316 
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 6 	    
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  11317 			for (s=1;s<obj->vl->Len();s++) {
+	  11318 				int si=(i+s)%obj->vl->Len();
+	  11319 				sj=((j-s)+vl->Len())%vl->Len();
+	  11320 				if (!same_point(sj,obj,si))	break;
+	  11321 				c++;
+	  11322 			}
+	  11323 			s--;
+	  11324 			sj=((j-s)+vl->Len())%vl->Len();
+	  11325 			for (e=1;e<obj->vl->Len();e++) {
+	  11326 				int ei=((i-e)+obj->vl->Len())%obj->vl->Len();
+	  11327 				ej=(j+e)%vl->Len();
+	  11328 				if (!same_point(ej,obj,ei))	break;
+	  11329 				c++;
+	  11330 			}
+	  11331 			e--;
+	  11332 			ej=(j+e)%vl->Len();
+	  11333 
+	  11334 		// found start and end of intersection as in shown in diagramm
+	  11335 		// now the points have to be moved to the destination polygon
+	  11336 			DBG2( "*** Range: %d %d\n", sj, ej );
+	  11337 			if ((sj==ej)&&(c>1)) {
+	  11338 				//
+	  11339 				// when a surrounding tile is moved onto of the inner tile, the
+	  11340 				// problem arise that the whole inner tile and the partial surrounding
+	  11341 				// tile has to be deleted. Since this usually happens the other way round:
+	  11342 				// "The hole is filled with the inner tile.", this special case is reversed
+	  11343 				// by swapping both tiles and redoing the join, in which the partial list
+	  11344 				// of the surrounding tile will be found in sj - ej
+	  11345 				//
+	  11346 				DBG0( "*** special inner case: do reverse join\n" );
+	  11347 				Vec2	help_center=center;
+	  11348 				center=obj->center;
+	  11349 				obj->center=help_center;
+	  11350 
+	  11351 				Vec2List *help_list=vl;
+	  11352 				vl=obj->vl;
+	  11353 				obj->vl=help_list;
+	  11354 
+	  11355 				return DoJoin(obj,j,1);
+	  11356 			}
+	  11357 			join_count+=obj->join_count;
+	  11358 
+	  11359 			vl->DelRange(sj,ej,&sj);
+	  11360 
+	  11361 			k=(-e+obj->vl->Len())%obj->vl->Len();
+	  11362 			if ( k!=s || (sj==ej&&c==1) ) {
+	  11363 				DBG1( "*** Insert at: %d -", sj );
+	  11364 				do {
+	  11365 					DBG1( " %d", (i+k)%obj->vl->Len() );
+	  11366 					vl->AddAt(sj+1,(*obj->vl)(i+k)+obj->center-center);
+	  11367 					k=(k-1+obj->vl->Len())%obj->vl->Len();
+	  11368 				}
+	  11369 				while( k!=s );
+	  11370 				DBG0( "\n" );
+	  11371 			}
+	  11372 			else {
+	  11373 				// an inner tile was removed from the polyline and therefore
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 7 	    
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  11374 				// some kind of one way trail to the inner tile remained in the
+	  11375 				// polyline which should be removed with a tiny "garbage" collector.
+	  11376 				DBG1( "*** Garbage Deleted (from: %d)", vl->Len() );
+	  11377 				for (j=0;j<vl->Len()-2;j++) {
+	  11378 					while (same_point(j,this,j+2)) {
+	  11379 						DBG1( "%d ", j );
+	  11380 						vl->DelRange(j,j+2,&j);
+	  11381 						if (j>0)	j--;
+	  11382 					}
+	  11383 				}
+	  11384 				DBG1( " (to: %d)\n", vl->Len() );
+	  11385 			}
+	  11386 
+	  11387 		// the new extend has to be queried to setup the center
+	  11388 			Vec2	tl, br;
+	  11389 			vl->GetExtent( &tl, &br );
+	  11390 			Vec2	new_center( center+((tl+br)/2) );
+	  11391 
+	  11392 #if (0)
+       X  11393 	printf( "    center: %g %g\n", center.X(), center.Y() );
+       X  11394 	printf( "      from: %g %g\n", tl.X(), tl.Y() );
+       X  11395 	printf( "        to: %g %g\n", br.X(), br.Y() );
+       X  11396 	printf( "new center: %g %g\n", new_center.X(), new_center.Y() );
+       X  11397 #endif
+	  11398 
+	  11399 			if (swap) {
+	  11400 				// this time the second objects position should be remained
+	  11401 					winpos = obj->winpos-(obj->center-new_center).ScaleX(page?-1:1).TurnAngleDeg
+	  11401 (obj->windir);
+	  11402 			}
+	  11403 			else	winpos -= (center-new_center).ScaleX(page?-1:1).TurnAngleDeg(windir);
+	  11404 
+	  11405 			*vl += (center-new_center);
+	  11406 			center=new_center;
+	  11407 
+	  11408 			PositionChanged();
+	  11409 			DirectionChanged();
+	  11410 			return 1;
+	  11411 		}
+	  11412 	}
+	  11413 	return 0;
+	  11414 }
+	  11415 
+	  11416 // ===========================================================================
+	  11417 
+	  11418 FlipFrame::FlipFrame() {
+	  11419 	ftvl=0;
+	  11420 	itm=0;
+	  11421 }
+	  11422 
+	  11423 FlipFrame::~FlipFrame() {
+	  11424 	if (ftvl)	delete ftvl;
+	  11425 	if (itm)		delete itm;
+	  11426 }
+	  11427 
+	  11428 void FlipFrame::StartFlip( const Real &angle ) {
+	  11429 	mangle = angle;
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 8 	    
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  11430 }
+	  11431 void FlipFrame::StopFlip() {
+	  11432 	if (ftvl)	delete ftvl;
+	  11433 	ftvl=0;
+	  11434 	if (itm)			delete itm;
+	  11435 	itm=0;
+	  11436 }
+	  11437 
+	  11438 void FlipFrame::SetFlip( const Real &current ) {
+	  11439 	if (ftvl)		delete ftvl;
+	  11440 	if (itm)			delete itm;
+	  11441 
+	  11442 	itm = new Mat2();					// set up transformation
+	  11443 	if (page)	*itm = (*itm).ScaleX( -1 );
+	  11444 	*itm = (*itm).RotateDeg( -windir )
+	  11445 					.Rotate( mangle )
+	  11446 					.ScaleX( current )
+	  11447 					.Rotate( -mangle );
+	  11448 
+	  11449 
+	  11450 	ftvl = new Vec2List(RotatedFrame::GetPolyLine(),*itm);
+	  11451 	*itm = !*itm;						// reverse transformation for texture-mapping
+	  11452 	DirectionChanged();
+	  11453 }
+	  11454 
+	  11455 Vec2List &FlipFrame::GetTPolyLine() {
+	  11456 	if (!ftvl)			return *tvl;
+	  11457 	else					return *ftvl;
+	  11458 }
+	  11459 
+	  11460 // ===========================================================================
+	  11461 
+	  11462 GC BitmapPiece::gcb = 0;
+	  11463 
+	  11464 BitmapPiece::BitmapPiece() {
+	  11465 	tilemask = 0;
+	  11466 }
+	  11467 BitmapPiece::~BitmapPiece() {
+	  11468 	DropBitmap();
+	  11469 }
+	  11470 void BitmapPiece::DropBitmap() {
+	  11471 	if (tilemask) {
+	  11472 		XFreePixmap(dpy,tilemask);
+	  11473 		tilemask=0;
+	  11474 	}
+	  11475 }
+	  11476 
+	  11477 void BitmapPiece::PositionChanged() {
+	  11478 	winx   = XPix(winpos.X())-offx;
+	  11479 	winy   = YPix(winpos.Y())-offy;
+	  11480 }
+	  11481 
+	  11482 void BitmapPiece::DirectionChanged() {
+	  11483 
+	  11484 	DropBitmap();
+	  11485 	FlipFrame::DirectionChanged();
+	  11486 
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 9 	    
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  11487 Vec2	tl,br;
+	  11488 int	x1,y1,x2,y2;
+	  11489 const Vec2List &poly( GetTPolyLine() );
+	  11490 	
+	  11491 	poly.GetExtent( &tl, &br );
+	  11492 	x1 = XPix(tl.X());
+	  11493 	y1 = YPix(tl.Y());
+	  11494 	x2 = XPix(br.X());
+	  11495 	y2 = YPix(br.Y());
+	  11496 	
+	  11497 	offx   = -x1;
+	  11498 	offy   = -y1;
+	  11499 	winx   = XPix(winpos.X())-offx;
+	  11500 	winy   = YPix(winpos.Y())-offy;
+	  11501 	width  = x2-x1+1;
+	  11502 	height = y2-y1+1;
+	  11503 #if (0)
+       X  11504 	printf( "%g %g  (%d %d)\n", (double)tl.X(), (double)tl.Y(), offx, offy );
+       X  11505 	printf( "center: %g %g\n", (double)center.X(), (double)center.Y() );
+       X  11506 	printf( "    %g %g\n", (double)br.X(), (double)br.Y() );
+       X  11507 #endif
+	  11508 	
+	  11509 	tilemask=XCreatePixmap(dpy,RootWindow(dpy,scr),width,height,1);
+	  11510 	if (!gcb)	gcb=XCreateGC(dpy,tilemask,0,0);
+	  11511 	
+	  11512 	XSetForeground(dpy,gcb,0);								// clear the new bit
+	  11512 map
+	  11513 	XFillRectangle(dpy,tilemask,gcb,0,0,width,height);
+	  11514 	
+	  11515 	XSetForeground(dpy,gcb,1);								// draw the polyline
+	  11516 XPoint	xpts[MaxSplineLen];
+	  11517 XPoint	*xpts_p;
+	  11518 	if ((unsigned)poly.Len()>(sizeof(xpts)/sizeof(XPoint))) {
+	  11519 		xpts_p=new XPoint[poly.Len()];					// create buffer when necessary
+	  11520 	}
+	  11521 	else xpts_p=xpts;
+	  11522 
+	  11523 	for (int i=0;i<poly.Len();i++) {							// create the pointl
+	  11523 ist
+	  11524 		Vec2	help( poly[i]-tl );
+	  11525 		xpts_p[i].x = XPix(help.X());
+	  11526 		xpts_p[i].y = YPix(help.Y());
+	  11527 	}
+	  11528 #if (0)
+       X  11529 	XDrawLines( dpy, tilemask, gcb, xpts_p, poly.Len(), 0 );
+       X  11530 #else
+	  11531 	XFillPolygon(dpy,tilemask, gcb, xpts_p, poly.Len(), 0, 0 );
+	  11532 #endif
+	  11533 	
+	  11534 #if (0)
+       X  11535 	XSetFunction(dpy,gcb,GXxor);							// draw a test-frame
+       X  11536 	XDrawRectangle(dpy,tilemask,gcb,0,0,width-1,height-1);
+       X  11537 	XSetFunction(dpy,gcb,GXcopy);
+       X  11538 #endif
+	  11539 
+	  11540 	if (xpts_p!=xpts)		delete [] xpts_p;
+	  11541 }
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 10 	   
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  11542 
+	  11543 void BitmapPiece::Redraw() {
+	  11544 	XSetClipMask(dpy,gc,GetBitmap());
+	  11545 	XSetClipOrigin(dpy,gc,winx,winy);
+	  11546 
+	  11547 // printf( "winpos: %g %g\n", (double)winpos.X(), (double)winpos.Y() );
+	  11548 // printf( "offx: %d %d\n", offx, offy );
+	  11549 	XFillRectangle(dpy,win,gc, winx, winy, width, height );
+	  11550 }
+	  11551 
+	  11552 // ===========================================================================
+	  11553 
+	  11554 GC PixmapPiece::gcp=0;
+	  11555 
+	  11556 PixmapPiece::PixmapPiece() {
+	  11557 	tilemap = 0;
+	  11558 	if (!gcp)	gcp=XCreateGC(dpy,RootWindow(dpy,scr),0,0);
+	  11559 
+	  11560 }
+	  11561 PixmapPiece::~PixmapPiece() {
+	  11562 	DropPixmap();
+	  11563 }
+	  11564 void PixmapPiece::DropPixmap() {
+	  11565 	if (tilemap) {
+	  11566 		XFreePixmap(dpy,tilemap);
+	  11567 		tilemap=0;
+	  11568 	}
+	  11569 }
+	  11570 
+	  11571 #define DATA_TYPE	CARD32
+	  11572 #define DATA_PAD	4
+	  11573 void PixmapPiece::CreateTilemap32() {
+	  11574 #	include "rotate.H"
+	  11791 }
+	  11792 #undef DATA_TYPE
+	  11793 #undef DATA_PAD
+	  11794 
+	  11795 #define DATA_TYPE	CARD16
+	  11796 #define DATA_PAD	2
+	  11797 void PixmapPiece::CreateTilemap16() {
+	  11798 #	include "rotate.H"
+	  12015 }
+	  12016 #undef DATA_TYPE
+	  12017 #undef DATA_PAD
+	  12018 
+	  12019 #define DATA_TYPE	CARD8
+	  12020 #define DATA_PAD	1
+	  12021 void PixmapPiece::CreateTilemap8() {
+	  12022 #	include "rotate.H"
+	  12239 }
+	  12240 #undef DATA_TYPE
+	  12241 #undef DATA_PAD
+	  12242 
+	  12243 
+	  12244 void PixmapPiece::DirectionChanged() {
+	  12245 	DropPixmap();
+	  12246 	BitmapPiece::DirectionChanged();
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 11 	   
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  12247 
+	  12248 	tilemap=XCreatePixmap(dpy,RootWindow(dpy,scr),width,height,DefaultDepth(dpy,scr));
+	  12249 
+	  12250 	if (windir==0&&!itm&&!page) {
+	  12251 		Vec2			wcenter;
+	  12252 		if (page&&pm->IsTwinPixmap())
+	  12253 					wcenter=Vec2( center.X(), pm->XHeight()+center.Y() );
+	  12254 		else		wcenter=center;
+	  12255 
+	  12256 		XCopyArea(dpy,pm->GetPixmap(),tilemap,gcp,
+	  12257 			XPix(wcenter.X())-offx, YPix(wcenter.Y())-offy, width, height, 0, 0 );
+	  12258 	}
+	  12259 	else {
+	  12260 		switch(texture_mode) {
+	  12261 		case 1:		CreateTilemap8();		break;
+	  12262 		case 2:		CreateTilemap16();	break;
+	  12263 		case 3:		CreateTilemap32();	break;
+	  12264 		}
+	  12265 	}
+	  12266 }
+	  12267 
+	  12268 void PixmapPiece::Redraw() {
+	  12269 // printf( "winpos: %g %g\n", (double)winpos.X(), (double)winpos.Y() );
+	  12270 // printf( "offx: %d %d\n", offx, offy );
+	  12271 
+	  12272 	XSetClipMask(dpy,gc,GetBitmap());
+	  12273 	XSetClipOrigin(dpy,gc,winx,winy);
+	  12274 
+	  12275 	GetPixmap();
+	  12276 	XCopyArea(dpy,tilemap,win,gc,
+	  12277 		0, 0, width, height, winx, winy );
+	  12278 }
+	  12279 
+	  12280 // ===========================================================================
+	  12281 
+	  12282 ShadowedPiece::ShadowedPiece() {
+	  12283 	shadowmap = 0;
+	  12284 	if (!gcp)	gcp=XCreateGC(dpy,RootWindow(dpy,scr),0,0);
+	  12285 
+	  12286 }
+	  12287 ShadowedPiece::~ShadowedPiece() {
+	  12288 	DropPixmap();
+	  12289 }
+	  12290 void ShadowedPiece::DropPixmap() {
+	  12291 	if (shadowmap) {
+	  12292 		XFreePixmap(dpy,shadowmap);
+	  12293 		shadowmap=0;
+	  12294 		XFreePixmap(dpy,shadowmask);
+	  12295 	}
+	  12296 }
+	  12297 
+	  12298 void ShadowedPiece::DirectionChanged() {
+	  12299 int x;
+	  12300 
+	  12301 	DropPixmap();
+	  12302 	PixmapPiece::DirectionChanged();
+	  12303 
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 12 	   
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  12304 	swidth = width   + 2*ShadowSize();
+	  12305 	sheight = height + 2*ShadowSize();
+	  12306 
+	  12307 // create mask of the shadowed tile
+	  12308 	shadowmask=XCreatePixmap(dpy,RootWindow(dpy,scr),swidth,sheight,1);
+	  12309 
+	  12310 	XSetForeground(dpy,gcb,0);
+	  12311 	XFillRectangle(dpy,shadowmask,gcb,0,0,swidth,sheight);
+	  12312 
+	  12313 	XSetFunction(dpy,gcb,GXor);
+	  12314 	for (x=0;x<=2*ShadowSize();x++) {
+	  12315 		XCopyArea(dpy,tilemask,shadowmask,gcb,0,0,width,height,x,x);
+	  12316 	}
+	  12317 	XSetFunction(dpy,gcb,GXcopy);
+	  12318 
+	  12319 // create the tile
+	  12320 	shadowmap=XCreatePixmap(dpy,RootWindow(dpy,scr),swidth,sheight,DefaultDepth(dpy,scr));
+	  12321 	
+	  12322 	XSetForeground(dpy,gc,WhitePixel(dpy,scr));
+	  12323 	XSetClipMask(dpy,gc,tilemask);
+	  12324 	for (x=0;x<ShadowSize();x++) {
+	  12325 		XSetClipOrigin(dpy,gc,x,x);
+	  12326 		XFillRectangle(dpy,shadowmap,gc,x,x,width,height);
+	  12327 	}
+	  12328 	XSetForeground(dpy,gc,BlackPixel(dpy,scr));
+	  12329 	for (x=ShadowSize()+1;x<=2*ShadowSize();x++) {
+	  12330 		XSetClipOrigin(dpy,gc,x,x);
+	  12331 		XFillRectangle(dpy,shadowmap,gc,x,x,width,height);
+	  12332 	}
+	  12333 
+	  12334 	XSetClipOrigin(dpy,gc,ShadowSize(),ShadowSize());
+	  12335 	XCopyArea(dpy,tilemap,shadowmap,gc,
+	  12336 		0, 0, width, height, ShadowSize(),ShadowSize() );
+	  12337 }
+	  12338 
+	  12339 void ShadowedPiece::Redraw() {
+	  12340 	XSetClipMask(dpy,gc,shadowmask);
+	  12341 	XSetClipOrigin(dpy,gc,winx,winy);
+	  12342 
+	  12343 	XCopyArea(dpy,shadowmap,win,gc,
+	  12344 		0, 0, swidth, sheight, winx, winy );
+	  12345 }
+	  12346 
+	  12347 int ShadowedPiece::IsInside( int x, int y ) {
+	  12348 XImage	*help_image;
+	  12349 
+	  12350 	x -= winx;
+	  12351 	y -= winy;
+	  12352 	if (x<0 || y<0 || x>=swidth || y >=sheight)	return 0;
+	  12353 
+	  12354 	help_image=XGetImage(dpy,shadowmask,x,y,1,1,1,XYPixmap);
+	  12355 	unsigned long erg=XGetPixel(help_image,0,0);
+	  12356 	XDestroyImage(help_image);
+	  12357 	return (int)erg;
+	  12358 }
+	  12359 
+	  12360 // ===========================================================================
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 13 	   
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  12361 
+	  12362 WindowPiece::WindowPiece() {
+	  12363 	swin=0;
+	  12364 
+	  12365 }
+	  12366 WindowPiece::~WindowPiece() {
+	  12367 	if (swin)		XDestroyWindow( dpy, swin );
+	  12368 }
+	  12369 
+	  12370 void WindowPiece::CreateWindow() {
+	  12371 	XSetWindowAttributes	attrib;
+	  12372 
+	  12373 	swin=XCreateSimpleWindow(dpy,RootWindow(dpy,scr),
+	  12374 			winx,winy,swidth,sheight,0,WhitePixel(dpy,scr), port->AllocNamedColor( "grey50" ) );
+	  12375 	attrib.bit_gravity=StaticGravity;
+	  12376 	attrib.override_redirect = True;
+	  12377 	XChangeWindowAttributes( dpy, swin, CWBitGravity|CWOverrideRedirect, &attrib );
+	  12378 	XSelectInput(dpy,swin, ExposureMask|KeyPressMask|EnterWindowMask|ButtonPressMask|ButtonReleaseMask|ButtonMot
+	  12378 ionMask);
+	  12379 }
+	  12380 
+	  12381 void WindowPiece::PositionChanged() {
+	  12382 	ShadowedPiece::PositionChanged();
+	  12383 
+	  12384 	if (shapes) {
+	  12385 		if (swin)	XMoveWindow( dpy, swin, winx, winy );
+	  12386 	}
+	  12387 }
+	  12388 
+	  12389 void WindowPiece::DirectionChanged() {
+	  12390 
+	  12391 	ShadowedPiece::DirectionChanged();
+	  12392 
+	  12393 	if (shapes) {
+	  12394 		if (!swin) {
+	  12395 			CreateWindow();
+	  12396 			XShapeCombineMask(dpy,swin,0 /*Bounding*/,0,0,shadowmask,0 /*Set*/);
+	  12397 			XMapRaised(dpy,swin);
+	  12398 		}
+	  12399 		else {
+	  12400 			XMoveResizeWindow(dpy,swin,winx,winy,swidth,sheight);
+	  12401 			XShapeCombineMask(dpy,swin,0 /* Bounding */,0,0,shadowmask,0 /* Set */);
+	  12402 		}
+	  12403 		Redraw();
+	  12404 	}
+	  12405 }
+	  12406 
+	  12407 void WindowPiece::Redraw() {
+	  12408 	XSetClipMask(dpy,gc,shadowmask);
+	  12409 	XSetClipOrigin(dpy,gc,0,0);
+	  12410 
+	  12411 	XCopyArea(dpy,shadowmap,swin,gc, 0, 0, swidth, sheight, 0, 0 );
+	  12412 }
+	  12413 
+	  12414 // ===========================================================================
+	  12415 
+	  12416 PieceObject::PieceObject() {
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 14 	   
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  12417 }
+	  12418 
+	  12419 PieceObject::~PieceObject() {
+	  12420 }
+	  12421 
+	  12422 int PieceObject::Intersects(int x,int y,int w,int h) {
+	  12423 	if (	(x>winx+swidth) || (winx>x+w)
+	  12424 		||	(y>winy+sheight) || (winy>y+h) )		return 0;
+	  12425 	else													retu
+	  12425 rn 1;
+	  12426 }
+	  12427 
+	  12428 int PieceObject::IsInside(int x,int y) {
+	  12429 	if ((x>=winx)&&(x<winx+swidth)&&(y>=winy)&&(y<winy+sheight)) {
+	  12430 		if (ShadowedPiece::IsInside(x,y))		return 2;	// exact hit
+	  12431 		else												retu
+	  12431 rn 1;	// somewhere near
+	  12432 	}
+	  12433 	else													retu
+	  12433 rn 0;	// far away
+	  12434 }
+	  12435 
+	  12436 void PieceObject::ExposeRegion(int x,int y,int /*width*/,int /*height*/) {
+	  12437 	XSetClipMask(dpy,gc,shadowmask);
+	  12438 	XSetClipOrigin(dpy,gc,winx-x, winy-y);
+	  12439 	XCopyArea(dpy,shadowmap,mystack->dbmap,gc,
+	  12440 				0, 0, swidth, sheight, winx-x, winy-y );
+	  12441 }
+	  12442 
+	  12443 void PieceObject::ExposeWindowRegion(Window w,int /*x*/,int /*y*/,int /*width*/,int /*height*/) {
+	  12444 	if (w==swin) {
+	  12445 		XSetClipMask(dpy,gc,shadowmask);
+	  12446 		XSetClipOrigin(dpy,gc,0,0);
+	  12447 
+	  12448 		XCopyArea(dpy,shadowmap,swin,gc, 0, 0, swidth, sheight, 0, 0 );
+	  12449 	}
+	  12450 }
+	  12451 
+	  12452 void PieceObject::PanView( int ox, int oy ) {
+	  12453 	winpos-=Vec2(ox,oy);
+	  12454 	PositionChanged();
+	  12455 }
+	  12456 
+	  12457 void PieceObject::ZoomView( int midx, int midy, int chg ) {
+	  12458 double	factor=((double)(zoom_factor+chg))/zoom_factor;
+	  12459 
+	  12460 	center = center * factor;
+	  12461 	*vl = *vl * factor;
+	  12462 	winpos = (winpos-Vec2(midx,midy)) * factor + Vec2(midx,midy);
+	  12463 	PositionChanged();
+	  12464 	DirectionChanged();
+	  12465 }
+	  12466 
+	  12467 // ===========================================================================
+	  12468 
+	  12469 int DBPieceObject::x1;
+	  12470 int DBPieceObject::y1;
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 15 	   
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  12471 int DBPieceObject::x2;
+	  12472 int DBPieceObject::y2;
+	  12473 
+	  12474 DBPieceObject::DBPieceObject() {
+	  12475 }
+	  12476 
+	  12477 DBPieceObject::~DBPieceObject() {
+	  12478 }
+	  12479 
+	  12480 void DBPieceObject::TurnOver( const Real &d ) {
+	  12481 		XDefineCursor( dpy, win, no_cursor );
+	  12482 		XFlush(dpy);
+	  12483 
+	  12484 Real a;
+	  12485 Real start_windir=windir;
+	  12486 
+	  12487 	a=fmod(d-start_windir+360,360);
+	  12488 	if (a>180.0)	a=a-360.0;
+	  12489 
+	  12490 	if (join_count<=maxturntiles) {
+	  12491 		double turnstart=GetCurrentTime()-0.1;
+	  12492 		double turntime=turntimebase+join_count*turntimedelta;
+	  12493 		double loop;
+	  12494 		for ( loop=0.1; loop<0.9; loop=(GetCurrentTime()-turnstart)/turntime) {
+	  12495 			StoreExtent();
+	  12496 			SetDir( start_windir+loop*a );
+	  12497 			UpdateExtent();
+	  12498 			XSync(dpy,0);
+	  12499 		}
+	  12500 	}
+	  12501 	StoreExtent();
+	  12502 	SetDir(d);
+	  12503 	UpdateExtent();
+	  12504 }
+	  12505 
+	  12506 void DBPieceObject::FlipOver( const Vec2 &pos ) {
+	  12507 		XDefineCursor( dpy, win, no_cursor );
+	  12508 		XFlush(dpy);
+	  12509 
+	  12510 Vec2  wpos=pos;						// button position after probable adjustment
+	  12511 Real	wa=winpos.AngleDeg(pos);	// angle to button position
+	  12512 
+	  12513 	if (fmod(windir+5,90)<10) {		// close to straight -> adjusted flip
+	  12514 
+	  12515 // Probably round position for exact flips
+	  12516 // int	quart=(int)(fmod(wa+22,360)/45)&3;
+	  12517 int	quart=(int)(fmod(wa+45,360)/45)&2;
+	  12518 
+	  12519 		switch(quart) {
+	  12520 		case 0: {
+	  12521 				wpos=Vec2( pos.X(), winpos.Y() );			// horizontal flip
+	  12522 				break;
+	  12523 			}
+	  12524 		case 1: {
+	  12525 				Vec2	erg;										
+	  12525 	// diagonal flip 1
+	  12526 				(pos-winpos).Split( Vec2(1,-1), &erg );	// project to diagonal
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 16 	   
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  12527 				wpos=winpos+erg;
+	  12528 				break;
+	  12529 			}
+	  12530 		case 2: {
+	  12531 				wpos=Vec2( winpos.X(), pos.Y() );			// vertival flip
+	  12532 				break;
+	  12533 			}
+	  12534 		case 3: {
+	  12535 				Vec2	erg;										
+	  12535 	// diagonal flip 2
+	  12536 				(pos-winpos).Split( Vec2(1,1), &erg );		// project to diagonal
+	  12537 				wpos=winpos+erg;
+	  12538 				break;
+	  12539 			}
+	  12540 		}
+	  12541 		wa=winpos.AngleDeg(wpos);		// angle to (adjusted position)
+	  12542 	}
+	  12543 
+	  12544 
+	  12545 Vec2	mdir=wpos-winpos;					// move distance to center of flip
+	  12546 Vec2	newpos=mdir+wpos;					// destination on other side of the flip
+	  12547 Real	a=wa+90;								// angle of mirror
+	  12548 Real	newdir=a-(windir-a)+180;				// new windir after the flip
+	  12549 
+	  12550 	DBG1( "*** Mirror Angle: %g\n", (double)a );
+	  12551 	DBG2( "*** Windir: %g -> New Angle: %g\n", (double)wa, (double)newdir );
+	  12552 
+	  12553 	if (join_count<=maxfliptiles) {
+	  12554 	// do tiny animation, if there are less than 5 tiles combined
+	  12555 
+	  12556 		Real	flipstart=GetCurrentTime();
+	  12557 		Real	loop;				// current state of the flip
+	  12558 
+	  12559 		double fliptime=fliptimebase+join_count*fliptimedelta;
+	  12560 		StartFlip( Vec2Zero.AngleRadial(mdir) );// start flipping up
+	  12561 		for (loop=0.9;loop>=flipsave;loop=1.0-(GetCurrentTime()-flipstart)/fliptime) {
+	  12562 			StoreExtent();
+	  12563 			SetPos( wpos-loop*mdir );
+	  12564 			SetFlip( loop );
+	  12565 			UpdateExtent();
+	  12566 			XSync(dpy,0);
+	  12567 		}
+	  12568 
+	  12569 		StoreExtent();									// swap to other sid
+	  12569 e
+	  12570 		FlipPage();
+	  12571 		SetDir(newdir);
+	  12572 
+	  12573 		loop=flipsave;									// first frame on ba
+	  12573 ck side
+	  12574 		flipstart=GetCurrentTime();
+	  12575 		StartFlip( Vec2Zero.AngleRadial(wpos-newpos) );
+	  12576 		SetPos( wpos+loop*mdir );
+	  12577 		SetFlip(loop);
+	  12578 		UpdateExtent();
+	  12579 		XSync(dpy,0);
+	  12580 		loop=flipsave+(GetCurrentTime()-flipstart)/fliptime;
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 17 	   
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  12581 
+	  12582 		for (;loop<1.0-0.1;loop=flipsave+(GetCurrentTime()-flipstart)/fliptime) {
+	  12583 			StoreExtent();
+	  12584 			SetPos( wpos+loop*mdir );
+	  12585 			SetFlip( loop );
+	  12586 			UpdateExtent();
+	  12587 			XSync(dpy,0);
+	  12588 		}
+	  12589 
+	  12590 		StoreExtent();									// last frame on bac
+	  12590 k side
+	  12591 		SetPos(newpos);
+	  12592 		StopFlip();
+	  12593 		DirectionChanged();							// trigger for a last update
+	  12594 		UpdateExtent();
+	  12595 	}
+	  12596 	else {
+	  12597 		StoreExtent();									// just flip and sho
+	  12597 w
+	  12598 		FlipPage();
+	  12599 		SetPos(newpos);
+	  12600 		SetDir(newdir);
+	  12601 		UpdateExtent();
+	  12602 	}
+	  12603 }
+	  12604 
+	  12605 void DBPieceObject::StoreExtent() {
+	  12606 	x1 = winx;					// store old frame
+	  12607 	y1 = winy;
+	  12608 	x2 = x1+swidth;
+	  12609 	y2 = y1+sheight;
+	  12610 }
+	  12611 
+	  12612 int DBPieceObject::JoinExtent( int *xx1, int *yy1, int *xx2, int *yy2 ) {
+	  12613 	if (winx<*xx1)				*xx1 = winx;
+	  12614 	if (winy<*yy1)				*yy1 = winy;
+	  12615 	if (winx+swidth>*xx2)	*xx2 = winx+swidth;
+	  12616 	if (winy+sheight>*yy2)	*yy2 = winy+sheight;
+	  12617 	return 1;
+	  12618 }
+	  12619 
+	  12620 int DBPieceObject::GetExtent( int *xx1, int *yy1, int *xx2, int *yy2 ) {
+	  12621 	*xx1 = winx;
+	  12622 	*yy1 = winy;
+	  12623 	*xx2 = winx+swidth;
+	  12624 	*yy2 = winy+sheight;
+	  12625 	return 1;
+	  12626 }
+	  12627 
+	  12628 void DBPieceObject::JoinExtent() {
+	  12629 	if (winx<x1)			x1=winx;
+	  12630 	if (winx+swidth>x2)	x2=winx+swidth;
+	  12631 	if (winy<y1)			y1=winy;
+	  12632 	if (winy+sheight>y2)	y2=winy+sheight;
+	  12633 }
+	  12634 
+	  12635 void DBPieceObject::UpdateExtent() {
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 18 	   
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  12636 	JoinExtent();
+	  12637 	mystack->ExposeRegion(x1,y1,x2-x1,y2-y1);
+	  12638 }
+	  12639 
+	  12640 // ===========================================================================
+	  12641 
+	  12642 int  MoveablePiece::turnflag;			// flag about direction of turn
+	  12643 Time MoveablePiece::start_time;		// event time of button press
+	  12644 Real MoveablePiece::start_angle;		// angle at the start of turn
+	  12645 Vec2 MoveablePiece::start;
+	  12646 Vec2 MoveablePiece::poffset;			// offset of pointer from center
+	  12647 Real MoveablePiece::poffset_len;		// length of offset of pointer from center
+	  12648 
+	  12649 MoveablePiece::MoveablePiece() {
+	  12650 }
+	  12651 
+	  12652 MoveablePiece::~MoveablePiece() {
+	  12653 }
+	  12654 
+	  12655 void MoveablePiece::DispatchPress( XButtonEvent * xbutton ) {
+	  12656 	if (xbutton->state&ControlMask) {
+	  12657 		// printf( "doing the flip ...\n" );
+	  12658 		mystack->Raise(this);
+	  12659 		FlipOver( Vec2(xbutton->x,xbutton->y) );
+	  12660 		start_time=0;
+	  12661 	}
+	  12662 	else {
+	  12663 		start_time=xbutton->time;
+	  12664 	}
+	  12665 
+	  12666 	start_angle=GetDir();
+	  12667 	if (xbutton->state&AnyButtonMask) {
+	  12668 		// there is already a button pressed ...
+	  12669 		if (xbutton->button==Button1) {
+	  12670 			// second button in addition to middle button -> turn around center
+	  12671 			turnflag=2*(xbutton->button-Button1-1);
+	  12672 		}
+	  12673 		else {
+	  12674 			// start non-rotating motion on multiple press
+	  12675 			turnflag=0;
+	  12676 		}
+	  12677 	}
+	  12678 	else {
+	  12679 		// first button - start normal drag
+	  12680 		mystack->Raise(this);
+	  12681 		start=Vec2( xbutton->x, xbutton->y );
+	  12682 		poffset=(start-winpos);
+	  12683 		poffset_len=poffset.Norm();
+	  12684 
+	  12685 		// when too close to the center of the tile - move it off a bit ...
+	  12686 		while (poffset_len<2) {
+	  12687 			// printf( "*** very close hit - moving start\n" );
+	  12688 			start+=Vec2(1,1);
+	  12689 			poffset=(start-winpos);
+	  12690 			poffset_len=poffset.Norm();
+	  12691 		}
+	  12692 
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 19 	   
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  12693 		turnflag=xbutton->button-Button1-1;
+	  12694 
+	  12695 		if (poffset_len<warp_center) {
+	  12696 			poffset_len=warp_center;
+	  12697 			poffset=poffset_len*poffset.Norm1();
+	  12698 			start=winpos+poffset;
+	  12699 			warp_lock_x = XPix(start.X());
+	  12700 			warp_lock_y = YPix(start.Y());
+	  12701 			XWarpPointer(dpy,None,win,0,0,0,0,warp_lock_x,warp_lock_y);
+	  12702 			XSync(dpy,0);		// Flush and drop the Warp-Event
+	  12703 		}
+	  12704 
+	  12705 		if (!turnflag)		Move( start-poffset );
+	  12706 	}
+	  12707 	XDefineCursor( dpy, win, (turnflag<0)?pull_cursor:move_cursor );
+	  12708 }
+	  12709 
+	  12710 void MoveablePiece::DispatchMotion( XMotionEvent * xmotion ) {
+	  12711 
+	  12712 Vec2	newpos(xmotion->x,xmotion->y);
+	  12713 Vec2	new_offset=newpos-(start-poffset);
+	  12714 
+	  12715 	if (fabs(new_offset.X())+fabs(new_offset.Y())<2) {
+	  12716 		DBG0( "#### skipping event near center of tile\n" );
+	  12717 		return;
+	  12718 	}
+	  12719 
+	  12720 	switch (turnflag) {
+	  12721 	case 2:
+	  12722 	case -2: {
+	  12723 		// new style for turning around center
+	  12724 			Real	a1=Vec2Zero.AngleDeg(poffset);
+	  12725 			Real	a2=Vec2Zero.AngleDeg(new_offset);
+	  12726 			poffset=new_offset;
+	  12727 			MoveTurn(newpos-poffset,GetDir()-a1+a2);
+	  12728 			break;
+	  12729 	}
+	  12730 	case -1: {
+	  12731 		// new style for pulling corners
+	  12732 			new_offset=(new_offset).Norm1()*poffset_len;
+	  12733 			Real	a1=Vec2Zero.AngleDeg(poffset);
+	  12734 			Real	a2=Vec2Zero.AngleDeg(new_offset);
+	  12735 			poffset=new_offset;
+	  12736 			MoveTurn(newpos-poffset,GetDir()-a1+a2);
+	  12737 			break;
+	  12738 	}
+	  12739 	case 1:
+	  12740 	default:
+	  12741 			Move( newpos-poffset );
+	  12742 			break;
+	  12743 	}
+	  12744 	start=newpos;
+	  12745 }
+	  12746 
+	  12747 void MoveablePiece::DispatchRelease( XButtonEvent * xbutton ) {
+	  12748 	if (xbutton->button!=Button2&&(xbutton->button==Button1||!(xbutton->state&Button1Mask))) {
+	  12749 			if (xbutton->time-start_time<150) {
+
+                                Source Listing                  30-DEC-1997 18:01:25    DEC C++ V5.2-003                Page 20 	   
+                                                                30-DEC-1997 18:01:21    SUB2:[DECW_PORT.XJIG-2_4]OBJECTS.C;4
+
+	  12750 				switch(xbutton->button) {
+	  12751 				case Button1:	TurnOver(start_angle+90.0);	break;
+	  12752 				case Button3:	TurnOver(start_angle-90.0);	break;
+	  12753 				}
+	  12754 			}
+	  12755 			turnflag=0;
+	  12756 	}
+	  12757 	else if (xbutton->time-start_time<150&&xbutton->button==Button2&&!(xbutton->state&~Button2Mask)) {
+	  12758 				FlipOver(Vec2(xbutton->x,xbutton->y));
+	  12759 	}
+	  12760 	else if (xbutton->state&Button1Mask)
+	  12761 			turnflag=-1;	// restart rotatable drag
+	  12762 
+	  12763 	if (!((xbutton->state&AnyButtonMask)&~(Button1Mask<<(xbutton->button-1)))) {
+	  12764 		XDefineCursor( dpy, win, idle_cursor );
+	  12765 		XFlush(dpy);
+	  12766 		// no more buttons pressed -> check against other pieces
+	  12767 		if (p->CheckForJoin( (Piece*)this )) {
+	  12768 			/* don't use THIS in this case since it's already deleted !!! */
+	  12769 		}
+	  12770 		else {
+	  12771 			AdjustDirection();
+	  12772 		}
+	  12773 	}
+	  12774 	else XDefineCursor( dpy, win, (turnflag)?pull_cursor:move_cursor );
+	  12775 }
+	  12776 
+
+
+Command Line
+------- ----
+
+CXX/ANSI_ALIAS/ANALYSIS_DATA/ASSUME=(ACCURACY_SENSITIVE,ALIGNED_OBJECTS,NOWRITABLE_STRING_LITERALS)
+/COMMENTS=SPACE/DIAGNOSTICS/DEBUG=(TRACEBACK)/ENDIAN=LITTLE/EXTERN_MODEL=RELAXED_REFDEF
+/FLOAT=(G_FLOAT)/GRANULARITY=QUADWORD/INSTRUCTION_SET=FLOATING_POINT/LINE_CONTROL
+/L_DOUBLE_SIZE=64/LINE_DIRECTIVES/LIST/NOMACHINE_CODE/MEMBER_ALIGNMENT
+/NAMES=UPPERCASE/NESTED_INCLUDE_DIRECTORY=INCLUDE_FILE/OBJECT/OPTIMIZE=(LEVEL=4,TUNE=GENERIC,UNROLL=0)
+/PREFIX=(ALL_ENTRIES)/PSECT_MODEL=NOMULTILANGUAGE/ROUNDING_MODE=NEAREST
+/SHOW=(HEADER,SOURCE)/SIGNED_CHAR/STANDARD=ARM/STACK_CHECK/REENTRANCY=TOLERANT
+/WARNINGS/DEFINE=(VMS)

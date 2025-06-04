@@ -1,0 +1,112 @@
+# Makefile : Builds graph library and example (DOS).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+GRAPHDIR = $(WXDIR)\utils\wxgraph
+GRAPHLIB = $(GRAPHDIR)\lib\wxgraph.lib
+DOCDIR = $(GRAPHDIR)\docs
+THISDIR = $(GRAPHDIR)\src
+EXTRALIBS=$(GRAPHLIB)
+INC=-I$(WXDIR)\include\base -I$(WXDIR)\include\msw
+DUMMY=$(WXDIR)\src\msw\dummy.obj
+
+# Default is to output RTF for WinHelp
+!ifndef RTFSTYLE
+RTFSTYLE=-winhelp
+!endif
+
+# Set this to nothing if using MS C++ 7
+ZOPTION=/Z7
+
+HEADERS = wxgraph.h wxgraphp.h
+SOURCES = wxgraph.$(SRCSUFF)
+OBJECTS = wxgraph.obj
+
+all:    $(GRAPHLIB)
+
+test:   test.exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos FINAL=$(FINAL)
+        cd $(GRAPHDIR)\src
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos clean
+        cd $(GRAPHDIR)\src
+
+$(GRAPHLIB):      $(OBJECTS)
+        -erase $(GRAPHLIB)
+        lib /PAGESIZE:128 @<<
+$(GRAPHLIB)
+y
+$(OBJECTS)
+nul
+;
+<<
+
+test.exe:      $(DUMMY) $(WXLIB) $(GRAPHLIB) test.obj test.def test.res
+        link $(LINKFLAGS) @<<
+$(DUMMY) test.obj,
+test,
+NUL,
+$(LIBS),
+test.def
+;
+<<
+        rc -31 -K test.res
+
+wxgraph.obj:      wxgraph.h wxgraphp.h wxgraph.$(SRCSUFF) $(DUMMY)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+test.obj:      test.h wxgraph.h test.$(SRCSUFF) $(DUMMY)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+test.res :      test.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /dFAFA_LIB /i$(WXDIR)\contrib\fafa /i$(WXDIR)\include\msw test
+
+# Making documents
+docs:   hlp xlp
+hlp:   $(DOCDIR)/wxgraph.hlp
+xlp:    $(DOCDIR)/wxgraph.xlp
+rtf:    $(DOCDIR)/wxgraph.rtf
+
+$(DOCDIR)/wxgraph.hlp:         $(DOCDIR)/wxgraph.rtf $(DOCDIR)/wxgraph.hpj
+        cd $(DOCDIR)
+        -erase wxgraph.ph
+        hc wxgraph
+        cd $(THISDIR)
+
+$(DOCDIR)/wxgraph.rtf:         $(DOCDIR)/manual.tex $(DOCDIR)/classes.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\wxgraph.rtf -twice $(RTFSTYLE)
+        cd $(THISDIR)
+
+$(DOCDIR)/wxgraph.xlp:         $(DOCDIR)/manual.tex $(DOCDIR)/classes.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\manual.tex $(DOCDIR)\wxgraph.xlp -twice -xlp
+        cd $(THISDIR)
+
+cleanrtf:
+        cd $(DOCDIR)
+        -erase *.rtf
+        cd  $(THISDIR)
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+        -erase $(GRAPHLIB)

@@ -1,0 +1,98 @@
+#
+# File:		makefile.dos
+# Author:	Alejandro Aguilar-Sierra
+# Created:	1995
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxImalib and demo (DOS).
+
+!if "$(WXWIN)" == ""
+!error You must define the WXWIN variable in autoexec.bat, e.g. WXWIN=c:\wx
+!endif
+
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+LIBS=$(WXLIB) oldnames libw llibcew commdlg shell ddeml mmsystem \
+     $(WXDIR)\utils\wximage\lib\wxima.lib ..\lib\wxhtml.lib
+
+INC=-I$(WXDIR)\include\base -I$(WXDIR)\include\msw -I..\src
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+# Set this to nothing if using MS C++ 7
+ZOPTION=/Z7
+
+!if "$(FINAL)" == "0"
+DEBUG_FLAGS= /Zi $(ZOPTION)
+LINK_DEBUG_FLAGS=/CO
+OPT = /Od
+!else
+DEBUG_FLAGS=
+LINK_DEBUG_FLAGS=
+OPT = /Ox
+!endif
+
+CPPFLAGS= /DALLOW_EDIT_MODE=0 $(DEBUG_FLAGS) /AL /Gt4 /W4 /G3sw $(OPT) $(INC) /DEBUG=$(DEBUG) /Dwx_msw
+CFLAGS= $(DEBUG_FLAGS) /AL /W3 /G2sw $(OPT) /Dwx_msw
+LINKFLAGS=$(LINK_DEBUG_FLAGS) /NOD /SEG:512 /ONERROR:NOEXE
+
+all:    socket nosocket
+
+socket: wxweb16s.exe
+
+nosocket: wxweb16.exe
+
+LINCS = wxweb.h
+
+wxweb16.exe:  wxweb16.obj wxweb16.res
+        link $(LINKFLAGS) @<<
+$(WXDIR)\src\msw\dummy.obj wxweb.obj,
+wxweb16,
+NUL,
+$(LIBS),
+wxweb.def
+;
+<<
+        rc -30 -K wxweb16.res
+
+wxweb16s.exe:  wxweb16s.obj wxweb16s.res
+        link $(LINKFLAGS) @<<
+$(WXDIR)\src\msw\dummy.obj wxweb.obj,
+wxweb16s,
+NUL,
+$(LIBS) winsock,
+wxweb.def
+;
+<<
+        rc -30 -K wxweb16s.res
+
+wxweb16.res :   wxweb16.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa wxweb16
+
+wxweb16s.res :   wxweb16s.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa wxweb16s
+
+
+wxweb16.obj: wxweb.h wxweb.cpp
+        cl @<<
+$(CPPFLAGS) /DUSE_WXWWW=0 /c /Tp wxweb.$(SRCSUFF)
+<<
+
+wxweb16s.obj: wxweb.h wxweb.cpp 
+        cl @<<
+$(CPPFLAGS) /DUSE_WXWWW=1 /c /Tp wxweb.$(SRCSUFF)
+<<
+
+clean:
+        -erase *.obj
+        -erase *.res
+        -erase *.map
+        -erase *.rws

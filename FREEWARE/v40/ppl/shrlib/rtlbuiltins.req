@@ -1,0 +1,361 @@
+%TITLE 'RTLBUILTINS  Used to define macro replacements for BLISS32V builtins which are not in BLISS32E'
+
+! Version:	'X-1'
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1978, 1980, 1982, 1984, 1991 BY			    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+!
+!++
+! FACILITY:	General Utility Library
+!
+! ABSTRACT:
+!
+!		This module provides replacements for BLISS32V builtins which
+!		are not an inherent part of BLISS32E.
+!
+! ENVIRONMENT:	User mode - AST reentrant
+!
+! AUTHOR:	Eric Postpischil	30-Jul-1990
+!
+! MODIFIED BY:
+!
+! 1-001	- Original retrofit to LIBRTL.  GAS1001	2-May-1991
+! 1-002 - Add support for: ASHP, CVTPL, CVTPT, CVTTP, MOVP. GAS1002 28-May-1991
+!
+!--
+
+
+! The following macro declares a macro which declares a macro.  The purpose
+! of this is to support writing macros in Bliss-32E which will replace
+! Bliss-32 built-ins which are not built into Bliss-32E.
+!
+! For example, consider the FFC built-in.  It will appear in the source
+! first as:
+!	BUILTIN FFC;	or	BUILTIN ..., FFC, ...;
+! Later, it will probably appear one or more times as:
+!	... FFC(postion, size, base, destination) ...
+!
+! For a macro to replace the FFC built-in with minimal source changes, it must
+! work correctly in both of these situations.  That is accomplished by using
+! an auxiliary macro called $FFC.  FFC is declared for an entire module by
+! including it in a library file, but $FFC is not declared globally.  FFC
+! does not take any parameters.
+!
+! When FFC is invoked, it checks to see if $FFC is declared (by using
+! the %DECLARED lexical function).  Initially in any given block, $FFC
+! is not declared.  FFC then declares $FFC to be a macro which contains
+! code to replace the FFC built-in.
+!
+! When FFC is invoked a second or successive time in a block, $FFC has
+! been declared from the first invocation.  In these cases, FFC expands
+! to "$FFC".  This produces "$FFC" in the input stream followed by the
+! parameters of the call to the FFC built-in.  The $FFC macro does take
+! parameters and expands to the replacement code.
+!
+! Note that when FFC appears as:
+!	BUILTIN FFC;	or	BUILTIN ..., FFC, ...;
+! the FFC macro expands to a declaration of the $FFC macro.  To do this,
+! it is necessary to terminate the BUILTIN declaration, declare the
+! macro, and resume the BUILTIN declaration (in case any other built-ins
+! follow FFC in the list).  This is accomplished by having FFC expand to
+!		PAL_HALT;
+!	MACRO $FFC(arguments) = definition %;
+!	BUILTIN PAL_HALT
+!
+! All of this requires conditional compilation using %IF clauses.  The
+! process of defining the replacement macros is made easier by declaring
+! a macro to define macros like the FFC macro described above.  This
+! definition macro is called DEFINE_MACRO and is invoked with:
+!	DEFINE_MACRO(name, auxiliary, arguments, code)
+! where:
+!	"name" is the name of the Bliss-32 built-in being replaced.
+!	"auxiliary" is a unique name for the auxiliary macro, such
+!		as the name preceded by a dollar sign (e.g., $FFC).
+!	"arguments" is a parenthesized list of the arguments that the
+!		built-in accepts.
+!	"code" is a parenthesized block of Bliss code that performs
+!		the function of the built-in.
+!
+! Note that "code" contains references to the arguments specified in
+! "arguments" and that "code" can contain lexical functions.  However,
+! such lexical functions must be quoted so that they are passed to
+! DEFINE_MACRO and become part of the macro definition and are evaluated
+! when auxiliary macro is invoked rather than being evaluated at the
+! time DEFINE_MACRO is invoked.
+
+MACRO
+    DEFINE_MACRO(name, auxiliary, arguments, code) =
+	MACRO
+	    name =
+		%QUOTE %IF NOT %DECLARED(%QUOTE %QUOTE %QUOTE %QUOTE auxiliary)
+		%QUOTE %THEN
+			PAL_HALT;
+		    MACRO
+			auxiliary arguments =
+			    code
+			    %QUOTE %QUOTE %QUOTE %;
+		    BUILTIN
+		        PAL_HALT
+		%QUOTE %ELSE
+		    auxiliary
+		%QUOTE %FI %QUOTE % ;
+	%;
+
+! The following macro, CHECK_SYMBOL, expands to a compile-time test to
+! determine if a given symbol is declared.  If the symbol is declared, a
+! warning message is emitted.  This macro uses a very large number of %QUOTE
+! lexemes in order to preserve the quotations through the passing of this
+! macro as a parameter to DEFINE_MACRO, expansion of the macro it defines,
+! and final expansion of the auxiliary macro.
+!
+! This macro is intended to be placed anywhere in the stream of lexemes
+! passed as the "code" parameter to the DEFINE_MACRO macro.
+MACRO
+    CHECK_SYMBOL(mname, symbol) =
+%QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %IF
+%QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %DECLARED(
+	%QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE
+	%QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE
+	%QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE
+	%QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE symbol)
+%QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %THEN
+	%QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE
+		%WARN( %QUOTE %STRING(
+			'Symbol ',
+			%QUOTE %QUOTE symbol,
+			' conflicts with symbol used inside macro ',
+			%QUOTE %QUOTE mname
+		))
+%QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %QUOTE %FI %;
+
+
+! This macro, DEFINE_ROUTINE, is analogous to DEFINE_MACRO except that
+! it causes the auxiliary to be declared as an external routine, rather
+! than a macro.  It is currently used only to cause CALLG to be replaced
+! with BLI$CALLG.
+MACRO
+    DEFINE_ROUTINE(name, auxiliary) =
+	MACRO
+	    name =
+		%QUOTE %IF NOT %DECLARED(%QUOTE %QUOTE %QUOTE %QUOTE auxiliary)
+		%QUOTE %THEN
+			PAL_HALT;
+		    EXTERNAL ROUTINE
+			auxiliary : ADDRESSING_MODE(GENERAL);
+		    BUILTIN
+		        PAL_HALT
+		%QUOTE %ELSE
+		    auxiliary
+		%QUOTE %FI %QUOTE % ;
+	%;
+
+define_macro( ashp, $evax_ashp,
+              (scale, srclen, srcaddr, round, dstlen, dstaddr, out0, out1, out2, out3),
+    begin
+    external routine
+        lib$$ashp_emulator : addressing_mode( general );
+    check_symbol( ashp, %quote $ashp_result )
+    local
+        $ashp_result;
+    $ashp_result = lib$$ashp_emulator( .scale, .srclen, srcaddr, .round, .dstlen, dstaddr );
+    %quote %if not %quote %null(out0) %quote %then out0 = 0; %quote %fi
+    %quote %if not %quote %null(out1) %quote %then out1 = .srcaddr; %quote %fi
+    %quote %if not %quote %null(out2) %quote %then out2 = 0; %quote %fi
+    %quote %if not %quote %null(out3) %quote %then out3 = .dstaddr; %quote %fi
+    if .$ashp_result<1,1> eql 1 ! Check the V bit
+    then
+        0
+    else
+        1
+    end 
+    )
+
+define_macro( cvtpl, $evax_cvtpl,
+              (srclena, srcaddr, dsta),
+    begin
+    external routine
+        lib$$cvtpl_emulator : addressing_mode( general );
+    check_symbol( cvtpl, %quote $cvtpl_result )
+    local
+        $cvtpl_result;
+    $cvtpl_result = lib$$cvtpl_emulator( .srclena, srcaddr, dsta );
+    if .$cvtpl_result<1,1> eql 1 ! Check the V bit
+    then
+        0
+    else
+        1
+    end 
+    )
+
+define_macro( cvtpt, $evax_cvtpt,
+              (srclena, srcaddr, tbladdr, dstlena, dstaddr, out0, out1, out2, out3),
+    begin
+    external routine
+        lib$$cvtpt_emulator : addressing_mode( general );
+    check_symbol( cvtpt, %quote $cvtpt_result )
+    local
+        $cvtpt_result;
+    $cvtpt_result = lib$$cvtpt_emulator( .srclena, srcaddr, tbladdr, .dstlena, dstaddr );
+    %quote %if not %quote %null(out0) %quote %then out0 = 0; %quote %fi
+    %quote %if not %quote %null(out1) %quote %then out1 = .srcaddr; %quote %fi
+    %quote %if not %quote %null(out2) %quote %then out2 = 0; %quote %fi
+    %quote %if not %quote %null(out3) %quote %then out3 = .dstaddr; %quote %fi
+    if .$cvtpt_result<1,1> eql 1 ! Check the V bit
+    then
+        0
+    else
+        1
+    end 
+    )
+
+define_macro( cvttp, $evax_cvttp,
+              (srclena, srcaddr, tbladdr, dstlena, dstaddr, out0, out1, out2, out3),
+    begin
+    external routine
+        lib$$cvttp_emulator : addressing_mode( general );
+    check_symbol( cvttp, %quote $cvttp_result )
+    local
+        $cvttp_result;
+    $cvttp_result = lib$$cvttp_emulator( .srclena, srcaddr, tbladdr, .dstlena, dstaddr );
+    %quote %if not %quote %null(out0) %quote %then out0 = 0; %quote %fi
+    %quote %if not %quote %null(out1) %quote %then out1 = .srcaddr; %quote %fi
+    %quote %if not %quote %null(out2) %quote %then out2 = 0; %quote %fi
+    %quote %if not %quote %null(out3) %quote %then out3 = .dstaddr; %quote %fi
+    if .$cvttp_result<1,1> eql 1 ! Check the V bit
+    then
+        0
+    else
+        1
+    end 
+    )
+
+define_macro( movp, $evax_movp,
+              (lena, srcaddr, dstaddr, out0, out1, out2, out3),
+    begin
+    external routine
+        lib$$movp_emulator : addressing_mode( general );
+    check_symbol( movp, %quote $movp_result )
+    local
+        $movp_result;
+    $movp_result = lib$$movp_emulator( .lena, srcaddr, dstaddr );
+    %quote %if not %quote %null(out0) %quote %then out0 = 0; %quote %fi
+    %quote %if not %quote %null(out1) %quote %then out1 = .srcaddr; %quote %fi
+    %quote %if not %quote %null(out2) %quote %then out2 = 0; %quote %fi
+    %quote %if not %quote %null(out3) %quote %then out3 = .dstaddr; %quote %fi
+    if .$movp_result<1,1> eql 1 ! Check the V bit
+    then
+        0
+    else
+        1
+    end 
+    )
+
+define_macro( cmpp, $evax_cmpp,
+	      (src1lena, src1addr, src2lena, src2addr, out0, out1, out2, out3),
+    begin
+    external routine
+        lib$$cmpp4_emulator : addressing_mode( general );
+    check_symbol( cmpp, %quote $cmpp_result )
+    local
+        $cmpp_result;
+    $cmpp_result = lib$$cmpp4_emulator( .src1lena, src1addr, .src2lena, src2addr );
+    %quote %if not %quote %null(out0) %quote %then out0 = 0; %quote %fi
+    %quote %if not %quote %null(out1) %quote %then out1 = .src1addr; %quote %fi
+    %quote %if not %quote %null(out2) %quote %then out2 = 0; %quote %fi
+    %quote %if not %quote %null(out3) %quote %then out3 = .src2addr; %quote %fi
+    if .$cmpp_result<2,1> eql 1 ! Check the Z bit
+    then
+        0
+    else
+        if .$cmpp_result<3,1> eql 1 ! Check the N bit
+        then
+            -1
+        else
+            +1
+    end
+    )
+
+define_macro( cvtlp, $evax_cvtlp,
+	      (srca, dstlena, dstaddr), 
+    begin
+    external routine
+        lib$$cvtlp_emulator : addressing_mode( general );
+    check_symbol( cvtlp, %quote $cvtlp_result )
+    local
+        $cvtlp_result;
+    $cvtlp_result = lib$$cvtlp_emulator( .srca, .dstlena, dstaddr );
+    if .$cvtlp_result<1,1> eql 1 ! Check the V bit
+    then
+        0
+    else
+        1
+    end
+    )
+
+define_macro( cvtps, $evax_cvtps,
+	      (srclena, srcaddr, dstlena, dstaddr, out0, out1, out2, out3),
+    begin
+    external routine
+        lib$$cvtps_emulator : addressing_mode( general );
+    check_symbol( cvtps, %quote $cvtps_result )
+    local
+        $cvtps_result;
+    $cvtps_result = lib$$cvtps_emulator( .srclena, srcaddr, .dstlena, dstaddr );
+    %quote %if not %quote %null(out0) %quote %then out0 = 0; %quote %fi
+    %quote %if not %quote %null(out1) %quote %then out1 = .srcaddr; %quote %fi
+    %quote %if not %quote %null(out2) %quote %then out2 = 0; %quote %fi
+    %quote %if not %quote %null(out3) %quote %then out3 = .dstaddr; %quote %fi
+    if .$cvtps_result<1,1> eql 1 ! Check the V bit
+    then
+        0
+    else
+        1
+    end 
+    )
+
+define_macro( cvtsp, $evax_cvtsp,
+	      (srclena, srcaddr, dstlena, dstaddr, out0, out1, out2, out3),
+    begin
+    external routine
+        lib$$cvtsp_emulator : addressing_mode( general );
+    check_symbol( cvtsp, %quote $cvtsp_result )
+    local
+        $cvtsp_result;
+    $cvtsp_result = lib$$cvtsp_emulator( .srclena, srcaddr, .dstlena, dstaddr );
+    %quote %if not %quote %null(out0) %quote %then out0 = 0; %quote %fi
+    %quote %if not %quote %null(out1) %quote %then out1 = .srcaddr; %quote %fi
+    %quote %if not %quote %null(out2) %quote %then out2 = 0; %quote %fi
+    %quote %if not %quote %null(out3) %quote %then out3 = .dstaddr; %quote %fi
+    if .$cvtsp_result<1,1> eql 1 ! Check the V bit
+    then
+        0
+    else
+        1
+    end
+    )
+
+UNDECLARE
+    %QUOTE CHECK_SYMBOL,
+    %QUOTE DEFINE_MACRO,
+    %QUOTE DEFINE_ROUTINE;
+

@@ -1,0 +1,20 @@
+$! File: CLASS-START.COM
+$!
+$! Change /INPUT /OUTPUT /ERROR accordingly
+$
+$ node = f$getsyi("NODENAME")
+$
+$ RUN SYS$SYSTEM:LOGINOUT.EXE -
+      /DETACHED -
+      /PROCESS_NAME="Class Scheduler" -
+      /PRIVILEGES=(WORLD,ALTPRI,SYSNAM) -
+      /PRIORITY=15 -
+      /NOSWAPPING -
+      /UIC=[SYSTEM] -
+      /WORKING_SET=2048 -
+      /MAXIMUM_WORKING_SET=4096 -
+      /INPUT=SYS$SYSTEM:CLASS-RUN.COM -
+      /OUTPUT=SYS$SYSTEM:CLASS-'node'.LOG -
+      /ERROR=SYS$SYSTEM:CLASS-'node'.ERR
+$
+$ EXIT

@@ -1,0 +1,126 @@
+#
+# File:		makefile.nt
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxGrid class library (MS VC++).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+GRIDDIR = $(WXDIR)\utils\wxgrid
+THISDIR = $(WXDIR)\utils\wxgrid\src
+EXTRALIBS=$(GRIDDIR)\lib\wxgrid.lib
+DOCDIR=$(WXDIR)\docs
+LOCALDOCDIR=$(WXDIR)\utils\wxgrid\docs
+
+!include $(WXDIR)\src\ntwxwin.mak
+
+PROGRAM=test
+ 
+OBJECTS = wxgridg.obj
+PROGOBJECTS = $(PROGRAM).obj
+LIBTARGET=$(GRIDDIR)\lib\wxgrid.lib
+
+all:    $(LIBTARGET)
+
+$(PROGRAM):    $(PROGRAM).exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt FINAL=$(FINAL)
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt clean
+        cd $(THISDIR)
+
+$(LIBTARGET): $(OBJECTS)
+	-erase $(LIBTARGET)
+	$(implib) @<<
+-out:$(LIBTARGET)
+-machine:$(CPU)
+$(OBJECTS)
+<<
+
+$(PROGRAM).exe:      $(DUMMYOBJ) $(WXLIB) $(PROGOBJECTS) $(LIBTARGET) $(PROGRAM).res
+	$(link) @<<
+-out:$(PROGRAM).exe
+$(LINKFLAGS)
+$(DUMMYOBJ) $(PROGOBJECTS) $(PROGRAM).res
+$(LIBS)
+<<
+
+wxgridg.obj:      wxgridg.h wxgrid.h wxgridg.$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+$(PROGRAM).obj:      $(PROGRAM).h $(PROGRAM).$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+$(PROGRAM).res :      $(PROGRAM).rc $(WXDIR)\include\msw\wx.rc
+    $(rc) -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -fo$@ $(PROGRAM).rc
+
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+        -erase $(LIBTARGET)
+
+DOCSOURCES=$(LOCALDOCDIR)\wxgrid.tex $(LOCALDOCDIR)\classes.tex $(LOCALDOCDIR)\body.tex $(LOCALDOCDIR)\changes.tex
+
+html: $(DOCDIR)\html\wxgrid\grid.htm
+hlp: $(DOCDIR)\winhelp\wxgrid.hlp
+ps: $(WXDIR)\docs\ps\wxgrid.ps
+
+$(DOCDIR)\winhelp\wxgrid.hlp:         $(LOCALDOCDIR)\wxgrid.rtf $(LOCALDOCDIR)\wxgrid.hpj
+        cd $(LOCALDOCDIR)
+        -erase wxgrid.ph
+        hc wxgrid
+        move wxgrid.hlp $(DOCDIR)\winhelp\wxgrid.hlp
+        move wxgrid.cnt $(DOCDIR)\winhelp\wxgrid.cnt
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\wxgrid.rtf: $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -start /w tex2rtf $(LOCALDOCDIR)\wxgrid.tex $(LOCALDOCDIR)\wxgrid.rtf -twice -winhelp
+        cd $(THISDIR)
+
+$(DOCDIR)\html\wxgrid\grid.htm:         $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -mkdir $(DOCDIR)\html\wxgrid
+        -start /w tex2rtf $(LOCALDOCDIR)\wxgrid.tex $(DOCDIR)\html\wxgrid\grid.htm -twice -html
+        -erase $(DOCDIR)\html\wxgrid\*.con
+        -erase $(DOCDIR)\html\wxgrid\*.ref
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\wxgrid.dvi:	$(DOCSOURCES)
+	cd $(LOCALDOCDIR)
+        -latex wxgrid
+        -latex wxgrid
+        -makeindx wxgrid
+        -bibtex wxgrid
+        -latex wxgrid
+        -latex wxgrid
+        cd $(THISDIR)
+
+$(WXDIR)\docs\ps\wxgrid.ps:	$(LOCALDOCDIR)\wxgrid.dvi
+	cd $(LOCALDOCDIR)
+        -dvips32 -o wxgrid.ps wxgrid
+        move wxgrid.ps $(WXDIR)\docs\ps\wxgrid.ps
+        cd $(THISDIR)
+
+

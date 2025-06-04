@@ -1,0 +1,118 @@
+#
+# File:		makefile.unx
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile for wxGrid, either generic or Motif Xbae matrix version.
+# Change OBJECTS below for either generic or Xbae matrix compilation.
+
+WXDIR = ../../..
+
+# All common UNIX compiler flags and options are now in
+# this central makefile.
+include $(WXDIR)/src/make.env
+
+WXGRIDDIR = $(WXDIR)/utils/wxgrid
+WXGRIDINC = $(WXGRIDDIR)/src
+WXGRIDLIB = $(WXGRIDDIR)/lib/libwxgrid$(GUISUFFIX).a
+
+LDFLAGS = $(XLIB) -L$(WXDIR)/lib -L$(WXGRIDDIR)/lib
+
+XVIEWLDLIBS = -lwxgrid_ol -lwx_ol -lxview -lolgx -lX11 -lm $(COMPLIBS)
+MOTIFLDLIBS = -lwxgrid_motif -lwx_motif -lXm -lXt -lX11 -lm $(COMPLIBS)
+HPLDLIBS = -lwxgrid_motif -lwx_hp -lXm -lXt -lX11 -lm $(COMPLIBS)
+
+# Xbae implementation
+# OBJECTS = caption.o clip.o matrix.o wxgridm.o
+# Generic implementation
+OBJECTS = $(OBJDIR)/wxgridg.o
+
+all:	$(OBJDIR) $(WXGRIDLIB)
+
+demo:   test$(GUISUFFIX)
+
+.SUFFIXES:
+
+motif:
+#	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx motif OPT='$(OPT)'
+	$(MAKE) -f makefile.unx GUI=-Dwx_motif OPT='$(OPT)' GUISUFFIX=_motif LDLIBS='$(MOTIFLDLIBS)' XVIEW_LINK=
+
+demo_motif:
+	$(MAKE) -f makefile.unx test_motif GUI=-Dwx_motif OPT='$(OPT)' GUISUFFIX=_motif LDLIBS='$(MOTIFLDLIBS)' XVIEW_LINK=
+
+xview:
+#	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx xview OPT='$(OPT)'
+	$(MAKE) -f makefile.unx GUI=-Dwx_xview OPT='$(OPT)' GUISUFFIX=_ol
+
+demo_ol:
+	$(MAKE) -f makefile.unx test_ol GUI=-Dwx_xview OPT='$(OPT)' GUISUFFIX=_ol XVIEW_LINK=
+
+hp:
+	$(MAKE) -f makefile.unx GUI=-Dwx_motif GUISUFFIX=_hp CC=CC DEBUG='' DEBUGFLAGS='$(DEBUGFLAGS)' WARN='-w' \
+           XINCLUDE='$(HPXINCLUDE)' XLIB='$(HPXLIB)' XVIEW_LINK='' \
+           LDLIBS='$(HPLDLIBS)'
+
+$(WXGRIDLIB): $(OBJECTS)
+	rm -f $@
+	ar $(AROPTIONS) $@ $(OBJECTS)
+	$(RANLIB) $@
+
+matrix.o:	matrix.c matrix.h
+	$(CCC) -c $(CFLAGS) -o $@ matrix.c
+
+caption.o:	caption.c caption.h
+	$(CCC) -c $(CFLAGS) -o $@ caption.c
+
+clip.o:	clip.c clip.h
+	$(CCC) -c $(CFLAGS) -o $@ clip.c
+
+$(OBJDIR)/wxgridm.o:	wxgridm.$(SRCSUFF) wxgridm.h wxgrid.h matrix.h
+	$(CC) -c $(CPPFLAGS) -o $@ wxgridm.$(SRCSUFF)
+
+$(OBJDIR)/wxgridg.o:	wxgridg.$(SRCSUFF) wxgridg.h wxgrid.h
+	$(CC) -c $(CPPFLAGS) -o $@ wxgridg.$(SRCSUFF)
+
+$(OBJDIR)/test.o:	wxgridm.h test.$(SRCSUFF)
+	$(CC) -c $(CPPFLAGS) -o $@ test.$(SRCSUFF)
+
+$(OBJDIR):
+	mkdir $(OBJDIR)
+
+test$(GUISUFFIX): $(OBJDIR)/test.o $(WXLIB) $(WXGRIDLIB)
+	$(CC) $(LDFLAGS) -o test$(GUISUFFIX) $(OBJDIR)/test.o $(LDLIBS)
+
+HTMLDIR=/home/hardy/html/wx/manuals
+docs:	ps xlp
+ps:	$(WXGRIDDIR)/docs/wxgrid.ps
+xlp:	$(WXGRIDDIR)/docs/wxgrid.xlp
+html:	$(HTMLDIR)/wxgrid/wxgrid_contents.html
+
+$(WXGRIDDIR)/docs/wxgrid.xlp:	$(WXGRIDDIR)/docs/wxgrid.tex $(WXGRIDDIR)/docs/classes.tex $(WXGRIDDIR)/docs/body.tex
+	cd ../docs; tex2rtf wxgrid.tex tmp.xlp -xlp -twice
+	sed -e "s/WXHELPCONTENTS/wxGrid Manual/g" < $(WXGRIDDIR)/docs/tmp.xlp > $(WXGRIDDIR)/docs/wxgrid.xlp
+	/bin/rm -f $(WXGRIDDIR)/docs/tmp.xlp
+
+$(HTMLDIR)/wxgrid/wxgrid_contents.html:	$(WXGRIDDIR)/docs/wxgrid.tex $(WXGRIDDIR)/docs/classes.tex $(WXGRIDDIR)/docs/body.tex
+	cd ../docs; tex2rtf wxgrid.tex $(HTMLDIR)/wxgrid/wxgrid.html -html -twice
+
+$(WXGRIDDIR)/docs/wxgrid.dvi:	$(WXGRIDDIR)/docs/wxgrid.tex $(WXGRIDDIR)/docs/classes.tex  $(WXGRIDDIR)/docs/body.tex
+	cd $(WXGRIDDIR)/docs; latex wxgrid; latex wxgrid; makeindex wxgrid; latex wxgrid
+
+$(WXGRIDDIR)/docs/wxgrid.ps:	$(WXGRIDDIR)/docs/wxgrid.dvi
+	cd $(WXGRIDDIR)/docs; dvips -f -r < wxgrid.dvi > wxgrid.ps
+
+cleaneach:
+	rm -f $(OBJECTS) $(WXGRIDDIR)/libwxgrid$(GUISUFFIX).a test core
+
+clean_motif:
+	$(MAKE) -f makefile.unx GUISUFFIX=_motif cleaneach 
+
+clean_ol:
+	$(MAKE) -f makefile.unx GUISUFFIX=_ol cleaneach 
+
+clean_hp:
+	$(MAKE) -f makefile.unx GUISUFFIX=_hp cleaneach 

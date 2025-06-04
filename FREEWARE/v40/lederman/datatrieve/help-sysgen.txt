@@ -1,0 +1,136 @@
+         Further uses for the FN$HELP function.
+
+                  Bart Z. Lederman
+              System Resources Corp.
+
+
+   I originally developed the FN$HELP function to retrieve help
+from VMS Help libraries as part of an application.  However, I
+discovered that it has other uses as well. 
+
+   Some time ago I developed a procedure which reads in the
+output of the SYSGEN> LIST/ALL command, so I can scan system
+parameters and see which values have changed.  [Editor's note:
+published in the Newsletter, *****.]  An example of the
+processed domain is as follows: 
+
+DTR> for params print name, current, default, unit
+
+      NAME         CURRENT     DEFAULT       UNIT
+
+ACP_BASEPRIO               8           8 Priority
+ACP_DATACHECK              2           2 Bit-mask
+ACP_DINDXCACHE            16          25 Pages
+ACP_DIRCACHE              64          20 Pages
+ACP_EXTCACHE              64          64 Extents
+ACP_EXTLIMIT             100         100 Percent/10
+ACP_FIDCACHE              64          64 File-Ids
+
+[remainder of output deleted to save space]
+
+   This makes it very easy to find the parameters which changed,
+either by using commands to find records where 'CURRENT' is not
+equal to 'DEFAULT', or by comparing one domain to another.  The
+problem is remembering what the parameters do.  There are a lot
+of them, and some have names like KFILSTCNT or DEFMBXMXMSG or
+RMS_DFMBFSDK or other even more cryptic mnemonics.
+
+   There is a description of most, if not all, of the parameters 
+in the help library which is used with the SYSGEN utility.  I 
+had once extracted all of the help from the library, edited it 
+into a file, and loaded it into a domain so I could define a 
+domain table to look up the help text based on the parameter, 
+and linked this to my PARAMS domain.  This works, but requires a 
+lot of work which might have to be repeated with each new 
+release of the operating system.  Now that FN$HELP is available, 
+there is a much more direct approach which can be taken.
+
+PROCEDURE PRINT_SYSGEN_WITH_HELP
+FOR PARAMS WITH CURRENT NE DEFAULT 
+    PRINT "Current = ", SPACE 1, CURRENT (-), SPACE 5, 
+          "Default = ", SPACE 1, DEFAULT (-), 
+          FN$HELP("parameter" ||| NAME, "sysgen", 0) (-) USING Z 
+END_PROCEDURE 
+
+ 
+   In this procedure, I select the records where the current
+value has changed from the default value (this happens to be
+what I'm interested in), I print the current and default values,
+and then I retrieve the relevant Help library entry with
+FN$HELP.  I have to concatenate the name of the parameter with
+the word "PARAMETER" to retrieve the correct entry from the
+library, "SYSGEN" is the name of the library
+(SYS$HELP:SYSGEN.HLB), the "0" makes the routine print the help
+entry and continue (doesn't wait for additional user input), and
+I suppress the printing of any header or return status.  When
+invoked, the results look like this: 
+
+
+Parameters
+
+  ACP_DINDXCACHE
+
+      ACP_DINDXCACHE controls the size of the  directory  index  cache  in
+      order to minimize directory file access overhead;  builds  an  index
+      into the directory file and maintains it.  This  parameter  replaces
+      the ACP_SYSACC parameter for Files-11 ODS-2 disks.
+
+Current =           16     Default =           25
+
+Parameters
+
+  ACP_DIRCACHE
+
+      Number of blocks in file directory cache.
+
+Current =           64     Default =           20
+
+Parameters
+
+  ACP_HDRCACHE
+
+      Number of blocks in file header cache.
+
+Current =           64     Default =           32
+
+Parameters
+
+  ACP_QUOCACHE
+
+     Number of quota file entries to cache.
+
+Current =            0     Default =           64
+
+Parameters
+
+  ACP_SWAPFLGS
+
+      ACP swap flags bit mask - Enable swapping of ACPs.
+
+         Bit 0 set - allows swapping of system disk ACPs
+         Bit 1 set - allows swapping of group disk ACPs
+         Bit 2 set - allows swapping of private disks ACPs
+         Bit 3 set - allows swapping of magtape ACPs
+
+Current =           14     Default =           15
+
+and so on through the rest of the parameters.  This is much 
+easier than trying to remember what the parameters are.
+
+   The speed at which the information is retrieved from the
+library is better than I expected: there is a delay for the
+first retrieval, but it works reasonably quickly after that.  I
+would not use this technique for any application where a lot of
+data has to be retrieved very often, but for an application such
+as this which isn't used very often, it is a good solution. 
+
+   There is a drawback with this approach, which is that the
+Help library retrieval routine is sending it's output directly
+to the users' terminal.  You can't do a PRINT xxx ON filename,
+or OPEN a log file, and get the retrieved text from the help
+library into it because, although Datatrieve knows to redirect
+it's output to the file, it can't pass this information on to
+the library retrieval routine.  The results of this procedure
+can be captured in a batch log file, however, (that's how I
+captured it for this article) or it might be captured by
+re-defining logical name SYS$OUTPUT to be directed to a file. 

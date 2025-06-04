@@ -1,0 +1,206 @@
+;+
+; DST_scanner.MAR - scan the DST (if any) of a VAX/VMS executable image and
+; produce a list of the module source specifications contained there-
+; in!
+;-
+	.library	\SYS$LIBRARY:STARLET\
+	.library	\SYS$LIBRARY:LIB\
+	.library	\DSTDIR:MYDSTLIB\
+;
+	.extrn	CLI$GET_VALUE,LIB$PUT_OUTPUT
+;
+	$DSCDEF
+	$IHDDEF
+	$IHSDEF
+	DSTDEF
+	$PSLDEF
+	$SECDEF
+;
+	.macro	.addr,p1
+	.address -
+		p1
+	.endm
+;
+	filespec_size = 255
+;
+	.psect	data	wrt,noexe,long
+maprange:
+	.long	^x200			; Request mapping into P0 space
+	.long	^x200
+retrange:
+	.blkl				; Where mapping actually occurs
+endrange:
+	.blkl				; End of range...
+;
+file_access:
+	$FAB	FAC=<GET>,FOP=<UFO>,RTV=-1
+cli_parameter:
+	.ascid	\imagespec\
+image_spec:
+	desc	filespec_size
+;
+	.psect	code	nowrt,exe
+	.entry	dst_scanner,^m<>
+;+
+; Obtain image filespec from command line
+;-
+	pushaw	image_spec+DSC$W_LENGTH
+	pushaq	image_spec
+	pushaq	cli_parameter
+	calls	#3,g^CLI$GET_VALUE
+	chksts	scan_err
+;+
+; Open image file
+;-
+	movaq	image_spec,r3			; r3 => filespec descriptor
+	movaq	file_access,r2			; r2 => file access block
+	movb	DSC$W_LENGTH(r3),FAB$B_FNS(r2)
+	movab	@DSC$A_POINTER(r3),FAB$L_FNA(r2)
+	$OPEN	FAB=(r2)
+	chksts	scan_err
+;+
+; Map image header and locate DST
+;-
+	$CRMPSC_S -
+		INADR=maprange,-
+		RETADR=retrange,-
+		ACMODE=#PSL$C_USER,-
+		FLAGS=#<SEC$M_EXPREG>,-
+		CHAN=FAB$L_STV(r2),-
+		PAGCNT=#1,VBN=#1
+	chksts	scan_err
+	moval	@retrange,r3			; R3 => base of image header
+	
+	movzwl	IHD$W_SYMDBGOFF(r3),r4		; R4 <- offset of Image Header
+						; Symbol Table Descriptor
+	addl2	r3,r4				; R4 => base of Image Header
+						; Symbol Table Descriptor
+	movl	IHS$L_DSTVBN(r4),r5		; R5 <- first VBN of DST
+	movzwl	IHS$W_DSTBLKS(r4),r6		; R6 <- # VBs in DST
+;+
+; Unmap header, map DST:
+;-
+	$DELTVA_S -
+		INADR=retrange
+	chksts	scan_err
+;
+	$CRMPSC_S -
+		INADR=maprange,-
+		RETADR=retrange,-
+		ACMODE=#PSL$C_USER,-
+		FLAGS=#<SEC$M_EXPREG>,-
+		CHAN=FAB$L_STV(r2),-
+		PAGCNT=r6,VBN=r5
+	chksts	scan_err
+	moval	@retrange,r3			; R3 => base of DST
+;+
+; Step through entire DST and dump module names from 
+; all Source File Correlation Records encountered.
+;-
+DST_rec_loop:
+	cmpl	r3,endrange			; Past end of mapped data?
+	bleq	8$				;    YES: process next record
+	brw	DST_done			;    NO: exit the loop
+8$:
+	tstb	(r3)				; Past end of DST?
+	bneq	10$				;    NO: continue
+	brw	DST_done			;   YES: exit the loop
+10$:
+	movzbl	DST_B_LENGTH(r3),r4		; R4 <- record size
+	addl3	r4,r3,r7
+	addl2	#1,r7				; R7 <- start of next DST rec
+;
+	cmpb	DST_B_TYPE(r3),#DST_K_SOURCE	; Source File Correlation rec?
+	beql	20$				;   YES: proceed
+	brw	next_DST_rec			;    NO: skip record
+20$:
+	movab	DST_A_SRC_FIRST_CMD(r3),r5	; R5 => first Source File
+						; Correlation command
+SFC_loop:
+;	addl2	#1,r5				; (Should that be #2?)
+;	bicl2	#1,r5				; Account for padding 
+	caseb	DST_B_SRC_COMMAND(r5),-		; Act on the command at (r5)
+		#DST_K_SRC_MIN_CMD,-
+		#<DST_K_SRC_MAX_CMD-DST_K_SRC_MIN_CMD>
+	__x = .
+	.word	do_declfile-__X		; 1
+	.word	do_setfile-__X		; 2
+	.word	do_setrec_l-__X		; 3
+	.word	do_setrec_w-__X		; 4
+	.word	do_setlnum_l-__X	; 5
+	.word	do_setlnum_w-__X	; 6
+	.word	do_incrlnum_b-__X	; 7
+	.word	do_unused-__X
+	.word	do_unused-__X
+	.word	do_deflines_w-__X	; 10
+	.word	do_deflines_b-__X	; 11
+	.word	do_unused-__X
+	.word	do_unused-__X
+	.word	do_unused-__X
+	.word	do_unused-__X
+	.word	do_formfeed-__X		; 16
+	halt				; We should never get here!
+do_declfile:
+;+
+; Build descriptor for source filename on stack
+;-
+	pushab	DST_A_SRC_DF_FILENAME(r5)	; Address of ASCII data
+	movzbl	DST_B_SRC_DF_FILENAME(r5),-(sp)	; Length of ASCII data
+	pushaq	(sp)				; Descriptor address...
+	calls	#1,g^LIB$PUT_OUTPUT		; Spew out the name!
+	addl2	#8,sp				; Adjust stack
+	chksts	scan_err
+;+
+; Move to next Source File Correlation command...
+;-
+	movzbl	DST_B_SRC_DF_LENGTH(r5),r6	; R6 <- SFC command length...
+	movab	<DST_B_SRC_DF_LENGTH+1>(r5),r5	; R5 => command base...
+	addl2	r6,r5				; Sum equals new address
+	brw	SFC_done			; Make sure it's okay!
+;+
+; Handle other SFC's in the only way I can see how... explicitly by type.
+;-
+do_setfile:
+do_setrec_w:
+do_setlnum_w:
+do_deflines_w:
+	addl2	#<1+2>,r5			; Skip byte cmd + word data
+	brw	SFC_done
+;
+do_setrec_l:
+do_setlnum_l:
+	addl2	#<1+4>,r5			; Skip byte cmd + long data
+	brw	SFC_done
+;
+do_incrlnum_b:
+do_deflines_b:
+	addl2	#<1+1>,r5			; Skip byte cmd + byte data
+	brw	SFC_done
+;
+do_unused:
+	halt					; We should never see this!
+;
+do_formfeed:
+	addl2	#1,r5				; Skip byte cmd, no data
+;
+SFC_done:
+	cmpl	r5,r7				; At end of all SFC's?
+	blss	next_SFC			;   NO: process 'nother SFC
+next_DST_rec:
+	movl	r7,r3				;  YES: go to next DST rec
+	brw	DST_rec_loop
+next_SFC:
+	brw	SFC_loop
+;
+DST_done:
+;+
+; Unmap DST from memory and get outta here!
+;-
+	$DELTVA_S -
+		INADR=retrange
+scan_err:
+	ret
+	.end	dst_scanner
+
+	halt				; We should never get here!
+

@@ -1,0 +1,886 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program: PENTAMATION_DEF.INT
+        ! System : INTOUCH Utilities
+        ! Author : Daniel James Swain
+        ! Date   : 22-MAR-1993
+        ! Purpose: 
+        !   Read a pentamation data definition file (.dbd) and 
+        !   create an INTOUCH definition file
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+800     external_field = 1
+        equation_field = 2
+        empty_field = 8
+        type_16_table_external_field = 16
+        type_20_table_external_field = 20
+        bi_dtype    = 1
+        an_dtype    = 2
+        n_dtype     = 3
+        uib_dtype   = 4
+        uiw_dtype   = 5 
+        ns_dtype    = 10
+        date_dtype  = 17
+        phone_dtype = 18
+        zip_dtype   = 19
+        name_dtype  = 20
+        n_just  = 0
+        r_just  = 41
+        l_just  = 42
+        r0_just = 57
+        an_just = 96
+
+
+1000    !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        do_initialize
+        ask window : current definition_screen$
+        do
+          dbd_file$ = ''
+          ask_questions
+          if  _exit or _back then exit do
+          process_dbd_files
+          set window : current definition_screen$
+        loop
+
+9999    stop
+
+
+
+12000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   I N I T I A L I Z E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   paint the screen background
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   type_20_table_external_field 
+        !                      field type for external fields (not real fields)
+        !   type_16_table_external_field 
+        !                      field type for external fields (not real fields)
+        !   empty_field        field type for empty fields (not real fields)
+        !   equation_field     field type for equation fields (not real fields)
+        !   external_field     field type for external fields (not real fields)
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_initialize
+          frame off
+          z$ = space$(80)
+          cset z$ = 'Create INTOUCH Definition from Pentamation Definitions'
+          print at 1, 1, bold, reverse : z$
+          print at 3, 1 : 'Pentamation definition: '
+          lset z$ = 'EXIT = Exit'
+          rset fill '' : z$ = '\ = Back  HELP = Help'
+          print at 24, 1, bold, reverse : z$;
+        end routine
+
+
+
+
+13000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   Q U E S T I O N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   ask the questions needed to get started
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   all questions are asked
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_questions
+          action$ = 'ask_dbd'
+          do until action$ = 'finished'
+            dispatch action$
+          loop
+        end routine
+
+
+
+13100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   D B D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   get the name of the pentamation definition file
+        !
+        ! Expected:
+        !   dbd_file$          name of default answer (if backing up)
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   dbd_file$          name of the file entered
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_dbd
+          do
+            prompt$ = 'Pentamation definition file'
+            length  = 60
+            default$ = dbd_file$
+            validation$ = 'required'
+            uc_response? = true
+            input_response
+            if  _exit or _back then
+              action$ = 'finished'
+              exit routine
+            end if
+            if  _help then
+              message 'Enter the name of the Pentamation definition to process'; &
+                ' - wildcards are allowed'
+              repeat do
+            end if
+          end do
+          parse_filename$ = reply$
+          default_extension$ = 'DBD'
+          parse_filespec
+          dbd_file$ = parse_filename$
+          print at 3, 25, bold, erase : dbd_file$
+          action$ = 'ask_proceed'
+        end routine
+
+
+
+
+13900   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   P R O C E E D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   make sure the user wants to do this
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_proceed
+          do
+            prompt$ = 'Proceed (Y/N)'
+            input_response_yn
+            if  _exit then
+              action$ = 'finished'
+              exit routine
+            end if
+            if  _back or reply$ = 'N' then
+              action$ = 'ask_dbd'
+              exit routine
+            end if
+            if  _help then
+              message 'Enter "Y" to create the INTOUCH definition'
+              repeat do
+            end if
+          end do
+          action$ = 'finished'
+        end routine
+
+
+
+
+14000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   D B D   F I L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   process each of the definition files entered by the user
+        !   wildcards are supported
+        !
+        ! Expected:
+        !   dbd_file$          definition filename entered
+        !
+        ! Locals:
+        !   dbd$               one definition filename
+        !   dbd_index          current file being processed
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_dbd_files
+          dbd_index = 0
+          print at 5, 1 : 'Processing file: '
+          do
+            dbd_index = dbd_index + 1
+            dbd$ = findfile$(dbd_file$, dbd_index)
+            if  dbd$ = ""  then  exit do
+            parse_filename$ = dbd$
+            default_extension$ = '.DBD'
+            parse_filespec
+            dbd$ = parse_filename$
+            open structure dbd : name 'tti_run:pentamation_def', datafile dbd$
+            clear area 5, 25, 5, 80
+            print at 5, 25, bold : dbd$
+            build_intouch_definition
+            close all
+          loop
+        end routine
+
+
+
+
+15000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B U I L D   I N T O U C H   D E F I N I T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   build the intouch definition for each pentamation definition 
+        !   found
+        !
+        ! Expected:
+        !   dbd                pentamation definition file is open
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   all real fields are processed
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine build_intouch_definition
+          dbd_initialize
+          extract structure dbd
+            include dbd(def_type) = 'FD'
+            exclude dbd(field_type) = external_field
+            exclude dbd(field_type) = equation_field
+            exclude dbd(field_type) = empty_field
+            exclude dbd(field_type) = type_16_table_external_field
+            exclude dbd(field_type) = type_20_table_external_field
+            exclude dbd(start) = 0
+            message 'On field: '; dbd(fieldname)
+            setup_intouch_data
+            write_intouch_definition
+          end extract
+        end routine
+
+
+
+
+15100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D B D   I N I T I A L I Z E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   check to see if a structure file exists. if not create one
+        !   create the definition file
+        !
+        ! Expected:
+        !   filename$          filename without device, directory or extension
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   definition file and structure file exist.
+        !   definition file is open
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine dbd_initialize
+          check_structure_file
+          def_name$ = filename$ + '.DEF'
+          message 'Creating definition: '; def_name$; '...'
+          pass 'create/fdl=tti_run:define ' + def_name$
+          open structure def : name 'tti_run:define', &
+            datafile def_name$, access outin
+        end routine
+
+
+
+15200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   S T R U C T U R E   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   see if the structure file exists.  If not, open it
+        !
+        ! Expected:
+        !   filename$          filename without device, directory or extension
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   structure file exists
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_structure_file
+          when exception in
+            open structure str : name 'tti_run:structure', &
+              datafile filename$ + '.str'
+          use
+          end when
+          if  not _error then exit routine
+          structure_name$ = filename$ + '.STR'
+          message 'Creating structure: '; structure_name$; '...'
+          pass 'create/fdl=tti_run:structure ' + structure_name$
+          ask system, pass : success pass_successful
+          if not pass_successful then
+            message error : 'Creation of '; structure_name$; ' failed'
+            message error delay : 'Systext: '; systext$
+            exit routine
+          end if
+          open structure str : name 'tti_run:structure', &
+            datafile filename$ + '.str', access outin
+          add_structure_records
+          message ''
+        end routine
+
+
+
+15300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A D D   S T R U C T U R E   R E C O R D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   add the data records to the new structure file
+        !
+        ! Expected:
+        !   structure_security$ 
+        !                      security level for this structure
+        !   structure_edit_level$ 
+        !                      structure edit level constant
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   the three structure records are added
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine add_structure_records
+          add structure str
+            str(rectype)         = 'STR'
+            str(str_edit_level)  = '031'
+            str(str_security)    = 'N'
+          end add
+          add structure str
+            str(whole_rec)       = ''
+            str(rectype)         = 'DAT'
+            str(file_name)       = device$ + directory$ + filename$ + '.DBS'
+            str(rms)             = 'RMS'
+            str(read_security)   = 'N'
+            str(update_security) = 'N'
+            str(write_security)  = 'N'
+            str(delete_security) = 'N'
+          end add
+          add structure str
+            str(whole_rec)       = ''
+            str(rectype)         = 'DEF'
+            str(file_name)       = filename$ + '.DEF'
+            str(read_security)   = 'N'
+            str(update_security) = 'N'
+            str(write_security)  = 'N'
+            str(delete_security) = 'N'
+          end add
+        end routine
+
+
+
+16000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   I N T O U C H   D A T A
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   set up data that does not come directly from the pentamation
+        !   definition file
+        !
+        ! Expected:
+        !   dbd                record is current 
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   dbd_uc$            upper case flag
+        !   dbd_rj$            right justify flag
+        !   dbd_zf$            zero fill flag
+        !   dbd_date$          date flag
+        !   dbd_num$           numeric flag
+        !   dbd_valid$         validation rules (not in INTOUCH form)
+        !   dbd_mask$          print mask
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_intouch_data
+          dbd_mask$ = ''
+          dbd_valid$ = ''
+          dbd_num$ = 'N'
+          dbd_date$ = 'N'
+          dbd_zf$ = 'N'
+          dbd_rj$ = 'N'
+          dbd_uc$ = 'N'
+          dbd_dtype$ = 'CH'
+          if  dbd(format_len) <> 0 then setup_print_mask
+          if  dbd(validation_len) <> 0 then setup_validations
+          setup_justification
+          setup_by_dtype
+          if  dbd_num$ = 'Y' then dbd_zf$ = 'Y' ! zero fill all numeric fields
+          if  dbd_num$ <> 'Y' and dbd_date$ <> 'Y' then dbd_uc$ = 'Y'
+        end routine
+
+
+
+
+16100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   P R I N T   M A S K
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   field has a print format, so get it and convert it to an
+        !   INTOUCH print mask
+        !
+        ! Expected:
+        !   dbd                record is current
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   dbd_mask$          print mask
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_print_mask
+          z = dbd(desc_len) + dbd(group_len) + 1
+          z1 = z + dbd(format_len) - 1
+          z$ = dbd(text)[z:z1]
+          z = len(change$(z$, ' ', ''))
+          z$ = rpad$(z$, dbd(length) + z, ' ') ! make it size of field since it
+                                               ! is stored trimmed
+          z1$ = change$(z$, ' ', '#')
+          for z = 1 to len(z1$)
+            if  z1$[z:z] <> '#' then dbd_mask$ = dbd_mask$ + '~' 
+            dbd_mask$ = dbd_mask$ + z1$[z:z]
+          next z
+        end routine
+
+
+
+16200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   V A L I D A T I O N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   record has validations set.  Get them.
+        !   Currently not trying to convert them to an INTOUCH format
+        !
+        ! Expected:
+        !   dbd                record is current
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   dbd_valid$         validation rules
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_validations
+          z = dbd(desc_len) + dbd(group_len) + dbd(format_len) + 1
+          z1 = z + dbd(validation_len) - 1
+          dbd_valid$ = dbd(text)[z:z1]
+        end routine
+
+
+
+16300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   J U S T I F I C A T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   set up the fields that are based upon the justification code
+        !
+        ! Expected:
+        !   dbd                record is current
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   dbd_zf$            set if required
+        !   dbd_rj$            set if required
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_justification
+          z = dbd(justification)
+          select case z
+            case r0_just 
+              dbd_rj$ = 'Y'
+              dbd_zf$ = 'Y'
+            case r_just 
+              dbd_rj$ = 'Y'
+            case else
+          end select
+        end routine
+
+
+
+16400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   B Y   D T Y P E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   set up fields based upon pentamation data type
+        !
+        ! Expected:
+        !   ns_dtype           scaled numeric dtype literal
+        !   uiw_dtype          unsigned integer word literal
+        !   uib_dtype          unsigned integer byte literal
+        !   n_dtype            numeric dtype literal
+        !   date_dtype         date dtype literal
+        !   dbd                record is current
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   dbd_num$           numeric flag set if required
+        !   dbd_date$          date flag set if required
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_by_dtype
+          z = dbd(dtype)
+          select case z
+            case date_dtype : dbd_date$ = 'Y'
+            case n_dtype    : dbd_num$ = 'Y'
+            case uib_dtype  
+              dbd_num$ = 'Y'
+              dbd_dtype$ = 'IU'
+            case uiw_dtype  
+              dbd_num$ = 'Y'
+              dbd_dtype$ = 'IU'
+            case ns_dtype   : dbd_num$ = 'Y'
+            case else
+          end select
+        end routine
+
+
+
+17000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! W R I T E   I N T O U C H   D E F I N I T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   write a record to the INTOUCH definition file
+        !
+        ! Expected:
+        !   dbd_mask$          print mask
+        !   dbd_valid$         validation rules (not in INTOUCH form)
+        !   dbd_zf$            zero fill flag
+        !   dbd_rj$            right justify flag
+        !   dbd_date$          date flag
+        !   dbd_num$           numeric flag
+        !   dbd                record is current
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   def                record is written
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine write_intouch_definition
+          add structure def
+            def(old_name)    = '*'
+            def(desc)        = dbd(text)[1:dbd(desc_len)]
+            def(first)       = dbd(start)
+            def(len)         = dbd(length)
+            def(dtype)       = dbd_dtype$
+            def(num)         = dbd_num$
+            def(date)        = dbd_date$
+            def(df)          = 'YMD'
+            def(read)        = 'N'
+            def(rj)          = dbd_rj$
+            def(scale)       = '00'
+            def(uc)          = dbd_uc$
+            def(write)       = 'N'
+            def(zf)          = dbd_zf$
+            def(zs)          = ''
+            def(heading)     = dbd(fieldname)
+            def(prompt)      = dbd(text)[1:dbd(desc_len)]
+            def(name)        = change$(dbd(fieldname), ' ', '_')
+            def(occurrence)  = 0
+            def(validation)  = dbd_valid$
+            def(classification) = ''
+            def(prmask)      = dbd_mask$
+            def(scmask)      = ''
+            def(help)        = ''
+          end add
+      end routine
+
+
+
+
+80000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   F I L E S P E C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   break out the pieces of the filename.
+        !   append the default extension if none was entered
+        !
+        ! Expected:
+        !   default_extension$ default extension
+        !   parse_filename$    file spec entered
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   extension$         extension entered or default
+        !   filename$          filename entered
+        !   directory$         directory entered
+        !   device$            device entered
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_filespec
+          device$ = ''
+          directory$ = ''
+          filename$ = ''
+          extension$ = ''
+          parse_filename$ = trim$(parse_filename$)
+          parse_logical
+          if  logical_found? then exit routine
+          parse_device
+          parse_directory
+          parse_filename
+        end routine
+
+
+
+80100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   L O G I C A L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   check to see if the filespec is a logical 
+        !   a file spec ending in a ":" is assumed to be a logical
+        !
+        ! Expected:
+        !   parse_filename$    file spec passed in
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   filename$          logical if found
+        !   logical_found?      flag indicating whether or not a logical was found
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_logical
+          logical_found? = false
+          if  right$(parse_filename$, 1) <> ':' then exit routine
+          filename$ = parse_filename$
+          logical_found? = true
+        end routine
+
+
+
+80300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   D E V I C E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   parse out the device if any
+        !
+        ! Expected:
+        !   parse_filename$    filename passed in
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   device$            device name if any
+        !   device_end         end of the device portion of file spec
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_device
+          device_start = 1
+          device_end = pos(parse_filename$, ':', device_start)
+          if  device_end <> 0 then &
+            device$ = parse_filename$[device_start:device_end]
+        end routine
+
+
+
+80400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   D I R E C T O R Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !
+        ! Expected:
+        !   parse_filename$    filename passed in
+        !   device_end         end of device spec
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   directory$         directory spec if any
+        !   directory_start    start of possible directory spec
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_directory
+          directory_start = device_end + 1
+          directory_end = pos(parse_filename$, ']', directory_start)
+          if  directory_end > 0 then
+            directory$ = parse_filename$[directory_start:directory_end]
+          else
+            directory_end = directory_start - 1
+          end if
+        end routine
+
+
+
+80500   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A R S E   F I L E N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   get the filename and the extension
+        !   
+        ! Expected:
+        !   default_extension$ default extension
+        !   parse_filename$    filename passed in
+        !   directory_end      end of the directory spec
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   filename$          filename
+        !   extension$         extension in filespec
+        !   filename_end       end of the filename
+        !   filename_start     start of the filename
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine parse_filename
+          filename_start = directory_end + 1
+          filename_end = pos(parse_filename$, '.', filename_start)
+          if  filename_end = 0 then 
+            filename_end = len(parse_filename$) + 1
+            if  default_extension$ <> '' and &
+                parse_filename$[filename_start:filename_end-1] <> 'none' then
+              parse_filename$ = parse_filename$ + '.' + default_extension$
+              extension$ = default_extension$
+            end if
+          else
+            extension$ = mid$(parse_filename$, filename_end+1)
+          end if
+          filename$ = parse_filename$[filename_start:filename_end-1]
+        end routine
+
+
+
+99600   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N P U T   R E S P O N S E   Y N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Ask a yes or no question.
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   reply$ = yes or no answer.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine input_response_yn
+          length = 4
+          validation$ = 'required;yes/no'
+          default$ = 'No'
+          input_response
+          reply$ = ucase$(reply$[1:1])
+        end routine
+
+
+
+99700   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N P U T   R E S P O N S E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Ask the expected prompt.
+        !   Allows, through various flags (see do_ask_checks), you to
+        !   automatically check for stuff.  Because these flags are
+        !   automatically reset, you don't need to worry about them
+        !   unless you WANT it to check for something.
+        !   Routine is over 22 lines.
+        !
+        ! Expected:
+        !   help$              help topic
+        !   default$           default response
+        !   uc_response?        upper case flag
+        !   length             max input length
+        !   prompt$            prompt text
+        !   validation$        validation rules
+        !   response_message$  message to display
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   finished_entry?     flag signifying entry is finished
+        !   reply$  = user's reply
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine input_response
+          init_ask_vars
+          clear area 21, 1, 21, 80
+          do
+            if  ask_message$ <> '' then message ask_message$
+            line input  prompt ask_prompt$, default ask_default$, &
+                length ask_length, at 21, 1 : reply$
+            clear area 21, 1, 21, 80
+            if  _exit or _back  then exit routine
+            if  _help  then exit routine
+            if not valid(reply$, ask_validation$, true) then repeat do
+          end do
+          reply$ = trim$(reply$)
+          if  ask_uc_response? then reply$ = ucase$(reply$)
+        end routine
+
+
+
+99750   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T   A S K   V A R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   initialize the variables that ask uses.  Reset the variables
+        !   that the programmer passed so that they don't get used next time
+        !   
+        ! Expected:
+        !   response_message$  message to display
+        !   default$           default response
+        !   uc_response?        upper case flag
+        !   length             max input length
+        !   prompt$            prompt text
+        !   validation$        validation rules
+        !
+        ! Locals:
+        !
+        ! Results:
+        !   finished_entry?     flag signifying entry is finished
+        !   ask_message$       message to display
+        !   tmp_help_topic$    help topic
+        !   ask_default$       default response
+        !   ask_uc_response?    upper case flag
+        !   ask_length         max input length
+        !   ask_prompt$        prompt text
+        !   ask_validation$    validations rules
+        !   reply$             user's response is blanked
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init_ask_vars
+          reply$ = ""
+          ask_validation$ = validation$
+          validation$ = ''
+          ask_prompt$ = prompt$
+          if  pos(ask_prompt$, '?') = 0 then ask_prompt$ = ask_prompt$ + '? '
+          prompt$ = ''
+          ask_length = length
+          length = 0
+          ask_uc_response? = uc_response?
+          uc_response? = false
+          ask_default$ = default$
+          default$ = ''
+          ask_message$ = response_message$
+          response_message$ = ''
+          finished_entry? = false
+        end routine
+
+
+

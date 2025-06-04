@@ -1,0 +1,956 @@
+<!-- VDE_GUIDE_004.HTML continuation of VDED$:[VDE.VDEDOC.DOC]VDE_GUIDE.HTML -->
+<html>
+<head>
+<title>VDE</title>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">VDE<br>Guide to Using<br> VDE</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_003.html#bottom_003">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+
+<hr>
+
+<a name="chngprop"><h1><font color=maroon>2.8 Change Propagation and Fold Records</font></h1></a>
+
+<p>
+When you replace a module, you make your new source file the most 
+recent generation of the module in the specified (or default) 
+development stream. That instance of the module is thus the generation 
+you get by default in a subsequent FETCH or RESERVE command and is the 
+generation that is built for that stream.
+<a name="index_x_138"></a>
+<a name="index_x_139"></a>
+
+<p>
+If the specified stream has successors, VSC propagates the 
+new module generation to all successor streams if possible. For 
+example, if stream V5.4 is a successor of stream V5.3, then any module 
+that is replaced into stream V5.3 is also replaced in stream V5.4 
+automatically. If stream V5.4 has additional successors (such as stream 
+V5.5), the new module generation is propagated to those streams, and so 
+on recursively.
+
+<p>
+Change propagation works as follows. If the latest generations of the 
+module for the original development stream and the successor stream are 
+the same, then the new module instance being replaced becomes the 
+latest generation for both streams. Both streams are thus equally 
+up-to-date with respect to the changes made to that module. However, if 
+the latest generations of the module differ for the two streams, which 
+means that the module has already diverged between those two streams, 
+the source control system does not propagate the new module generation 
+to the successor stream. Instead, it creates a <strong>fold 
+record</strong> in the database to remind the developer that the change 
+made to the module for the first stream must be manually 
+&quot;folded&quot; into the successor stream.
+
+<p>
+<a name="index_x_140"></a>
+<a name="index_x_141"></a>
+You display fold records with the SHOW FOLD command. This example shows 
+the brief output of the command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW FOLD *.MAR
+Fold 1 of [FACIL]FOO.MAR;29(27B2) into stream V5.4     23-MAR-1989 SMITH
+Fold 2 of [FACIL]BAR.MAR;2(1A1) into stream V5.5       24-MAR-1989 JONES
+VSC&gt;
+</pre>
+</font>
+</table>
+
+Each fold record is identified by a <strong>fold identifier</strong>. 
+This identifier is a unique, small integer value that VSC 
+assigns when creating the fold record.
+
+<p>
+The following example shows the full output of the SHOW FOLD command 
+for one fold record:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW FOLD/FULL FOO.MAR
+Fold 1 of [FACIL]FOO.MAR;29(27B2)
+   Module to be folded from stream V5.3 into stream V5.4
+   Reservation performed by user SMITH (Jane Smith)
+   Reservation performed on 23-MAR-1989 18:09:51.80
+   Replacement performed on 25-MAR-1989 20:29:05.23
+   Remark: Fix QAR 23 again
+ 
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<p>
+The normal way to remove fold records is to specify the /FOLD qualifier 
+with the REPLACE command that replaces the folded source file. This is 
+an example:
+<a name="index_x_142"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; REPLACE/STREAM=V5.4 [FACIL]FOO.MAR/FOLD=2
+</pre>
+</font>
+</table>
+
+This example replaces module FOO.MAR into stream V5.4 to propagate a 
+change that VSC could not automatically propagate. The 
+parameter to the /FOLD qualifier (the value &quot;2&quot;) is the fold 
+identifier of a fold record to delete as part of the replacement. This 
+parameter can be omitted if the module only has one outstanding fold 
+record. For queued replacements, VSC deletes the fold record 
+when the release project leader performs your replacement.
+
+<p>
+You can also delete a fold record that is no longer needed (possibly 
+because the change is no longer required) with an explicit CANCEL FOLD 
+command:
+<a name="index_x_143"></a>
+<a name="index_x_144"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; CANCEL FOLD [FACIL]FOO.MAR/IDENTIFICATION=2/STREAM=BIRCH
+</pre>
+</font>
+</table>
+
+This command deletes fold record 2 (as given by the /IDENTIFICATION 
+qualifier) for module FOO.MAR in facility FACIL. This fold record is a 
+reminder to fold a change into stream BIRCH. If there is only one fold 
+record for the given module and stream, you can omit the 
+/IDENTIFICATION qualifier.
+
+<a name="disp_repl"><h1><font color=maroon>2.9 Displaying Queued Replacements</font></h1></a>
+
+<p>
+<a name="index_x_145"></a>
+<a name="index_x_146"></a>
+<a name="index_x_147"></a>
+Once the REPLACE command has entered a queued replacement into the 
+source control system's database, you can display the replacement with 
+the SHOW REPLACEMENT command. This example illustrates the command's 
+syntax:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW REPLACEMENT SMITH-1
+</pre>
+</font>
+</table>
+
+This command displays all queued replacements specified by the 
+replacement name parameter (SMITH--1 in the example). If the 
+replacement name is omitted, the command displays all queued 
+replacements.
+
+<p>
+With the SHOW REPLACEMENT command, you can specify a list of 
+replacement names separated by commas, and you can use the asterisk (*) 
+and percent sign (%) wildcard characters. All queued replacements that 
+match the wildcard patterns are displayed.
+
+<p>
+The SHOW REPLACEMENT command accepts a number of qualifiers. The help 
+text and the reference manual have the details on the qualifiers 
+accepted by the command. <a href="vde_guide_004.html#qualtbl_shorep">Table 2-6</a> lists some of the more 
+commonly-used qualifiers. <p>
+<a name="index_x_148"></a>
+
+<table border=3>
+  <caption><a name="qualtbl_shorep"><strong>Table 2-6 Qualifiers to the SHOW REPLACEMENT command</strong></a></caption>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/ACCEPTED</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies that only those replacements that have been accepted by all 
+       their reviewers be displayed.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/BEFORE=date-time</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Displays only those replacements queued before the specified date and 
+       time.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/BRIEF</strong>
+      <br>
+      <strong>/FULL</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Determine the type of information displayed for each replacement. 
+       /BRIEF displays the replacement name, the date of the replacement, the 
+       replacing user, and the replacement status. This display normally fits 
+       on one line. /FULL displays all information about the replacement 
+       stored in the database; this display requires multiple lines per 
+       replacement.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/IN_REVIEW</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies that only those replacements that are in review be displayed. 
+       A replacement is in review if it has not been rejected by any reviewer, 
+       has been accepted by at least one reviewer, and has not yet been 
+       accepted by all reviewers.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/NOT_REVIEWED</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies that only those replacements that have not yet been accepted 
+       or rejected by any reviewers be displayed.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/OUTPUT=filespec</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Directs the printed output of this command to a specified file. The
+      <strong>filespec</strong> parameter specifies the name of the file. 
+      VSC creates a new file with that name, directs the command's 
+      print output to that file, and prints nothing on your terminal. If this 
+      qualifier is omitted, all output appears on the terminal.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/REJECTED</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies that only those replacements that have been rejected by at 
+       least one reviewer be displayed.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/REVIEWER[=username]</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies that only those replacements for which the specified user is 
+       a reviewer be displayed. The
+      <strong>username</strong> parameter specifies the OpenVMS user 
+      name of the reviewer whose replacements are to be shown. If the
+      <strong>username</strong> parameter is omitted, those replacements for 
+      which you are a reviewer are shown. If the qualifier is omitted 
+      entirely, replacements for all reviewers are shown.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/SINCE=date-time</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Displays only those replacements queued on or after the specified date 
+       and time.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/STREAM[=stream-name]</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Displays replacements for the development stream given by the
+      <strong>stream-name</strong> parameter. If this parameter is omitted, 
+      the command displays replacements for your default development stream. 
+      If the /STREAM qualifier is omitted entirely, the command displays 
+      replacements for all development streams.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/TOTAL</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Shows the total number of replacements that match the specified 
+       replacement names and other selection criteria. Only the total count is 
+       shown; other information about the individual replacements is not shown.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/USERNAME[=username]</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specifies the OpenVMS user name of the user whose replacements 
+       are to be shown. If this qualifier is specified, only that user's 
+       replacements are shown. If the
+      <strong>username</strong> parameter is omitted, only your own 
+      replacements are shown. If the /USERNAME qualifier is omitted entirely, 
+      replacements for all users are shown.
+    </td>
+  </tr>
+</table>
+<p>
+<a name="disp_repl_examples"><strong>Examples</strong></a>
+<br>
+
+<p>
+This is an example of the brief output of the SHOW REPLACEMENT command:
+<a name="index_x_149"></a>
+<a name="index_x_150"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW REPLACEMENT SMITH-5
+Queued replacement SMITH-5           23-MAR-1989 SMITH        Rejected
+Queued replacement JONES-3           24-MAR-1989 JONES        Not reviewed
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<p>
+The following example shows the full output of the SHOW REPLACEMENT 
+command for one queued replacement. Note that this output lists all 
+modules that belong to the replacement and all reviewers for the 
+replacement.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW REPLACEMENT/FULL SMITH-5
+Queued replacement SMITH-5
+   Replacement queued by user SMITH (Jane Smith)
+   Replacement queued on  4-OCT-1990 16:55:02.06
+   Replacement staging directory is VSC$STAGEDISK:[VMS.STAGE.VDE$STG_1.VDE$REP_115]
+   Replacement review status: Rejected
+   Replacement is for stream PHOENIX
+   Unique replacement number is 115
+   Reservations in replacement:
+      Reservation 1 of [FACIL]FOO.MAR for stream PHOENIX
+      Reservation 1 of [RMS]FUMBLE.B32 for stream PHOENIX
+   Replacement contains 2 reservations
+   Reviewers for replacement:
+      Accepted by user HOFFMAN (Bill Hoffman) on  4-OCT-1990 17:08:03.08
+      Rejected by user JONES (Jim Jones) on  4-OCT-1990 17:08:03.08
+         Remark: Bad choice of variable name
+      Not reviewed by  SNURD (Mortimer Snurd)
+   Remark: Fix bad-status bug
+ 
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<a name="can_que_repl"><h1><font color=maroon>2.10 Cancelling Queued Replacements</font></h1></a>
+
+<p>
+If you decide that a replacement you queued should not be performed, 
+you can cancel that replacement with the following command:
+<a name="index_x_151"></a>
+<a name="index_x_152"></a>
+<a name="index_x_153"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; CANCEL REPLACEMENT SMITH-1
+</pre>
+</font>
+</table>
+
+This command removes the queued replacement specified by the 
+replacement name parameter (SMITH--1) from the source control system's 
+database. The original module reservations associated with the 
+cancelled replacement remain in the database. The typical reason for 
+cancelling a replacement is that you or a reviewer found something 
+wrong with the code to be replaced. After fixing the erroneous code, 
+you can queue a new replacement with another REPLACE command.
+
+<p>
+With the CANCEL REPLACEMENT command, you can specify a list of 
+replacement names separated by commas, and you can use the asterisk (*) 
+and percent sign (%) wildcard characters in the names. The command 
+deletes all queued replacements that match the wildcard pattern.
+
+<p>
+The CANCEL REPLACEMENT command accepts a number of qualifiers. The help 
+text and the reference manual contain the details on the qualifiers 
+accepted by the command. <a href="vde_guide_004.html#qualtbl_canrep">Table 2-7</a> lists the more commonly-used 
+qualifiers. <p>
+<a name="index_x_154"></a>
+
+<table border=3>
+  <caption><a name="qualtbl_canrep"><strong>Table 2-7 Qualifiers to the CANCEL REPLACEMENT command</strong></a></caption>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/CONFIRM</strong>
+      <br>
+      <strong>/NOCONFIRM</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       /CONFIRM asks you to confirm that you want each replacement deleted. 
+       This qualifier is particularly useful if you use wildcard characters in 
+       the replacement name. /NOCONFIRM deletes each replacement without 
+       asking for confirmation. /NOCONFIRM is the default.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/LOG</strong>
+      <br>
+      <strong>/NOLOG</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Specify whether informational log messages are printed after the 
+       replacement is deleted. /LOG causes such messages to be printed and 
+       /NOLOG suppresses them. /LOG is the default.
+    </td>
+  </tr>
+</table>
+
+<p>
+<hr size=5>
+<font color=maroon>
+<a name="disp_info"><h1>Chapter 3<br>Displaying Information</h1></a>
+</font>
+
+<p>
+This chapter tells you how to display information stored in the 
+OpenVMS source control database. Earlier sections have already 
+described how you display module reservations (<a href="vde_guide_002.html#disp_res"> Section 2.6</a>), fold 
+records (<a href="vde_guide_004.html#chngprop"> Section 2.8</a>), and queued replacements (<a href="vde_guide_004.html#disp_repl"> Section 2.9</a>). This 
+chapter describes how to display information about facilities, modules, 
+module generations, development streams, and the users of the source 
+control system.
+
+<a name="disp_fac"><h1><font color=maroon>3.1 Displaying Facilities</font></h1></a>
+
+<p>
+The SHOW FACILITY command lists information about the facilities into 
+which the OpenVMS sources are divided. For example:
+<a name="index_x_155"></a>
+<a name="index_x_156"></a>
+<a name="index_x_157"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW FACILITY FACNAM
+</pre>
+</font>
+</table>
+
+This example displays information about facility FACNAM. If the 
+facility name is omitted, the command displays information about all 
+facilities in the current library. With this command, you can specify a 
+list of facility names separated by commas, and you can use the 
+asterisk (*) and percent sign (%) wildcard characters in the facility 
+names. All facilities that match the wildcard patterns are displayed.
+
+<p>
+<a href="vde_guide_004.html#qualtbl_shofac">Table 3-1</a> lists the qualifiers for the SHOW FACILITY command and 
+describes their functions. <p>
+<a name="index_x_158"></a>
+
+<table border=3>
+  <caption><a name="qualtbl_shofac"><strong>Table 3-1 Qualifiers to the SHOW FACILITY command</strong></a></caption>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/BRIEF</strong>
+      <br>
+      <strong>/NORMAL</strong>
+      <br>
+      <strong>/FULL</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Determine the type of information displayed for each facility. /BRIEF 
+       displays the name of each facility that matches the facility-name 
+       parameters. /NORMAL displays the name and remark string for each 
+       facility; this is the default output. /FULL displays all attributes of 
+       each facility, including its name, creation date and time, and remark 
+       string.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/OUTPUT=filespec</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Directs the printed output of this command to a specified file. The
+      <strong>filespec</strong> parameter specifies the name of the file. 
+      VSC creates a new file with that name, directs the command's 
+      print output to that file, and prints nothing on your terminal. If this 
+      qualifier is omitted, all output appears on the terminal.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/TOTAL</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Shows the total number of facilities that match the specified 
+       facility-name parameters. Only the total count is shown; other 
+       information about the individual facilities is not shown.
+    </td>
+  </tr>
+</table>
+<p>
+<a name="disp_fac_examples"><strong>Examples</strong></a>
+<br>
+
+<p>
+This is an example of the normal output of the SHOW FACILITY command:
+<a name="index_x_159"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW FACILITY B*
+Facility BACKUP          "BACKUP facility
+Facility BAD             "Michael Jackson facility"
+Facility BADBLK          "Bad-block faciility"
+Facility BASRTL          "BASIC Run-Time Libary facility"
+Facility BLAS1           "Blasphemous facility"
+Facility BOOTS           "OpenVMS boot facility"
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<p>
+The following is an example of the brief output of the SHOW FACILITY 
+command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW FACILITY/BRIEF B*
+Facility BACKUP
+Facility BAD
+Facility BADBLK
+Facility BASRTL
+Facility BLAS1
+Facility BOOTS
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<p>
+The following example shows the full output of the SHOW FACILITY 
+command for one facility:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW FACILITY/FULL SYS
+Facility SYS
+   Facility added to database on 19-OCT-1990 10:38:05.44
+   Facility added to database by user SMITH (Jane Smith)
+   Facility cannot be deleted
+   Remark: OpenVMS Executive modules
+ 
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<p>
+This example shows the effect of the /TOTAL qualifier:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW FACILITY/TOTAL *
+Number of facilities matching name *: 228
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<a name="disp_mod"><h1><font color=maroon>3.2 Displaying Modules</font></h1></a>
+
+<p>
+The SHOW MODULE command lists information about the modules under 
+source control. For example:
+<a name="index_x_160"></a>
+<a name="index_x_161"></a>
+<a name="index_x_162"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW MODULE [FACIL]MOD.TYP
+</pre>
+</font>
+</table>
+
+In this example, VSC displays information about module 
+MOD.TYP in facility FACIL. If the facility name is omitted, the current 
+default facility is assumed. If the whole module-name parameter is 
+omitted, information about all modules in the default facility is shown.
+
+<p>
+With the SHOW MODULE command, you can specify a list of module names 
+separated by commas, and you can use the asterisk (*) and percent sign 
+(%) wildcard characters in the module names. All modules that match the 
+wildcard patterns are displayed.
+
+<p>
+<a href="vde_guide_004.html#qualtbl_shomod">Table 3-2</a> lists the qualifiers for the SHOW MODULE command and 
+describes their functions. <p>
+<a name="index_x_163"></a>
+
+<table border=3>
+  <caption><a name="qualtbl_shomod"><strong>Table 3-2 Qualifiers to the SHOW MODULE command</strong></a></caption>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/BRIEF</strong>
+      <br>
+      <strong>/NORMAL</strong>
+      <br>
+      <strong>/FULL</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Determine the type of information displayed for each module. /BRIEF 
+       displays the name of each module that matches the module-name 
+       parameters. /NORMAL displays the name and remark string for each 
+       module; this is the default output. /FULL displays all attributes of 
+       each module, including its name, creation date and time, CMS history 
+       and notes attributes, reviewer and notify lists, and remark string.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/OUTPUT=filespec</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Directs the printed output of this command to a specified file. The
+      <strong>filespec</strong> parameter specifies the name of the file. 
+      VSC creates a new file with that name, directs the command's 
+      print output to that file, and prints nothing on your terminal. If this 
+      qualifier is omitted, all output appears on the terminal.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/STATISTICS=(keyword [, keyword...])</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Computes and displays certains statistics about the modules that match 
+       the module-name parameters. The
+      <strong>keyword</strong> parameters specify what statistics to display 
+      and how to sort them. The qualifier accepts the following keyword 
+      parameters:
+      <ul>
+      <li>ALPHABETICALLY---Sort the display alphabetically by facility name 
+      or type name. If this keyword is omitted, VSC sorts the 
+      display in descending order by module count.
+      <li>FACILITY---Compute and display the number of modules in each 
+      facility.
+      <li>TYPES---Compute and display the number of modules that have each 
+      module type.
+      </ul>
+               <p>If you specify only one of these keywords, the surrounding 
+               parentheses can be omitted.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       When this qualifier is used, other information about the individual 
+       modules is not shown. Use wildcard characters in the module-name 
+       parameters to select the module population for which you want 
+       statistics.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>/TOTAL</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+       Shows the total number of modules that match the specified module-name 
+       parameters. Only the total count is shown; other information about the 
+       individual modules is not shown.
+    </td>
+  </tr>
+</table>
+<p>
+<a name="disp_mod_examples"><strong>Examples</strong></a>
+<br>
+
+<p>
+This is an example of the normal output of the SHOW MODULE command:
+<a name="index_x_164"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW MODULE [ADARTL]PPLSS_*
+Module [ADARTL]PPLSS_DISPATCH.MAR     "SS dispatcher"
+Module [ADARTL]PPLSS_KERNEL_WORKER.B32
+                                      "Kernel worker"
+Module [ADARTL]PPLSS_RESET.MAR        "Cleanup routine"
+Module [ADARTL]PPLSS_SERVICES.MAR     "Service entry points"
+Module [ADARTL]PPLSS_TABLE.B32        "Sys Service definitions"
+Module [ADARTL]PPLSS_TABLE.REQ        "Sys Service definitions"
+Module [ADARTL]PPLSS_USER_WORKER.B32  "User mode worker routines"
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<p>
+The following is an example of the brief output of the SHOW MODULE 
+command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW MODULE/BRIEF
+Module [FACIL]FOO.BAR
+Module [FACIL]MOD1.FOR
+Module [FACIL]MOD2.FOR
+Module [FACIL]MOD3.FOR
+Module [FACIL]MOD4.FOR
+Module [FACIL]MOD5.FOR
+Module [FACIL]MOD6.FOR
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<p>
+The following example shows the full output of the SHOW MODULE command 
+for one module:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW MODULE [FACIL]MOD1.FOR/FULL
+Module [FACIL]MOD1.FOR
+   Module added to database on  4-APR-1989 14:58:39.66
+   Module added to database by user SMITH (Jane Smith)
+   Module is a source module
+   Module cannot be deleted
+   Module may be concurrently reserved
+   History information is not provided by default
+   History string: C  #B
+   Notes information is not provided by default
+   Notes string: !  #G
+   Note position: 81
+   Reviewers: JONES, SNURD
+   Users to notify: MERMAN
+   Remark: Test module
+ 
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<p>
+This example shows the effect of the /TOTAL qualifier:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC&gt; SHOW MODULE/TOTAL [RMS]*
+Number of modules matching name [RMS]*.*: 236
+VSC&gt;
+</pre>
+</font>
+</table>
+
+<a name="bottom_004"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_003.html#bottom_003">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vde_guide_005.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+</body>
+</html>

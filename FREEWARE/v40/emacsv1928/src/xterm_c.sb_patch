@@ -1,0 +1,288 @@
+From:   MX%"IPHSOFT@dipmza.physik.Uni-Mainz.DE"
+To:     MX%"levitte@e.kth.se"
+CC:     
+Subj:   XTERM_C.SB_PATCH
+
+Date: Sun, 18 Jun 1995 18:11:01 +0100
+From: IPHSOFT@dipmza.physik.Uni-Mainz.DE
+Subject: XTERM_C.SB_PATCH
+To: levitte@e.kth.se
+X-Envelope-to: levitte@e.kth.se
+X-VMS-To: VZDMZA::IN%"levitte@e.kth.se"
+X-VMS-Cc: IPHSOFT
+MIME-Version: 1.0
+Content-Type: TEXT/PLAIN; CHARSET=US-ASCII
+Content-Transfer-Encoding: 7BIT
+
+*** xterm_ori.c Sun Jun 18 17:06:01 1995
+--- xterm.c     Sun Jun 18 17:25:24 1995
+***************
+*** 2733,2739 ****
+    {
+      XSetWindowAttributes a;
+      unsigned long mask;
+!     a.background_pixel = frame->display.x->background_pixel;
+      a.event_mask = (ButtonPressMask | ButtonReleaseMask
+                    | ButtonMotionMask | PointerMotionHintMask
+                    | ExposureMask);
+--- 2735,2745 ----
+    {
+      XSetWindowAttributes a;
+      unsigned long mask;
+! #   ifdef USE_THREE_D_BAR
+!        a.background_pixel = frame->display.x->bar_background_pixel;
+! #   else
+!        a.background_pixel = frame->display.x->background_pixel;
+! #   endif /* USE_THREE_D_BAR */
+      a.event_mask = (ButtonPressMask | ButtonReleaseMask
+                    | ButtonMotionMask | PointerMotionHintMask
+                    | ExposureMask);
+***************
+*** 2807,2812 ****
+--- 2813,3005 ----
+    return bar;
+  }
+  
++ #ifdef USE_THREE_D_BAR
++ 
++ #   define SCROLL_BAR_HANDLE_CHECKED_EXPOSE   0
++ #   define SCROLL_BAR_HANDLE_EXPOSE           1
++ #   define SCROLL_BAR_FULL_EXPOSE             2
++ 
++ static void
++ x_draw_bar_shadow(bar,x,y,w,h,s,reverse)
++     struct scroll_bar *bar;
++     int x,y;
++     unsigned int w,h,s;
++     Bool reverse;
++ {
++     XPoint    pt[6];
++     Window      win = SCROLL_BAR_X_WINDOW (bar);
++     GC tgc = XFRAME (WINDOW_FRAME (XWINDOW (bar->window)))->display.x->bar_top_shadow_gc;
++     GC bgc = XFRAME (WINDOW_FRAME (XWINDOW (bar->window)))->display.x->bar_bottom_shadow_gc;
++ 
++     if ((s>0) && (s+s<w) && (s+s<h)) {
++        unsigned int   wms = w - s;
++        unsigned int   hms = h - s;
++        GC             top, bot;
++ 
++        if (!reverse) { top = tgc; bot = bgc; }
++        else          { top = bgc; bot = tgc; }
++ 
++        /* top-left shadow */
++        pt[0].x = x;   pt[0].y = y+h;
++        pt[1].x = x;   pt[1].y = y;
++        pt[2].x = x+w; pt[2].y = y;
++        pt[3].x = x+wms;       pt[3].y = y+s;
++        pt[4].x = x+s; pt[4].y = y+s;
++        pt[5].x = x+s; pt[5].y = y+hms;
++        XFillPolygon (x_current_display, win, top, pt, 6,Complex,CoordModeOrigin);
++ 
++        /* bottom-right shadow */
++        pt[0].x = x;   pt[0].y = y+h;
++        pt[1].x = x+w; pt[1].y = y+h;
++        pt[2].x = x+w; pt[2].y = y; 
++        pt[3].x = x+wms;       pt[3].y = y+s;
++        pt[4].x = x+wms;       pt[4].y = y+hms;
++        pt[5].x = x+s; pt[5].y = y+hms; 
++        XFillPolygon (x_current_display, win, bot, pt,6, Complex,CoordModeOrigin);
++     }
++ }
++ 
++ static void
++ x_scroll_bar_set_handle (bar, start, end, expose)
++      struct scroll_bar *bar;
++      int start, end;
++      int expose;
++ {
++   int dragging = ! NILP (bar->dragging);
++   Window w = SCROLL_BAR_X_WINDOW (bar);
++   GC gc  = XFRAME (WINDOW_FRAME (XWINDOW (bar->window)))->display.x->bar_foreground_gc;
++  
++   /* If the display is already accurate, do nothing.  */
++   if (    expose == SCROLL_BAR_HANDLE_CHECKED_EXPOSE  
++        && start  == XINT (bar->start)
++        && end    == XINT (bar->end) )
++      return;
++ 
++   BLOCK_INPUT;
++ 
++   /* Make sure the values are reasonable, and try to preserve
++      the distance between start and end.  */
++   {
++      int inside_width  = VERTICAL_SCROLL_BAR_INSIDE_WIDTH (XINT (bar->width));
++      int inside_height = VERTICAL_SCROLL_BAR_INSIDE_HEIGHT (XINT (bar->height));
++      int top_range     = VERTICAL_SCROLL_BAR_TOP_RANGE (XINT (bar->height));
++      int length        = end - start;
++ 
++      if      (start < 0)         start = 0;
++      else if (start > top_range) start = top_range;
++      end = start + length;
++      if      (end < start)                   end = start;
++      else if (end > top_range && ! dragging) end = top_range;
++ 
++      /* Store the adjusted setting in the scroll bar.  */
++      XSET (bar->start, Lisp_Int, start);
++      XSET (bar->end, Lisp_Int, end);
++ 
++      /* Clip the end position, just for display.  */
++      if (end > top_range) end = top_range;
++ 
++      /* Draw bottom positions VERTICAL_SCROLL_BAR_MIN_HANDLE pixels
++         below top positions, to make sure the handle is always at least
++         that many pixels tall.  */ 
++      end += VERTICAL_SCROLL_BAR_MIN_HANDLE;
++   }
++ 
++ /*
++       To avoid BadValue X errors we have to consider additional constraints
++       on the parameters that determine the forthcoming graphics operations.
++       If necessary we will rescale some of the values.
++       Our initial conditions are: ss,ee,sh,tb,bb,lb,rb >= 0 and  hh,ww,ms > 0
++ */
++   {
++       unsigned int sh  = XFRAME (WINDOW_FRAME (XWINDOW (bar->window)))->display.x->bar_shadow_width;
++       unsigned int ish;                              /* interior shadow of handle */
++       unsigned int ww  = (unsigned int) ( XINT (bar->width)  );
++       unsigned int hh  = (unsigned int) ( XINT (bar->height) );
++       unsigned int lb  = (unsigned int) ( VERTICAL_SCROLL_BAR_LEFT_BORDER );
++       unsigned int rb  = (unsigned int) ( VERTICAL_SCROLL_BAR_RIGHT_BORDER );
++       unsigned int tb  = (unsigned int) ( VERTICAL_SCROLL_BAR_TOP_BORDER );
++       unsigned int bb  = (unsigned int) ( VERTICAL_SCROLL_BAR_BOTTOM_BORDER );
++       unsigned int mh  = (unsigned int) ( VERTICAL_SCROLL_BAR_MIN_HANDLE );
++       unsigned int mhs;                               /* minimal handle size      */
++       unsigned int lh  = (unsigned int) ((XFRAME (WINDOW_FRAME (XWINDOW (bar->window))))->display.x->line_height);
++       unsigned int ss  = (unsigned int) ( start );
++       unsigned int ee  = (unsigned int) ( end );
++       unsigned int tmp1,tmp2;
++       GC           ngc = XFRAME (WINDOW_FRAME (XWINDOW (bar->window)))->display.x->normal_gc;
++ 
++       mhs = (ww > lh ? lh : ww)/4; if (mhs<1) mhs=1;
++       if (sh>mhs) sh=mhs;
++       if (mhs>5)  mhs=5;
++ /*
++       printf(" mhs=%d sh=%d ss=%d ee=%d\n",
++                mhs,   sh,   ss,   ee);
++ */
++       tmp1=sh+lb+sh+mhs+sh+rb+sh-2;
++       tmp2=sh+tb+sh+mhs+sh+bb+sh-2;
++       while ((tmp1>=ww)||(tmp2>=lh)) {
++          if ((sh>0)||(mhs>1)) {
++             /* reduce shadow or minimal size of handle */
++             if      ((sh>1)&&(mhs>2)) { sh--;  mhs--; tmp1 -= 5; tmp2 -= 5; } 
++             else if (mhs>2)           {        mhs--; tmp1 -= 1; tmp2 -= 1; }
++             else if (sh>1)            { sh--;         tmp1 -= 4; tmp2 -= 4; }
++             else if (mhs>1)           {        mhs--; tmp1 -= 1; tmp2 -= 1; }
++             else                      { sh--;         tmp1 -= 4; tmp2 -= 4; }
++          } else if ((lb>0)||(rb>0)||(tb>0)||(bb>0)) {
++             /* reduce borders */
++             if      (lb>0)            { lb--;         tmp1--;               } 
++             if      (rb>0)            { rb--;         tmp1--;               }
++             if      (tb>0)            { tb--;                    tmp2--;    }
++             if      (bb>0)            { bb--;                    tmp2--;    }
++          } else
++             break;
++       }
++       
++       ss += sh+tb; ee += sh+tb;                       /* set start/end of handle     */
++       tmp1 = ss;
++       tmp2 = ss+sh+mhs+sh+bb+sh;
++       while ((tmp2>hh)&&(ss>0)) { ss--; tmp2--; }
++       ee = ee + (tmp1-ss);
++       if (ee+sh+bb>hh) ee = hh-sh-bb;
++ 
++       if (ss>sh+tb)    XClearArea                     /* clear above handle          */
++                        ( x_current_display, w,               
++                          lb+sh, tb+sh, (ww-sh-lb-rb-sh), ss-sh-tb,
++                          False );
++       if (ee<hh-bb-sh) XClearArea                     /* clear below handle          */ 
++                        ( x_current_display, w,
++                          lb+sh, ee,    (ww-sh-lb-rb-sh), hh-bb-sh-ee,
++                        False );
++ 
++       ish = sh;                                       /* reduce interior shadow      */
++       tmp1 = ww-sh-lb-rb-sh;
++       tmp2 = ee-ss;
++       while (((ish+ish+mhs>tmp1)||(ish+ish+mhs>tmp2)) && (ish>0)) ish--;
++ 
++       if (expose==SCROLL_BAR_FULL_EXPOSE) {           /* draw frame of window        */
++                        XDrawRectangle (x_current_display, w, ngc, 0, 0, ww-1, hh-1);
++                        x_draw_bar_shadow ( bar,1,1,ww-2,hh-2,sh, 1 );
++       }
++ 
++       if ((ww-sh-lb-rb-sh>ish+ish)&&(ee-ss>ish+ish))  /* draw handle                 */
++                        XFillRectangle
++                        ( x_current_display, w, gc,
++                        sh+lb+ish, ss+ish,(ww-sh-lb-rb-sh)-ish-ish, ee-ss-ish-ish );
++ 
++       if (ish)         x_draw_bar_shadow              /* draw shadow of handle       */
++                        ( bar,
++                          (int)(lb+sh),(int)(ss),(ww-sh-lb-rb-sh),ee-ss,ish,
++                          0 );
++ /*
++       printf(" lh=%d mhs=%d sh=%d ish=%d ww=%d hh=%d ss=%d ee=%d lb=%d rb=%d tb=%d bb=%d \n",
++                lh,   mhs,   sh,   ish,   ww,   hh,   ss,   ee,   lb,   rb,   tb,   bb);
++ */
++   }
++ 
++   UNBLOCK_INPUT;
++ }
++ 
++ #else /* end of USE_THREE_D_BAR, start of NOT USE_THREE_D_BAR     */
++ 
+  /* Draw BAR's handle in the proper position.
+     If the handle is already drawn from START to END, don't bother
+     redrawing it, unless REBUILD is non-zero; in that case, always
+***************
+*** 2907,2912 ****
+--- 3100,3107 ----
+    UNBLOCK_INPUT;
+  }
+  
++ #endif /* end of NOT USE_THREE_D_BAR */
++ 
+  /* Move a scroll bar around on the screen, to accommodate changing
+     window configurations.  */
+  static void
+***************
+*** 3130,3146 ****
+       XEvent *event;
+  {
+    Window w = SCROLL_BAR_X_WINDOW (bar);
+!   GC gc = XFRAME (WINDOW_FRAME (XWINDOW (bar->window)))->display.x->normal_gc;
+  
+    BLOCK_INPUT;
+  
+!   x_scroll_bar_set_handle (bar, XINT (bar->start), XINT (bar->end), 1);
+! 
+    /* Draw a one-pixel border just inside the edges of the scroll bar. */
+    XDrawRectangle (x_current_display, w, gc,
+- 
+                  /* x, y, width, height */
+                  0, 0, XINT (bar->width) - 1, XINT (bar->height) - 1);
+  
+    UNBLOCK_INPUT;
+  }
+--- 3324,3344 ----
+       XEvent *event;
+  {
+    Window w = SCROLL_BAR_X_WINDOW (bar);
+! # ifndef USE_THREE_D_BAR
+!      GC gc = XFRAME (WINDOW_FRAME (XWINDOW (bar->window)))->display.x->normal_gc;
+! # endif /* USE_THREE_D_BAR */
+  
+    BLOCK_INPUT;
+  
+! #ifndef USE_THREE_D_BAR
+    /* Draw a one-pixel border just inside the edges of the scroll bar. */
++   x_scroll_bar_set_handle (bar, XINT (bar->start), XINT (bar->end), 1);
+    XDrawRectangle (x_current_display, w, gc,
+                  /* x, y, width, height */
+                  0, 0, XINT (bar->width) - 1, XINT (bar->height) - 1);
++ #else  /* end of USE_THREE_D_BAR, start of NOT USE_THREE_D_BAR */
++   x_scroll_bar_set_handle (bar, XINT (bar->start), XINT (bar->end), 2);
++ #endif /* end of NOT USE_THREE_D_BAR */
+  
+    UNBLOCK_INPUT;
+  }
+

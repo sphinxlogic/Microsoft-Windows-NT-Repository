@@ -1,0 +1,15 @@
+$ DEF sys sys$library
+$ CC/DEFINE=VMS DISPLAY.C
+$ CC/DEFINE=VMS GETBITS.C
+$ CC/DEFINE=VMS GETBLK.C
+$ CC/DEFINE=VMS GETHDR.C
+$ CC/DEFINE=VMS GETPIC.C
+$ CC/DEFINE=VMS GETVLC.C
+$ CC/DEFINE=VMS IDCT.C
+$ CC/DEFINE=VMS MOTION.C
+$ CC/DEFINE=VMS MPEG2DEC.C
+$ CC/DEFINE=VMS RECON.C
+$ CC/DEFINE=VMS SPATSCAL.C
+$! lib/cre mpeg.olb
+$! lib mpeg.olb *.obj
+$! delete/noconf *.obj; /exclude=mpeg2dec.obj

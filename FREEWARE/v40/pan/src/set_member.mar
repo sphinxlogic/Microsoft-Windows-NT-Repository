@@ -1,0 +1,881 @@
+
+	.library	/sys$login:peb/
+        $notesdef
+	$NOTESMSGDEF
+	NOTEITEMS
+
+
+	.macro	pad_star , list, ?L3
+	pushr	#^m<R5>
+
+	pushaq	noautowildcard
+	calls	#1,g^cli$present
+	blbs	r0,L3
+	
+
+
+
+	movzwl	list, R5
+	addl2	List+4, R5
+
+	decl	R5
+	cmpb	#^a/*/, (R5)
+	beql	L3
+
+	incl	R5
+	incw	list
+
+	movb	#^a/*/, (R5)
+
+L3:	popr	#^m<R5>
+
+	.endm	pad_star
+
+
+
+
+	.entry	Set_member, 0
+
+
+
+
+
+	pushaq	a_mod
+	calls	#1,g^cli$present
+
+	cmpl	r0,#cli$_absent
+	beql	4$
+
+
+	movw	#notes$k_user_moderate, m_m+2
+
+
+	cmpl	r0,#cli$_negated
+	bneq	14$
+
+; set mod
+	movl	#0, User_Moderate
+	brw	4$
+
+
+14$:	nop
+
+	movl	#1, User_Moderate
+
+4$:	nop
+
+; get the master conf name
+
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  Master
+	calls   #3,g^cli$get_value 
+	check	r0,error
+
+
+	movw	input,notes_open_i
+
+
+; should we treat this as being a notebook entry ?
+
+	pushaq	notebook
+	calls	#1,g^Cli$Present
+	blbs	r0,301$			; skip if NOnotebook
+	brw	2300$
+301$:	nop
+
+
+	movl    #100,notebook_spec      
+	Pushaw  notebook_spec
+	pushaq  notebook_spec
+	pushaq  notebook
+	calls   #3,g^cli$get_value 
+	check	r0,error
+	movw	notebook_spec, notebook_in
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent,outbuf=out,outlen=out,-
+		p1=#Input
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+; open notebook (if its not open already!)
+
+        pushaw  null
+        pushaw  notebook_in
+        pushal  notebook_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+; begin
+
+	pushaw  null
+	pushaw	book_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_begin
+	check	r0,error
+
+; get the entry
+
+	movw	input, ent_in
+	movl	input+4, ent_in+4
+
+	pad_star	ent_in
+
+	pushaw	ent_out
+	pushaw	ent_in
+	pushal	notebook_cont
+	calls	#3,g^notes$entry_get
+	check	r0,error
+
+
+	movl	Notefile_file_name_len, descr
+	movab	Notefile_file_name, descr+4
+
+
+	movl	#100,out
+	$Fao_s	ctrstr=ctr_ent1,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+	movl	Descr, Input
+	movc3	Input, @Descr+4, Input+8
+
+	movw	input,notes_open_i
+
+2300$:	nop
+
+
+
+	movw	#full_default_name_len, def_l
+	movab	full_default_name, def_n
+
+
+        pushaw  notes_open_o
+        pushaw  notes_open_i
+        pushal  mast_file_cont
+        calls   #3,G^Notes$notefile_begin
+        check   r0,error
+
+        movl    result_spec_len,Descr
+        movab   result_spec,descr+4
+;        pushaq  descr
+;        calls   #1,g^lib$put_output
+
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_filn,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+
+	movl	title_len,Descr
+	movab	title,Descr+4
+;	pushaq	Descr
+;	calls	#1,g^lib$put_output
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_title,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+        movl    notice_len,Descr
+        movab   notice,descr+4
+;       pushaq  descr
+;       calls   #1,g^lib$put_output
+
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_notice,outbuf=out,outlen=out,-
+		p1=#Descr
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+
+; try for mod status
+
+	pushaq	try_mod
+	calls	#1,g^lib$put_output
+
+
+
+        pushaw  open_o
+        pushaw  open_m
+        pushal  mast_file_cont
+        calls   #3,G^Notes$notefile_modify
+
+
+	MOVL    R0,VEC+4
+
+        $PUTMSG_S       MSGVEC=VEC
+
+
+
+
+
+
+; get note context...
+
+	movab	mast_file_cont, notes_beg_i+4
+
+
+
+        pushaw  null
+        pushaw  notes_beg_i
+        pushal  mast_note_cont
+        calls   #3,G^Notes$User_begin
+        check   r0,error                                                                       
+
+
+; get the member name
+
+
+	movl    #100,input         
+	Pushaw  Input
+	pushaq  Input
+	pushaq  cld_mem
+	calls   #3,g^cli$get_value 
+	check	r0,error	
+
+
+	movw	input         , m_u
+	movw	#notes$k_user_name, m_u+2
+	movab	input         +8, m_u+4
+
+
+
+	movw	input         , find_i
+	movw	#notes$k_user_name, find_i+2
+	movab	input         +8, find_i+4
+
+
+
+	
+	pushaq	access
+	calls	#1,g^cli$present
+	blbs	r0,18$
+	brw	10$
+18$:	nop
+
+; replace ?
+
+	pushaq	replace
+	calls	#1,g^cli$present
+	blbc	r0,234$
+	brw	235$
+234$:	nop
+
+	pushaq	append
+	calls	#1,g^lib$put_output
+
+	clrl	append
+
+; get the old list
+
+
+	pushaw	find_o
+	pushaw	find_i
+	pushal	mast_note_cont
+	calls	#3,g^notes$user_get
+	check	r0,error
+
+
+
+235$:	movl    #100,acc_li
+	Pushaw  acc_li
+	pushaq  acc_li
+	pushaq  access
+	calls   #3,g^cli$get_value 
+	check	r0,error	
+
+
+
+	movw	acc_li,  m_a
+	movw	#notes$k_user_access_list, m_a+2
+	movab	acc_li+8, m_a+4
+
+	tstl	append
+	bneq	10$
+
+	movzwl	m_a, r6
+	addl2	m_a+4, r6
+	movb	#^a/,/,(r6)
+	incw	m_a
+	incl	r6
+
+	movc3	old_ac_len, old_ac, (r6)
+	addw2	old_ac_len, m_a
+
+
+10$:	nop
+
+
+	movzwl	m_a, Descr
+	movl	m_a+4, Descr+4
+	pushaq	Descr
+	calls	#1,g^lib$put_output
+
+	pushaq	new_user
+	calls	#1,g^cli$present
+	blbc	r0,90$
+
+	movl    #100,new_u
+	Pushaw  new_u
+	pushaq  new_u
+	pushaq  new_user
+	calls   #3,g^cli$get_value 
+	check	r0,error	
+
+
+	movw	new_u,  m_nu
+	movw	#notes$k_user_new_name, m_nu+2
+	movab	new_u+8, m_nu+4
+
+
+
+90$:	nop
+
+
+
+
+
+
+	pushaq	mail_adr
+	calls	#1,g^cli$present
+	blbc	r0,20$
+
+	movl    #100,mail_li
+	Pushaw  mail_li
+	pushaq  mail_li
+	pushaq 	mail_adr
+	calls   #3,g^cli$get_value 
+	check	r0,error	
+
+	pushaq	mail_li
+	calls	#1,g^lib$put_output
+
+
+	movw	mail_li, add_m
+	movw	#notes$k_user_mail_addr,add_m+2
+	movab	mail_li+8, add_m+4
+
+20$:	nop
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	pushaw	null
+	pushaw	add_m
+	pushal	mast_note_cont
+	calls	#3,g^notes$user_modify
+
+	movl	#100,out
+	$fao_s	ctrstr=ctr_mem_add,outbuf=out,outlen=out,-
+		p1=#Input
+	pushaq	out
+	calls	#1,g^lib$put_output
+
+error:	ret
+
+ctr_mem_add:	.ascid	/Member "!AS" modified/
+
+access:		.ascid	/ACCESS/
+acc_li:		.long	100
+		.long	acc_li+8
+		.blkb	100
+
+mail_adr:	.ascid	/MAIL_ADR/
+mail_li:	.long	100
+		.long	mail_li+8
+		.blkb	100
+
+
+notebook_file_cont:	.blkl	1
+
+notebook_spec:		.long	100
+			.long	notebook_spec+8
+			.blkb	100
+
+
+notebook:	.ascid	/NOTEBOOK/
+
+
+notebook_in:	.word   0
+                .word   notes$k_notefile_file_name
+                .long   notebook_spec+8
+                .long   0
+;
+		.word	notebook_def_len
+		.word	notes$k_notefile_default_name
+		.long	notebook_def_spec
+		.long	0
+;
+		.long	0
+
+
+notebook_def_spec:	.ascii	/SYS$LOGIN:notes$notebook.NOTE/
+notebook_def_len = . - notebook_def_spec
+
+
+
+mast_file_cont:	.blkl	1
+mast_note_cont:	.blkl	1
+
+Shadow:	.ascid	/SHADOW/
+
+shad_file_cont:	.blkl	1
+
+shad_note_cont:	.blkl	1
+
+
+
+
+
+Master:	.ascid	/MASTER/
+op_msg_mast:	.ascid	/Opening the Source conference/
+op_msg_shad:	.ascid	/Opening the Target conference/
+
+
+input:	.long	300
+	.long	input+8
+	.blkb	300
+
+
+
+ent_in:	.word	0
+	.word	notes$k_entry_name
+	.long	0
+	.long	0
+;
+	.long	0
+
+
+ent_out:	.word	100
+		.word	notes$k_notefile_file_name
+		.long	Notefile_file_name
+		.long	Notefile_file_name_len
+;
+		.word	4
+		.word	notes$k_entry_last_status
+		.long	last_status
+		.long	0
+;
+		.word	4
+		.word	notes$k_entry_unseen_est
+		.long	unseen_est
+		.long	0
+;
+		.word	100
+		.word	notes$k_entry_name
+		.long	entry_name
+		.long	entry_name_len
+;
+		.word	3000
+		.word	notes$k_seen_map
+		.long	seen_map
+		.long	seen_map_len
+;
+		.word	100
+		.word	NOTES$K_ENTRY_USER_AREA
+		.long	note_user_area
+		.long	note_user_area_len
+;
+		.word	4
+		.word	notes$k_notefile_entrytotal
+		.long	entrytotal
+		.long	0
+;
+		.word	4
+		.word	notes$k_notefile_high_uid
+		.long	high_uid
+		.long	0
+;
+		.word	8
+		.word	notes$k_notefile_lastrev
+		.long	notefile_lastrev
+		.long	0
+;
+		.word	300
+		.word	notes$k_notefile_moderator
+		.long	moderator_st
+		.long	moderator_st_len
+;
+                .word   100
+                .word   notes$k_notefile_notice
+                .long   notice
+                .long   notice_len
+;
+		.word   4
+                .word   notes$k_notefile_numnotes
+                .long   number_of_notes
+                .long   0
+;
+		.word   100
+                .word   notes$k_notefile_title
+                .long   title
+                .long   title_len
+;
+		.word	3000
+		.word	notes$k_seen_map
+		.long	seen_map
+		.long	seen_map_len
+;
+		.long	0
+
+                                                                  
+
+
+
+
+entry_name:	.blkb	100
+entry_name_len:	.blkl	1
+
+last_status:	.blkl	1
+unseen_est:	.blkl	1
+
+
+
+
+descr:		.blkl	2
+
+
+notes_open_i:   .word   0
+                .word   notes$k_notefile_file_name
+                .long   input+8
+                .long   0
+;
+def_l:          .word   default_name_len
+                .word   notes$k_notefile_default_name
+def_n:          .long   default_name
+                .long   default_name_len
+;
+se_mp:		.word	0
+		.word	notes$k_seen_map
+		.long	seen_map
+		.long	0
+;
+                .long   0
+
+
+
+notes_open_o:   .word   100
+                .word   notes$k_notefile_title
+                .long   title
+                .long   title_len
+;
+                .word   150
+                .word   notes$k_notefile_result_spec
+                .long   result_spec
+                .long   result_spec_len
+;
+                .word   100
+                .word   notes$k_notefile_notice
+                .long   notice
+                .long   notice_len
+;
+		.word	4
+		.word	notes$k_notefile_restricted
+		.long	is_restricted
+		.long	0
+;
+		.word	300
+		.word	notes$k_notefile_moderator
+		.long	moderator_st
+		.long	moderator_st_len
+;
+                .long   0
+                                                                               
+
+is_restricted:	.blkl	1
+
+notice:         .blkb   100
+notice_len:     .blkl   1
+
+title:          .blkb   100
+title_len:      .blkl   1
+
+
+result_spec:            .blkb   150
+result_spec_len:        .blkl   1
+
+
+l_default_name:   .ascii  /.Note/
+l_default_name_len =. - l_default_name
+                                                                  
+
+default_name:   .ascii  /Notes$library:.Note/
+default_name_len =. - default_name
+
+
+full_default_name:   .ascii  /Notes$Library:.Note/
+full_default_name_len =. - full_default_name
+
+
+
+
+
+ctr_title:	.ascid	/ Title = "!AS"/
+ctr_notice:	.ascid	/Notice = "!AS"/
+
+
+
+ctr_filn:	.ascid	/Conference file is "!AS"/
+
+
+ctr_ent:	.ascid	/Opening notebook entry !AS ............../
+ctr_ent1:	.ascid	/Opening conference     !AS ............../
+
+
+
+cld_mem:	.ascid	/MEMBERS/
+
+
+book_in:	.word	4
+		.word	notes$k_notefile_context
+		.long	notebook_file_cont
+		.long	0
+;
+		.long	0
+
+notebook_cont:	.blkl	1
+
+
+
+
+a_mod:		.ascid	/MODERATOR/
+
+
+add_m:	.word	0
+	.word	notes$k_noop		;notes$k_user_mail_addr
+	.long	mail_addr
+	.long	0
+;
+m_u:	.word	0
+	.word	notes$k_noop		;notes$k_user_name
+	.long	user_name
+	.long	0
+;
+m_a:	.word	0
+	.word	notes$k_noop		;notes$k_user_access_list
+	.long	user_nodename
+	.long	0
+;
+m_m:	.word	4
+	.word	notes$k_noop		;notes$k_user_moderate
+	.long	user_moderate
+	.long	0
+;
+m_nu:	.word	0
+	.word	notes$k_noop
+	.long	0
+	.long	0
+;
+	.long	0
+
+
+
+
+VEC:    .LONG   2
+        .BLKL   1
+        .LONG   0
+        .LONG   0
+
+
+
+
+try_mod:	.ascid	/Try for moderator priv on the Source conference/
+
+
+OUT:	.long	500
+	.long	out+8
+	.blkb	500
+
+
+
+o_msg_m:	.ascid	/enable moderator priv/
+
+open_o:         .word   8
+                .word   notes$k_notefile_create_time
+                .long   create_time
+                .long   0
+;
+		.word	100
+		.word	notes$k_notefile_user_area
+		.long	notefile_user_area
+		.long	notefile_user_area_len
+;
+                .long   0
+
+
+
+open_m:         .word   4
+                .word   notes$k_notefile_moderate
+                .long   moderate
+                .long   0
+;
+                .word   4
+                .word   notes$k_nosignal
+                .long   hint
+                .long   0
+;
+                .long   0
+
+
+
+notefile_user_area:	.blkb	100
+notefile_user_area_len:	.blkl	1
+
+
+Null:		.word	0
+		.word	0
+		.long	0
+		.long	0
+;
+		.long	0
+
+
+
+
+note_user_area_len:	.blkl	1
+note_user_area:		.blkb	100
+
+
+notes_beg_i:    .word   4
+                .word   notes$k_notefile_context
+                .long   file_cont
+                .long   0
+;
+                .word   4
+                .word   notes$k_nosignal
+                .long   no_sig
+                .long   0
+
+;
+                .long   0
+
+
+notes_beg_o:    .word   4
+                .word   notes$k_notefile_numnotes
+                .long   number_of_notes
+                .long   0
+;
+                .long   0
+                                                                                
+
+NUMBER_OF_NOTES:	.blkl	1
+no_sig:		.long	1
+NOTE_CONT:		.blkl	1
+file_cont:	.blkl	1
+
+
+
+conf:	.ascid	/CONF/
+
+
+
+notefile_lastrev:	.blkl	2
+
+
+Notefile_file_name:	.blkb	100
+Notefile_file_name_len:	.blkl	1
+
+
+
+moderator_st:		.blkb	500
+moderator_st_len:	.blkl	1
+
+
+
+
+
+
+
+
+
+k_user_nodename:	.blkb	300
+k_user_nodename_len:	.blkl	1
+
+user_create_keyword:		.blkl	1
+write_bypass:		.blkl	1
+
+user_moderate:		.blkl	1
+
+mail_addr:		.blkb	255
+mail_addr_len:		.blkl	1
+
+user_nodename:		.blkb	255
+user_nodename_len:	.blkl	1
+
+user_name:		.blkb	255
+user_name_len:		.blkl	1
+
+high_uid:	.blkl	1
+
+
+entrytotal:		.blkl	1
+
+
+seen_map:	.blkb	3000
+seen_map_len:	.blkl	1
+
+
+moderate:       .long   1       ; we want to be a Goderator  !!
+
+
+hint:		.long	1
+
+create_time:	.blkl	2
+
+
+new_user:	.ascid	/NEW_USER/
+new_u:		.long	100
+		.long	new_u+8
+		.blkb	100
+
+replace:	.ascid	/REPLACE/
+
+append:		.ascid	/... Appending to the existing Access List .../
+
+
+
+
+find_i:	.word	0
+	.word	notes$k_noop
+	.long	0
+	.long	0
+;
+	.long	0
+
+
+
+find_o:	.word	100
+	.word	notes$k_user_access_list
+	.long	old_ac
+	.long	old_ac_len
+;
+	.long	0
+
+old_ac:		.blkb	100
+old_ac_len:	.blkl	1
+
+	.end	

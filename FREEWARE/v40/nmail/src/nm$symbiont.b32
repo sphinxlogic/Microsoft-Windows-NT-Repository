@@ -1,0 +1,1011 @@
+%title 'NMAIL symbiont'
+module nm$symbiont(
+    	          ident='14',
+    	          addressing_mode(external=general),
+    		  main=nm$symbiont
+                  ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1991, 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	28-Mar-1985
+!
+! Revision history:
+!
+!   01  18-Oct-1985
+!	Remove some of process initialisation to
+!	external routine NM$GET_DEFDATA.
+!
+!   02	20-Jan-1986
+!	Set OPER privilege; we sometimes need it to
+!	send to our own node.
+!
+!   03	11-Apr-1986
+!	Include Nmail version number in log.
+!
+!   04	12-Apr-1986
+!	The NM$GT_xxx strings are now held as counted strings.
+!
+!   05	23-Apr-1986
+!	Change fatal error logging mechanism: we now send
+!	a message to the operator console.
+!
+!   06	11-Jul-1986
+!	Try and make number in process name NMAIL_nnnn same
+!	as number in execution queue name NM$QUEnn
+!
+!   07	28-Aug-1987
+!	Ensure DO_TASK clears abort_flag and task_flag even
+!	when job is resubmitted (a minor error)
+!
+!   08	21-Feb-1989
+!	Add support for broadcasting a notification message
+!	to the logged-in user.
+!
+!   09	23-Feb-1989
+!	. Use NM$RESUBMIT_JOB in place of NM$SUBMIT_JOB
+!	. Set our own username to "NMAIL-DAEMON" on startup
+!
+!   10	16-Dec-1991	Cathy Wright
+!	ALPHA specific changes
+!
+!   11	7-May-1992
+!	Merge VAX and ALPHA cases
+!
+!   12	1-Jul-1992
+!	. Tag some flags as VOLATILE since they're updated by 
+!	  AST routines.  May not be necessary, but it's safer.
+!	. Check status from FAO
+!	. Replace unnecessary CALLG by normal routine call
+!	. Add null parameter to NM$POKEUSER call so we can
+!	  eliminate a use of argptr()
+!
+!   13	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!
+!   14	9-Dec-1993
+!	. Load Nmail extension image if present
+!	. Add outer-level condition handler, mainly to
+!	  report errors from loading the extension image.
+!
+!--
+
+!
+! Library calls
+!
+library 'sys$library:lib';
+library 'nm$library';
+
+!
+! External references
+!
+external routine
+    smb$initialize,
+    smb$read_message,
+    smb$read_message_item,
+    smb$send_to_jobctl;
+
+!
+! Forward routine
+!
+forward routine 
+    nm$init_proc    : novalue,
+    nm$init_stream  : novalue,
+    nm$msg_from_jbc : novalue,
+    nm$send_to_jbc  : novalue,
+    nm$unpack_msg,
+    nm$do_task,
+    nm$conhand0,
+    nm$conhand1,
+    nm$notify;
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+!
+! Own data
+!
+own
+    msg_buffer  : descrip initial($dynamic),
+    our_queue	: descrip initial($dynamic),
+    trace_file  : descrip initial($dynamic),
+    task_flag	: volatile,
+    abort_flag	: volatile,
+    exit_flag	: volatile;
+
+!
+! Per-task data.  Students of VM usage will notice that the memory
+! allocated to dynamic strings is only freed when the next task
+! is started.  It matters not.
+!
+own
+    $1		 : vector[0],			! 
+    job_fileid	 : block[nm$s_fileid,byte],	! Device, directory, file ID
+    uic		 : long,			! UIC for job
+    priority	 : long,			! Queue insertion priority
+    entry_num	 : long,			! Entry number
+    $2	         : vector[0],			!
+    job_filespec : descrip initial($dynamic),	! Filespec for job
+    job_name     : descrip initial($dynamic),	! Name of job
+    queue_name   : descrip initial($dynamic),	! Queue in which job entered
+    username     : descrip initial($dynamic),	! Username for job
+    account	 : descrip initial($dynamic),	! Account name
+    $3		 : vector[0];			! 
+   				
+!
+! Limits to deallocate
+!
+bind
+    dynmem     = $1,
+    dynmem_len = ($2-$1),
+    dynstr     = $2,
+    dynstr_cnt = ($3-$2) / dsc$c_d_bln;
+undeclare
+    $1, $2, $3;
+
+%sbttl 'NMAIL symbiont'
+global routine nm$symbiont =
+
+!++
+! Functional description:
+!
+! This is the main routine in the Nmail symbiont process.
+! It establishes communication with the job controller, and
+! thereafter simply processes queue requests at the direction
+! of the job controller.
+!
+! Each queue entry (or more correctly, each "task" in the
+! jbc argot) corresponds to one Nmail message, and the file
+! is an Nmail control file which contains all required
+! information for processing that message.
+!
+! If the message is processed to completion then the control
+! file is simply deleted.. Otherwise (recoverable network
+! errors happened) the job is resubmitted for try again at
+! some later time.
+!
+! Formal parameters:
+!
+! None
+!
+! Routine value:
+!
+! status.wlc.v = ss$_normal if we ever return
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    enable nm$conhand0;
+
+    !
+    ! Do process initialisation
+    !
+    nm$init_proc();
+
+    !
+    ! Initialise symbiont/job-controller interface
+    !
+    status = smb$initialize(
+    			   %ref(smbmsg$k_structure_level),
+    			   nm$msg_from_jbc
+    			   );
+    if not .status then signal_stop(.status);
+
+    !
+    ! And loop until it's time to go away. Note we purge down the
+    ! working set whilst we're asleep, so as to avoid hogging memory
+    !
+    while begin
+	  $purgws(inadr=uplit(%x'00000000',%x'7fffffff'));
+	  $hiber; 
+	  not .exit_flag
+	  end
+
+    do
+        if .task_flag
+        then
+	    begin
+
+	    !
+	    ! Work to do...
+            !
+    	    status = nm$do_task();
+
+	    !
+	    ! Tell job controller we're finished
+	    !
+	    if .abort_flag
+	    then
+		nm$send_to_jbc(smbmsg$k_stop_task)
+	    else
+		nm$send_to_jbc(smbmsg$k_task_complete, .status);
+
+	    end;
+
+    !
+    ! All done, exit quietly
+    !
+    ss$_normal
+    end;
+
+%sbttl 'once-only process initialisation'
+routine nm$init_proc : novalue =
+
+!++
+! Functional description:
+!
+! Does all process-related setup
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	status,
+	privs   : block[8,byte] initial(0,0);
+
+    !
+    ! Turn on required privileges, since when started by the
+    ! job controller, we have nothing.
+    !
+    privs[prv$v_tmpmbx] = true;		! For mailbox
+    privs[prv$v_netmbx] = true;		! For net I/O
+    privs[prv$v_cmkrnl] = true;		! To resubmit job
+    privs[prv$v_setpri] = true;		! To submit report at high prio
+    privs[prv$v_sysprv] = true;		! For file access
+    privs[prv$v_oper]   = true;		! Various operator-type things
+    privs[prv$v_world]  = true;		! To use $BRKTHRU
+    status = $setprv(enbflg=1, prvadr=privs);
+    
+    !
+    ! Set our own username
+    !
+    nm$pokeuser(.nm$gt_daemon[0], nm$gt_daemon[1], 0);
+
+    !
+    ! Get defaults for operational date-times
+    !
+    status = nm$get_defdata();
+    if not .status then signal_stop(ss$_ivtime);
+
+    !
+    ! Load extension image if it has been requested
+    ! (fatal errors are signalled)
+    !
+    nm$get_extension();
+
+    end;
+
+%sbttl 'stream initialisation'
+routine nm$init_stream : novalue =
+
+!++
+! Functional description:
+!
+! Does more initialisation when a 'start stream' has
+! been received.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	gotnum  : initial(false),
+	namset  : initial(false),
+	scratch : vector[max(nm$s_prcnam,32),byte] alias,
+	prcnam  : descrip initial(nm$s_prcnam,scratch),
+	filnam  : descrip initial(32,scratch),
+	faopar  : vector[2] initial(nm$gt_prcnam,0),
+	status;
+    bind
+	quename = .our_queue[dsc$a_pointer] : vector[,byte],
+	quelen  =  our_queue[dsc$w_length]  : word,
+        ctstr   = %ascid'!AC',
+        ctstrn  = %ascid'!AC_!4ZL';
+
+    !
+    ! Scan queue name to find the number that's buried in it
+    ! (when we have multiple queues we generally distinguish them
+    !  with numbers, e.g. NM$QUE01)
+    !
+    incr i from 0 to .quelen-1 do
+	if .quename[.i] geq '0' and .quename[.i] leq '9'
+	then
+	    begin
+	    gotnum    = true;
+	    faopar[1] = (10 * .faopar[1]) + (.quename[.i] - '0');
+	    end
+	else
+	    if .gotnum then exitloop;
+
+    !
+    ! Try for process name including queue number
+    !
+    status = $faol(
+	 	ctrstr=(if .gotnum then ctstrn else ctstr), 
+	 	outbuf=prcnam, outlen=prcnam, 
+	 	prmlst=faopar
+	     );
+    if not .status then signal_stop(nm$_fao, 0, .status);
+    namset = $setprn(prcnam=prcnam);
+
+    !
+    ! If we somehow failed to get our preferred name,
+    ! set an arbitrary one (give up after 63 tries)
+    !
+    if not .namset
+    then
+	incr i from 1 to 63 do
+	    begin
+	    gotnum = true;
+	    prcnam[dsc$w_length]  = nm$s_prcnam;
+	    prcnam[dsc$a_pointer] = scratch;
+	    faopar[1]             = (.faopar[1] mod 100) + (.i * 100);
+	    status = $faol(ctrstr=ctstrn, outbuf=prcnam, outlen=prcnam, prmlst=faopar);
+    	    if not .status then signal_stop(nm$_fao, 0, .status);
+	    namset = $setprn(prcnam=prcnam);
+	    if .namset then exitloop;
+	    end;
+
+    !
+    ! Make trace filespec, using same number that was used in the
+    ! process name
+    !
+    faopar[0] = nm$gt_tr_fspec;
+    status = $faol(
+	 	ctrstr=(if .gotnum and .namset then ctstrn else ctstr), 
+	 	outbuf=filnam, outlen=filnam, prmlst=faopar
+	 	);
+    if not .status then signal_stop(nm$_fao, 0, .status);
+    str$copy_dx(trace_file, filnam);
+
+    end;
+
+%sbttl 'process message from job controller'
+routine nm$msg_from_jbc : novalue =
+
+!++
+! Functional description:
+!
+! This routine is executed as an AST whenever the job controller
+! has something to say to us.  The request is processed as far as
+! is possible at AST level (all real work has to be done back in the
+! mainline code, however).
+!
+! Formal parameters:
+!
+! None
+!
+! Routine value:
+!
+! None
+!
+!--
+
+    begin
+
+    local
+	status,
+        stream,
+        request;
+
+    !
+    ! Read request. 
+    !
+    status = smb$read_message(stream, msg_buffer, request);
+    if not .status then return;
+
+    !
+    ! Dispatch on request type code
+    !
+    selectone .request of 
+	set
+
+        [smbmsg$k_start_task]:
+	    !
+	    ! Start task. We have work to do.
+	    !
+	    begin
+	    abort_flag = false;
+	    task_flag = nm$unpack_msg(msg_buffer);
+	    nm$send_to_jbc(.request);
+	    $wake();
+	    end;
+
+	[smbmsg$k_stop_task]:
+	    !
+	    ! Stop task.  The current task is to be aborted.
+	    !
+	    nm$gl_abort_send = abort_flag = .task_flag;
+
+	[smbmsg$k_start_stream]:
+	    !
+	    ! Start stream. This is done when the Nmail queue
+	    ! is started (and since we're single-streamed, it
+	    ! only happens when we start running).
+	    !
+	    begin
+	    nm$unpack_msg(msg_buffer);
+	    nm$send_to_jbc(.request);
+	    nm$init_stream();
+	    end;
+
+        [smbmsg$k_stop_stream]:
+            !
+    	    ! Stop stream. This happens when the queue is stopped,
+	    ! and only between tasks. The symbiont is to exit.
+    	    !
+	    begin
+	    exit_flag = true;
+	    nm$send_to_jbc(.request);
+	    $wake();
+	    end;
+
+	[smbmsg$k_reset_stream]:
+	    !
+	    ! Reset stream. This is an emergency stop.  The current 
+	    ! task is to be aborted, and the symbiont is to exit.
+	    !
+	    begin
+	    nm$gl_abort_send = abort_flag = .task_flag;
+	    exit_flag = true;
+	    nm$send_to_jbc(.request);
+	    $wake();
+	    end;
+
+	tes;
+
+    end;
+
+%sbttl 'send response to job controller'
+routine nm$send_to_jbc (resp, cond) : novalue =
+
+!++
+! Functional description:
+!
+! Sends a reply back to the job controller. 
+!
+! Note that this routine can be called both from AST level and
+! from main level.  
+!
+! The stream is always considered to be stream zero.
+!
+! Formal parameters:
+!
+! resp.rl.v = response code to send
+! cond.rl.v = condition code (for smbmsg$k_task_complete only)
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+	
+    local
+        stream : initial(0),
+	status;
+
+    !
+    ! Start-stream is slightly different; needs the symbiont status
+    ! to say we're a server
+    !
+    if .resp eql smbmsg$k_start_stream
+    then
+        status = smb$send_to_jobctl(stream, resp, 0, 0, %ref(smbmsg$m_server))
+
+    !
+    ! Task-complete needs an error code
+    !
+    else
+    if .resp eql smbmsg$k_task_complete
+    then
+	begin
+	local condvec : vector[2] initial(1,.cond);
+	status = smb$send_to_jobctl(stream, resp, 0, 0, 0, condvec);
+        end
+
+    !
+    ! Everything else just takes the request/reply type
+    !
+    else
+        status = smb$send_to_jobctl(stream, resp);
+
+    ! 
+    ! And check for errors (don't signal this one)
+    !
+    if not .status then $exit(code=.status);
+
+    end;
+
+%sbttl 'unpack message buffer for start-task request'
+routine nm$unpack_msg (msgbuf : ref descrip) =
+
+!++
+! Functional description:
+!
+! This routine is called on receipt of a 'start task' request.
+! In unpacks the message items that we are interested in, and
+! stores them in module-wide locations for future use.
+!
+! We also use this routine to process the initial 'start stream'
+! request, because the logic is substantially similar.
+!
+! Formal parameters:
+! 
+! msgbuf.rt.dx = buffer containing mesage from job controller
+!
+! Routine value:
+!
+! status.wlc.v = true if this is a real task (file ID present)
+!	         false if this is some error (no file ID, but
+!		 message vector)
+!
+!--
+
+    begin
+
+    local
+	status,
+	item,
+	ctx	: initial(0),
+        fid_seen: initial(false),
+	buff    : descrip initial($dynamic);
+
+    !
+    ! Delete previous task details
+    !
+    ch$fill(0, dynmem_len, dynmem);
+    lib$sfreen_dd(%ref(dynstr_cnt), dynstr);
+
+    !
+    ! Loop through the contents of the message buffer
+    !
+    while smb$read_message_item(.msgbuf, ctx, item, buff) do
+
+        !
+        ! Dispatch the item code
+	!
+	selectone .item of
+	    set
+
+	    [smbmsg$k_file_identification]:
+		!
+		! File ID. 
+		!
+    	        if .buff[dsc$w_length] geq nm$s_fileid
+    		then
+		    begin
+		    ch$move(nm$s_fileid, .buff[dsc$a_pointer], job_fileid);
+		    fid_seen = true;
+		    end;
+
+	    [smbmsg$k_file_specification]:
+		!
+		! File spec.
+		!
+		str$copy_dx(job_filespec, buff);
+
+	    [smbmsg$k_user_name]:
+		!
+		! User name for this job (trim trailing blanks)
+		!
+		str$trim(username, buff);
+
+    	    [smbmsg$k_account_name]:
+		!
+		! Account name for this job
+		!
+		str$copy_dx(account, buff);
+
+	    [smbmsg$k_uic]:
+		!
+		! UIC
+		!
+    	        if .buff[dsc$w_length] eql %upval
+		then
+		    uic = ..buff[dsc$a_pointer];
+
+	    [smbmsg$k_job_name]:
+		!
+		! Job name for this job.
+		!
+		str$copy_dx(job_name, buff);
+
+	    [smbmsg$k_queue]:
+		!
+		! Queue name for this job.
+		!
+		str$copy_dx(queue_name, buff);
+
+	    [smbmsg$k_executor_queue]:
+		!   
+		! Execution queue name (only in start stream request)
+		!
+		str$copy_dx(our_queue, buff);
+		
+	    [smbmsg$k_priority]:
+		!
+		! Queue insertion priority
+		!
+    	        if .buff[dsc$w_length] eql %upval
+		then
+		    priority = ..buff[dsc$a_pointer];
+
+	    [smbmsg$k_entry_number]:
+		!
+		! Entry number
+		!
+		if .buff[dsc$w_length] eql %upval
+		then
+		    entry_num = ..buff[dsc$a_pointer];
+
+	    tes;
+
+    !
+    ! Deallocate last piece of string
+    !
+    str$free1_dx(buff);
+
+    !
+    ! Return true if there's a real file to process
+    !
+    .fid_seen
+
+    end;
+
+%sbttl 'process task request'
+routine nm$do_task =
+
+!++
+! Functional description:
+!
+! Handles processing of one input file. The file is processed by 
+! 'send_mail' and resubmitted if necessary.
+!
+! (This routine really only exists as a separate entity to get
+!  a distinct call frame to establish a condition handler with)
+!
+! Formal parameters:
+!
+! none
+!
+! Routine values:
+!
+! status.wlc.v = ss$_normal if we return inline
+!	       = some error status if we're unwound
+!
+!--
+
+    begin
+
+    local
+	next_time : vector[2],
+	broadcast : descrip initial($dynamic) volatile,
+	finis,
+	new_entry,
+	status;
+
+    enable nm$conhand1 (broadcast);
+
+    !
+    ! Open trace file if necessary
+    !
+    if .nm$gl_trace[0]
+    then 
+	begin
+	nm$open_trace(trace_file);
+	nm$write_trace(nm$_trjob, 2, .entry_num, username);
+	end;
+
+    !
+    ! Send the mail
+    !
+    finis = nm$send_mail(job_fileid, next_time, broadcast);
+
+    !
+    ! If it wasn't all completed, resubmit the job
+    !
+    if not .finis 
+    then
+	begin
+	status = nm$resubmit_job(
+			       job_fileid,
+			       job_name, queue_name, 
+			       next_time, priority,
+    			       username, uic, account,
+			       0, new_entry
+			       );
+	if not .status then signal(nm$_resub, 2, job_name, queue_name, .status);
+	end;
+
+    !
+    ! Notify the user by broadcast, if requested
+    !
+    if .broadcast[dsc$w_length] neq 0
+    then
+    	begin
+    	local v : vector[5];
+    	v[0] = 4+put_txt;
+    	v[1] = nm$_requeue;
+    	v[2] = 2;
+	v[3] = .new_entry;
+	v[4] = broadcast;
+    	if not .finis then nm$notify(nm$user_msg, v);
+	str$free1_dx(broadcast);
+    	end;
+
+    !
+    ! Successful completion
+    !
+    abort_flag = task_flag = false;
+
+    !
+    ! Now close the trace file
+    !
+    if .nm$gl_trace[0]
+    then 
+	begin
+	nm$write_trace(nm$_treoj, 1, .entry_num);
+	nm$close_trace();
+	end;
+
+    ss$_normal
+
+    end;
+
+%sbttl 'base condition handler'
+routine nm$conhand0 (sig : ref block[,byte], mech : ref block[,byte], enb) =
+
+!++
+! Functional description:
+!
+! Fields signals that occur outside the context of any single task. 
+! Success statuses are simply ignored (we don't actually expect any). 
+! Failure statuses of any severity and with any facility code will be 
+! intercepted and logged, and then the symbiont will exit.
+!
+! Formal parameters:
+!
+! sig.mr.r  = signal vector
+! mech.mr.r = mechanism vector
+! enb.rr.r  = enable-actuals (not used)
+!
+! Routine values:
+!
+! None
+!
+!--
+
+    begin
+
+    bind
+	sig_name = sig[chf$l_sig_name] : block[,byte];
+
+    !
+    ! If a success, dismiss it (not expected, but...)
+    !
+    if .sig_name then return ss$_continue;
+
+    !
+    ! Diddle the first word of the signal vector to reduce 
+    ! the argument count by 2 (drop the PC/PSL) and set flags
+    ! to cause all message components to be printed.
+    !
+    sig[chf$l_sig_args] = .sig[chf$l_sig_args] - 2;
+    sig[chf$l_sig_args] = .sig[chf$l_sig_args] or put_all;
+
+    !
+    ! Print the error and then exit.  Note that if the error
+    ! is an Nmail-private one, then we use SS$_BADPARAM as the
+    ! exit status, since the job controller doesn't know about us.
+    !
+    nm$notify(nm$opr_msg, .sig);
+    if .sig_name[sts$v_fac_no] eql nmail$_facility
+    then
+	sig_name = ss$_badparam;
+    $exit(code=.sig_name)
+
+    end;
+
+%sbttl 'per-task condition handler'
+routine nm$conhand1 (sig : ref block[,byte], mech : ref block[,byte], enb) =
+
+!++
+! Functional description:
+!
+! Fields signals that occur whilst we're processing a single task. Success
+! statuses are simply ignored (we don't actually expect any). Failure
+! statuses of any severity and with any facility code will be intercepted 
+! and logged.
+!
+! For intercepted signals, error details are broadcast to the operator.
+!
+! The current Nmail job will not be resubmitted, but will be left in the
+! queue (because of /RETAIN=ERROR) with a failure status.
+!
+! Formal parameters:
+!
+! sig.mr.r  = signal vector
+! mech.mr.r = mechanism vector
+! enb.rr.r  = enable-actuals
+!
+! Routine values:
+!
+! sts.wlc.v = ss$_resignal
+!	      (ignored if unwind requested)
+!
+!--
+
+    begin
+
+    builtin
+	nullparameter;
+
+    bind
+	sig_name = sig[chf$l_sig_name] : block[,byte];
+    local
+        status,
+	save_args : block[%upval,byte],
+        log_vec   : $msgvec(
+    			   nm$_log1, 1, nm$gt_version, 
+			   nm$_log2, 3, job_name, our_queue, .entry_num,
+		           nm$_log3, 2, username, job_filespec
+			   );
+
+    !
+    ! If we're being unwound, nothing to do except to perhaps
+    ! close the trace file and deallocate dynamic strings
+    !
+    if .sig_name eql ss$_unwind 
+    then 
+	begin
+	if .nm$gl_trace[0] then nm$close_trace();
+	if not nullparameter(enb) then nm$freestr(.sig, .mech, .enb);
+	return ss$_resignal;
+	end;
+
+    !
+    ! If it's a success signal then dismiss it (should never happen)
+    !
+    if .sig_name then return ss$_continue;
+
+    !
+    ! Diddle the first word of the signal vector to reduce 
+    ! the argument count by 2 (drop the PC/PSL) and set flags
+    ! to cause all message components to be printed.
+    !
+    save_args = .sig[chf$l_sig_args];
+    sig[chf$l_sig_args] = .sig[chf$l_sig_args] - 2;
+    sig[chf$l_sig_args] = .sig[chf$l_sig_args] or put_all;
+
+    !
+    ! Print the error, preceded by some context information.
+    !
+    if .sig_name neq nm$_abort
+    then
+	begin
+	status = nm$notify(nm$opr_msg, log_vec, .sig);
+	if not .status then signal_stop(.sig_name)
+	end;
+
+    !
+    ! Restore signal vector, set returned R0 value to some fatal 
+    ! condition, show no task active any more
+    !
+    sig[chf$l_sig_args] = .save_args;
+    $setstatus(mech, jbc$_sysfail);
+    task_flag = false;
+
+    !
+    ! Unwind the stack
+    !
+    setunwind();
+    ss$_resignal
+
+    end;
+
+%sbttl 'log fatal error message'
+routine nm$notify (msg_routine, sig1, sig2) =
+
+!++
+! Functional description:
+!
+! This routine is intended to log a fatal error message to
+! the system operator.  It's used in situations that can't
+! be dealt with by the normal Nmail retry-later mechanisms,
+! for example I/O error in updating the control file.
+!
+! Formal parameters:
+!
+! msg_routine.szem.r = routine to handle I/O
+! sig1.rr.r          = message vector #1
+! sig2.rr.r          = message vector #2
+!	:
+! sigN.rr.r = message vector #N
+!
+! Routine value:
+!
+! sts.wlc.v = true if it all worked
+!	    = some SS$ error otherwise
+!
+!--
+
+    begin
+
+    builtin
+	actualcount,
+	actualparameter;
+
+    local
+	msgstr : descrip initial($dynamic),
+	status;
+
+    !
+    ! Routine to handle one line of text by adding it to the
+    ! accumulated message.
+    !
+    routine putline (text : ref descrip, msg : ref descrip) =
+	begin
+	local crlf : $str(%char(%x'0d',%x'0a'));
+	if .msg[dsc$w_length] neq 0 then str$append(.msg, crlf);
+	str$append(.msg, .text);
+        false
+	end;
+
+    !
+    ! Loop, outputting the messages for each message vector 
+    ! in turn.  
+    !
+    incr i from 2 to actualcount() do
+	begin
+	$putmsg(msgvec=actualparameter(.i), actrtn=putline, actprm=msgstr);
+	status = (.msg_routine)(msgstr, username);
+	str$free1_dx(msgstr);
+	if not .status then return .status;
+	end;
+
+    !
+    ! All over
+    !
+    true
+    end;
+
+end 
+eludom

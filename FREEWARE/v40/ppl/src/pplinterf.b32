@@ -1,0 +1,2339 @@
+module ppl$interf (ident='V57-001', addressing_mode (external=general)) =
+begin
+!
+!****************************************************************************
+!*									    *
+!*  COPYRIGHT (c) 1986 BY						    *
+!*  DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASSACHUSETTS.		    *
+!*  ALL RIGHTS RESERVED.						    *
+!* 									    *
+!*  THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND COPIED   *
+!*  ONLY IN  ACCORDANCE WITH  THE  TERMS  OF  SUCH  LICENSE  AND WITH THE   *
+!*  INCLUSION OF THE ABOVE COPYRIGHT NOTICE. THIS SOFTWARE OR  ANY  OTHER   *
+!*  COPIES THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY   *
+!*  OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE IS  HEREBY   *
+!*  TRANSFERRED.							    *
+!* 									    *
+!*  THE INFORMATION IN THIS SOFTWARE IS  SUBJECT TO CHANGE WITHOUT NOTICE   *
+!*  AND  SHOULD  NOT  BE  CONSTRUED AS  A COMMITMENT BY DIGITAL EQUIPMENT   *
+!*  CORPORATION.							    *
+!* 									    *
+!*  DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE  OR  RELIABILITY OF ITS   *
+!*  SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.		    *
+!* 									    *
+!*									    *
+!****************************************************************************
+!
+
+!++
+!
+! FACILITY:	PPL Facility of the VAX RTL (Parallel Processing Library)
+!
+! ABSTRACT:
+!
+!	This module contains user-visible interface routines to PPL.
+!
+! ENVIRONMENT:	VAX/VMS user mode
+!
+! AUTHOR: Peter D Gilbert, CREATION DATE:  7-OCT-1986
+!
+! MODIFIED BY:
+!
+!	X01-000		Original
+!
+!	X01-001		Corrected the ident.			CMF  26-JAN-1987
+!
+!	X01-002		Correct the ident to match the cms	CMF  26-JAN-1987
+!			generation number.
+!
+!	X01-003		Change the signaling of PPL$_INSVIRMEM	CMF  27-JAN-1987
+!			to return the same.
+!
+!	X01-004		Call PPL$$RESERVE_ADDRDESS from		CMF 07-FEB-1987
+!			JOIN_APPLICATION.  This makes a new
+!			process in the application attempt to
+!			map any PPL VM sections that have
+!			already been mapped by other processes
+!			in the application.  Change supplied by
+!			PDG 5-FEB-1987.
+!
+!			Comments added.
+!
+!	X01-005		Delete commented out code.		CMF 09-FEB-1987
+!
+!	X01-006		Increment PPLSECT_W_CURR_PROCS to 	CMF 20-FEB-1987
+!			indicate the current number of procs.
+!			This will be done in JOIN_APPLICATION.
+!
+!	X01-007		To add parameter validation.		CMF 26-FEB-1987
+!
+!			Added more comments.
+!
+!	X01-008		Add param checking.  Will return	CMF 09-MAR-1987
+!			PPL$_WRONUMARG.
+!
+!	X01-009		Changed ppl$terminate semantics to	DLR 16-MAR-1987
+!			allow processes to leave application
+!			without terminating the process,
+!			added stop_children param, fixed
+!			exit_handler to mimic terminate,
+!			fixed ppl$initialize to release locks
+!			under error conditions.
+!
+!	X-1-010		Removed comment from line calling the  	CMF 17-MAR-1987
+!			cleanup routine.
+!
+!			Add code to handle flags that appear in
+!			PPL$CREATE_PROCESS.  This work is done
+!			in PPL$INITIALIZE.  This also requires that
+!			the current number of procs is no longer
+!			updated in join application since the
+!			expected processes were accounted for
+!			in PPL$CREATE_PROCESS.  The only way
+!			you should hit join application is
+!			if you are the parent process or
+!			a subprocess.
+!
+!	V05-001		Fixed PPL$TERMINATE/do_all_cleanup to	WWS  6-Jul-1988
+!			return PPL$_NORMAL instead of SS$_NORMAL.
+!
+!	V05-002		Updated the routine comments for PPL$TERMINATE to
+!			reflect the correct completion codes.	WWS  6-Jul-1988
+!
+!	V051-001	- Added TL_Handler to release Top Lock on unwind
+!			- Removed unneeded declarations of local PPLSECT
+!			- Changed PPLSECT_V_INIT_SYNCH to PPLSECT_SPAWN_MUTEX
+!			- Changed CTX_A_MY_PROC to CTX_L_MY_PROC
+!			- Added/reformatted debugging messages	WWS  9-Sep-1988
+!
+!	V052-001	- Removed PPLSECT_W_PROCS increment from the
+!			    PPLSECT initialization code in join_application.
+!			- Added PPLSECT_W_PROCS increment in init_proc in the
+!			    create proc block section.
+!
+!	V53-001		- Added stubs for PPL$Create_Application and
+!			    PPL$Delete_application.
+!			    
+!	V53-002		- Changed debugging messages to use debug_msg_ macro
+!			- Added V53 mapping options to global_ macro
+!			- Added PPL$Create_Application and cross-jobtree support
+!			- Moved synch barrier creation et al to join_application
+!								WWS 29-Mar-1989
+!
+!	V53-003		- Added app_lock block to the context area so it can be
+!			  dequed when a process leaves the application.
+!								WWS 04-Apr-1989
+!
+!	V53-004		- Took PID and index out of top-lock value block, now
+!			  index is taken from the PPLSECT
+!			- Changed Join_Application to map the PPLSECT instead of
+!			  calling PPL$Create_Shared_memory.	WWS 14-Apr-1989
+!
+!	V53-005		- Added PPL$Delete_Application		WWS  3-May-1989
+!			- Added spawner-specific init-synch barrier
+!
+!	V53-006		- Purged %ASCIDs from the code		WWS  9-May-1989
+!
+!	V53-007		- disable events during cleanup		WWS 17-May-1989
+!
+!	V53-008		- Added support for new memory		WWS  9-Jun-1989
+!			    arbitration algorithm
+!
+!       V53-008         - literals added for pplworkq           HPO 22-Jun-1989
+!
+!	V53-009		- Removed ADAWI of pplsect_w_curr_procs PJC 28-Jul-1989
+!			  and call to im_alive from join_application
+!			  to be placed inside of ppl$$alive.
+!
+!	V53-010		- Clean-up, removed code previously	PJC  3-Aug-1989
+!			  commented out.
+!
+!	V53-011		- Removed local definitions of CTX	PJC 22-Aug-1989
+!			  and PPLSECT
+!			- Expanded critical region within
+!			  join_application to include all 
+!			  code in which top lock is held
+!
+!	V53-012		- New and Improved initialization	PJC 17-Oct-1989
+!			  scheme based on eight routines with
+!			  localized responsibilities.
+!			
+!	V53-013		- Within ppl$$get_my_pid, made PID	PJC 25-Oct-1989
+!			  volatile
+!
+!	V53-014		- Updated ppl$$condition_handler and	PJC 30-Nov-1989
+!			  it upon ppl$create_application and
+!			  ppl$delete_application.  
+!			- Removed tl_handler
+!			- added exit handlers to initialization
+!			  routines
+!			- added $dgblsc to ppl$delete_application
+!			  to handle any permanent sections.
+!
+!	V57-001		- EVMS/ALPHA port: made condition	PJC 12-Nov-1991
+!			  handling machine specific, page
+!			  sizes, etc
+!
+!	V57-002		- Conditionalized the $dgblsc in	PJC 17-Feb-1992
+!			  ppl$delete_application to only delete
+!			  permanent memory sections.
+!
+!	V57-003		- Fix condition handling path to delete PJC 08-Apr-1992
+!			  global section only if we  it,
+!			  and unmap memory only if successfully 
+!			  mapped.
+!
+!	V57-004		- Remove external routine declaration	PJC 16-APR-1992
+!			  for ppl$find_synch_element_id
+!
+!	V57-005		- Remove EVAX specific calculation,	PJC 05-MAR-1993
+!			  not needed (incorrect).
+!
+!	V57-006		- Add code to support two new flags;	PJC 06-AUG-1993
+!			  PPL$M_NOSAVE_PROC_INFO and 
+!			  PPL$M_IGNORE_EXITS.  Also, add lib$
+!			  calls to reserve event flags for certain
+!			  calls requiring their use.
+!
+!	V60-001		- Add code to support single global EF.	PJC 30-AUG-1993
+!--
+library	'sys$library:starlet';
+library	'sys$library:xport';
+undeclare %quote $descriptor;
+library	'obj$:ppllib';
+require 'rtlin:rtlpsect';
+
+!
+! PSECTS:
+!
+DECLARE_PSECTS (PPL);			! Define psects
+
+
+forward routine
+	ppl$$get_my_pid,
+	!
+	ppl$create_application,	!user-visible
+	ppl_init2_applock,
+	ppl_init3_namlock,
+	ppl_init4_toplock,
+	ppl_init5_pplsect,
+	ppl_init6_objects ,  
+	ppl$delete_application,	!user-visible
+	ppl$initialize,		!user-visible
+	ppl$terminate,		!user-visible
+	do_all_cleanup,
+	ppl$get_index;		!user-visible
+	
+external routine
+	ppl$create_event,
+	ppl$create_barrier,
+	ppl$delete_shared_memory,
+	ppl$disable_event,
+	ppl$flush_shared_memory,
+	ppl$unique_name,
+	ppl$wait_at_barrier,
+	!
+	ppl$$alive,
+	ppl$$allocate,
+	ppl$$cleanup_sub_processes,
+	ppl$$cleanup_memory,
+	ppl$$get_app_lock,
+	ppl$$init_bitmap,
+	ppl$$next_living,
+	ppl$$not_alive,
+	ppl$$reserve_shared_memory,
+	ppl$$set_application_number,
+	!
+	lib$get_ef,
+	lib$free_ef,
+	lib$get_vm,
+	lib$free_vm,
+	str$analyze_sdesc,
+	str$compare_eql;
+
+!+
+! Define longwords to hold pointers to our context area, and
+! the address of our facility global section.  
+!-
+
+global
+	ppl$$gl_context:	ref ctx_block,		! Our context
+	ppl$$gl_pplsect:	ref pplsect_block,	! PPL facility section
+	ppl$$gl_system:		unsigned long,		! System-wide flag
+	ppl$$gl_debug_flags:	unsigned long;		! PPL debugging flags
+
+!+
+! Redefine our shared messages as global literals.
+! Redefine our flags global literals.
+!-
+
+compiletime _t_ = 0;
+macro	global_[x] =
+	    %assign(_t_,x)
+	    undeclare x;
+	    global literal x = %number(_t_)
+	    %;
+
+global_(ppl$k_init_size,
+	ppl$k_abnormal_exit,
+	ppl$k_normal_exit);
+
+global_(ppl$_badlogic,
+	ppl$_openin,
+	ppl$_openout,
+	ppl$_syserror);
+
+global_(ppl$m_nozero,			! Don't zero global section
+	ppl$m_nowrt,			! Read-only (non-writable) section
+	ppl$m_flush,			! Flush the section
+	ppl$m_pic,			! PIC section (internal use only)
+	ppl$m_nouni,			! Don't make the name unique
+	ppl$m_nomap,			! Don't map the section
+	ppl$m_perm,			! Create a permanent section
+	ppl$m_system,			! Create a system-wide section
+	ppl$m_formonly,			! Only form an application, do no join
+	ppl$m_joinonly);		! Only join an application, do no form
+
+global_(ppl$m_init_synch,		! wait until all subprocess ppl$init
+	ppl$m_nodebug,			! execute w/o DEBUG
+	ppl$m_stop_children,		! abort all dependent children
+	ppl$m_non_blocking,		! don't block on lock/sem requests
+	ppl$m_notify_one,		! notify only one event enabler
+	ppl$m_athead,                   ! insert at head of queue
+	ppl$m_deleteall,                ! delete all matching entries
+	ppl$m_tailfirst,                ! start search at tail
+	ppl$m_fromtail,                 ! start removing from tail
+	ppl$m_forcedel);                ! forced deletion for work queues
+
+global_(ppl$m_noclisym,			! do not inherit parents cli symbols
+	ppl$m_nolognam,			! do not inherit parents logical names
+	ppl$m_nokeypad,			! keypad symbols inherited if set
+	ppl$m_notify,			! message broadcast to SYS$OUTPUT
+	ppl$m_nocontrol,		! request no cr/line-feed with prompt
+	ppl$m_proc_unique,		! request process unique name
+	ppl$m_call_unique,		! request call unique name
+	ppl$m_spin_wait,		! indicate process to spin not block
+	ppl$m_spin_counted);		! indicate process to spin then block
+
+global_(ppl$m_nosave_proc_info,		! indicate application reuse proc blks
+	ppl$m_ignore_exits);		! indicate no PPL events 'til initiated
+
+bind
+	x_top_lock =	UPLIT BYTE (%ascic ppl_x_top_lock),
+	x_facnam =	UPLIT BYTE (%ascic ppl_x_facnam);
+
+macro
+	x_normal_exit_event   =	'ppl$normal_exit' %,
+	x_abnormal_exit_event = 'ppl$abnormal_exit' %,
+	x_mem_arb_barrier     =	'ppl$m_arbitration' %;
+
+
+
+%SBTTL 'ppl$$condition_handler  --  A Condition Handler for PPL calls'
+GLOBAL ROUTINE ppl$$condition_handler
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   This routine is enabled by PPL interface routines (ie, routines with only
+!   one dollar sign in their names) to catch any conditions signaled from
+!   routines.  This routine unwinds the stack and returns from the routine 
+!   with the condition code which was signalled as the return status.
+!   This routine also takes care of ASTs, mutexes, and the top lock 
+!   upon unwind.
+!
+! FORMAL PARAMETERS:
+! 
+    (
+	sigvec:	ref $bblock,	! Signal vector
+	mchvec:	ref $bblock,	! Mechanism vector
+	enavec:	ref vector	! Enable vector
+    ) =
+!
+! COMPLETION CODES:
+! 
+!   The condition code which was signalled.
+! 
+!--
+    BEGIN
+
+    bind
+	ast_status  = .enavec[1],
+	top_flag    = .enavec[2],
+	mutex_flag  = .enavec[3],
+	mutex       = .enavec[4];
+
+    local
+	ppl_marker  : unsigned long,
+	ppl_inverse : unsigned long,
+	status	    : unsigned long;
+
+
+    debug_msg_(12, 'Index: !SL, (PPL$$Cond_Handler) status = !XL', 
+		    (if .ppl$$gl_context[ctx_v_initialized]
+		     then .ppl$$gl_context[ctx_l_my_index]
+		     else -1),
+		    .sigvec[chf$l_sig_name]);
+
+
+    !+
+    !   If unwinding check the variables passed in to determine if:
+    !
+    !	    a) The ppl$$gl_context area needs to be freed.
+    !       b) There is a mutex and it needs to be freed.
+    !       c) The top lock needs to be released, and;
+    !       d) ASTs need to be reenabled,
+    !-
+    if .sigvec[chf$l_sig_name] eqlu ss$_unwind then
+    begin
+	if (.top_flag eql -1) and (.ppl$$gl_context neq 0) then
+	    begin				! Special case: ppl$create_appl.
+		lib$free_vm (%ref(ctx_s_bln), ppl$$gl_context);
+		ppl$$gl_context = 0;
+	    end;
+        if .mutex_flag then
+            unlock_bit_(.mutex);
+        if .top_flag then
+            release_top_lock_(status);
+        if (.ast_status eql ss$_wasset) then
+            $setast (enbflg=true);
+
+        return ss$_normal;
+    end;
+                                                                                
+    !+
+    ! Catch ppl$_badlogic, ppl$_syserror, and all non-fatal values
+    ! that have made it to this point and resignal them.
+    !-
+
+%if VAX
+%then
+    if .sigvec[chf$l_sig_name] eqlu ppl$_badlogic
+    or .sigvec[chf$l_sig_name] eqlu ppl$_syserror
+    or .sigvec[chf$l_sig_name] eqlu ss$_debug
+    or (.sigvec[chf$l_sig_name] and sts$m_severity) eqlu sts$k_success
+    or (.sigvec[chf$l_sig_name] and sts$m_severity) eqlu sts$k_info
+    or (.sigvec[chf$l_sig_name] and sts$m_severity) eqlu sts$k_warning
+    or (.sigvec[chf$l_sig_name] and sts$m_severity) eqlu sts$k_error
+%fi
+%if EVAX
+%then
+    if .sigvec[chf$is_sig_name] eqlu ppl$_badlogic
+    or .sigvec[chf$is_sig_name] eqlu ppl$_syserror
+    or .sigvec[chf$is_sig_name] eqlu ss$_debug
+    or (.sigvec[chf$is_sig_name] and sts$m_severity) eqlu sts$k_success
+    or (.sigvec[chf$is_sig_name] and sts$m_severity) eqlu sts$k_info
+    or (.sigvec[chf$is_sig_name] and sts$m_severity) eqlu sts$k_warning
+    or (.sigvec[chf$is_sig_name] and sts$m_severity) eqlu sts$k_error
+%fi
+    then
+	return ss$_resignal;
+
+    !+
+    ! - Copy the error condition code into what will be the status register.
+    ! - Initiate a stack unwind, using the default depth and new PC.
+    ! - Return to the routine which called PPL$*.
+    !-
+
+%if VAX
+%then
+    mchvec[chf$l_mch_savr0] = .sigvec[chf$l_sig_name];
+%fi
+
+%if EVAX
+%then
+    mchvec[chf$il_mch_savr0_low] = .sigvec[chf$l_sig_name];
+%fi
+
+    return $unwind();       ! unwinds to ppl$_ routine returning
+
+    end;    ! PPL$$Condition_Handler
+
+
+
+global routine ppl$$get_my_pid =
+begin
+    local
+	pid	    :	volatile unsigned long,
+	itmlst	    :	$itmlst_decl (items=2),
+	status;
+
+    $itmlst_init(itmlst = itmlst,
+	(itmcod = jpi$_pid, bufadr = pid, bufsiz = %upval));
+    status = $getjpiw(
+	    itmlst = itmlst);
+    if not .status then 
+	return signal_stop (ppl$_syserror, 0, .status);
+
+    return .pid;
+end;
+
+
+routine init_proc =
+begin
+
+    !Create and init a proc block with info for use by this process,
+    !and later by its descendants.
+    
+    !ASSUME:
+    ! This process' ctx_block init is complete except for ptr to proc_block.
+    ! I have free access to the pplsect proc_block list under the top lock.
+    
+    external routine
+        ppl$$allocate;
+
+    local
+        proc    : ref proc_block,
+	status	: unsigned long;
+
+
+    !+
+    ! See if there's already a proc_block for me.
+    ! If I was created by ppl$spawn, it put my PID in there so I can recognize it.
+    ! If I was created by any other means, I don't already have a proc_block.
+    !-
+    get_proc_by_pid_ (proc, .ppl$$gl_context[ctx_l_my_pid]);
+    if (.proc neq 0) then	!ppl$spawn created me, and initted my proc_block
+				!but i still have to init my ctx_block's index
+        ppl$$gl_context[ctx_l_my_index] = .proc[proc_l_index]
+
+    else			!i'm created somehow other than ppl$spawn
+	begin
+	ppl$$gl_context[ctx_l_my_index] = .ppl$$gl_pplsect[pplsect_w_procs];
+
+	incr_ (ppl$$gl_pplsect[pplsect_w_procs]);
+
+	create_proc_ (proc);
+	if (.proc leq 0) then 
+	    return ppl$_insvirmem;
+
+	proc[proc_l_pid] = .ppl$$gl_context[ctx_l_my_pid];
+	proc[proc_l_index] = .ppl$$gl_context[ctx_l_my_index];
+	end;
+
+    ppl$$gl_context[ctx_l_my_proc] = proc[base_];   !save local ptr to it
+
+    ppl$_normal
+
+end; !init_proc
+
+
+
+global routine ppl$create_application
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$CREATE_APPLICATION - Form or Join a PPL Application
+!
+!   This routine may be called explicitly by a process to form or join a PPL
+!   application.
+!
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    size_p  :	ref vector[1], 
+    appnam_p:	ref $bblock[dsc$c_s_bln],
+    prot_p  :	ref vector[1], 
+    flags_p :	ref vector[1]
+    ) = 
+!
+!             size
+!             VMS Usage: longword_unsigned
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Number of pages that PPL allocates for its internal data struc-
+!             tures. The size argument is the address of an unsigned longword
+!             containing this size value.
+!
+!
+!             appnam
+!             VMS Usage: char_string
+!             type:      character string
+!             access:    read only
+!             mechanism: by descriptor
+!
+!             The name of the application which this process is to form or join.
+!             The appnam is the address of a descriptor pointing to a character
+!             string containing the name of the application.
+!
+!
+!             prot
+!             VMS Usage: file_protection
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Numeric value representing the protection mask to be applied to
+!             the application. See the $CRMPSC system service for more informa-
+!             tion.
+!
+!
+!             flags
+!             VMS Usage: mask_longword
+!             type:      longword (unsigned)
+!             access:    read only
+!             mechanism: by reference
+!
+!             Bit mask specifying options for forming or joining a PPL appli-
+!             cation. The flags argument is a longword bit mask containing the
+!             flag(s). Valid values for flags are as follows:
+!             PPL$M_FORMONLY        Only form a new application, do not join an
+!                                   existing application. If this flag is not
+!                                   specified, a process will join an applica-
+!                                   tion if it already exists.
+!
+!             PPL$M_JOINONLY        Only join an existing application, do not
+!                                   form a new application. If this flag is not
+!                                   specified, a process will form an applica-
+!                                   tion if it does not already exist.
+!
+!             PPL$M_PERM            Form a permanent application in which data
+!                                   is maintained even though there are no
+!                                   active processes. By default, application
+!                                   data is lost when the last process in the
+!                                   application exits. Use of this flag requires
+!                                   PRMGBL privilege.
+!
+!             PPL$M_SYSGBL          Form a system-wide application. By default,
+!                                   the application is only available to pro-
+!                                   cesses running under the same group UIC. Use
+!                                   of this flag requires SYSGBL privilege.
+! 
+! IMPLICIT INPUTS:
+! 
+!   If not explicitly specified, the global section name
+!   The queue of memory sections
+!   
+! IMPLICIT OUTPUTS:
+! 
+!   The facility global section
+!   The queue of procs
+! 
+! COMPLETION CODES:
+! 
+!   
+!             PPL$_APPALREXI        The specified application already exists.
+!
+!             PPL$_INCOMPARG        Specified arguments are incompatibile with
+!                                   the existing appilcation.
+!
+!             PPL$_INVAPPNAM        Invalid application name or illegal charac-
+!                                   ter string.
+!
+!             PPL$_INSVIRMEM        Insufficient virtual memory available.
+!
+!             PPL$_INVARG           Invalid argument.
+!
+!             PPL$_FORMEDAPP        Formed a new application (success).
+!
+!             PPL$_JOINEDAPP        Joined an existing application (success).
+!
+!             PPL$_NONPIC           Cannot map shared memory to same addresses
+!                                   as other processes have mapped section.
+!
+!             PPL$_NOSUCHAPP        The specified application does not exist.
+!
+!             PPL$_WRONUMARG        Wrong number of arguments.
+!
+!             Any condition value returned by the system service $CRMPSC.
+!
+!
+! 
+! SIDE EFFECTS:
+! 
+!   Memory is created/mapped/allocated
+!   Lock requests a queued
+!   Etc.
+!
+! NOTE:
+!
+!   ppl$create_application now consists of eight routines, including this
+!   one, that perform the initialization process.  These routines, and
+!   their primary responsibilities, are:
+!
+!   ROUTINE			    RESPONSIBILITY
+!   -------			    --------------
+!   ppl$create_application	    ppl$$gl_context memory
+!   ppl_init2_applock		    Application lock	
+!   ppl_init3_namlock		    Name lock		
+!   ppl_init4_toplock		    Top lock		
+!   ppl_init5_pplsect		    ppl$$gl_pplsect memory
+!   ppl_init6_objects		    PPL objects		
+!   ppl$$alive	(ppltell.b32)	    Tell and Live locks	
+!   ppl$$reserve_shared_memory	    return status		
+!	    (-pplchoose.b32)
+!	    
+!   These routines call each other, serially, from the top to the bottom and
+!   then return to the top with the final status.  A critical region is entered
+!   within join_application and encompasses all lower routines.  The Top lock
+!   is grabbed within join_application and on normal execution the top lock
+!   is released before the final routine, ppl$$resere_shared_memory.  All other
+!   locks and responsibilities are managed within their routine, and upon
+!   bad status are handled (including the top lock) within the routine that
+!   they are originally acquired.
+!
+!--   
+
+
+    BEGIN   ! ppl$create_application
+
+
+    builtin
+	nullparameter,
+	actualcount;
+
+    literal
+	k_min_args  = 0,	! Minimum number of arguments
+	k_max_args  = 4,	! Maximum number of arguments
+	m_valid_flags = ppl$m_formonly or   ! Valid flags
+			ppl$m_joinonly or
+			ppl$m_perm or
+			ppl$m_nosave_proc_info or
+			ppl$m_ignore_exits or
+			ppl$m_system;
+
+    local
+	ctx	    : unsigned long,    ! Temporary, must remain
+	size	    : unsigned long,
+	appnam	    : $bblock [dsc$c_s_bln],
+	prot	    : unsigned long,
+	flags	    : unsigned long,
+	xstatus	    : unsigned long,
+	status	    : unsigned long,
+	ast_status  : unsigned volatile long,
+	top_flag    : unsigned volatile long,
+	mutex_flag  : unsigned volatile long,
+	mutex	    : unsigned volatile long;
+
+		
+    enable	! handler variables are initially zero from volatile def.
+	ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+	
+
+    debug_init_;
+    debug_msg_(0, '!_entering ppl$create_application');
+    debug_msg_(1, '!_entering ppl$create_application');
+
+
+    !+
+    ! Cleanse the parameters
+    !-
+    if (actualcount() lss k_min_args) or (actualcount() gtr k_max_args) then
+	return ppl$_wronumarg;
+
+
+    size = (if nullparameter (size_p) 
+	    then ppl$k_init_size
+	    else (if .size_p[0] lss ppl$k_init_size 
+		    then ppl$k_init_size
+		    else .size_p[0]));
+
+    if nullparameter(appnam_p) then
+	appnam[dsc_l_length] = 0	    ! Just making sure
+    else
+	begin
+	str$analyze_sdesc(appnam_p[base_], appnam[dsc_l_length],
+	    appnam[dsc$a_pointer]);
+	if .appnam[dsc$w_length] gtru ppl$k_max_name_len then
+	    return ppl$_invappnam;
+	end;
+
+    prot = (if nullparameter(prot_p) then   ! $CRMPSC will check "prot" for us
+		ppl_k_prot		    ! default value
+	    else
+		.prot_p[0]);
+
+    if nullparameter(flags_p) then
+	flags = 0
+    else
+	begin
+	flags = .flags_p[0];
+        if (.flags and not m_valid_flags) neq 0 then return ppl$_invarg;
+        if (.flags and ppl$m_joinonly) neq 0 and	! Illegal combination
+	    (.flags and ppl$m_formonly) neq 0 then	!  of options
+	    return ppl$_invarg;
+	end;
+
+    !+
+    ! Try to prevent errors from arising from calls to PPL$CREATE_APPLICATION
+    ! when the context area has already been allocated.
+    !-
+    if ppl$$gl_context[base_] neq 0 then
+	!+
+	! This process is already initialized, check to make sure that the
+	! application parameters which it is requesting are compatible with the
+	! existing application.  If they are, then return normally as though
+	! we did just "create" (ie, join) the application.  Otherwise, return
+	! PPL$_INCOMPARG.
+	!-
+	begin
+
+
+	debug_msg_(2, %string('Index: !UL, (ppl$create_application) ',
+		    'already initialized.'), .ppl$$gl_context[ctx_l_my_index]);
+
+	confirm_(ppl$$gl_pplsect[base_] neqa 0);
+
+	if not nullparameter(size_p) then
+	    if .size * %uppage neq .ppl$$gl_pplsect[pplsect_l_size] then
+		return ppl$_incomparg;
+
+	if not nullparameter(prot_p) then
+	    if .prot neq .ppl$$gl_pplsect[pplsect_l_prot] then
+		return ppl$_incomparg;
+
+	if not nullparameter(flags_p) then
+	    if (.flags and not (ppl$m_joinonly or ppl$m_formonly)) neq
+		    .ppl$$gl_pplsect[pplsect_l_mem_flags] then
+		return ppl$_incomparg;
+
+	if not nullparameter(appnam_p) then
+	    begin
+	    local
+		exnam : $bblock [dsc$c_s_bln];
+		
+	    exnam[dsc_l_length] = .app_lksb[app_l_name_len];
+	    exnam[dsc$a_pointer] = app_lksb[app_a_name_buf];
+
+	    if str$compare_eql(appnam[base_], exnam[base_]) then
+		return ppl$_invarg;
+	    end;
+
+	! The specified parameters are compatible
+	return (if .ppl$$gl_context[ctx_l_my_index] eql 0
+		then ppl$_formedapp	! We originally formed this application
+		else ppl$_joinedapp);	! We originally joined this application
+	end;
+
+    debug_msg_(2, %string('!_(ppl$create_application)  size = %X!XL, ',
+				'prot = !XW, !/!_!_name = "!AS", flags = !XL'),
+		    .size, .prot, appnam[base_], .flags);
+
+    !+    
+    ! Allocate a context block.
+    !-
+    status = lib$get_vm (%ref(ctx_s_bln), ctx);
+    if not .status then 
+	return ppl$_insvirmem;
+
+    ppl$$gl_system = (if (.flags and ppl$m_system) neq 0
+			then lck$m_system
+			else 0);
+
+    ch$fill (0, ctx_s_bln, .ctx);
+    
+    ! +
+    !  Setting top_flag to -1 informs the handler 
+    !  we will/do have the top lock.
+    ! -
+    top_flag = -1;
+    ppl$$gl_context = .ctx;
+
+    !+
+    ! Get an event flag for this process to use.
+    !-
+
+    status = lib$get_ef (ppl$$gl_context[ctx_l_ef]);
+    if (not .status) then 
+	ppl$$gl_context[ctx_l_ef] = 0;
+
+    status = ppl_init2_applock (.size, appnam[base_], .prot, .flags);
+    if not .status then
+	begin
+	    ppl$$gl_context = 0;		    ! free context area
+	    lib$free_vm (%ref(ctx_s_bln), ctx);
+	end;
+
+    return .status;
+
+    END;    ! ppl$create_application
+
+
+%SBTTL 'Init2_handler --  Handles signals from ppl_init2_applock'
+ROUTINE init2_handler
+!
+! FORMAL PARAMETERS:
+! 
+    (
+	sigvec:	ref $bblock,	! Signal vector
+	mchvec:	ref $bblock,	! Mechanism vector
+	enavec:	ref vector	! Enable vector
+    ) =
+!
+! COMPLETION CODES:
+! 
+!   The condition code which was signalled.
+! 
+!--
+    BEGIN
+
+    debug_msg_(12, 'Index: !SL, (Init2_handler) status = !XL', 
+		    (if .ppl$$gl_context[ctx_v_initialized]
+		     then .ppl$$gl_context[ctx_l_my_index]
+		     else -1),
+		    .sigvec[chf$l_sig_name]);
+
+    !+
+    !   If unwinding do the following for PPL_INIT2_APPLOCK
+    !-
+
+    if .sigvec[chf$l_sig_name] eqlu ss$_unwind then
+	begin
+	    $deq(lkid= .app_lksb[lksb_l_lockid]);    ! Free the app-lock
+	    return ss$_normal;
+	end
+    else
+	return ss$_resignal;
+
+    end;    ! Init2_handler
+
+
+global routine ppl_init2_applock 
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    size:	unsigned long, 
+    appnam:	ref $bblock[dsc$c_s_bln],
+    prot:	unsigned long, 
+    flags:	unsigned long
+    ) = 
+!+
+! Note1:   This routine is the second of eight routines used in the
+!		initialization process.  This routine creates a lock
+!		which future subprocesses can grab to find the name of
+!		the application.  In the process, find or choose the
+!		name, if we didn't get it from the user.
+!
+! Resonsibility:  Application lock.  Upon bad status from lower routines this
+!		routine must hand the application lock.
+!
+! Note2:  if this is an anonymous application, ppl$$get_app_lock will call
+!		ppl$unique_name to get an application name.  This call occurs
+!		before the call to ppl$$set_application_number can set the
+!		application number properly.  Thus, when
+!		ppl$$set_application_number is called, it will overwrite the
+!		value in the static variable, application_number.  All of this
+!		is OK.  It just results in the application name containing a
+!		number which is different from the application number.
+!		C'est la vie.
+!-
+begin
+local
+    status	: unsigned long;
+
+enable	
+    init2_handler;
+
+    status = ppl$$get_app_lock(appnam[base_], .flags);
+    if not .status then 
+	return .status;
+
+    
+    ppl$$gl_system = (if .app_lksb[app_v_system] 
+			then 
+			    lck$m_system
+			else 
+			    0);
+
+    status = ppl_init3_namlock(.size, appnam[base_], .prot, .flags);
+    if not .status then
+	ppl_signal_(.status);
+
+    
+
+    return .status;    
+
+END;    ! ppl_init2_applock 
+
+
+%SBTTL 'Init3_handler --  Handles signals from ppl_init3_namlock'
+ROUTINE init3_handler
+!
+! FORMAL PARAMETERS:
+!
+    (
+        sigvec: ref $bblock,    ! Signal vector
+        mchvec: ref $bblock,    ! Mechanism vector
+        enavec: ref vector      ! Enable vector
+    ) =
+!
+! COMPLETION CODES:
+!
+!   The condition code which was signalled.
+!
+!--
+    BEGIN
+
+
+    debug_msg_(12, 'Index: !SL, (Init3_handler) status = !XL',
+                    (if .ppl$$gl_context[ctx_v_initialized]
+                     then .ppl$$gl_context[ctx_l_my_index]
+                     else -1),
+                    .sigvec[chf$l_sig_name]);
+    !+
+    !   If unwinding do the following for PPL_INIT3_NAMLOCK
+    !-
+
+    if .sigvec[chf$l_sig_name] eqlu ss$_unwind then
+	begin
+	    $deq(lkid= .name_lksb[lksb_l_lockid]);
+	    return ss$_normal;
+	end
+    else
+        return ss$_resignal;
+
+    end;    ! Init3_handler
+
+
+global routine ppl_init3_namlock
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+! 
+! FORMAL PARAMETERS:
+! 
+    (
+    size:	unsigned long, 
+    appnam:	ref $bblock[dsc$c_s_bln],
+    prot:	unsigned long, 
+    flags:	unsigned long
+    ) = 
+!
+! Note:  This routine is the third of eight routines in the initialization
+!	    process.
+!
+! Resonsibility: Name lock.  This routine is responsible for managing the
+!	    name lock.
+!
+! We need the number for the current application with this name.
+! (We don't care what it is, it's stored elsewhere in static storage.)
+!-
+
+begin
+local
+    status	: unsigned long,
+    xstatus	: unsigned long;
+
+enable	    
+    init3_handler;
+
+
+    ! This routine obtains the name_lock.  When it returns, we are still
+    ! holding the lock.  If the status return is bad, we assume that we were
+    ! unable to get the name lock, so we need not $DEQ it.
+    xstatus = ppl$$set_application_number(appnam[base_]);
+    if not .xstatus then
+	return .xstatus;
+
+    !+
+    ! Based on whether this is the forming (a.k.a. "top") process and the
+    ! FORMONLY/JOINONLY flags, determine if we should continue.  If we determine
+    ! to exit, we don't bother checking status returns...just do it and get out
+    !
+    ! The way this works out is this:  If the name lock exists already, then
+    ! this process is joining.  However, since the application global sections
+    ! can outlast the application processes (and therefore the top-lock), we
+    ! can't say for sure whether this process is forming a new application if
+    ! there is currently no top-lock.
+    !-
+    if .xstatus eqlu ppl$_joinedapp then
+	begin	! We are a joining process
+	if (.flags and ppl$m_formonly) neq 0 then
+	    ppl_signal_(ppl$_appalrexi);            ! We are supposed to be 
+	end
+    else
+!***
+!
+! Problem:  If the application is permanent, but there are currently no
+!    participants, a process specifying PPL$M_JOINONLY will be told
+!    PPL$_NOSUCHAPP when the application *does* exist, there's just no
+!    name-lock for it.  The problem is, in order to find out if the application
+!    does exist, we have to create it (ironic, no?) and check the return from
+!    $CRMPSC.  If we do create it when we only want to join it, then we have to
+!    delete it and clean alot more up than if we bug out now...
+!
+! Translation:  Processes attempting to join a permanent application
+!    specifying the PPL$M_JOINONLY flag when there are currently no
+!    participants in the application will incorrectly receive PPL$_NOSUCHAPP
+!    instead of properly joining.
+!
+! Workaround:  Join without the PPL$M_JOINONLY flag, check if the process
+!    index is zero, and leave if it is.
+!
+!*** 
+	begin	! We probably are the forming process
+	if (.flags and ppl$m_joinonly) neq 0 and (.flags and ppl$m_perm) eql 0 
+	    then
+	    !+
+	    ! We are only supposed to JOIN an application, but none currently
+	    ! exists, so cleanup and exit with an error
+	    !-
+	    ppl_signal_(ppl$_nosuchapp);
+
+	end;
+
+    !+
+    ! Join the application - map & init pplsect, init_process_info,
+    ! indicate that I'm alive, and map vm zones.
+    !-
+    xstatus = ppl_init4_toplock (.size, .prot, .flags);
+    if not .xstatus then
+	ppl_signal_(.xstatus);
+
+    !+
+    ! We're holding a name-lock, release it
+    ! (regardless of the return from Join_Application)
+    !-
+    debug_msg_(4, 'Index: !UL, (ppl$create_application) releasing name-lock',
+		    .ppl$$gl_context[ctx_l_my_index]);
+
+    status = $enq (			! No need to wait
+	efn=	.ppl$$gl_context[ctx_l_ef],
+	lkmode=	lck$k_nlmode,		! No lock
+	lksb=	name_lksb[base_],
+	flags=	lck$m_valblk or		! We want a value block
+		lck$m_convert or 	! Just converting
+		.ppl$$gl_system,	! Possibly system-wide
+	acmode=	psl$c_user);
+    if .status then status = .name_lksb[lksb_w_status];
+    if not .status then 
+	ppl_signal_(.status);
+
+    !+
+    ! I'm in now - watch for init_synch.
+    !-
+    if .xstatus eqlu ppl$_joinedapp then
+        begin	    !children use the barrier provided by their parent
+	bind proc = .ppl$$gl_context[ctx_l_my_proc] : proc_block;
+
+    
+	if .proc[proc_l_init_bar] nequ 0 then
+	    begin
+	    debug_msg_(2, %string('Index: !UL, (ppl$create_application) ',
+		    'waiting at init barrier #!XL'),
+		    .ppl$$gl_context[ctx_l_my_index], .proc[proc_l_init_bar]);
+    
+	    status = ppl$wait_at_barrier (proc[proc_l_init_bar]);
+	    if not .status then ppl_signal_(.status);
+
+    
+	    end;
+	end;
+
+    debug_msg_(0, 'Index: !UL, (ppl$create_application) !AD complete.',
+    		    .ppl$$gl_context[ctx_l_my_index], 4, 
+		    %ref(if .xstatus eqlu ppl$_joinedapp
+					    then 'join'
+					    else 'form'));
+    return .xstatus;
+
+    END;    ! ppl_init3_namlock
+
+
+%SBTTL 'Init4_handler --  Handles signals from ppl_init4_toplock'
+ROUTINE init4_handler
+!
+! FORMAL PARAMETERS:
+!
+    (
+        sigvec: ref $bblock,    ! Signal vector
+        mchvec: ref $bblock,    ! Mechanism vector
+        enavec: ref vector      ! Enable vector
+    ) =
+!
+! COMPLETION CODES:
+!
+!   The condition code which was signalled.
+!
+!--
+    BEGIN
+
+    local
+        ast_status  : unsigned long,    ! Determines if ASTs need reenabling
+        top_flag    : unsigned long,    ! Determines if top lock needs $deqing
+        status      : unsigned long;
+
+
+    debug_msg_(12, 'Index: !SL, (Init4_handler) status = !XL',
+                    (if .ppl$$gl_context[ctx_v_initialized]
+                     then .ppl$$gl_context[ctx_l_my_index]
+                     else -1),
+                    .sigvec[chf$l_sig_name]);
+
+    ast_status  = ..enavec[1];
+    top_flag    = ..enavec[2];
+
+    !+
+    !   If unwinding do the following for PPL_INIT2_APPLOCK
+    !-
+
+    if .sigvec[chf$l_sig_name] eqlu ss$_unwind then
+	begin
+	    if (.ast_status eql ss$_wasset) then
+		$setast (enbflg=true);
+	    if .top_flag then
+		release_top_lock_(status);
+
+	    return ss$_normal;
+	end
+    else
+        return ss$_resignal;
+
+    end;    ! Init4_handler
+
+
+
+routine ppl_init4_toplock (
+	pages:	unsigned long,
+	prot:	unsigned long,
+	flags:	unsigned long
+	) =
+!++
+!
+! Note: This routine is the fourth of eight routines in the intialization
+!	    process.  This routine disables ASTs for all following
+!	    routines as well as manages the top-lock
+!
+! Responsibility: Top-lock.  This routine is responsible for letting go
+!	    of the top-lock ONLY upon Bad status.  Otherwise, the top-lock
+!	    is let go within ppl$$alive.
+!
+! Join the application (if we have not already).
+!
+! Note that this routine is NOT AST re-entrant,
+! since process-level code can lock out AST code,
+! and the AST will never complete (either a hung
+! process, or deadlock will be detected at AST level).
+!
+! Also, we assume that the process can only be part of one application.
+! That is, the application parameter is used only for the first successful
+! call to this routine.
+!
+!--
+    begin	!ppl_init4_toplock
+
+    local
+	lcknam	    : $bblock [dsc$c_s_bln],	! Top-lock's non-unique name
+	lckbuf	    : $bblock [32],		! Its (TL n-u) buffer
+	lckuni	    : $bblock [dsc$c_s_bln],	! Top-lock's unique name
+	lname_buffer: $bblock [32],		! Its (TL) buffer
+	my_pid	    : unsigned long,
+	status	    : unsigned long,
+	ast_status  : unsigned volatile long,	! Used in critcal-region macros
+        top_flag    : unsigned volatile long;
+
+    enable	
+        Init4_handler(ast_status, top_flag);
+
+    !+
+    ! Create the standard name of the top lock, and then get it.
+    !-
+    ch$copy(ch$rchar(x_top_lock),	ch$plus(x_top_lock, 1),
+	    .app_lksb[app_l_name_len],	app_lksb[app_a_name_buf],
+	    0, %allocation(lckbuf),	lckbuf[base_]);
+
+    lcknam[dsc_l_length] = ch$rchar(x_top_lock) + .app_lksb[app_l_name_len];
+    lcknam[dsc$a_pointer] = lckbuf[base_];
+
+    lckuni[dsc_l_length] = %allocation (lname_buffer);
+    lckuni[dsc$a_pointer] = lname_buffer[base_];
+
+    status = ppl$unique_name (lcknam[base_], lckuni[base_],
+							lckuni[dsc$w_length]);
+    if not .status then return .status;
+
+    
+
+    debug_msg_(5, '!_(join_application) Getting top-lock "!AS"', 
+		    lckuni[base_]);
+
+    enter_critical_region_; ! Brook no interruptions
+
+    !+
+    ! If we were already initialized (by an AST), return now.
+    !-
+    if .ppl$$gl_context[ctx_v_initialized] then
+	begin
+	leave_critical_region_;
+	return ss$_normal;
+	end;    
+
+    top_flag = 1;   
+
+    status = $enqw (
+	efn=	.ppl$$gl_context[ctx_l_ef],
+	lkmode=	lck$k_pwmode,		! Write, allowing readers
+	lksb=	top_lksb[base_],
+	flags=	lck$m_valblk or		! Get a value block
+		.ppl$$gl_system,	! Possibly system-wide
+	resnam= lckuni[base_],		! The lock name
+	parid=	0,
+	astadr=	0,
+	astprm=	0,
+	blkast=	0,
+	acmode=	psl$c_user);
+
+    if .status then status = .top_lksb[lksb_w_status];
+    
+    if (not .status) 
+    then
+	begin
+	top_flag = 0;
+	return signal (ppl$_syserror, 0, .status, 0);
+	end;
+
+    !+
+    ! Allocate ourselves an index.
+    !-
+    ppl$$gl_context[ctx_l_my_pid] = ppl$$get_my_pid ();
+    if (.top_lksb[top_l_pages] eql 0) then
+	top_lksb[top_l_pages] = .pages;	! We decide the number of pages
+
+    if (.pages gtr .top_lksb[top_l_pages]) then
+	ppl_signal_(ppl$_incomparg);
+
+    status = ppl_init5_pplsect (.prot, .flags);
+    if not .status then
+	ppl_signal_(.status);
+
+    !+
+    ! Note:  This critical region is meant to encompass the use of 
+    !	     the TOP lock which is relesed by ppl$$alive, a number
+    !	     of routine calls away in join_app2.  The enabling of
+    !	     ASTs is done here for the sake of clarity.
+    !-
+
+    leave_critical_region_;  ! Enable ASTs
+
+    return .status;
+
+end; ! ppl_init4_toplock
+
+
+
+
+%SBTTL 'Init5_handler --  Handles signals from ppl_init5_pplsect'
+ROUTINE init5_handler
+!
+! FORMAL PARAMETERS:
+!
+    (
+        sigvec: ref $bblock,    ! Signal vector
+        mchvec: ref $bblock,    ! Mechanism vector
+        enavec: ref vector      ! Enable vector
+    ) =
+!
+! COMPLETION CODES:
+!
+!   The condition code which was signalled.
+!
+!--
+BEGIN
+
+    local
+        gsdnam	    : unsigned long,    
+        cflags	    : unsigned long,    
+        lenadr	    : unsigned long,    
+	cstatus	    : unsigned long,
+        status      : unsigned long;
+
+
+    debug_msg_(12, 'Index: !SL, (PPL$$Condition_Handler) status = !XL',
+                    (if .ppl$$gl_context[ctx_v_initialized]
+                     then .ppl$$gl_context[ctx_l_my_index]
+                     else -1),
+                    .sigvec[chf$l_sig_name]);
+
+    gsdnam	= ..enavec[1];
+    cflags      = ..enavec[2];
+    lenadr	= ..enavec[3];
+    cstatus	= ..enavec[4];	    
+
+    !+
+    !   If unwinding do the following for PPL_INIT5_PPLSECT
+    !-
+
+    if .sigvec[chf$l_sig_name] eqlu ss$_unwind then
+	begin
+	    if .cstatus eql ss$_created then
+		$dgblsc(gsdnam = gsdnam,
+			flags  = .cflags and sec$m_sysgbl);
+
+	    if not .cstatus then
+	    if lenadr neq 0 then
+		$deltva(inadr  = lenadr,	! Remove PPLSECT from memory
+			acmode = psl$c_user);
+	    return ss$_normal;
+	end
+    else
+        return ss$_resignal;
+    
+end;    ! Init5_handler
+                                                                           
+
+
+
+routine ppl_init5_pplsect (
+	prot:	unsigned long,
+	flags:	unsigned long
+	) =
+!
+! Note: This routine is the fifth of eight routines that make up the
+!	    initialization process.  This entire routine falls under a
+!	    critical region, when called by join_application, as well
+!	    as the top lock.
+!
+! Responsibility: PPLSECT.  This routine is responsible for getting, and
+!	    clearing upon bad status, the PPLSECT.
+!
+!
+! Join the application (if we have not already).
+!
+! Also, we assume that the process can only be part of one application.
+! That is, the application parameter is used only for the first successful
+! call to this routine.
+!
+
+    begin	! ppl_init5_pplsect
+
+    local
+	gsdnam	    : $bblock [dsc$c_s_bln],	! Global section name
+	gsname_buf  : $bblock [16],		! Its (GS) buffer
+	lenadr	    : vector[2],
+	cflags	    : unsigned volatile long,	! $CRMPSC flags
+	cstatus	    : unsigned volatile long,	! $CRMPSC status
+	gsdtemp	    : unsigned volatile long,
+	lentemp	    : unsigned volatile long,
+	itmlst	    : $itmlst_decl (items=2),
+	pagesize    : unsigned volatile long,
+	sectsize    : unsigned volatile long,
+	status	    : unsigned long;
+
+
+    enable
+	init5_handler(gsdtemp, cflags, lentemp, cstatus);
+
+
+    lenadr[0] = 0;
+    gsdtemp = gsdnam[base_];
+    lentemp = lenadr[0];
+
+    !+
+    ! Create the PPL global section.
+    !-
+
+    ! Its a global section, with demand zero pages (ie zero the pages), it's
+    ! backed to the pagefile (instead of a disk file), and it's writeable.
+    ! Finally create the section by extending memory.
+    cflags = sec$m_gbl or sec$m_dzro or sec$m_pagfil or sec$m_wrt or sec$m_expreg;
+
+    ! If the user requested system-wide or permanent section add that
+    if (.flags and ppl$m_system) nequ 0 then cflags = .cflags or sec$m_sysgbl;
+    if (.flags and ppl$m_perm)   nequ 0 then cflags = .cflags or sec$m_perm;
+    
+    ! Construct the name, a la PPL$«app_name»
+    ch$copy(ch$rchar(x_facnam),		ch$plus(x_facnam, 1),
+	    .app_lksb[app_l_name_len],	app_lksb[app_a_name_buf],
+	    0, %allocation(gsname_buf),	gsname_buf[base_]);
+
+    gsdnam[dsc_l_length] = ch$rchar(x_facnam) + .app_lksb[app_l_name_len];
+    gsdnam[dsc$a_pointer] = gsname_buf[base_];
+
+    lenadr[0] = 0;		    ! Any P0 address will do.
+    lenadr[1] = .lenadr[0];	    ! Same address
+
+    sectsize = .top_lksb[top_l_pages];
+
+    !+
+    ! Creation of memory protected by critical region entered above. 
+    !-
+    cstatus = $crmpsc (
+		 inadr  = lenadr[0],	    ! A trashable input.
+		 retadr = lenadr[0],	    ! Output, the actual address range
+		 acmode = psl$c_user,	    ! PPL is user-mode only
+		 flags  = .cflags,	    ! Options
+		 gsdnam = gsdnam[base_],    ! Application name
+		 chan   = 0,		    ! Required for Pagefile Section
+		 pagcnt = .sectsize,	    ! Number of page(let)s to map
+		 prot   = .prot);	    ! Protection mask for the global sec
+
+    
+
+    if not .cstatus 
+    then
+	begin
+	debug_msg_(9, '!_(join_application) $CRMPSC for PPLSECT failed, status = !XL.', 
+		    .cstatus);
+	return .cstatus;
+    	end;
+	
+    ! Grab the address of the start of the section.
+    ppl$$gl_pplsect = .lenadr[0];
+    debug_msg_(9, '!_(join_application) PPLSECT mapped at !XL.', 
+		    .ppl$$gl_pplsect);
+
+%if EVAX
+%then
+    !+
+    ! This is the first point in a PPL application where the
+    ! system page size is of concern.  On EVMS all PPL stored memory
+    ! values will be represented as the number of 512 byte pages,
+    ! or the actual number of bytes.  At a point where the actual
+    ! system pages are needed they will be calculated with the stored
+    ! values and the system page size we are about to get...
+    !-
+
+    $itmlst_init(itmlst = itmlst,
+        (bufsiz=4, itmcod=syi$_page_size, bufadr=pagesize));
+
+    status = $getsyiw(itmlst = itmlst);
+    if not .status then return signal_stop (ppl$_syserror, 0, .status);
+
+    ppl$$gl_pplsect[pplsect_l_page_size] = .pagesize;
+
+    top_lksb[top_l_pages] = (round_((.top_lksb[top_l_pages] * %uppage),
+                        .ppl$$gl_pplsect[pplsect_l_page_size])) / 512;
+
+%fi
+
+    !+
+    ! If we created the section, it's our responsibility to initialize it.
+    ! The 'lock' for this critical section of code is simply the top lock.
+    !-
+
+    if .cstatus eql ss$_created then
+	begin
+	literal default_max_procs = 1024;
+
+	if (.flags and ppl$m_joinonly) nequ 0 then
+	    ppl_signal_(ppl$_nosuchapp);
+	    
+!	ch$fill (0, pplsect_s_bln, ppl$$gl_pplsect[base_]);
+	ppl$$gl_pplsect[pplsect_l_type] = ppl$k_pplsect;
+	ppl$$gl_pplsect[pplsect_l_size] = .top_lksb[top_l_pages] * %uppage;
+	ppl$$gl_pplsect[pplsect_l_prot] = .prot;
+	ppl$$gl_pplsect[pplsect_l_mem_flags] = .flags and not (ppl$m_joinonly or
+						ppl$m_formonly);
+	    ! The application name is stored in the context area, in the
+	    !	app-lock value block.
+	
+	ppl$$init_bitmap ();
+
+
+	end
+    else
+	begin
+	if (.flags and ppl$m_formonly) nequ 0 then
+	    ppl_signal_(ppl$_appalrexi);
+	end;
+
+    !+
+    ! Bump the number of participating processes.
+    ! Create (if necessary) and init the proc_block - per process info.
+    ! Set the alive bit.
+    ! The process now gets a vote.
+    ! We needn't invalidate everything the process may've voted for --
+    ! it hasn't voted on anything yet.
+    !-
+
+    
+
+    status = init_proc();			    !also sets ctx_l_my_index,
+    if not .status then ppl_signal_(.status); 	    !for use in next line here
+
+    
+    ppl$$gl_context[ctx_l_next_index] = (.ppl$$gl_context[ctx_l_my_index] + 1)
+					mod .ppl$$gl_pplsect[pplsect_w_procs];
+    if (.ppl$$gl_context[ctx_l_next_index] eql .ppl$$gl_context[ctx_l_my_index])
+	then	    !I'm pointing to myself
+	ppl$$gl_context[ctx_l_next_index] = (.ppl$$gl_context[ctx_l_next_index]
+				+ 1) mod .ppl$$gl_pplsect[pplsect_w_procs];
+
+    
+    status = ppl_init6_objects (.cstatus);
+    if .status then
+	begin
+	if .cstatus eqlu ss$_created then 
+	    status = ppl$_formedapp
+	else 
+	    status = ppl$_joinedapp;
+	end  
+    else
+	ppl_signal_(.status);
+
+    
+    return .status;
+
+end; ! ppl_init5_pplsect
+
+
+
+routine ppl_init6_objects (
+	cstatus:    unsigned long
+	) =
+!
+! Note: This routine is the sixth of eight routines that make up the
+!		initializtion process. This routine is NOT AST re-entrant,
+!		since process-level code can lock out AST code, and the
+!		AST will never complete (either a hung process, or deadlock
+!		will be detected at AST level).  This routine falls under
+!		the Top lock.
+!
+! Responsibility: PPL objects.  Responsible for creating, and destroying upon
+!		bad status, PPL objects.
+!
+! Also note, we assume that the process can only be part of one application.
+! That is, the application parameter is used only for the first successful
+! call to this routine.
+!
+! Join the application (if we have not already).
+!
+
+    begin	! ppl_init6_objects 
+
+    local
+	status	    : unsigned long;
+
+
+    !+
+    ! The original participant creates the init-sync barrier and the PPL-defined
+    ! events.
+    !-
+    if .cstatus eqlu ss$_created then
+     begin
+     local
+	sdesc   :	$bblock[dsc$c_s_bln];
+
+
+     !+
+     ! If upon application creation the user specifies PPL$M_IGNORE_EXITS
+     ! we will postpone creation and management of the "normal exit event"
+     ! and the "abnormal exit event."  If this flag is not present we 
+     ! create the events here and trigger them as appropriate.
+     !-
+
+     if (.ppl$$gl_pplsect[pplsect_l_mem_flags] and ppl$m_ignore_exits) eql 0
+        then begin
+	sdesc[dsc_l_length] = %charcount(x_normal_exit_event);
+	sdesc[dsc$a_pointer] = uplit byte(x_normal_exit_event);
+    	status = ppl$create_event (ppl$$gl_pplsect[pplsect_l_normal_exit_ev],
+    				    sdesc[base_]);
+        if not .status then return .status;
+	
+	sdesc[dsc_l_length] = %charcount(x_abnormal_exit_event);
+	sdesc[dsc$a_pointer] = uplit byte(x_abnormal_exit_event);
+    	status = ppl$create_event (ppl$$gl_pplsect[pplsect_l_abnormal_exit_ev],
+    				    sdesc[base_]);
+	if not .status then return .status;
+	end;
+
+     sdesc[dsc_l_length] = %charcount(x_mem_arb_barrier);
+     sdesc[dsc$a_pointer] = uplit byte(x_mem_arb_barrier);
+     status = ppl$create_barrier (ppl$$gl_pplsect[pplsect_l_arb_barr],
+    				    sdesc[base_]);
+     if not .status then return .status;
+     end;
+	
+    !+
+    ! The remaining two routines in the initialization process are
+    ! PPL$$ALIVE, shown called below.  And, PPL$$RESERVE_SHARED_MEMORY
+    ! which is called within PPL$$ALIVE.
+    !
+    ! Others will want to send us messages, and will want to know
+    ! when we die (macabre, eh?).  Set this all up.
+    ! get alive locks, set up exit handler
+    !-
+    status = ppl$$alive(); 
+
+    return .status;
+
+end; !ppl_init6_objects 
+
+
+
+global routine ppl$delete_application =              
+!++
+! FUNCTIONAL DESCRIPTION:
+! 
+!   PPL$DELETE_APPLICATION - Delete a PPL Application
+!
+!   The Delete a PPL Application routine marks the PPL internal data area for
+!   deletion, as well as all shared sections, and prevents additional processes
+!   from joining the application.
+!
+!
+! FORMAL PARAMETERS:
+! 
+!   none.
+! 
+! IMPLICIT INPUTS:
+! 
+!   The facility global section
+!   The queue of global sections
+! 
+! IMPLICIT OUTPUTS:
+! 
+!   None
+! 
+! COMPLETION CODES:
+! 
+!   PPL$_NORMAL           Normal successful completion.
+!
+!   Any condition value returned by the system service $DGBLSC.
+!
+! 
+! SIDE EFFECTS:
+! 
+!   None.
+!--
+
+    BEGIN   ! ppl$delete_application
+
+    local
+	gsdnam	    : $bblock[dsc$c_s_bln],
+	gsdnam_buf  : $bblock[16],
+	lock_fao    : $bblock[dsc$c_s_bln],
+	lock_name   : $bblock[dsc$c_s_bln],
+	lock_buf    : $bblock[32],
+	trash_lksb  : $bblock[app_s_bln] field(lksb_fields, app_fields),
+	start	    : unsigned long,
+	proc	    : ref proc_block,
+	flags	    : unsigned long,
+	status	    : unsigned long,
+	sav_status  : unsigned long,
+        ast_status  : unsigned volatile long,
+        top_flag    : unsigned volatile long,
+        mutex_flag  : unsigned volatile long,
+        mutex       : unsigned volatile long,
+	sect_start  : ref sect_block,
+	sect	    : ref sect_block,
+	sect_gsdnam : $bblock[dsc$c_s_bln];
+
+
+    enable  ! handler variables are initially zero from volatile def.
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+	
+    !+
+    ! Process must already be initialized
+    !-
+    if ppl$$gl_pplsect[base_] eql 0 then return ppl$_noinit;
+
+    !+
+    ! Check if the application is already deleted.
+    ! 
+    ! This is to prevent wrongful trashing of lock value blocks.
+    !-
+    if testbitssi(ppl$$gl_pplsect[pplsect_v_deleted]) then return ppl$_normal;
+
+    !+
+    ! Construct the global section name, a la PPL$«app_name», before trashing
+    ! the app-locks.
+    !-
+    ch$copy(ch$rchar(x_facnam),		ch$plus(x_facnam, 1),
+	    .app_lksb[app_l_name_len],	app_lksb[app_a_name_buf],
+	    0, %allocation(gsdnam_buf),	gsdnam_buf[base_]);
+
+    gsdnam[dsc_l_length] = ch$rchar(x_facnam) + .app_lksb[app_l_name_len];
+    gsdnam[dsc$a_pointer] = gsdnam_buf[base_];
+
+    !+
+    ! Invalidate all the processes' app-lock value blocks.
+    !	
+    ! This prevents new processes from finding the application name;  any new
+    ! processes which already have the name proceded normally (at this time).
+    !-
+    lock_fao[dsc_l_length]  = %charcount(%string(ppl_x_appl_num, '_!XL'));
+    lock_fao[dsc$a_pointer] = uplit byte(%string(ppl_x_appl_num, '_!XL'));
+
+    lock_name[dsc_l_length]  = %allocation(lock_buf);
+    lock_name[dsc$a_pointer] = lock_buf;
+
+    start = ppl$$gl_pplsect[pplsect_q_procs] - %fieldexpand_(proc_l_procs_f,0);
+    proc = first_sr_ (.start, proc_l_procs_f);
+    while proc[base_] neq .start do
+        begin
+	lock_name[dsc_l_length] = %allocation(lock_buf);
+	status = $fao(lock_fao, lock_name[dsc$w_length], lock_name,
+			    .proc[proc_l_pid]);
+	if not .status then 
+	    signal (ppl$_syserror, 0, .status, 0);
+
+	! Get the app-lock
+	status = $enqw (
+		efn	= .ppl$$gl_context[ctx_l_ef],
+		lkmode	= lck$k_pwmode,
+		lksb	= trash_lksb[base_],
+		resnam	= lock_name,
+		flags	= .ppl$$gl_system,	! Possibly system-wide
+		acmode	= psl$c_user);
+	if .status then status = .trash_lksb[lksb_w_status];
+	if not .status then 
+	    signal (ppl$_syserror, 0, .status, 0);
+
+	! Zero the app-lock value block
+	ch$fill (0, lksb_s_valblk, trash_lksb[app_l_name_len]);
+
+	! Write the zero'd value block back
+	status = $enqw (
+		efn	= .ppl$$gl_context[ctx_l_ef],
+		lkmode	= lck$k_nlmode,
+		lksb	= trash_lksb[base_],
+		flags	= lck$m_valblk or	! Write value block
+			  lck$m_convert or 	! Just converting
+			  .ppl$$gl_system,	! Possibly system-wide
+		acmode	= psl$c_user);
+	if .status then status = .trash_lksb[lksb_w_status];
+	if not .status then
+	    signal (ppl$_syserror, 0, .status, 0);
+
+	proc = next_sr_ (proc[base_], proc_l_procs_f);
+	end;
+
+    !+
+    ! Zero the application name-lock value block
+    !
+    ! This keeps processes from finding *this* instance of the application.
+    !-
+    debug_msg_(4, 'Index: !UL, (ppl$delete_application) zeroing name-lock', 
+		    .ppl$$gl_context[ctx_l_my_index]);
+    status = $enqw (
+		efn	= .ppl$$gl_context[ctx_l_ef],
+		lkmode	= lck$k_exmode,
+		lksb	= name_lksb[base_],
+		flags	= lck$m_convert or 	! Just converting
+			  .ppl$$gl_system,	! Possibly system-wide
+		acmode = psl$c_user);
+    if .status then status = .name_lksb[lksb_w_status];
+    if not .status then
+	    signal (ppl$_syserror, 0, .status, 0);
+
+    !+
+    ! Seize the top-lock
+    ! 
+    ! This prevents any processes from spawning or initializing while we
+    ! "delete" the section.
+    !
+    ! Note that the top-lock and name-lock should be seized in the proper order
+    ! to prevent possible deadlocks.
+    !-
+
+    !+
+    ! Loop; enter critical region, try to get the top lock, if you
+    ! do not get it - exit critical region (to give ast time to come
+    ! in) and try again, if you do get it - set status and exit loop
+    ! continuing in critical region.
+    !-
+
+    status = ss$_notqueued;
+    while .status eql ss$_notqueued do
+	begin
+	enter_critical_region_;  ! disable asts
+	status = $enq (                     ! Wait if necessary
+	    efn=    .ppl$$gl_context[ctx_l_ef],
+	    lkmode= lck$k_pwmode,           ! Write, allowing readers
+	    lksb=   top_lksb[base_],
+	    flags=  lck$m_valblk or         ! We want a value block
+		    lck$m_convert or        ! Just converting
+		    lck$m_noqueue or	    ! We want it NOW
+		    .ppl$$gl_system,        ! Possibly a system lock
+	    resnam= 0,
+	    parid=  0,
+	    astadr= 0,
+	    astprm= 0,
+	    blkast= 0,
+	    acmode= psl$c_user);
+
+	if .status then 
+	    begin
+	    status = .top_lksb[lksb_w_status];
+	    top_flag = 1;			    ! notify we have lock
+	    exitloop;
+	    end
+	else
+	    leave_critical_region_;     ! Enable ASTs
+	end;
+
+    if not .status then
+	begin
+	leave_critical_region_;     ! Enable ASTs
+	return .status;
+	end;
+
+    !+
+    ! Write a zero value into the name-lock value block
+    !-
+    ch$fill (0, lksb_s_valblk, name_lksb[name_l_app_num]);
+
+    status = $enqw (
+		efn	= .ppl$$gl_context[ctx_l_ef],
+		lkmode	= lck$k_nlmode,
+		lksb	= name_lksb[base_],
+		flags	= lck$m_valblk or	! Write value block
+			  lck$m_convert or 	! Just converting
+			  .ppl$$gl_system,	! Possibly system-wide
+		acmode = psl$c_user);
+    if .status then status = .name_lksb[lksb_w_status];
+    if not .status then
+	signal (ppl$_syserror, 0, .status, 0);
+
+    !+
+    ! Delete all memory sections.
+    !-
+
+    sect_start = ppl$$gl_pplsect[pplsect_q_sects] - 
+				%fieldexpand_(sect_q_sects, 0);
+    sect = first_sr_(.sect_start, sect_l_sects_f);
+    while sect[base_] neq sect_start[base_] do
+	(
+	sect_gsdnam[dsc_l_length] = .sect[sect_w_namelen];
+	sect_gsdnam[dsc$a_pointer] = sect[sect_a_name];
+	if .sect[sect_v_perm] then
+	    begin
+	    sect[sect_w_namelen] = ppl$k_free_sect;
+	    sect[sect_l_count] = 0;
+	    status = $dgblsc(gsdnam = sect_gsdnam);
+	    if (not .status) and (.status neq ss$_interlock) and 
+	    (.status neq ss$_nosuchsec) and (.status neq ss$_notcreator) then
+		signal (ppl$_syserror, 0, .status, 0);
+	    end;
+        sect = next_sr_(.sect, sect_l_sects_f);
+	);
+
+    !+
+    ! Mark the section for deletion later by the system when it is no
+    ! longer mapped into any process's address space.	    
+    !-
+    flags = (if (.ppl$$gl_pplsect[pplsect_l_mem_flags] and ppl$m_system) nequ 0
+		then sec$m_sysgbl
+		else 0);
+		
+    sav_status = $dgblsc (
+		gsdnam = gsdnam[base_],
+		flags  = .flags);
+
+    !+
+    ! And clean up
+    !-
+
+    ! Release the top lock, regardless of the $dgblsc result
+    release_top_lock_(status);
+    top_flag = 0;		! notify handler we no longer hold the lock
+    leave_critical_region_;
+
+    ! Now check the $dgblsc result
+    if not .sav_status then signal (ppl$_syserror, 0, .sav_status, 0);
+
+    ! Now check the release_top_lock_ result
+    if not .status then signal (ppl$_syserror, 0, .status, 0);
+
+    return ppl$_normal;
+    
+    END;    ! ppl$delete_application
+
+
+
+global routine ppl$initialize
+    (
+	size	    : ref vector [1]
+    ) =
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	Informs ths PPL$ facility that this process is forming or joining the
+!	application.  Creates the facility global section, and creates and
+!	initializes the queue of participating processes.
+!	If the facility global section already exists then the routine
+!	will simply map the process to it.
+!
+! NOTE: This is an obsolete interface.  This routine is simply a jacket routine
+!	around ppl$create_application.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$INITIALIZE ( [ size ] )
+!
+! FORMAL ARGUMENT(S)
+!
+!	SIZE
+!	VMS USAGE	:  longword_unsigned
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The number of pages to map for PPL to use.  The default is
+!	ppl$k_init_size, & an initial allocation which will accomodate a
+!	minimum of 32 processes, 8 barriers, 8 semaphores, 4 events, and
+!	16 global sections.
+!	A user may increase this allocation by specifying another value.
+!
+! IMPLICIT INPUTS:
+!
+!	The global section name.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The facility global section
+!
+!	The queue of participating processes.
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_WRONUMARG 	Wrong number of arguments.
+!
+!	PPL$_INSVIRMEM	Insufficient virtual memory
+!
+! SIDE EFFECTS:
+!
+!	NONE.
+!--
+
+    begin	!ppl$initialize
+
+    builtin
+	nullparameter,
+	actualcount;
+
+    literal
+	k_max_args	    = 1;	! number of arguments
+
+    local
+	status;
+
+
+    debug_init_;
+    debug_msg_(0, '!_entering ppl$initialize');
+    debug_msg_(1, '!_entering ppl$initialize');
+
+    !+
+    ! Cleanse the parameters
+    !-
+    if actualcount() gtr k_max_args then return ppl$_wronumarg;
+
+    !+
+    ! Call PPL$Create_Application to actually do the initialize
+    !-
+    status = (if nullparameter (size)
+		then ppl$create_application()
+		else ppl$create_application(size[0])
+	     );
+
+    !+
+    ! Map the success statuses to the old value
+    !-
+    if .status then status = ppl$_normal;
+
+    debug_msg_(0, 'Index: !UL, (ppl$initialize) complete, status = !XL',
+		    .ppl$$gl_context[ctx_l_my_index], .status);
+
+    return .status;
+
+    end;	!ppl$initialize
+
+
+
+global routine ppl$terminate
+    (
+	flags:		ref vector[1]
+    ) =
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	Terminate the participation of the calling process in the (current)
+!	parallel application.  This includes:
+!		1) optional termination of any and all subprocesses created by
+!			the PPL on behalf of the calling process,
+!		2) freeing of all resources obtained by the PPL facility
+!			on behalf of the calling process.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$TERMINATE ()
+!
+! FORMAL ARGUMENT(S)
+!
+!	flags
+!	VMS USAGE	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The flag mask specifies options for the terminate operation.
+!	The flags argument is a longword bit vector wherein a bit, when set,
+!	specifies the corresponding option.
+!
+!	FLAG			    DESCRIPTION
+!	----			    -----------
+!	PPL$M_STOP_CHILDREN	    Terminate all subprocesses created by
+!				    the caller before returning from this call.
+!
+!
+! IMPLICIT INPUTS:
+!
+!	The facility global section and the data within it.
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE.
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL 	Normal successful completion.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	Some quotas may be increased, such as available processes.
+!
+!--
+begin	!ppl$terminate
+
+external routine
+    ppl$$trigger_ppl_event;
+
+builtin
+	nullparameter,
+	actualcount;
+
+local
+	proc	    : ref proc_block,
+	temp_flags  : unsigned long;
+
+!+
+! Cleanse the parameters
+!-              
+if actualcount() gtr 1 then return ppl$_wronumarg;
+
+if (ppl$$gl_context[base_] eql 0) then return ppl$_normal;	!was not participating
+
+!+
+! Trigger the termination event now - this process is leaving the application.
+!-
+ppl$$trigger_ppl_event (%ref(ppl$k_normal_exit), ppl$_normal_exit,
+			    .ppl$$gl_context[ctx_l_my_index], ppl$_normal);
+
+get_proc_ (proc, .ppl$$gl_context[ctx_l_my_index]);
+lock_bit_(proc[proc_v_lock]);
+proc[proc_b_state] = ppl$k_terminated;
+adawi (%ref(-1), ppl$$gl_pplsect[pplsect_w_curr_procs]);
+unlock_bit_(proc[proc_v_lock]);
+
+!+
+! Signal - to whom it may concern - the end of this process' participation.
+!-
+ppl$$not_alive (ppl$_inttermin);
+
+!+
+! If user so requests, explicitly terminate dependent processes.
+!-
+temp_flags = 0;
+if not nullparameter (flags) then
+    temp_flags = .flags[0];
+
+if (.temp_flags and ppl$m_stop_children) neq 0 then
+    ppl$$cleanup_sub_processes ();
+
+!+
+! Do all other cleanup - including deleting ctx_block...
+!-
+return do_all_cleanup();
+
+
+end;	!ppl$terminate
+
+global routine do_all_cleanup =
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	Invoke all the declared cleanup routines of all components of the
+!	PPL facility.
+!
+! ASSUMES :
+!	the context block for this process exists...
+
+
+begin
+
+bind 
+    proc = .ppl$$gl_context[ctx_l_my_proc] : proc_block;
+
+local
+    ast_status	: unsigned long volatile,   !for enter_critical_region_
+    ctx		: ref ctx_block,
+    status;
+
+    psect nodefault = ppl$$end_psect_(1)(pic,share,nowrite,execute,
+			addressing_mode(long_relative));
+    own end_0: vector[0] psect(ppl$$end_psect_(1));
+    psect nodefault = ppl$$end_psect_(3)(pic,share,nowrite,execute,
+			addressing_mode(long_relative));
+    own end_1: vector[0] psect(ppl$$end_psect_(3));
+
+
+    enter_critical_region_;		!brook no asts while deleting memory
+!*** I think we may have a problem here...we should cut off the source of
+!*** the ASTs first.  If we just stiffle them like this, they'll fire off
+!*** when we re-enable them, and they may need the context area, etc....
+
+
+    ppl$$cleanup_memory();
+
+    !+
+    ! Disable all events which are currently enabled.  Don't bother checking the
+    ! status, just keep disabling.
+    !-
+    begin
+    local
+	start   : unsigned long,
+	eqe	: ref eqe_block;
+
+    start = ppl$$gl_context[ctx_q_events] - %fieldexpand_(eqe_l_flink,0);
+    eqe = first_sr_(.start, eqe_l_flink);
+    while (eqe[base_] neq .start) do
+	begin			    !scan the process-local enabled event list
+	if .eqe[eqe_v_enabled] then ppl$disable_event(eqe[eqe_l_eid]);
+	eqe = next_sr_(eqe[base_], eqe_l_flink);
+	end;
+    end;    !local block
+
+    ! Free our app-lock
+    $deq(lkid= .app_lksb[lksb_l_lockid]);
+
+    ! Free our top-lock
+    $deq(lkid= .top_lksb[lksb_l_lockid]);
+
+    ! Free our name-lock
+    $deq(lkid= .name_lksb[lksb_l_lockid]);
+
+
+    lock_bit_(proc[proc_v_lock]);
+    proc[proc_b_state] = ppl$k_terminated;
+
+    !+
+    ! If application was created specifying that proc blocks are to
+    ! be reused then reinitialize this block.
+    !-
+
+    if (.ppl$$gl_pplsect[pplsect_l_mem_flags] and ppl$m_nosave_proc_info) nequ 0
+        then begin
+	proc[proc_l_eid] = 0;
+	proc[proc_l_index] = 0;
+	proc[proc_l_pid] = 0;
+	proc[proc_l_exit_status] = 0;
+	proc[proc_l_init_bar] = 0;
+	proc[proc_l_app_lock] = 0;
+	proc[proc_v_sleeping] = 0;
+	proc[proc_v_will_see] = 0; 
+	end;
+    
+    unlock_bit_(proc[proc_v_lock]);
+
+    !+
+    ! Free the event flag which this process was using.
+    !-
+
+    lib$free_ef (ppl$$gl_context[ctx_l_ef]);
+	
+    !+
+    ! Finally, deallocate the context block.
+    !-
+
+    ctx = .ppl$$gl_context;  ! This a copy used to free the context area
+    ppl$$gl_pplsect = 0;
+    ppl$$gl_context = 0;
+    status = lib$free_vm (%ref(ctx_s_bln), ctx);
+    if not .status then signal (ppl$_syserror, 0, .status);
+
+    leave_critical_region_;
+
+    ppl$_normal
+
+
+
+end;	!do_all_cleanup
+
+global routine ppl$get_index
+    (
+	index:	ref vector[1]
+    ) =
+!++
+!
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine returns a process index within the job application.
+!	The index is unique within the application job tree.  The "main"
+!	or "top" index is always 0.  The other processes in the application
+!	will return an index greater than zero.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$GET_INDEX ( index )
+!
+! FORMAL ARGUMENT(S)
+!
+!	INDEX
+!	VMS USAGE	:  longword_unsigned
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by referece
+!
+!	The index of the process within the application process structure.
+!	It was determined when PPL$$FIND_POS_IN_APPL was called and was
+!	stored in the lock value block for the process.
+!
+! IMPLICIT INPUTS:
+!
+!	Application-top-pid.
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE.
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.	
+!--
+begin	!ppl$get_index
+
+literal
+	num_args = 1;		! Number of arguments allowed
+
+builtin
+	nullparameter,
+	actualcount;
+
+local
+	status;
+
+
+verify_init_;
+
+if nullparameter (index) then
+    return ppl$_wronumarg;
+
+if actualcount () neq num_args then
+    return ppl$_wronumarg;
+
+index[0] = .ppl$$gl_context[ctx_l_my_index];
+
+return ppl$_normal;
+
+end;	!ppl$get_index
+
+
+end
+eludom

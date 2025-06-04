@@ -1,0 +1,121 @@
+	.title	lib_output_bkt
+	.ident	/X1-002/
+
+;+
+; Version:	X1-002
+;
+; Facility:	Library routines.
+;
+; Abstract:	To format a 512 byte buffer as if it was an RMS bucket header.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	23-Aug-1991, DBS, Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS, Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	This routine will format the contents of a 512 byte buffer to show
+;	the contents as if they were an RMS bucket header.  No checking is
+;	done to establish the validity of the block - this is up to the
+;	caller.
+;
+; Calling Sequence:
+;	call lib_output_bkt (%val(%loc(buffer)))
+;		- or -
+;	pushab	buffer
+;	calls	#1, g^lib_output_bkt
+;
+; Formal Argument(s):
+;	buffer.rl.v	Address of the first byte of the buffer.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	Output is directed to SYS$OUTPUT.
+;
+; Completion Codes:
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	.external	lib$put_output
+
+	$bktdef
+	$ssdef
+	$gblini GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+arg_count=1
+buffer=4
+
+	set_psect _sys_data
+
+	alloc_string	lib_faobuf, 1024
+
+bucket_fao1:	.ascid -
+	"!39<Bucket checkbyte !XB!>  Area/Index No. !UB!/"-
+	"!39<Address sample  !UW  (!-!XW)!>  Freepointer  !UW  (!-!XW)!/"-
+	"!39<Next ID      !UW  (!-!XW)!>  !19<Next !UB (!-!XB)!>"-
+		"  Last !UB (!-!XB)!/"-
+	"!39<Next bucket  !UL  (!XL)!>  !19<Level !UB!>  Control !XB!/"
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+lib_output_bkt, ^m<r2,r3,r4,r5,r6>
+
+	cmpw	(ap), #arg_count
+	beql	20$
+	bgtr	10$
+	movl	#ss$_insfarg, r0
+	brw	90$
+10$:	movl	#ss$_ovrmaxarg, r0
+	brw	90$
+
+20$:	movl	buffer(ap), r2
+
+	$fao_s	ctrstr=bucket_fao1, -
+		outbuf=lib_faobuf_ds, -
+		outlen=lib_faobuf, -
+		p1=bkt$b_checkchar(r2), -
+		p2=bkt$b_areano(r2), -
+		p3=bkt$w_adrsample(r2), -
+		p4=bkt$w_freespace(r2), -
+		p5=bkt$w_nxtrecid(r2), -
+		p6=bkt$b_nxtrecid(r2), -
+		p7=bkt$b_lstrecid(r2), -
+		p8=bkt$l_nxtbkt(r2), -
+		p9=bkt$b_level(r2), -
+		p10=bkt$b_bktcb(r2)
+	display lib_faobuf
+
+90$:	ret
+
+	.end

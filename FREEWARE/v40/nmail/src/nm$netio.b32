@@ -1,0 +1,857 @@
+%title 'nm$netio'
+module nm$netio (
+	        ident='14',
+    		addressing_mode(external=general)
+    	        ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	15-Mar-1985
+!
+! Revision history:
+!
+!   01	14-Nov-1985
+!	Ignore data overrun (SS$_DATAOVERUN) errors when
+!	receiving network messages.
+!
+!   02	19-Nov-1985
+!	Treat SS$_IVDEVNAM errors from the IO$_ACCESS QIO
+!	as SS$_NOSUCHNODE, so that error analysis will see
+!	the condition as hard. 
+!
+!   03	04-Dec-1985
+!	Use NETHUNG error for timeout when sending, so we
+!	can diagnose problems more readily
+!
+!   04	21-Apr-1986
+!	Support for requesting CCs.
+!
+!   05	08-Sep-1986
+!	Change timeout handling so as to make it more obvious
+!	where the timeout occurred (I hope)
+!
+!   06	22-Jul-1987
+!  	Add ability to connect to remote object other than #27.
+!
+!   07	24-Aug-1988
+!	Oops, edit 06 causes "area.number::" node specs to
+!	be misinterpreted.  Hack around the problem (see routine
+!	NM$PARSE_OBJECT).
+!
+!   08	31-Aug-1987
+!	Allow RAT and RFT to be specified on block-mode connects,
+!	rather than hardwired as CR and VAR respectively.
+!
+!   09  23-Apr-1988
+!	Add tracing code for protocol debug
+!
+!   10	29-Jan-1989
+!	Support for MAIL-11 3.1
+!
+!   11 	13-Mar-1992
+!	Sigh - the change made in edit 06 causes DNA Phase V 
+!	fullnames to be misinterpreted.  Remove it (it's not
+!	in active use by anyone).
+!
+!   12	12-Aug-1992
+!	Explicitly initialise INIT_DONE to zero, to avoid a 
+!	minor bug (spurious warning) in the latest baselevel
+!	of the Bliss-32E compiler.
+!
+!   13	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!
+!   14	10-Dec-1993
+!	Keep network I/O counters
+!
+!--
+
+!
+! Library declarations
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+!
+! Forward routines
+!
+forward routine
+    nm$netio_init,
+    nm$mbx_ast    : novalue,
+    nm$timer_ast  : novalue;
+
+!          
+! Define program sections
+!
+$nmail_psects;
+
+!
+! Module-wide data. Note that resources such as event flags and I/O
+! channels are allocated on the first entry and are never deallocated,
+! merely reused during the life of the image.  Similarly, the string
+! in 'net_node' is never explicitly deallocated.
+!
+own
+    net_node  : descrip initial($dynamic),	! Connected node 
+    net_efn   : long,				! Network event flag
+    net_chan  : word,				! Network channel
+    mbx_chan  : word,				! Mailbox channel
+    mbx_buf   : vector[nm$s_mbx_buf,byte],	! Mailbox read buffer
+    mbx_iosb  : vector[4,word],			! Mailbox I/O status
+    mbx_efn   : long,				! Mailbox event flag
+    timer_efn : long,				! Timer event flag
+    confirmed : volatile,			! Interlock flag
+    blockmode : volatile,			! Operating in block mode
+    blockcnt  : volatile,			! Maximum block count allowed
+    ccmode    : volatile,			! CC is requested/accepted
+    attrmode  : volatile,			! Attributes requested/accepted
+    formode   : volatile,			! Foreign doc requested/accepted
+    countdown : volatile;			! Timeout count
+literal
+    tick       = 10;				! Timer ticks every 10 secs
+bind
+    timer_time = uplit(-10000000*tick,-1);	! Mark time of 'tick' seconds
+
+%sbttl 'connect data definitions'
+
+!
+! Connect data defintions
+!
+macro
+    con$b_prot = 0,0,8,0  %,		! Protocol version
+    con$b_peco = 1,0,8,0  %,		! Protocol ECO
+    con$b_ceco = 2,0,8,0  %,		! Customer ECO
+    con$b_os   = 3,0,8,0  %,		! O/S type
+    con$l_optn = 4,0,32,0 %,		! Options longword
+    con$l_mode = 8,0,32,0 %,		! Mode longword
+    con$b_rfm  = 12,0,8,0 %,		! RFM byte (if block mode)
+    con$b_rat  = 13,0,8,0 %,		! RAT byte (if block mode)
+    con$b_org  = 14,0,8,0 %,		! File org (if block mode)
+    con$b_rsv  = 15,0,8,0 %;		! Reserved
+
+!
+! Protocol mode bit definitions (in CON$L_MODE)
+!
+$bitdef(mod, blk,     8, 0);		! Master wants block mode
+$bitdef(mod, blk_ok,  8, 1);		! Slave says block mode ok
+$bitdef(mod, snod,    8, 2);		! Master wants to send node name
+$bitdef(mod, snod_ok, 8, 3);		! Slave will let master send node
+$bitdef(mod, cc,      8, 4);		! Master wants to send CC
+$bitdef(mod, cc_ok,   8, 5);		! Slave will accept CC
+$bitdef(mod, attr,    8, 6);		! Master wants to send attributes
+$bitdef(mod, attr_ok, 8, 7);		! Slave will accept attributes
+$bitdef(mod, for,     8, 8);		! Master wants to send foreign doc
+$bitdef(mod, for_ok,  8, 9);		! Slave will accept foreign doc
+
+
+%sbttl 'connect to MAIL object on remote node'
+global routine nm$net_connect (
+    			      node   : ref descrip,
+    			      reqblk,
+			      blkok,
+    			      reqcc,
+    			      ccok,
+			      reqattr,
+			      attrok,
+			      reqfor,
+			      forok,
+			      rfm,
+			      rat,
+			      org,
+    			      blkcnt
+    			      ) : novalue =
+
+!++
+! Functional description:
+!                                                                 
+! Connects to the MAIL object on the named node
+!
+! Formal parameters:
+! 
+! node.rt.dx   = node name (without colons)
+! reqblk.rl.v  = true if block mode requested
+! blkok.wl.v   = true if block mode agreed to
+! reqcc.rl.v   = true if CC requested
+! ccok.wl.v    = true if CC agreed to
+! reqattr.rl.v = true if attributes requested
+! attrok.wl.v  = true if attributes agreed to
+! reqfor.rl.v  = true if foreign requested
+! forok.wl.v   = true if foreign agreed to
+! rfm.rbu.v    = record format (meaningful only for block mode)
+! rat.rbu.v    = record attributes (ditto)
+! org.rbu.v    = file format (ditto)
+! blkcnt.wl.r  = maximum blocks per send (ditto)
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    own
+        init_done : initial(0);
+    local
+        status,
+        iosb      : vector[4,word],
+    	ncb_buf   : vector[nm$s_ncb_buf,byte] alias,
+        ncb	  : descrip initial(nm$s_ncb_buf,ncb_buf),
+	con_buf   : ref block[nm$s_con_dat,byte];
+    bind
+	ncb_ext = %ascid %string(
+			    '::"27=/', 
+			    %char(0,0), 
+			    %char(nm$s_con_dat),
+			    %exactstring(nm$s_con_dat, 0),
+			    '"'
+			    ) : descrip;
+
+    !
+    ! First time through, initialise
+    !
+    if not .init_done
+    then
+	init_done = nm$netio_init();
+
+    !
+    ! Save copy of node name, defaulting to the local node
+    !
+    if .node[dsc$w_length] eql 0 
+    then 
+	str$copy_dx(net_node, %ascid'0')
+    else
+        str$copy_dx(net_node, .node);
+
+    !
+    ! Check we don't exceed NCB buffer limits
+    !
+    ncb[dsc$w_length] = .net_node[dsc$w_length] + .ncb_ext[dsc$w_length];
+    if .ncb[dsc$w_length] gtr nm$s_ncb_buf
+    then
+	begin
+	signal((nm$_syntax and not sts$m_severity) or sts$k_error, 1, net_node);
+	return;
+	end;
+                                                                       
+    !
+    ! Now contruct complete NCB in local storage. End up with
+    ! 'con_buf' pointing to the 16-byte connect data area.
+    !
+    con_buf = ch$move(.net_node[dsc$w_length], .net_node[dsc$a_pointer], ncb_buf);
+    con_buf = ch$move(.ncb_ext[dsc$w_length], .ncb_ext[dsc$a_pointer], .con_buf);
+    con_buf = .con_buf - nm$s_con_dat - 1;
+
+    !
+    ! Fill in the connect data: protocol version 3.1, o/s is VMS
+    ! 
+    con_buf[con$b_prot] = 3;
+    con_buf[con$b_peco] = 1;
+    con_buf[con$b_os]   = 7;
+    con_buf[con$b_rfm]  = .rfm;
+    con_buf[con$b_rat]  = .rat;
+    con_buf[con$b_org]  = .org;
+    ccmode    = con_buf[mod$v_cc]   = .reqcc;
+    attrmode  = con_buf[mod$v_attr] = .reqattr;
+    formode   = con_buf[mod$v_for]  = .reqfor;
+    blockmode = con_buf[mod$v_blk]  = .reqblk;
+    blockcnt  = 0;
+
+    !
+    ! Trace the connection attempt
+    !
+    if .nm$gl_trace[0] then nm$write_trace(nm$_trconn, 1, net_node);
+
+    !
+    ! Set up the logical link.  An SS$_IVDEVNAM error indicates an
+    ! invalid NCB.  Unless Nmail has screwed up badly, this can only
+    ! happen if the user supplied a syntactically-invalid nodename.
+    ! so map the error to SS$_NOSUCHNODE to allow it to be detected
+    ! as a hard error.  (SS$_IVDEVNAM is not a hard error).
+    !
+    confirmed = false;
+    status = $qiow(
+	          func=io$_access,
+		  chan=.net_chan, iosb=iosb, 
+		  efn=.net_efn, p2=ncb
+		  );
+    if .status then status = .iosb[0];
+    if not .status 
+    then 
+	begin
+	if .nm$gl_trace[0] then nm$write_trace(.status);
+	if .status eql ss$_ivdevnam then status = ss$_nosuchnode;
+	signal(nm$_loglink, 1, net_node, .status);
+	return;
+	end;
+
+    ! 
+    ! Sanity clause
+    !
+    if not .confirmed then signal(nm$_race);
+
+    !
+    ! Return negotiated modes to caller
+    !
+    .blkcnt = .blockcnt;
+    .blkok  = .blockmode;
+    .ccok   = .ccmode;
+    .attrok = .attrmode;
+    .forok  = .formode;
+
+    !
+    ! If the caller requested foreign-document mode, then
+    ! ensure that he got foreign mode, attribute mode, and
+    ! block mode exactly as requested.
+    !
+    if .reqfor
+    then
+	if (.formode   xor .reqfor) or
+	   (.blockmode xor .reqblk) or
+	   (.attrmode  xor .reqattr)
+	then
+	    signal(nm$_noaccept, 1, net_node);
+
+    !
+    ! One more logical link successfully established
+    !	  
+    nm$iostats[stat$l_links] = .nm$iostats[stat$l_links] + 1;
+
+    !
+    ! Start up a timer for detecting link failure
+    !
+    countdown = 0;
+    $setimr(efn=.timer_efn, daytim=timer_time, astadr=nm$timer_ast);
+
+    end;
+
+%sbttl 'initialise; get needed resources'
+routine nm$netio_init =
+
+!++
+! Functional description:
+!
+! Allocates all resources required for the lifetime 
+! of the process. (In the event of partial failure, 
+! if this routine is later reentered, it will carry
+! on where it left off).
+!
+! Formal parameters:
+!
+! none
+!
+! Routine values:
+!
+! status.wlc.v = true if it worked
+!		 false if it didn't
+!
+!--
+
+    begin
+
+    bind 
+	ef_list = plit(net_efn, mbx_efn, timer_efn) : vector;
+
+    local
+	status;
+
+    !
+    ! Allocate event flags
+    !
+    incr i from 1 to .ef_list[-1] do
+	if ..ef_list[.i-1] eql 0
+        then
+	    begin
+	    status = lib$get_ef(.ef_list[.i-1]);
+	    if not .status 
+	    then 
+		begin
+		signal(.status);	
+		return .status;
+		end;
+	    end;
+
+    !
+    ! Set up network I/O channels
+    !
+    if .net_chan eql 0
+    then
+        begin
+
+	!
+	! Allocate channel to network and a mailbox for network data
+        !
+    	status = lib$asn_wth_mbx(
+    				%ascid'_NET:', 
+    				%ref(nm$s_mbx_buf), %ref(0), 
+    				net_chan, mbx_chan
+    				);
+	if not .status 
+	then 
+	    begin
+	    signal(nm$_nonet, 0, .status);
+	    return nm$_nonet;
+	    end;
+
+	!
+	! We always keep a read outstanding on the mailbox
+	!
+	status = $qio(
+		     func=io$_readvblk,
+		     chan=.mbx_chan, iosb=mbx_iosb,
+		     efn=.mbx_efn, astadr=nm$mbx_ast,
+		     p1=mbx_buf, p2=nm$s_mbx_buf
+		     );
+        if not .status 
+	then 
+	    begin
+	    signal(nm$_mbxio, 0, .status);
+	    return nm$_mbxio;
+	    end;
+
+	end;
+
+    !
+    ! Success
+    !
+    ss$_normal
+
+    end; 
+
+%sbttl 'disconnect logical link'
+global routine nm$net_disconnect : novalue =
+
+!++
+! Functional description:
+!
+! Disconnects the logical link. Errors are 
+! ignored since there's little that can be
+! done about them in any case.
+!
+! Formal parameters:
+! 
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! Stop link timer
+    !
+    $cantim();
+
+    !
+    ! Disconnect the link
+    !
+    if .nm$gl_trace[0] then nm$write_trace(nm$_trdisc);
+    $qiow(func=io$_deaccess or io$m_synch, chan=.net_chan, efn=.net_efn);
+
+    end;
+
+%sbttl 'abort logical link'
+global routine nm$net_abort : novalue =
+
+!++
+! Functional description:
+!
+! Aborts the logical link. Errors are ignored,
+! since we only do this during error handling anyway.
+!
+! Formal parameters:
+! 
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! Stop link timer
+    !
+    $cantim();
+
+    !
+    ! Abort the link
+    !
+    if .nm$gl_trace[0] then nm$write_trace(nm$_trabo);
+    $qiow(func=io$_deaccess or io$m_abort, chan=.net_chan, efn=.net_efn);
+
+    end;
+
+%sbttl 'send network message'
+global routine nm$net_send (buf, len) : novalue =
+
+!++
+! Functional description:
+!
+! Sends a single message to the remote MAIL
+!
+! Formal parameters:
+!
+! buf.rt.r = data to send
+! len.rl.v = length of data in buffer
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	status,
+	iosb : vector[4,word];
+
+    !
+    ! Initialise the timer
+    !
+    countdown = .nm$gl_sndtmo;
+
+    !
+    ! Trace and send the message
+    !
+    if .nm$gl_trace[0] 
+    then
+	nm$write_trace(nm$_trsend, 2, min(.len,nm$k_tr_len), .buf);
+    status = $qiow(
+		   func=io$_writevblk,
+		   chan=.net_chan, iosb=iosb, efn=.net_efn,
+    		   p1=.buf, p2=.len
+		   );
+
+    !
+    ! Check and stop the timer
+    !
+    if .countdown eql 0 
+    then 
+	begin
+	if .nm$gl_trace[0] then nm$write_trace(nm$_nethung, 1, net_node);
+	signal(nm$_nethung, 1, net_node);
+	end;
+    countdown = 0;
+
+    !
+    ! And check status of sending
+    !
+    if .status then status = .iosb[0];
+    if .status 
+    then
+	begin 
+	nm$iostats[stat$l_msgs_tx]  = .nm$iostats[stat$l_msgs_tx] + 1;
+	nm$iostats[stat$l_bytes_tx] = .nm$iostats[stat$l_bytes_tx] + .iosb[1];
+	end
+    else 
+	begin
+	if .nm$gl_trace[0] then nm$write_trace(.status);
+    	signal(nm$_senderr, 1, net_node, .status);
+	end;
+    
+    end;
+
+%sbttl 'receive network message'
+global routine nm$net_receive (buf, len) : novalue =
+
+!++
+! Functional description:
+!
+! Receives a single message from the remote MAIL
+!
+! Formal parameters:
+!
+! buf.wt.r = 256-byte buffer
+! len.wl.r = length of data received
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	status,
+	iosb : vector[4,word];
+
+    !
+    ! Initialise a timer
+    !
+    countdown = .nm$gl_rcvtmo;
+
+    !
+    ! Receive the message
+    !
+    status = $qiow(
+		  func=io$_readvblk,
+		  chan=.net_chan, iosb=iosb, efn=.net_efn,
+    		  p1=.buf, p2=nm$s_rcv_buf
+		  );
+    if .nm$gl_trace[0] 
+    then 
+	if .iosb[1] eql 4
+	then
+	    nm$write_trace(nm$_trrecn, 1, ..buf)
+	else
+	    nm$write_trace(nm$_trrecv, 2, min(.iosb[1],nm$k_tr_len), .buf);
+
+    !
+    ! Check and stop timer
+    !
+    if .countdown eql 0 
+    then 
+	begin
+	nm$write_trace(nm$_timeout, 1, net_node);
+	signal(nm$_timeout, 1, net_node);
+	end;
+    countdown = 0;
+
+    !
+    ! And check status of operation.  (Note the 'senderr' is not 
+    ! a mistake; we're 'sending' the mail, even though we're doing
+    ! a receive QIO at present)
+    !
+    if .status then status = .iosb[0];
+    if .status or .status eql ss$_dataoverun
+    then
+	begin                                   	
+ 	nm$iostats[stat$l_msgs_rx]  = .nm$iostats[stat$l_msgs_rx] + 1;
+	nm$iostats[stat$l_bytes_rx] = .nm$iostats[stat$l_bytes_rx] + .iosb[1];
+	end
+    else
+	begin
+	if .nm$gl_trace[0] then nm$write_trace(.status);
+	signal(nm$_senderr, 1, net_node, .status);
+	end;
+    
+    !
+    ! Return length of data
+    !
+    .len = .iosb[1];
+
+    end;
+
+%sbttl 'mailbox read completed'
+routine nm$mbx_ast : novalue =
+
+!++
+! Functional description:
+!
+! Entered as an AST when a read completes on the network 
+! mailbox.  The mailbox messages is processed.
+!
+! Currently, only connect confirms cause any action. Everything
+! else is ignored; we'll find out about disconnects and so forth
+! when QIOs fail.
+! 
+! Formal parameters: 
+!
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+    local
+	status;
+
+    !
+    ! Check for success
+    !
+    if not .mbx_iosb[0] then signal(nm$_mbxio, 0, .mbx_iosb[0]);
+
+    !
+    ! Only process reasonable-sized messages.  Real network mailbox
+    ! messages have at least 8 bytes in them - ignore stubby things.
+    !
+    if .mbx_iosb[1] geq 8
+    then
+	begin
+	bind
+	    msg_type = mbx_buf                      : word,
+	    info_len = mbx_buf[4] + .mbx_buf[4] + 1 : byte,
+	    info_blk = info_len + 1 	            : block[,byte];
+
+	!
+	! Dispatch according to message type
+	!
+	selectone .msg_type of 
+	    set
+
+	    [msg$_confirm]:
+		!
+		! Connect confirm. Determine whether we can use block mode
+                ! and CC-mode.
+		!
+		begin
+		if .info_len geq nm$s_con_dat
+		then
+		    begin
+
+    		    !
+    	            ! If block mode is agreed to, then save the details (after
+		    ! ensuring we actually requested it!).  Otherwise, turn off
+		    ! block mode flag.
+    		    !
+    		    if .info_blk[mod$v_blk_ok]
+    		    then
+    			begin
+    			if not .blockmode then signal(nm$_protocol);
+    		        blockcnt  = .info_blk[con$b_rfm];
+			if .blockcnt eql 0 then blockcnt = 1;
+    			end
+    		    else
+    		        blockmode = false;
+
+		    !
+		    ! Similarly, check whether CC-mode was agreed to
+		    !
+		    if .info_blk[mod$v_cc_ok]
+		    then
+			begin
+			if not .ccmode then signal(nm$_protocol);
+			end
+		    else
+			ccmode = false;
+
+		    !
+		    ! Check whether we can send attributes message
+		    !
+		    if .info_blk[mod$v_attr_ok]
+		    then
+			begin
+			if not .attrmode then signal(nm$_protocol);
+			end
+		    else
+			attrmode = false;
+
+		    !
+		    ! Check whether we can send a foreign file
+		    !
+		    if .info_blk[mod$v_for_ok]
+		    then
+			begin
+			if not .formode then signal(nm$_protocol);
+			end
+		    else
+			formode = false;
+
+		    !
+		    ! End of optional-data processing
+		    !
+		    end
+
+    		else
+
+    		    !
+    		    ! No optional data. Must be speaking pre-V3.0 MAIL-11
+    		    ! protocol, so all options are impossible.
+    		    !
+		    formode = attrmode = ccmode = blockmode = false;
+
+		!
+		! End of confirm case
+		!
+		confirmed = true;
+		end;
+
+	    tes;
+
+	!
+	! End of if
+	!
+	end;
+
+    !
+    ! Re-issue the mailbox read
+    !
+    status = $qio(
+		 func=io$_readvblk,
+		 chan=.mbx_chan, iosb=mbx_iosb,
+		 efn=.mbx_efn, astadr=nm$mbx_ast,
+		 p1=mbx_buf, p2=nm$s_mbx_buf
+		 );
+    if not .status then signal(nm$_mbxio, 0, .status);
+
+    end;
+
+%sbttl 'timer AST'
+routine nm$timer_ast : novalue =
+
+!++
+! Functional description:
+!
+! Entered every 'tick' seconds when the timer AST fires.
+! If there's network I/O in progress, then the countdown
+! timer is counted down, and if it reaches zero then the
+! link is deemed to be down.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine values:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! If there's an active operation, then count down the timeout count
+    !
+    if .countdown neq 0
+    then
+	begin
+	countdown = .countdown - tick;
+        if .countdown lss 0 then countdown = 0;
+
+	!
+	! If we've exhausted the timeout period, then cancel
+	! network I/O (this aborts the logical link)
+	!
+	if .countdown eql 0
+	then
+	    begin
+	    $cancel(chan=.net_chan);
+	    return;
+	    end;
+
+	end;
+
+    !	
+    ! Re-arm the AST
+    !
+    $setimr(efn=.timer_efn, daytim=timer_time, astadr=nm$timer_ast);
+
+    end;
+
+end
+eludom

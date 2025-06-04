@@ -1,0 +1,70 @@
+
+
+        .PSECT  RWDATA,WRT,NOEXE,LONG
+
+
+	PID_SIZE = 8                    ; PID size
+
+
+PROMPT_FOR_PID:                                 ; Input prompt
+        .ASCID  / Please enter the target Process PID: /
+
+        .ALIGN  LONG
+
+INPUT_LEN:      .BLKL   1                       ; Input length
+
+
+PID_DESC:       .LONG           PID_SIZE        ; PID size
+                .ADDRESS        PID_BUFFER      ; PID buffer address
+PID_BUFFER:     .BLKB   PID_SIZE                ;
+
+
+PID:            .LONG   0                       ; PID buffer
+                .LONG   0                       ; ...
+
+;;	PID:	.LONG	^X21600299
+
+
+        .PSECT  CODE    PIC,SHR,NOWRT,LONG
+
+        .ENTRY  PROCESS_DUMP,^M<>
+
+
+;       Get command line = PID
+
+        PUSHAL  INPUT_LEN                       ; Command line length
+        CLRL    -(SP)                           ; No prompt
+        PUSHAL  PID_DESC                        ; Command line descriptor
+        CALLS   #3,G^LIB$GET_FOREIGN            ; Get command line
+        BLBS    R0,812$                         ; Ok
+813$:   BRW     1000$				; Error
+
+812$:   TSTL    INPUT_LEN                       ; Null line ?
+        BGTR    811$                            ; No
+
+;       Command line was empty , ask for PID
+
+        PUSHAL  PID_DESC                        ; Argument descriptor
+        PUSHAL  PROMPT_FOR_PID                  ; Prompt
+        PUSHAL  PID_DESC                        ; PID descriptor
+        CALLS   #3,G^LIB$GET_INPUT              ; Read PID
+
+811$:   PUSHAL  PID                             ; EPID
+        PUSHAL  PID_DESC                        ; PID string
+        CALLS   #2,G^OTS$CVT_TZ_L               ; Convert text to longword
+        BLBC    R0,813$                         ; Error
+
+
+	PUSHL	#1			; Dummy
+	PUSHL	#1			; Dummy
+	PUSHAB	PID			; PID
+	CALLS	#3,G^SYS$GETEVI
+
+	BLBS	R0,1000$
+
+	$EXIT_S	R0			; Exit with error status
+
+1000$:	RET
+
+        .END    PROCESS_DUMP
+

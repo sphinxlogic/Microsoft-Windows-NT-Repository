@@ -1,0 +1,136 @@
+#
+# File:		makefile.nt
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxProperty class library (MS VC++).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+PROPDIR = $(WXDIR)\utils\wxprop
+THISDIR = $(WXDIR)\utils\wxprop\src
+EXTRALIBS=$(PROPDIR)\lib\wxprop.lib
+DOCDIR=$(WXDIR)\docs
+LOCALDOCDIR=$(WXDIR)\utils\wxprop\docs
+
+!include $(WXDIR)\src\ntwxwin.mak
+
+PROGRAM=test
+ 
+OBJECTS = wx_prop.obj wx_plist.obj wx_pform.obj
+PROGOBJECTS = $(PROGRAM).obj
+LIBTARGET=$(PROPDIR)\lib\wxprop.lib
+
+all:    $(LIBTARGET)
+
+$(PROGRAM):    $(PROGRAM).exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt FINAL=$(FINAL)
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt clean
+        cd $(THISDIR)
+
+$(LIBTARGET): $(OBJECTS)
+	-erase $(LIBTARGET)
+	$(implib) @<<
+-out:$(LIBTARGET)
+-machine:$(CPU)
+$(OBJECTS)
+<<
+
+$(PROGRAM).exe:      $(DUMMYOBJ) $(WXLIB) $(PROGOBJECTS) $(LIBTARGET) $(PROGRAM).res
+	$(link) @<<
+-out:$(PROGRAM).exe
+$(LINKFLAGS)
+$(DUMMYOBJ) $(PROGOBJECTS) $(PROGRAM).res
+$(LIBS)
+<<
+
+wx_prop.obj:      wx_prop.h wx_prop.$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+wx_plist.obj:      wx_prop.h wx_plist.$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+wx_pform.obj:      wx_pform.h wx_pform.$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+$(PROGRAM).obj:      $(PROGRAM).h $(PROGRAM).$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+$(PROGRAM).res :      $(PROGRAM).rc $(WXDIR)\include\msw\wx.rc
+    $(rc) -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -fo$@ $(PROGRAM).rc
+
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+        -erase $(LIBTARGET)
+
+DOCSOURCES=$(LOCALDOCDIR)\prop.tex $(LOCALDOCDIR)\classes.tex $(LOCALDOCDIR)\body.tex $(LOCALDOCDIR)\changes.tex
+
+html: $(DOCDIR)\html\wxprop\prop.htm
+hlp: $(DOCDIR)\winhelp\wxprop.hlp
+ps: $(WXDIR)\docs\ps\wxprop.ps
+
+$(DOCDIR)\winhelp\wxprop.hlp:         $(LOCALDOCDIR)\wxprop.rtf $(LOCALDOCDIR)\wxprop.hpj
+        cd $(LOCALDOCDIR)
+        -erase wxprop.ph
+        hc wxprop
+        move wxprop.hlp $(DOCDIR)\winhelp\wxprop.hlp
+        move wxprop.cnt $(DOCDIR)\winhelp\wxprop.cnt
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\wxprop.rtf: $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -start /w tex2rtf $(LOCALDOCDIR)\prop.tex $(LOCALDOCDIR)\wxprop.rtf -twice -winhelp
+        cd $(THISDIR)
+
+$(DOCDIR)\html\wxprop\prop.htm:         $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -mkdir $(DOCDIR)\html\wxprop
+        -start /w tex2rtf $(LOCALDOCDIR)\prop.tex $(DOCDIR)\html\wxprop\prop.htm -twice -html
+        -erase $(DOCDIR)\html\wxprop\*.con
+        -erase $(DOCDIR)\html\wxprop\*.ref
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\prop.dvi:	$(DOCSOURCES)
+	cd $(LOCALDOCDIR)
+        -latex prop
+        -latex prop
+        -makeindx prop
+        -bibtex prop
+        -latex prop
+        -latex prop
+        cd $(THISDIR)
+
+$(WXDIR)\docs\ps\wxprop.ps:	$(LOCALDOCDIR)\prop.dvi
+	cd $(LOCALDOCDIR)
+        -dvips32 -o wxprop.ps prop
+        move wxprop.ps $(WXDIR)\docs\ps\wxprop.ps
+        cd $(THISDIR)
+
+

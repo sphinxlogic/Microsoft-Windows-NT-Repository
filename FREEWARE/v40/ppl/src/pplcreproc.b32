@@ -1,0 +1,924 @@
+MODULE PPL$CREPROC (IDENT = 'V057-001',	ADDRESSING_MODE (EXTERNAL=GENERAL) ) =
+BEGIN
+
+!
+!			  COPYRIGHT (c) 1986 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:
+!		PPL ( Parallel Processing Library )
+!
+! ABSTRACT:
+!
+!	This module contains code to manage the creation of processes and
+!	prepares some necessary information for barriers.
+!
+! ENVIRONMENT:
+!
+!	VAX/VMS User Mode.
+!--
+!<BLF/PAGE>
+
+!++
+!
+! AUTHOR:	Catherine M. Fariz, CREATION DATE: (10-12-86)
+!
+!
+! MODIFIED BY:
+!
+! 	Catherine M. Fariz, (10-12-86): VERSION 01
+!
+! X01-000	- Original version
+!
+! X01-001	- To correct Ident.				CMF  26-JAN-1987
+!
+! X01-002	- Correct ident to match cms res number.	CMF 26-JAN0-1987
+!
+! X01-003	- Propagate logical names.			CMF 11-Feb-1987
+!
+! X01-004	- Change PSEC to be quad aligened because	CMF 11-FEB-1987
+!		  of queue header.
+!
+! X01-005	- Increment the PPLSECT_W_CURR_PROCS count	CMF 23-FEB-1987
+!		  to allow parent processes to be able to
+!		  be acounted for in initial barriers.
+!
+! X01-006	- Remove all commented out code.		CMF 24-FEB-1987
+!
+!		- Remove the incrementing of PPLSECT_W_CURR_PROCS.
+!		  It has been reviewd and agreed that only processes
+!		  that actually join the application should be
+!		  accounted for there.
+!
+!		- Add a routine to CLEAN_UP.	
+!
+! X01-007	- Add flags to PPL$CREATE_PROCESS and change	CMF 17-MAR-1987
+!		  clean up routine to be global.
+!
+!		- Add the flags argument to PPL$CREATE_PROCESS.
+!
+! X01-009	- Add barrier support.				DLR 7-MAY-1987
+!
+! X01-010	- Add init_synch support.			DLR 6-JUL-1987
+!
+! X01-011	- Turn ppl$create_process into ppl$spawn,	DLR 21-AUG-1987
+!		    add auto-init.
+!
+! X01-012	- Fix children_ids to get ppl-index, not PID.	DLR 11-DEC-1987
+!
+! V051-001	- Replaced uses of local PPLSECT by global PPL$$GL_PPLSECT
+!		- Added TL_handler -- Top Lock Unwind Handler
+!		- Changed PPLSECT_V_INIT_SYNCH to PPL_SPAWN_MUTEX
+!		- Added macros UN/GRAB_SPAWN_MUTEX_		WWS 14-Sep-1988
+!
+! V053-001	- Replaced calls to UTIL$OUPUT by DEBUG_MSG_ macro
+!		- Changed PPL$SPAWN to get subprocess index out of
+!		  the PPLSECT instead of the TOP-LOCK block	WWS 17-Apr-1989
+!
+! V053-002	- Added spawner-specific init-synch barriers	WWS 03-May-1989
+!		  
+! V053-003	- Changed calls to DEBUG_MSG_ macro to pass a string
+!		  literal instead of an %ascid			WWS 09-May-1989
+!
+! V053-004	- Removed spawn-mutex:  now that there are multiple
+!		  init_synch barriers just the top-lock is	WWS 21-JUN-1989
+!		  sufficient.
+!		- Corrected bugginess in init-synch barrier code
+!
+! V053-005	- Removed local declaration of CTX		PJC 31-AUG-1989
+!		  Added a number of flags to ppl$spawn, and
+!		  implemented a scheme to override any user
+!		  defined 'run' symbols.
+!
+! V053-006	- Replaced $forcex with PPL$$TELL		PJC  6-NOV-1989
+!		  do_termination call
+!
+! V053-007	- Added ppl$$condition_handler to ppl$spawn,	PJC 30-NOV-1989
+!		  also added a number of ppl_signal_ 
+!
+! V054-001	- Fix CLD CXO06763/Comment out clean-up routine PJC 28-JUN-1991
+!		  declaration (ppl$$cleaup_sub...)
+!
+! V057-001	- EVMS/Alpha port: rework declaration of	PJC 12-NOV-1991
+!		  builtins, now declared in ppllib.req
+!
+! V057-002	- Remove the ever growing alive_list, and add	PJC 06-AUG-1993
+!		  the reservation of an event flag for certain
+!		  calls.  Use proc blocks for alive status.
+!
+! V057-003	- Convert to global event flag.			PJC 30-AUG-1993
+!
+! V057-004	- Move init check in PPL$SPAWN to prior to	PJC 05-OCT-1993
+!		  event flag usage.
+!--
+!<BLF/PAGE>
+
+!
+! SWITCHES:
+!
+
+!
+! LINKAGES:
+!
+
+!
+! TABLE OF CONTENTS:
+!
+
+FORWARD ROUTINE
+    PPL$SPAWN,
+    PPL$$CLEANUP_SUB_PROCESSES	: NOVALUE;
+
+!
+! INCLUDE FILES:
+!
+
+LIBRARY 'RTLSTARLE';			! System symbols
+UNDECLARE %QUOTE $DESCRIPTOR;
+LIBRARY	'OBJ$:PPLLIB';			! PPL definitions
+REQUIRE 'RTLIN:RTLPSECT';		! Define DECLARE_PSECTS macro
+
+!
+! MACROS:
+!
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! PSECT DECLARATIONS
+!
+!   Declare psects for PPL facility
+
+DECLARE_PSECTS (PPL,3);		
+
+!
+! OWN STORAGE:
+!
+
+OWN
+    SUBP_LIST:	VECTOR[2];	! List of subprocesses created by this process
+
+! Declaring PPL$$Cleanup_Sub_Processes as a clean-up routine poses a problem
+! with PCA use.  The PCA exit handlers are moderately long running as they
+! seem to do a bunch with the data collection.  PPL$$Cleanup_Sub_Processes
+! tends to result in aborting these exit handlers, which results in no data
+! making it into the collection file.  Therefore, it is commented out.
+
+!PPL$$END_ROUTINE_(PPL$$CLEANUP_SUB_PROCESSES); ! Declare clean-up routine
+
+!
+! LINKAGE DECLARATIONS:
+!
+LINKAGE
+    JSB_R0_R01 =		JSB(REGISTER=0;REGISTER=0,REGISTER=1);
+
+!
+! EXTERNAL REFERENCES:
+!
+EXTERNAL
+    ppl$$gl_context : ref ctx_block,	    !the context block
+    ppl$$gl_pplsect : ref pplsect_block;    !the ppl section of shared info
+
+EXTERNAL ROUTINE
+    ppl$create_barrier,
+    ppl$wait_at_barrier,
+    ppl$$append_ul,
+    ppl$$next_living,
+    ppl$$tell,
+    ppl$$process_term_ast	: novalue,
+    ppl$$condition_handler,
+
+    lib$get_symbol,
+    lib$set_symbol,
+    lib$get_vm,
+    lib$free_vm,
+    lib$spawn,
+    str$analyze_sdesc_r1:	jsb_r0_r01;	! Cleanse string descriptors
+
+
+
+%SBTTL 'ROUTINE: PPL$SPAWN - Spawn n subordinates'
+GLOBAL ROUTINE PPL$SPAWN
+    (
+    	copies,			! Number of copies to create.
+	program_name,		! The image the process(es) will run
+	children_ids,		! Address of a vector containing the PIDs
+	flags,
+	std_input_file,
+	std_output_file
+    ) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine will create one or more new execution threads on the
+!	same node as the parent process.
+!
+!	The new processes created will run the image specified by
+!	the user.  If no image is specified, then the image of the
+!	current process will be used.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$SPAWN ( copies,
+!				       [ program_name ],
+!				       [ children_ids ],
+!				       [ flags ],
+!				       [ stdin ],
+!				       [ stdout ] )
+!					       
+! FORMAL ARGUMENT(S):
+!
+!   INPUT
+!
+!	COPIES
+!	VMS USAGE	:  longword_unsigned
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  modify
+!	MECHANISM	:  by reference
+!
+!	The number of subordinates to be spawned.  This must be a positive
+!	number.  On output, this parameter contains the number of processes
+!	actually created.  If this differs from the requested number, the
+!	status code PPL$_CREATED_SOME is returned.
+!
+!	PROGRAM_NAME
+!	VMS USAGE	:  logical name
+!	TYPE		:  character-coded text string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor-fixed length string descriptor
+!
+!	The name of the image to be activated by the newly created process.
+!	The program_name argument is the address of a character string
+!	descriptor pointing to the file specification of the image.
+!
+!	The image name can have a maximum of 63 characters.  If the image
+!	name contains a logical name, the equivalence name must be in a 
+!	logical name table that can be accessed by the created process.
+!
+!	The default for this parameter will be the image being run
+!	by the current process in the application.
+!
+!	FLAGS
+!	VMS USAGE	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by value
+!
+!	Specifies options for the subprocesses being created.  The
+!	flags argument is the value of a longword bit mask containing
+!	the flag.  The bit, when set, specifies the corresponding option:
+!
+!		NOTE:  Each of these flags applies to *all*
+!		processes created by a given invocation of PPL$SPAWN.
+!
+!	PPL$M_INIT_SYNCH	Indicates whether all processes created
+!				by this invocation of PPL$SPAWN will or
+!				will not synchronize by waiting for
+!				all to call PPL$INITIALIZE.
+!
+!				DEFAULT:  false - processes run as scheduled
+!
+!	PPL$M_NODEBUG		Indicates that the created processes will be
+!				invoked so as to run without the debugger
+!				(Whether linked with /DEBUG option or not.
+!
+!				DEFAULT:  false - processes will be invoked
+!					  so as to allow execution of the
+!					  debugger, if so linked.
+!
+!	PPL$M_NOCLISYM		Indicates that the created processes will
+!				not inherit CLI symbols from its caller.
+!
+!				DEFAULT:  false - created processes will 
+!					  inherit callers CLI symbols.
+!					  
+!	PPL$M_NOLOGNAM		Indicates that created processes do not
+!				inherit process logical names from caller.
+!
+!				DEFAULT:  false - created processes will
+!					  inherit callers logical names.
+!
+!	PPL$M_NOKEYPAD		Indicates that created processes will 
+!				inherit callers keypad symbols and state.
+!
+!				DEFAULT:  false - created processes do not
+!					  inherit keypad settings.
+!
+!	PPL$M_NOTIFY		Requests that a message be broadcast to
+!				SYS$OUTPUT as each process is created.
+!
+!				DEFAULT:  false - no message is broadcast
+!
+!	PPL$M_NOCONTROL		Indicates that no carriage-return/line-feed 
+!				be prefixed to any prompt sting.
+!
+!				DEFAULT:  false - a carriage-return/line-feed
+!					  is prefixed to any prompt string
+!					  specified.
+!
+!
+!	STD_INPUT_FILE
+!	VMS USAGE	:  logical-name
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	    The std-input-file argument is a string descriptor
+!	    which identifies the file to serve as the standard input file
+!	    in the created child(ren).
+!	    If you do not specify a file-name in this parameter, the parent's
+!	    standard input file will be inherited by the child.
+!
+!	STD_OUTPUT_FILE
+!	VMS USAGE	:  logical-name
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	    The std-output-file argument is a string descriptor
+!	    which identifies the file to serve as the standard output
+!	    file in the created child(ren).
+!	    If you do not specify a file-name in this parameter, the parent's
+!	    standard output file will be inherited by the child.
+!
+!   OUTPUT
+!
+!	CHILDREN_IDS
+!	VMS USAGE	:  address
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The address of a longword vector that contains the
+!	process IDs of the processes just created.  These IDs will
+!	also appear in the process ID structure permanently stored in
+!	the facility global section.
+!
+! IMPLICIT INPUTS:
+!
+!	The process ID structure.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The process ID structure will be updated with the new
+!	process IDs.
+!
+!	The PPLSECT structure will be updated with the number of
+!	subprocesses created.
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL 	Normal successful completion.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+!	PPL$_INVARG	Invalid arguments.
+!
+!	PPL$_INVNUMCHI	Invalid number of children requested.
+!
+!	Any error returned from $CREPRC.
+!
+!	Any error returned form $GETJPIW.
+!
+! SIDE EFFECTS:
+!
+!	The subprocesses created will be subtracted from the user's
+!	subprocess quota limit.  (Upon deletion, the quota is returned.)
+!
+!	User definitions for the symbol 'run' are deleted and will not be
+!	inherited by the spawned process.
+!
+!--
+
+BEGIN	!ppl$spawn
+
+MAP	!parameters
+    	copies		: ref vector[1],
+	program_name	: ref $bblock [dsc$c_d_bln],
+	children_ids	: ref vector,
+	flags		: ref vector,
+	std_input_file	: ref $bblock[dsc$c_d_bln],
+	std_output_file	: ref $bblock[dsc$c_d_bln];
+
+builtin
+	nullparameter,
+    	actualcount;
+
+external routine
+    ppl$set_quorum,
+    ppl$adjust_quorum;
+
+
+external literal
+    lib$_nosuchsym;
+    
+literal
+    	max_args	= 6,
+	sym_size	= 255,
+        min_processes 	= 1;
+
+macro
+	run_nodebug_cmd_str_ = 'RUN /NODEB !AS' %;
+
+macro
+	_run_cmd_str_ = 'RUN !AS' %;
+
+bind
+	x_top_lock =	UPLIT BYTE (%ascic ppl_x_top_lock);
+
+local
+	jpi_itmlst:	$itmlst_decl (items=3),	! Item-list for $GETJPI
+	imagname:	$bblock [nam$c_maxrss],	! Buffer for the image name
+	run_buffer:	$bblock [nam$c_maxrss + %charcount(run_nodebug_cmd_str_)],
+	run_buffer2:	$bblock [nam$c_maxrss + %charcount(_run_cmd_str_)],
+
+	imagname_desc	: $bblock [dsc$c_s_bln],    ! Image name descriptor
+	stdin		: $bblock [dsc$c_s_bln],    ! std-input file
+	stdout		: $bblock [dsc$c_s_bln],    ! std-output file
+	ctrstr_desc	: $bblock [dsc$c_s_bln],    !
+	run_desc	: $bblock [dsc$c_s_bln],    ! 
+	nl_desc		: $bblock [dsc$c_s_bln],    !
+	sym_desc	: $bblock [dsc$c_s_bln],    ! run symbol
+	result_desc	: $bblock [dsc$c_s_bln],    ! user defined run
+	mirror_desc	: $bblock [dsc$c_s_bln],
+	buffer		: $bblock [sym_size],
+	buffer2		: $bblock [sym_size],
+
+	processes	: unsigned long,    ! Number of processes to create
+	created		: unsigned long,    ! Number of processes created so far
+	init_bar_id	: unsigned long,    ! ID of the init-sync barrier
+	cli_flags	: unsigned long,    ! CLI config
+	cflags		: unsigned long,    ! Sanitized copy of flags param
+	mode		: volatile,
+
+	check_status	: unsigned long,    !
+	sym_status	: unsigned long,    ! Status of run symbol check
+	run_sym		: unsigned long,    ! Holds ascii for run
+	status		: unsigned long,    !
+	table		: signed long,	    ! Indicates symbols table
+	result_length	: unsigned word,
+        ast_status	: unsigned volatile long,
+        top_flag	: unsigned volatile long,
+        mutex_flag	: unsigned volatile long,
+        mutex		: unsigned volatile long;
+
+literal
+	m_valid_flags = ppl$m_init_synch or 
+			ppl$m_nodebug or
+			ppl$m_noclisym or
+			ppl$m_nolognam or
+			ppl$m_nokeypad or
+			ppl$m_notify or
+			ppl$m_nocontrol;
+
+enable		! handler variables are initially zero from volatile def.
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+   
+
+!+
+! Validate and initialize parameters.
+!-
+if actualcount() gtr max_args then
+    return ppl$_wronumarg;
+
+if nullparameter (copies) then
+    return ppl$_wronumarg
+else
+    (
+    processes = .copies[0];
+    if (.processes lss min_processes) then
+        return ppl$_invnumchi;
+    copies[0] = 0;
+    );
+
+! If specified, clear the storage in the array of PIDs.
+if not nullparameter (children_ids) then
+    ch$fill (0, .processes*%upval, children_ids[0]);
+
+! check the flags specified
+if not nullparameter (flags) then
+    cflags = .flags[0]
+else
+    cflags = ppl$m_noclisym or
+		ppl$m_nokeypad or
+		ppl$m_notify or
+		ppl$m_nocontrol;
+		
+if ( .cflags and not m_valid_flags ) neq 0 then
+    return ppl$_invarg;
+
+!+
+! Watch for bogus string descriptors.
+!-
+if not nullparameter (std_input_file) then
+    (
+    str$analyze_sdesc_r1 (std_input_file[base_];
+	    stdin[dsc_l_length],
+	    stdin[dsc$a_pointer]);
+    );
+
+if not nullparameter (std_output_file) then
+    (
+    str$analyze_sdesc_r1 (std_output_file[base_];
+	    stdout[dsc_l_length],
+	    stdout[dsc$a_pointer]);
+    );
+
+verify_init_;
+
+!+
+! Acquire the Base Priority and image name of this process.
+! Use these in creating subprocess(es).
+!-
+imagname_desc[dsc_l_length] = 0;
+imagname_desc[dsc$a_pointer] = imagname[base_];
+
+$itmlst_init(itmlst = jpi_itmlst,
+	(itmcod = jpi$_mode, bufadr = mode, bufsiz = %upval),
+	(itmcod = jpi$_imagname, bufadr = imagname,
+	    bufsiz = %allocation(imagname),
+	    retlen = imagname_desc[dsc$w_length]));
+
+status = $getjpiw (efn = .ppl$$gl_context[ctx_l_ef],
+		pidadr = 0,
+    		prcnam = 0,
+    		itmlst = jpi_itmlst);
+if not .status then 
+    return .status;
+
+!check for user-specified progam_name.
+if not nullparameter (program_name) then
+    (	    !note this overwrites anything we got on the getjpi
+    str$analyze_sdesc_r1 (program_name[base_];
+	    imagname_desc[dsc_l_length],
+	    imagname_desc[dsc$a_pointer]);
+        !*** Should we $PARSE the image name, to ensure its validity before
+        !*** putting it on a DCL command line.?????????
+    );
+
+
+run_sym = 'RUN';
+sym_desc[dsc$a_pointer] = run_sym;
+sym_desc[dsc_l_length] = 3;
+
+mirror_desc[dsc$a_pointer] = buffer2[base_];
+mirror_desc[dsc_l_length] = sym_size;
+ch$fill(%C' ',sym_size,.mirror_desc[dsc$a_pointer]);
+
+result_desc[dsc$a_pointer] = buffer[base_];
+result_desc[dsc_l_length] = sym_size;
+
+!+
+! Remove any user defined 'run' symbols.
+!-
+
+sym_status = lib$get_symbol(sym_desc[base_], result_desc[base_],
+					    result_length, table);
+
+if .sym_status eql ss$_normal then
+    begin
+    if (.table eql 1) or (.table eql 2) 
+    then 
+	begin
+	status = lib$set_symbol(sym_desc, sym_desc, table);
+	if not .status then return .status;
+	end;
+    end
+else
+    if .sym_status neq lib$_nosuchsym then return .sym_status;
+
+!+
+! Form the command to be executed by the subprocess CLI, watching
+! the NODEBUG flag.
+!-
+if ( .cflags and ppl$m_nodebug ) neq 0 then
+	begin
+        ctrstr_desc[dsc_l_length]  = %charcount (RUN_NODEBUG_CMD_STR_);
+        ctrstr_desc[dsc$a_pointer] = uplit byte (RUN_NODEBUG_CMD_STR_);
+	run_desc[dsc_l_length]  = %allocation (run_buffer);
+	end
+else
+	begin
+	ctrstr_desc[dsc_l_length] = %charcount (_RUN_CMD_STR_);
+	ctrstr_desc[dsc$a_pointer] = uplit byte (_RUN_CMD_STR_);
+	run_desc[dsc_l_length] = %allocation (run_buffer2);
+	end;
+
+run_desc[dsc$a_pointer] = run_buffer[base_];
+status = $fao (ctrstr_desc[base_], run_desc[dsc$w_length], run_desc[base_],
+			imagname_desc[base_]);
+if not .status then return signal (ppl$_syserror, 0, .status);
+
+!+
+! Initialize a descriptor for the input to the subprocess.  The double
+! underscores causes the accounting information to not be displayed
+! when the subprocess terminates.
+!-
+nl_desc[dsc_l_length]  = %charcount ('__NL:');
+nl_desc[dsc$a_pointer] = uplit byte ('__NL:');
+
+!+
+! Determine the CLI flags.
+!-
+cli_flags = cli$m_nowait;
+
+if (.cflags and ppl$m_noclisym) neq 0 then 
+    cli_flags = .cli_flags or cli$m_noclisym; 
+if (.cflags and ppl$m_nolognam) neq 0 then
+    cli_flags = .cli_flags or cli$m_nolognam;
+if (.cflags and ppl$m_nokeypad) neq 0 then
+    cli_flags = .cli_flags or cli$m_nokeypad;
+if (.cflags and ppl$m_notify) neq 0 then
+    cli_flags = .cli_flags or cli$m_notify;
+if (.cflags and ppl$m_nocontrol) neq 0 then
+    cli_flags = .cli_flags or cli$m_nocontrol;
+
+if .mode neq jpi$k_interactive then
+    cli_flags = .cli_flags and not cli$m_notify;
+
+!+
+! Get the top lock.
+! Prevents access contention to proc_block by parent and child processes.
+!-
+top_flag = 1;
+get_top_lock_ (status);
+if not .status then ppl_signal_(.status);
+
+!+
+! Check for init synchronization.
+!-
+if (.cflags and ppl$m_init_synch) neq 0 then
+    begin
+
+    local
+	init_bar_desc	:   $bblock[dsc$c_s_bln],
+	init_bar_buf	:   $bblock[%charcount(ppl_x_init_bar)+1+11];
+				! This is the name plus one for an underscore
+				!  plus 11 for the largest possible number of
+				!  digits (PPL$$Append_UL requirements).
+
+    ! Form the barrier name
+    init_bar_desc[dsc_l_length] = %charcount(ppl_x_init_bar);
+    init_bar_desc[dsc$a_pointer] = init_bar_buf[base_];
+    ch$move(%charcount(ppl_x_init_bar), uplit byte(ppl_x_init_bar),
+		init_bar_buf[base_]);
+
+    ! Make it unique to this spawning process
+    ppl$$append_ul(init_bar_desc, %allocation(init_bar_buf),
+		.ppl$$gl_context[ctx_l_my_index]);
+
+    ! Now create it			    
+    status = ppl$create_barrier(init_bar_id, init_bar_desc[base_],
+		%ref(.processes+1));
+    if not .status then
+	ppl_signal_(.status);
+
+    if .status eql ppl$_elealrexi then
+	begin	! We are re-using it, so reset the quorum
+	status = ppl$set_quorum (init_bar_id, %ref(.processes + 1));
+				    !those we spawn + this caller
+	if not .status then
+	    ppl_signal_(.status);
+	end;
+    end;
+
+
+!+
+! Loop, creating the processes one at a time.
+! The PID of each created process is saved in the user's vector, and
+! his counter is updated.
+!-
+created = 0;
+while true do
+    (
+    local
+	x	: unsigned long,
+	temp	: unsigned byte,
+	pil	: ref pil_block,
+	proc	: ref proc_block;
+
+    status = lib$get_vm (%ref(pil_s_bln), x);
+    if not .status then
+	ppl_signal_(ppl$_insvirmem);
+
+    pil = .x;
+    pil[pil_l_pid] = 0;
+    while insqti (pil[pil_q_pils], subp_list[0]) do 0;
+
+    temp = .ppl$$gl_context[ctx_l_ef];
+
+    status = lib$spawn (run_desc[base_],    !command string
+		(if nullparameter (std_input_file) then 0 else stdin),
+		(if nullparameter (std_output_file) then 0 else stdout),
+		cli_flags,
+		0,		!process name
+		pil[pil_l_pid],
+		0,		!completion-status
+		temp,	!completion-efn
+		ppl$$process_term_ast,
+		.ppl$$gl_pplsect[pplsect_w_procs]);
+
+    if (.status eql ss$_duplnam) then	!not to worry
+	0
+    else if not .status then	    !spawn failed - quit trying, end init_synch
+	begin
+	debug_msg_(12, 
+		'!/Index: !UL, *** SPAWN FAILED - stat= !XL!_created= !XL!/',
+		.ppl$$gl_context[ctx_l_my_index], .status, .created);
+	EXITLOOP;
+	end;
+
+    !create and init the proc_block for this guy
+    proc = 0;
+    create_proc_ (proc);
+    if (.proc leq 0) then EXITLOOP;		!must check init quorum too
+    proc[proc_l_pid] = .pil[pil_l_pid];
+    if (.cflags and ppl$m_init_synch) neq 0 then
+	proc[proc_l_init_bar] = .init_bar_id;
+
+    if not nullparameter (children_ids) then	!give idx to user
+	children_ids[.created] = .ppl$$gl_pplsect[pplsect_w_procs];
+    proc[proc_l_index] = .ppl$$gl_pplsect[pplsect_w_procs]; !save participant-index
+    incr_ (ppl$$gl_pplsect[pplsect_w_procs]);	!bump procs ctr -- we hold top lock)
+    pil[pil_l_index] = .proc[proc_l_index];
+
+    !+
+    ! Have we created enough subprocesses?
+    !-
+    incr_ (created);
+    copies[0] = .created;
+    if (.created geq .processes) then
+	(
+	status = ppl$_normal;	!this is the only successful path thru this rtn
+	EXITLOOP;		!& it still could fail in the init barrier
+	);
+
+    );	!end loop
+
+
+!+
+! Return any user defined 'run' symbols
+!-
+if .sym_status eql ss$_normal then
+	if ..result_desc[dsc$a_pointer] neq ..mirror_desc[dsc$a_pointer] then
+	begin
+	    sym_status = lib$set_symbol(sym_desc,result_desc,table);
+	    if not .sym_status then return .sym_status;
+	end;
+
+
+!+
+! Handle init synch when requested.
+!-
+if (.cflags and ppl$m_init_synch) neq 0 then
+    begin			    !wait at the (ppl-internal) init barrier
+    local   temp    : signed word;
+
+    temp = .created - .processes;
+    if (.temp neq 0) then
+	(
+	check_status = ppl$adjust_quorum (init_bar_id, temp);
+	if not .check_status then
+	    if .status then	    !spawn succeeded, but barrier adjust failed
+		ppl_signal_(.check_status);
+	);
+
+    !+
+    ! Don't wait while holding the top lock - subprocesses need it to init.
+    !-
+    release_top_lock_ (check_status);
+    top_flag = 0;
+    if not .check_status then return signal (ppl$_syserror, 0, .check_status);
+
+    debug_msg_(2, 'Index: !UL,!_init_synch wait at #!XL...', 
+		    .ppl$$gl_context[ctx_l_my_index], .init_bar_id);
+    check_status = ppl$wait_at_barrier (init_bar_id);
+    if not .check_status then
+	if .status then	    !spawn succeeded, but barrier wait failed
+	    ppl_signal_(.check_status);
+    end
+else
+    begin
+
+    !+
+    ! Don't leave holding the top lock - subprocesses need it to init.
+    !-
+    release_top_lock_ (check_status);
+    top_flag = 0;
+    if not .check_status then 
+	return signal (ppl$_syserror, 0, .check_status);
+    end;
+
+if (.copies[0] neq .processes) and
+	(.copies[0] neq 0) then
+    status = ppl$_created_some;
+	!didn't get all those requested, but still success
+
+!it's likely that the comms ring changed in here
+ppl$$next_living();
+
+.status
+
+
+END;			! End of PPL$SPAWN
+%(
+status = lib$spawn (
+		run_desc[base_],    !command string
+		0,		    !inherit sys$input
+			    !*** ^^ NL_DESC[BASE_] here prevents ^Y/debug
+			    !*** from bothering subprocesses
+		0,		    !inherit sys$output
+		cli_flags,
+		0,		    !process name
+		pil[pil_l_pid]);
+)%
+
+%SBTTL 'ROUTINE: PPL$$CLEANUP_SUB_PROCESSES - Deletes dependent processes'
+GLOBAL ROUTINE PPL$$CLEANUP_SUB_PROCESSES : NOVALUE =
+
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine deletes processes created via PPL$CREATE_PROCESSS
+!	by the current process.
+!
+! CALLING SEQUENCE:
+!
+! 	condition-value = PPL$$CLEANUP_SUB_PROCESSES ();
+!
+! FORMAL ARGUMENT(S):
+!
+!	None
+!
+! IMPLICIT INPUTS:
+!
+!	The process ID structure.
+!
+! IMPLICIT OUTPUTS:
+!
+!	The process ID structure.
+!
+! COMPLETION CODES:
+!
+!	Any status returned from LIB$FREE_VM.
+!
+! SIDE EFFECTS:
+!
+!	The PID_BLOCKs are deallocated.
+!
+!--
+
+    BEGIN
+    while true do
+	begin
+	local
+	    pil:	ref pil_block,
+	    index,
+	    status;
+
+	while remq_busy_( status = remqhi (subp_list[0], pil) ) do 0;
+	if remq_null_( .status ) then exitloop;
+
+!+
+! Force image exit of a specified process if it is currently alive.
+!-
+
+	if alive_(pil[pil_l_index]) then 
+	    begin
+	    status = ppl$$tell(.pil[pil_l_index], 
+				do_termination, 
+				ppl$_inttermin);
+	    if (not .status) then
+		return .status;
+	    end;
+
+!+
+! Return virtual memory acquired while creating the process.
+!-
+	status = lib$free_vm (%ref(pil_s_bln), %ref(.pil));
+	end;
+
+    END;		! End of Routine PPL$$CLEANUP_SUB_PROCESSES
+
+
+
+END				! End of Module PPL$CREPROC
+ELUDOM

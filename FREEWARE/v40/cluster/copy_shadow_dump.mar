@@ -1,0 +1,600 @@
+	.title		COPY_SHADOW_DUMP - Copy a dumpfile from a shadowed systemdisk
+	.ident		'V1.5'
+	.library	'sys$library:lib.mlb'
+	.link		'sys$system:sys.stb'/selective_search
+;
+; Author:  Jur van der Burg
+;          Digital Equipment B.V
+;          Utrecht, Holland
+;          UTRTSC::VDBURG
+;	   vdburg@mail.dec.com
+;
+; Date:    September 29, 1993
+;
+;
+; This program is created to retrieve a system dump from a Phase II
+; shadowed systemdisk. The problem is that the bugcheck code writes
+; to the member we booted from (normally), but as far as shadowing
+; is concearned the disks are the same. A merge copy which may start
+; after a crash may not be able to correct the blocks of the dumpfile
+; on all the disks of the shadowset. Suppose that a dumpfile starts
+; at the end of the disk, and ends at the beginning of it. When a
+; system crashes we will start writing at the end of the disk, and
+; it is very well possible that when we reach the part of the dumpfile
+; at the beginning of the disk that that part has already been merged
+; by a merge copy. The net result is inconsistent data as far as the
+; dumpfile is concearned. This can of course be corrected by dismounting
+; all members of the shadowset except the master, and remount the members
+; after which a full shadowcopy will correct things. This may have a
+; rather high impact, which most customers don't want on their live
+; systems. Another way to correct things is to trigger a merge copy on
+; the fly. That's certainly possible but it involves kernel-mode hacking
+; which is always error-prone. What we do here is look for the retrieval
+; pointers of the dumpfile (they are already stored in memory by SYSINIT)
+; and look which shadowset member is the master. We then copy all blocks
+; mapped by the dumpfile from the master member to an output file.
+;
+;
+; This program may return errors from RMS, QIO or others.
+;
+;
+; 12-jan-1994 V1.1
+;
+; Add check if bootdevice is the same as the mastermember of the shadowset.
+; Continue on empty dump, set correct flags and use allocated size
+;
+; 26-apr-1995 V1.2
+;
+; Add Alpha support
+;
+; 19-jun-1995 V1.3
+;
+; Correct bogus 'dumpfile emtpy' message
+;
+; 23-aug-1996 V1.4
+;
+; Correct problem which caused output file to become much bigger than
+; needed in some configurations.
+;
+; 19-feb-1998 V1.5
+;
+; Correct 0 exit status from kernel mode.
+; Correct problem with shad structure definitions. If shadowpatches are
+; installed then the offsets in the SHAD structure may be different. And
+; since the shadowpatchkits don't update LIB.MLB we assemble this module
+; with the old definitions, which may not work. Reworked the kernel code
+; to get the master devicename from the lockvalue block of the
+; $DSA0000_$IN_SET lock.
+;
+;
+; To build on VAX:
+;
+; $ MACRO COPY_SHADOW_DUMP
+; $ LINK COPY_SHADOW_DUMP
+;
+; To build on Alpha:
+;
+; $ MACRO/OBJECT=COPY_SHADOW_DUMP SYS$INPUT+COPY_SHADOW_DUMP
+; EVAX==1
+; ^Z
+; $ LINK/SYSEXE COPY_SHADOW_DUMP
+;
+	$boodef
+	$chfdef
+	$dmpdef
+	$ucbdef
+	$wcbdef
+	$mscpdef
+	$shaddef
+	$iodef
+	$ssdef
+	$stsdef
+	$lckdef
+;
+	.psect	data,wrt,page
+;
+fab_blk:	$fab	fop=<nam,tef>,-
+			nam=nam_blk,-
+			fac=bio,-
+			mrs=512,-
+			org=seq,-
+			rfm=fix,-
+			dnm=<sys$disk:[]savedump.dmp>
+;
+nam_blk:	$nam	rsa=res_str,-
+			rss=nam$c_maxrss,-
+			esa=exp_str,-
+			ess=nam$c_maxrss
+;
+rab_blk:	$rab	fab=fab_blk,-
+			rbf=outbuf
+;
+exp_str:	.blkb	nam$c_maxrss
+res_str:	.blkb	nam$c_maxrss
+;
+chan:		.blkw	1
+dumpsize:	.blkl	1
+mapcnt:		.blkl	1
+mapbuf:		.blkb	512
+iosb:		.blkq	1
+fildsc: 	.long	80
+		.long	cmdbuf
+cmdbuf: 	.blkb	80
+devdsc:		.long	64
+		.long	devnam
+devnam:		.blkb	64
+lksb:		.blkl	2
+valblk:		.blkl	4
+strdes:		.long	4
+		.long	resnam+4
+resdsc:		.long	resnamlen
+		.long	resnam
+resnam:		.ascii	/$DSA0000_$IN_SET/
+resnamlen=.-resnam
+faodsc1:	.ascid		/Dump file allocation: !UL/
+faodsc2:	.ascid		/Number of map pointers: !UL/
+faodsc3:	.ascid		/Address: !UL, Length: !UL/
+faodsc4:	.ascid		/Master disk: !AS/
+faodsc:		.long	faolen
+		.address	faostr
+faostr:		.ascii		"Errorlog buffer count: !UW, Errorlog buffer pages: !UB!/"
+		.if df evax
+		.ascii		/Dump block count: !UL, Dump file size: !UL/
+		.iff
+		.ascii		/Memory page count: !UL, Dump file size: !UL/
+		.endc
+faolen=.-faostr
+faostr1:	.ascid		/$!UL$!AZ!UW:/
+faostr2:	.ascid		/!4ZL/
+outb:		.long	256
+		.address	prtbuf
+prtbuf:		.blkb	256
+prmpt:		.ascid	/Filename [SAVEDUMP.DMP]: /
+noshad:		.ascid	/Not a Phase II shadowed systemdisk/
+empty:		.ascid	/Dumpfile is empty, attempting recovery/
+nodump:		.ascid	/No dumpfile available/
+mstnodump:	.ascid	/Shadowset Master member is different from boot device/
+;
+	.align	page
+;
+size = 127*512		; Max. size RMS can handle on a write request, rounded
+;
+outbuf:		.blkb	size
+;
+	.psect		code,exe
+;
+	.if df evax
+start::
+	.call_entry
+	.iff
+	.entry		start,^m<r2,r3,r4,r5,r6,r7,r8,r9,r10,r11>
+	.endc
+;
+	pushaw		fildsc			; Filename length returned
+	pushaq		prmpt			; Prompt
+	pushaq		fildsc			; Filename descriptor
+	calls		#3,g^lib$get_foreign 	; Get command line
+	blbs		r0,5$			; Quit on error
+	brw		50$
+
+5$:	movb		fildsc,-		; Save filename length
+			fab_blk+fab$b_fns
+	movl		fildsc+4,-		; Save filename address
+			fab_blk+fab$l_fna
+	$cmkrnl_s	routin=kernel_code	; Get retrieval pointers and masterdevice
+	blbs		r0,6$			; Error
+	brw		20$
+
+6$:	tstl		mapcnt			; Anything there?
+	bneq		7$			; Yes
+	brw		30$
+
+7$:	movl		#256,outb		; Setup output buffer length
+	movaq		devdsc,r0		; Get devicename descriptor
+	$fao_s		ctrstr=faodsc4,-
+			outbuf=outb,-
+			outlen=outb,-
+			p1=r0                
+	pushaq		outb
+	calls		#1,g^lib$put_output	
+	$assign_s	devnam=devdsc,-		; Assign channel to master
+			chan=chan
+	blbc		r0,50$			; Error
+	bsbw		validate		; Check for a valid dump
+	blbc		r0,50$			; Problems
+	bsbw		open_out		; Open output file
+	blbc		r0,50$			; Error
+	bsbw		copy			; Copy the data
+	blbc		r0,50$			; Error
+	$close		fab=fab_blk		; Close output file
+	blbc		r0,50$			; Error
+	$dassgn_s	chan=chan		; Deassign disk channel
+
+10$:	brb		50$
+
+20$:	cmpl		r0,#ss$_abort		; Abort?
+	bneq		25$			; No
+	pushab		mstnodump		; Master differs from boot device
+	brb		40$
+
+25$:	cmpl		r0,#ss$_nosuchdev	; Not what we want?
+	bneq		50$			; Other error
+	pushab		noshad			; Not a shadowed systemdisk
+	brb		40$
+
+30$:	pushab		nodump			; No dumpfile available
+
+40$:	calls		#1,g^lib$put_output
+	blbc		r0,50$			; Error
+	movl		#<ss$_filnotacc!-	; Flag no dump
+			sts$m_inhib_msg>,r0
+
+50$:	ret
+;
+; Validate dumpfile and calculate size of outputfile
+; Return size in R1
+;
+validate:
+	.if df evax
+	.jsb_entry	output=<r0,r1>
+	.endc
+	movzwl		#512,r6			; One block
+	movl		mapbuf+4,r5		; Get address of first lbn
+	bsbw		read			; Get dump header
+	blbc		r0,30$			; Error
+	movab		outbuf,r3		; Point to header
+	bitw		#dmp$m_empty,-		; Empty dump?
+			dmp$w_flags(r3)
+	beql		5$			; No
+	pushaq		empty			; Empty dumpfile
+	calls		#1,g^lib$put_output
+	blbc		r0,30$			; Quit on error
+	bicw2		#dmp$m_empty,-		; Flag NOT empty
+			dmp$w_flags(r3)
+	bisw2		#<dmp$m_writecomp!dmp$m_errlogcomp>,-
+			dmp$w_flags(r3)		; Write and errlog complete
+
+5$:	bsbw		dump_data		; Dump debug data
+	movzwl		dmp$w_erlbufcnt(r3),r1	; Get number of errorlog buffers
+	movzbl		dmp$b_erlbufpages(r3),r2; Get number of errorlog buffer pages
+	bneq		10$			; Valid
+	incl		r2			; Use at least one
+
+10$:	mull2		r2,r1			; Calculate number of blocks
+	.if df evax
+	addl2		dmp$l_dumpblockcnt(r3),-; Number of pages in dump
+			r1
+	incl		r1			; And one more
+	tstl		dmp$l_dumpblockcnt(r3)	; Something there?
+	bneq		20$			; Yes
+	subl3		r1,dumpsize,-		; Save used pages in dumpheader
+			dmp$l_dumpblockcnt(r3)
+	.iff
+	addl2		dmp$l_mempagcnt(r3),r1	; Number of pages in dump
+	incl		r1			; And one more
+	tstl		dmp$l_mempagcnt(r3)	; Something there?
+	bneq		20$			; Yes
+	subl3		r1,dumpsize,-		; Save used pages in dumpheader
+			dmp$l_mempagcnt(r3)
+	.endc
+	movl		dumpsize,r1		; Use allocated size
+
+20$:	movzwl		#ss$_normal,r0
+
+30$:	rsb
+;
+; Dump some critical data to the user
+;
+dump_data:
+	.if df evax
+	.jsb_entry
+	movl		#256,outb		; Setup output buffer size
+	.disable flagging
+	$fao_s		ctrstr=faodsc,-
+			outbuf=outb,-
+			outlen=outb,-
+			p1=dmp$w_erlbufcnt(r3),-
+			p2=dmp$b_erlbufpages(r3),-
+			p3=dmp$l_dumpblockcnt(r3),-
+			p4=dumpsize
+	.enable flagging
+	.iff
+	movl		#256,outb		; Setup output buffer size
+	$fao_s		ctrstr=faodsc,-
+			outbuf=outb,-
+			outlen=outb,-
+			p1=dmp$w_erlbufcnt(r3),-
+			p2=dmp$b_erlbufpages(r3),-
+			p3=dmp$l_mempagcnt(r3),-
+			p4=dumpsize
+	.endc
+	pushaq		outb
+	calls		#1,g^lib$put_output	
+	rsb
+;
+; Copy data from lbn's given in retrieval pointers in mapbuf
+; to output file. First copy the (possibly modified) dumpfile header.
+;
+copy:
+	.if df evax
+	.jsb_entry	output=<r0>
+	.endc
+	movw		#512,rab_blk+rab$w_rsz	; Save dump header
+	$write		rab=rab_blk		; Write to output file
+	blbs		r0,5$			; Ok
+	brw		60$			; Exit
+
+5$:	movl		mapcnt,r2		; Number of map entries
+	moval		mapbuf,r3		; Retrieval pointers
+	bsbw		print_map		; Print retrieval pointers map
+	clrl		r10			; Total bytecount
+	ashl		#9,fab_blk+fab$l_alq,r11; Total number of bytes we must write
+	subl2		#512,r11		; Adjust for header
+	.iif df,evax,.disable flagging
+	movq		(r3)+,r4		; Get count and address of first chunk
+	.iif df,evax,.enable flagging
+	decl		r4			; Adjust for header
+	ashl		#9,r4,r4		; Convert to bytes
+	beql		10$			; Next pointer
+	incl		r5			; Point to next block
+	clrl		r7			; Clear flag
+	brb		20$
+
+10$:	clrl		r7			; Clear flag
+	.iif df,evax,.disable flagging
+	movq		(r3)+,r4		; Get count and address of this chunk
+	.iif df,evax,.enable flagging
+	ashl		#9,r4,r4		; Convert to bytes
+
+20$:	movzwl		#size,r9		; Default is maximum size
+	cmpl		r4,#size		; More than one buffer?
+	bgtru		30$			; Yes
+	incl		r7			; Flag last time
+	movl		r4,r9			; Save residual count
+	brb		40$
+
+30$:	subl2		#size,r4		; Subtract what we will read
+
+40$:	movl		r9,r6			; Get bytecount to read
+	addl2		r6,r10			; Accumulate total
+	cmpl		r10,r11			; Check for end of useful data
+	blequ		50$			; Not the end
+	subl2		r6,r10			; Back off
+	subl3		r10,r11,r6		; New count to finish all
+	movzbl		#1,r7			; Last time
+	clrl		r2			; Last time for all
+
+50$:	bsbw		read			; Read blocks
+	blbc		r0,60$			; Error
+	movw		iosb+2,-		; Save returned size for write
+			rab_blk+rab$w_rsz
+	$write		rab=rab_blk		; Write to output file
+	blbc		r0,60$			; Error
+	divl3		#512,iosb+2,r8		; Get number of blocks written
+	addl2		r8,r5			; Add to lbn
+	blbc		r7,20$			; Next chunk
+	sobgtr		r2,10$			; Branch if more to do
+;
+60$:	rsb
+;
+; Print map of retieval pointers.
+;
+; Input: R2 = Count
+;        R3 = buffer address
+;
+print_map:
+	.if df evax
+	.jsb_entry	input=<r2,r3>
+	.endc
+	pushr		#^m<r2,r3,r4,r5>
+	movl		#256,outb		; Setup buffer length
+	$fao_s		ctrstr=faodsc2,-
+			outbuf=outb,-
+			outlen=outb,-
+			p1=r2
+	pushaq		outb
+	calls		#1,g^lib$put_output
+
+10$:
+	.iif df,evax,.disable flagging
+	movq		(r3)+,r4		; Get fragment count and address
+	.iif df,evax,.enable flagging
+	movl		#256,outb		; Setup buffer length
+	$fao_s		ctrstr=faodsc3,-
+			outbuf=outb,-
+			outlen=outb,-
+			p1=r5,-
+			p2=r4
+	pushaq		outb
+	calls		#1,g^lib$put_output	
+	sobgtr		r2,10$			; Next pointer
+	popr		#^m<r2,r3,r4,r5>
+	rsb
+;
+; Read block(s) from disk
+;
+; Input: R5 = LBN
+;        R6 = bytecount
+;
+read:
+	.if df evax
+	.jsb_entry	input=<r5,r6>,output=<r0>,preserve=<r5,r6>
+	.endc
+	$qiow_s		func=#io$_readpblk,-
+			chan=chan,-
+			iosb=iosb,-
+			p1=outbuf,-		; Data buffer
+			p2=r6,-			; Bytecount
+			p3=r5			; LBN
+	blbc		r0,10$			; Error
+	movzwl		iosb,r0			; Check this one too
+
+10$:	rsb
+;
+; Open output file
+;
+; Input: R1 is number of blocks needed
+;
+open_out:
+	.if df evax
+	.jsb_entry	input=<r1>,output=<r0>
+	.endc
+	movl		r1,fab_blk+fab$l_alq	; Setup total size we need
+	movl		#256,outb
+	$fao_s		ctrstr=faodsc1,-
+			outbuf=outb,-
+			outlen=outb,-
+			p1=fab_blk+fab$l_alq
+	pushaq		outb
+	calls		#1,g^lib$put_output	
+	$parse		fab=fab_blk		; Parse filespec
+	blbc		r0,20$			; Error
+	$create		fab=fab_blk		; Create the file
+	blbc		r0,20$			; Error
+	$connect	rab=rab_blk		; Hook on a rab
+
+20$:	rsb
+;
+; Kernel code to do the dirty work. The mapping pointers are already
+; in memory, this was done by SYSINIT.EXE which opened the dumpfile.
+;
+	.if df evax
+kernel_code:
+	.call_entry
+	.iff
+	.entry	kernel_code,^m<r2,r3,r4,r5,r6>
+	.endc
+;
+	movab		handler,(fp)			; Should not need this as our
+							; software is always bugfree :)
+	movl		g^exe$gl_bootcb,r6		; Point to boot control block
+	clrl		mapcnt				; Assume no mapping
+	movzwl		#ss$_normal,r0			; Assume success
+	movl		boo$l_dmp_map(r6),r3		; Get mapping info address
+	beql		10$				; None available
+	movl		boo$l_dmp_size(r6),dumpsize	; Save size of dumpfile
+	movl		(r3)+,r4			; Get number of bytes in map-info
+	ashl		#-3,r4,mapcnt			; Convert to entries
+	movc3		r4,(r3),mapbuf			; Save mapping info
+	movl		boo$l_bug_wcb(r6),r5		; Get wcb address
+	movl		wcb$l_orgucb(r5),r5		; Get ucb of systemdisk
+	movzwl		#ss$_nosuchdev,r0		; Assume no device found
+	assume	mscp$v_shadow eq 15
+	bbs		#mscp$v_shadow,-		; Phase I not allowed
+			ucb$w_mscpunit(r5),10$
+	bbc		#dev$v_vrt,-			; Shadow set virtual unit?
+			ucb$l_devchar2(r5),10$
+	movzwl		ucb$w_unit(r5),r2		; Get virtual-unit unit number
+	$fao_s		ctrstr=faostr2,-		; Convert to decimal
+			outbuf=strdes,-
+			p1=r2
+	blbs		r0,20$				; Quit on error
+
+10$:	brw		40$				; Branch helper
+;
+; Enqueue lock on resource $DSAnnnn_$IN_SET name. This lock is used by
+; shadowing to hold the members of the shadowset.
+;
+20$:	$enqw_s		resnam=resdsc,-			; Enqueue lock
+			lkmode=#lck$k_nlmode,-
+			lksb=lksb,-
+			flags=#<lck$m_system!lck$m_valblk>
+	blbc		r0,10$				; Error
+	movzwl		lksb,r0				; Get status
+	cmpl		r0,#ss$_valnotvalid		; We can handle this one
+	bneq		30$				; Something else
+	bsbw		requeue				; Requeue lock to get valueblock
+
+30$:	blbc		r0,10$				; Quit on error
+	$deq_s		lkid=lksb+4			; Dequeue lock
+	blbc		r0,10$
+	movab		prtbuf,r2			; Temporary buffer
+;
+; Get the devicename from the lockvalue block.
+; Layout:
+;
+; 4 bytes = allocation class
+; 2 bytes = unit number
+; 5 bits = 3rd controller letter
+; 5 bits = 2nd controller letter
+; 5 bits = 1st controller letter
+;
+	extzv		#10,#5,valblk+6,r0		; First controller letter
+	addb3		#<^a/A/-1>,r0,(r2)+
+	extzv		#5,#5,valblk+6,r0		; Second letter
+	addb3		#<^a/A/-1>,r0,(r2)+
+	extzv		#0,#5,valblk+6,r0		; Third letter
+	addb3		#<^a/A/-1>,r0,(r2)+
+	clrb		(r2)				; End of string marker
+	$fao_s		ctrstr=faostr1,-		; Format devicename
+			outbuf=devdsc,-
+			outlen=devdsc,-
+			p1=valblk,-
+			p2=#prtbuf,-
+			p3=valblk+4                
+	blbc		r0,40$				; Quit on error
+	movaq		devdsc,r1			; Get descriptor address
+	movl		g^ctl$gl_pcb,r4			; Get out PCB address
+	jsb		g^sch$iolockr			; Lock I/O database
+	jsb		g^ioc$searchdev			; Find device
+	movq		r0,-(sp)			; Save status
+	jsb		g^sch$iounlock			; Unlock I/O database
+	setipl		#0				; Reset IPL
+	movq		(sp)+,r0			; Restore status
+	blbc		r0,40$				; Quit on error
+	cmpl		r1,g^sys$ar_bootucb		; Same as the one we booted from?
+	beql		40$				; Yes
+	movzwl		#ss$_abort,r0			; Quit, no chance for a valid dump
+
+40$:	ret
+;
+; Requeue the lock if the valueblock is invalid.
+;
+requeue:
+	.if df evax
+	.jsb_entry
+	.endc
+	$enqw_s		resnam=resdsc,-			; Enqueue lock in CR mode
+			lkmode=#lck$k_crmode,-
+			lksb=lksb,-
+			flags=#<lck$m_convert!lck$m_system!lck$m_valblk>
+	blbc		r0,20$
+	movzwl		lksb,r0				; Get status
+	cmpl		r0,#ss$_valnotvalid		; We can handle this
+	beql		10$
+	blbc		r0,20$				; Quit on error
+
+10$:	$enqw_s		resnam=resdsc,-			; Convert back to NL
+			lkmode=#lck$k_nlmode,-
+			lksb=lksb,-
+			flags=#<lck$m_convert!lck$m_system!lck$m_valblk>
+	blbc		r0,20$
+	movzwl		lksb,r0				; Get status
+
+20$:	rsb
+;
+; Condition handler for kernelcode
+; Return ss$_bugcheck to the user
+;
+	.if df evax
+handler:
+	.call_entry	home_args=true,max_args=2
+	.iff
+	.entry		handler,^m<>
+	.endc
+	movl		chf$l_mcharglst(ap),r0		; Get mechanism array address
+	.if df evax
+	.disable flagging
+	clrq		chf$ih_mch_savr1(r0)		; Clear saved R1 in array
+	.enable flagging
+	movl		#ss$_bugcheck,-			; Ret BUGCHECK in R0
+			chf$il_mch_savr0_low(r0)
+	clrl		chf$il_mch_savr0_high(r0)
+	.iff
+	clrl		chf$l_mch_savr1(r0)		; Clear saved R1 in array
+	movl		#ss$_bugcheck,chf$l_mch_savr0(r0) ; Ret BUGCHECK in R0
+	.endc
+	$unwind_s					; Unwind to previous caller
+	ret						; Return status to caller
+
+	.end	start

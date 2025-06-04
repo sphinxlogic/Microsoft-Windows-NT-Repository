@@ -1,0 +1,2957 @@
+;
+; This software is COPYRIGHT © 1989-1997, Stephane Germain. ALL RIGHTS RESERVED.
+; Permission is granted for not-for-profit redistribution, provided all source
+; and object code remain unchanged from the original distribution, and that all
+; copyright notices remain intact.
+;
+; This software is provided "AS IS". The author makes no representations or
+; warranties with respect to the software and specifically disclaim any implied
+; warranties of merchantability or fitness for any particular purpose.
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; This is SYS_PROBE:PROBE.MAR
+; Creator S.Germain p.eng
+; Using   VMS 5.1-5.5/6.0-6.2
+; History V0.1	19 Sep 89 - concept prototype test : development start
+;         V1.0  24 Nov 89 - barebone control + monitoring + display
+;         V2.0   4 May 91 - new image functionality breakdown (3 processes)
+;                         - completely rewritten for increased modularity
+;                         - full set-up function, table/filter loading... diag
+;         V2.1  20 Feb 94 - updated /DISPLAY
+;                         - added EZA0 to default device list
+;         V2.1B 16 Nov 94 - updated /STATISTICS & /RECORD for OUTPUT syntax
+;	  V2.2  23 Dec 94 - removed LOAD_FILTER _notice flag set (DMS implicit)
+;			    updated diagnostic section for logger.data size
+;			    moved DISPLAY.interval processing to LOAD_DISPLAY
+;			    modified keyboard AST routine for H,I,A-F inputs
+;			    modified TABLE.protocol input for hexadecimal
+;			    modified FILTER.node to keep count of active nodes
+;         V2.2B  8 Sep 96 - added architecture-specific support macros
+;			    added EWA0 to default device list
+;			    added default node name translation from SYS$NODE
+;			    updated diagnostic for logger CDrpt & external drops
+;			    updated miscelaneous alignment on quadword
+;			    updated collision qualifier processing (auto track)
+;			    changed FP-related (condition handler) code on AXP
+;			    bypass code lockdown on AXP
+;	  V2.3	   Apr 97 - replaced SYS$INPUT by SYS$COMMAND for DCL procedure
+;			    updated table $FAB files names & processing
+;			    added UPDATE_VTABLE module and CLD descriptors
+;	  V2.3B    Jul 97 - no code changed (updated version library id)
+;
+;; CONCEPT ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;  This image sets-up, controls and terminates a set of processes performing
+;  Ethernet monitoring, logging, accounting and display functions. The images
+;  ACQ and DMS are invoked/spawned by this image. Handshaking is achieved via
+;  global sections and common event flags. Outputs are a function of ACQ (the
+;  acquisition/logging image) and DMS (the display manager/statistician image).
+;  All three images are designed to operate in real-time using asynchronous
+;  or timed/burst event awakening, thereby permitting timesharing operations
+;  inasmuch as actual network (load) processing will allow. This design uses
+;  interlocks to make the application suitable for multiprocessor systems.
+;  However, by the (promiscuous) nature of its network interface, only one
+;  "probe" can operate on a given adapter (system) at a time. Playback of
+;  previously recorded data is performed by the REPLAY image, a distinct
+;  entity which does not have specific privilege or concurrency limitations.
+;
+;; NOTES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;  1. Conditions are signaled according to OpenVMS standards. Image rundown is
+;  forced prior to signaling while at real-time level. Assembling and linking
+;  is done as follows:
+;
+;     $ MACRO/NODEBUG PROBE
+;     $ MESSAGE/OBJECT=MSG PROBE		! message file PROBE.MSG
+;     $ SET COMMAND/OBJECT=TBL TABLE		! table command file TABLE.CLD
+;     $ LINK/NODEBUG/NOTRACEBACK PROBE,MSG,TBL
+;
+;  2. Invocation and run-time information parsing is performed by CLI routines.
+;  The command definition in file PROBE.CLD is included in the process command
+;  table as follows:
+;
+;     $ SET COMMAND PROBE			! invocation via "PROBE"
+;
+;  3. User help information is contained in the library PROBE.HLB.
+;
+;  4. In order for this application to run, the process must have the PSWAPM,
+;  ALTPRI and PHY_IO privileges or the image must be installed (NON-SHAREABLE)
+;  with those privileges.
+;
+;  5. Because of the CPU involvement in processing every Ethernet packet, it is
+;  likely that performance will noticeably drop for timeshared processes while
+;  this program is recording/displaying data. Avoid using the network for either
+;  function (i.e. filing to a remote node or displaying to a LAT terminal) as
+;  this would skew statistics for the associated nodes.
+;
+;; CONSTANTS ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.TITLE	PROBE	ETHERNET TRAFFIC MONITORING
+	.IDENT	/2.3B/
+;
+	.LIBRARY "SYS$LIBRARY:LIB.MLB"	; alternate system macro library
+	.LIBRARY "SYS_PROBE:PROBELIB"	; application macro library
+	$IODEF				; 
+	$LNMDEF				; 
+	$PRCDEF				; 
+	$PRVDEF				; 
+	$PSLDEF				; 
+	$SECDEF				; 
+	$SMGDEF				; 
+	V23B$GBLDEF			; global constants definitions
+	V23$CTLDEF			; control section definitions
+	V23$BUFDEF			; buffer entry & section definitions
+;
+	.PSECT	FIXDATA,NOEXE,NOWRT,NOSHR,QUAD
+;
+; command table label names (see CLD files)
+;
+D_ADAPTER:	.ASCID	/PRB_ADAP/
+D_CD:		.ASCID	/PRB_COLL/	;V22B : was PRB_XCOL
+D_DISPLAY:	.ASCID	/PRB_DISP/
+D_FILTER:	.ASCID	/PRB_FILT/
+D_RECORD:	.ASCID	/PRB_RECD/
+D_SCHEDULE:	.ASCID	/PRB_SCHD/
+D_STATISTICS:	.ASCID	/PRB_STAT/
+D_TABLE:	.ASCID	/PRB_TABL/
+D_DMP:		.ASCID	/PRB_XDMP/	; special : diagnostic dump
+D_050SCALE:	.ASCID	/SCAL_050/
+D_100SCALE:	.ASCID	/SCAL_100/
+D_LOGSCALE:	.ASCID	/SCAL_LOG/
+D_PEAK:		.ASCID	/DISP_PEK/
+D_REFRESH:	.ASCID	/DISP_INT/
+D_SMOOTH:	.ASCID	/DISP_SMT/
+D_THRESHOLD:	.ASCID	/DISP_THR/
+D_802_3:	.ASCID	/FRMT_802/
+D_ETHERNET:	.ASCID	/FRMT_ETH/
+D_DESTINATION:	.ASCID	/FILT_DST/
+D_FORMAT:	.ASCID	/FILT_FMT/
+D_MULTICAST:	.ASCID	/FILT_MLT/
+D_NODE:		.ASCID	/FILT_NOD/
+D_PROTOCOL:	.ASCID	/FILT_PTL/
+D_SOURCE:	.ASCID	/FILT_SRC/
+D_SAMPLE:	.ASCID	/RECD_OUT/
+D_DATA:		.ASCID	/RECD_DAT/
+D_ACTIVE:	.ASCID	/SCHD_ACT/
+D_CYCLE:	.ASCID	/SCHD_CYC/
+D_STANDBY:	.ASCID	/SCHD_STB/
+D_RESULT:	.ASCID	/STAT_OUT/
+D_PTCL_IDN:	.ASCID	/PTCL_IDN/
+D_PTCL_NAM:	.ASCID	/PTCL_NAM/
+D_PTCL_VAL:	.ASCID	/PTCL_VAL/
+D_NODE_ADR:	.ASCID	/NODE_ADR/
+D_NODE_DST:	.ASCID	/NODE_DST/
+D_NODE_NAM:	.ASCID	/NODE_NAM/
+D_NODE_SRC:	.ASCID	/NODE_SRC/
+D_NODE_DSTDIS:	.ASCID	/NODE_DST.NODE_DIS/
+D_NODE_DSTPRI:	.ASCID	/NODE_DST.NODE_PRI/
+D_NODE_DSTSMT:	.ASCID	/NODE_DST.NODE_BYP.NBYP_SMT/
+D_NODE_DSTTHR:	.ASCID	/NODE_DST.NODE_BYP.NBYP_THR/
+D_NODE_SRCDIS:	.ASCID	/NODE_SRC.NODE_DIS/
+D_NODE_SRCPRI:	.ASCID	/NODE_SRC.NODE_PRI/
+D_NODE_SRCSMT:	.ASCID	/NODE_SRC.NODE_BYP.NBYP_SMT/
+D_NODE_SRCTHR:	.ASCID	/NODE_SRC.NODE_BYP.NBYP_THR/
+D_VEND_NAM:	.ASCID	/VEND_NAM/
+D_VEND_OUI:	.ASCID	/VEND_OUI/
+;
+; Standard Ethernet adapter names (template devices) and search list
+;
+		.ALIGN	QUAD
+D_ETH0:		.ASCID	/ETHERNET/	; user defined logical device precedence
+D_ETH1:		.ASCID	/ESA0/		; inbedded adapter (VaxStations...)
+D_ETH2:		.ASCID	/ETA0/		; BI adapter (DEBNA,DEBNI)
+D_ETH3:		.ASCID	/EWA0/		; PCI adapter (AlphaStations)
+D_ETH4:		.ASCID	/EXA0/		; XMI adapter (DEMNA)
+D_ETH5:		.ASCID	/EZA0/		; SGEC adapter (DSSI, new VaxStations)
+D_ETH6:		.ASCID	/XQA0/		; Qbus adapter (DEQNA,DELQA)
+D_ETH7:		.ASCID	/XEA0/		; Unibus adapter (DELUA)
+;
+AL_ETH:		.ADDRESS D_ETH0		; user default device pointer
+		.ADDRESS D_ETH1		; default device #1 pointer
+		.ADDRESS D_ETH2		; default device #2 pointer
+		.ADDRESS D_ETH3		; default device #3 pointer
+		.ADDRESS D_ETH4		; default device #4 pointer
+		.ADDRESS D_ETH5		; default device #5 pointer
+		.ADDRESS D_ETH6		; default device #6 pointer
+		.ADDRESS D_ETH7		; default device #7 pointer
+		.LONG	0		; end of default device list
+;
+; Multicast (generic) "node" name (default table loading - element 0)
+;
+D_MLTCAST:	.ASCID	/<multicast> /
+D_UNMATCHED:	.ASCID	/<unmatched> /
+;
+; VMS standard input/output logical devices
+;
+D_LNMTAB:	.ASCID	/LNM$FILE_DEV/
+D_INPUT:	.ASCID	/SYS$COMMAND/
+D_OUTPUT:	.ASCID	/SYS$OUTPUT/
+D_NAME:		.ASCID	/SYS$NODE/
+;
+; Probe-specific logical names & descripted values
+;
+;D_PARTNER:	.ASCID	/PROBE_MIRROR/	; (future) network partner object name
+D_DMSIMAGE:	.ASCID	/SYS_PROBE:DMS/ ; image name
+D_DMSNAME:	.ASCID	/PROBE_DMS/	; subprocess name
+D_ACQIMAGE:	.ASCID	/SYS_PROBE:ACQ/	; image name
+D_ACQNAME:	.ASCID	/PROBE_ACQ/	; subprocess name
+D_BASETIME:	.ASCID	/0 0:0:30/	; 30 seconds base timeout (ASCII format)
+;
+		.ALIGN	QUAD
+S_HEXA:		.ASCII	/FEDCBA9876543210/	; valid hexadecimal numerals
+W_EXITMASK:	.WORD	^X201A		; ASCII for 'space' & 'CTRL/Z'
+W_FMTMASK:	.WORD	^A/HI/		; ASCII	for 'H' & 'I'
+W_MLTMASK:	.WORD	^A/M./		; ASCII for 'M' & '.'
+S_PROMPT:	.WORD	^X0D0A		; carriage control on RMS prompt
+		.ASCII	/Table> /	; RMS terminal table prompt
+promsiz	=	.-S_PROMPT		; size of RMS prompt string
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	FILEDATA,NOEXE,WRT,NOSHR,QUAD
+;
+T_FILE:		$FAB	DNM=<SYS_PROBE:NETWORK.TBL>, - ; full default filespec
+			FAC=<GET>, -	; read-only access
+			FNM=<NETWORK>	; (user overriden) logical file name
+T_REC:		$RAB	FAB=T_FILE, -	; input record
+			PBF=S_PROMPT, -	; prompt string address for terminal
+			PSZ=PROMSIZ, -	; prompt string size
+			ROP=<PMT>, -	; use prompt for terminal inputs
+			USZ=GK_VALSIZE_MAX ; maximum record size
+T_DFILE:	$FAB	FNM=<PROBE.DIAG>,- ; diagnostic file name
+			FAC=<PUT>,-	; write-only access
+			RAT=<CR>,-	; carriage control is CR
+			RFM=<STM>	; stream file (CRLF)
+T_DREC:		$RAB	FAB=T_DFILE	; pointer to file record access block
+;
+D_DIA01:	.ASCID	\PROBE DIAGNOSTIC DUMP!_!_@ !%D!_(!XL)!/!/\	; 2
+D_DIA02:	.ASCID	\!_PID:!_!XL!_IPrio:!_!8<!SL!>!_Status: !XL!/\ -
+			\!_ICSR:!_!XL!_ICtrl:!_!XL!/\ -
+			\!_XCSR:!_!XL!_XEFS:!_!XL!/\			; 7
+D_DIA03:	.ASCID	\__ACQ__ PID:!_!XL!/\ -
+			\!_Status: !XL!_VMS:!_!XL!_Ext:!_!XL!/\ -
+			\!_Host:!_!8AD!_Device: !8AD!_IOs:!_!10<!UL!>!/\ -
+			\!_CDRpt:!_!UL/!10<!UL!>\ -
+			\!_CDmin:!_!10<!UL!>!_CDmax:!_!10<!UL!>!/\ -
+			\!_Data:!_!10<!UL!>\ -
+			\!_SBUA:!_!10<!UL!>!_UBUA:!_!10<!UL!>!/\	; 16
+D_DIA04:	.ASCID	\__DMS__ PID:!_!XL!/\ -
+			\!_Status: !XL!_VMS:!_!XL!_Ext:!_!XL!/\ -
+			\!_Lines:!_!8<!UL!>!_Dev1:!_!XL!_Dev2:!_!XL!/\ -
+			\!_Refrsh: !8<!UL!>!_Smooth: !8<!UL!>\ -
+			\!_Thresh: !8<!UL!>!/\				; 10
+D_DIA05:	.ASCID	\__BUF__ Flags:!_!XW!/\ -
+			\Queue>!_Passes: !10<!UL!>!_Time:!_!10<!UL!>!/\ -
+			\Depth>!_Min:!_!10<!UL!>!_Max:!_!10<!UL!>\ -
+			\!_Ave:!_!10<!UL!>!/\ -
+			\Orphan> Item:!_!10<!UL!>!_Free:!_!10<!UL!>\ -
+			\!_Drop:!_!10<!UL!>!/\				; 9
+D_DIA06:	.ASCID	\__CTL__ Flags:!_!XL\ -
+			\!_DefP:!_!XW!_!_ActP:!_!XW!/\ -
+			\Cycle>!_Count:!_!UL/!7<!UL!>\ -
+			\!_ActT:!_!10<!UL!>!_StbT:!_!10<!UL!>!/\ -
+			\Frame>!_Count:!_!10<!UL!>\ -
+			\!_Eth:!_!10<!UL!>!_IEEE:!_!10<!UL!>!/\ -
+			\Mltcst>!_Count:!_!10<!UL!>\ -
+			\!_Eth:!_!10<!UL!>!_IEEE:!_!10<!UL!>!/\ -
+			\Byte>!_Count:!_!10<!UL!>\ -
+			\!_Eth:!_!10<!UL!>!_IEEE:!_!10<!UL!>!/\ -
+			\Filter>!_Byte:!_!10<!UL!>!_Eth:!_!10<!UL!>\ -
+			\!_IEEE:!_!10<!UL!>!/!_Ptcl:!_!10<!UL!>\ -
+			\!_Mltcst: !10<!UL!>!/\				; 21
+D_DIA07:	.ASCID	\Size>!_Min:!_!10<!UL!>!_Max:!_!10<!UL!>\ -
+			\!_Ave:!_!10<!UL!>!/\ -
+			\!_Eth:!_!10<!UL!>!_Eth:!_!10<!UL!>!/\ -
+			\!_IEEE:!_!10<!UL!>!_IEEE:!_!10<!UL!>!/\ -
+			\Rate>!_Min:!_!10<!UL!>!_Max:!_!10<!UL!>!/\ -
+			\Load>!_Min:!_!10<!UL!>!_Max:!_!10<!UL!>\	; 11
+D_NULL:		.ASCID	\  \
+D_PTAG:		.ASCID	\Ptcl>\
+D_NTAG:		.ASCID	\Node>!_Flags:!_!XW\ -
+			\!_!_Count:!_!UL/!7<!UL!>!_Fail:!_!10<!UL!>\	; 4
+D_VTAG:		.ASCID	\Vendor>!_Count:!_!UL\				; 1
+D_NHTAG:	.ASCID	\N-Hash>!_Flags:!_!XW\				; 1
+D_VHTAG:	.ASCID	\V-Hash>\
+D_DIA_P:	.ASCID	\!AS!_<!UL>!/\ -
+			\!_Name:!_!12AD!_Value:!_!XW!/\ -
+			\!_Count:!_!10<!UL!>!_Mltcst: !10<!UL!>\ -
+			\!_Byte:!_!10<!UL!>!/\ -
+			\!_MinSz:!_!10<!UL!>!_MaxSz:!_!10<!UL!>\	; 10
+D_DIA_N:	.ASCID	\!_<!UL>!_!_!_Flags:!_!XW!_!_HitP:!_!XL!/\ -
+			\!_Name:!_!12AD!_Addr:!_!XW!XL!/\ -
+			\!_NextN:!_!10<!UL!>!_NextH:!_!UL!/\ -
+			\!_SMinSz: !10<!UL!>!_DMinSz: !10<!UL!>!/\ -
+			\!_SMaxSz: !10<!UL!>!_DMaxSz: !10<!UL!>!/\ -
+			\!_SFrm:!_!10<!UL!>!_DFrm:!_!10<!UL!>!/\ -
+			\!_SByte:!_!10<!UL!>!_Dbyte:!_!10<!UL!>!/\ -
+			\!_SIFrm:!_!10<!UL!>!_DIFrm:!_!10<!UL!>!/\ -
+			\!_SIByte: !10<!UL!>!_DIByte: !10<!UL!>\	; 21
+D_DIA_V:	.ASCID	\!_<!UL>!_!_!_NextH:!_!UL!_!_Ref:!_!UL!/\ -
+			\!_Name:!_!12AD!_Prefix:!_!XB!XW!/\		; 7
+D_DIA_H:	.ASCID	\!_<!UW>!_!UW!_<!UW>!_!UW\ -
+			\!_<!UW>!_!UW!_<!UW>!_!UW\			; 8
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	WORKDATA,NOEXE,WRT,NOSHR,QUAD
+;
+AL_CTL:		.LONG	0		; control section start address
+		.LONG	0		; control section end address
+AL_BUF:		.LONG	0		; buffer section start address
+		.LONG	0		; buffer section end address
+AL_CODE:	.ADDRESS PROBE		; program low address
+		.ADDRESS QUIT		; program high address
+AL_EXIT:	.LONG	0		; (VMS reserved usage) forward link
+		.ADDRESS SHUTDOWN	; exit handler address
+		.LONG	1		; number of arguments
+		.ADDRESS L_VMSSTATUS	; argument # 1 (VMS filled status)
+AL_EXIT2:	.LONG	0		; (VMS reserved usage) forward link
+		.ADDRESS RESET		; exit handler address
+		.LONG	1		; number of arguments
+		.ADDRESS L_VMSSTATUS	; argument # 1 (VMS filled status)
+Q_NEWPRIV:	.QUAD	<PRV$M_PHY_IO!- ; physical I/O
+			 PRV$M_PSWAPM!- ; process swap mode
+			 PRV$M_SETPRI>	; alter priority
+Q_KEYIOSB:	.QUAD	0		; keyboard input I/O status block
+Q_CRTIOSB:	.QUAD	0		; screen output I/O status block
+Q_BASETIME:	.QUAD	0		; initial & terminal timeout deltatime
+Q_SYNCTIME:	.QUAD	0		; subprocesses synchronization timeout
+Q_STANDBY:	.QUAD	0		; standby binary deltatime value
+Q_ACTIVE:	.QUAD	0		; activity binary deltatime value
+L_KEYBUFFER:	.LONG	07		; keyboard input storage (1 byte used)
+L_CRTBUFFER:	.LONG	07		; single ASCII bell character
+L_VMSSTATUS:	.LONG	0		; VMS-written exit status (exit handler)
+L_DEVICE_ID:	.LONG	0		; SMG returned pasteboard (inherent use)
+L_EFSTATE:	.LONG	0		; event flag cluster state
+L_ICSR:		.LONG	-1		; initial control & status mask (diag)
+L_ICTRL:	.LONG	-1		; initial control trapping mask
+L_IPRIO:	.LONG	-1		; initial scheduling priority value
+L_XEFSTATE:	.LONG	0		; exit common event flag state (diag)
+L_XCSR:		.LONG	0		; exit control & status mask (diag)
+;
+keyfunc	=	<IO$_READVBLK!IO$M_CVTLOW!IO$M_NOECHO>
+crtfunc	=	<IO$_WRITEVBLK!IO$M_NOFORMAT>
+outfunc	=	<IO$_WRITEVBLK>
+;
+AL_KEY:		$QIO	-		; untimed unterminated input arguments
+		astadr=KEYBOARD,-	; >action routine address (no parameter)
+		func=  KEYFUNC,-	; >uppercase converted read with no echo
+		iosb=  Q_KEYIOSB,-	; >status block address
+		chan=  0,-		; >program filled :input channel
+		p1=    L_KEYBUFFER,-	; >input buffer address
+		p2=    1		; >treat characters individually
+AL_CRT:		$QIO	-		; async single bell output arguments
+		func=  CRTFUNC,-	; >uninterpreted control write
+		iosb=  Q_CRTIOSB,-	; >status block address
+		chan=  0,-		; >program filled :output channel
+		p1=    L_CRTBUFFER,-	; >output buffer address
+		p2=    1		; >single control (ASCII bell) character
+AL_OUT:		$QIO	-		; async message line output arguments
+		func=  OUTFUNC,-	; >standard control write
+		iosb=  Q_CRTIOSB,-	; >status block address
+		chan=  0,-		; >program filled :output channel
+		p1=    0,-		; >program filled :output buffer address
+		p2=    0,-		; >program filled :output buffer size
+		p4=    32		; >single space fortran carriage control
+AL_TEXT:	$FAO	-		; parameter merging arguments
+		ctrstr=D_WORK,-		; >control string address
+		outlen=D_TEXT,-		; >resulting length address
+		outbuf=D_TEXT,-		; >resulting string descriptor
+		p1=    0		; >program filled :parameter value
+AL_MSG:		$GETMSG	-		; message arguments
+		msgid= 0,-		; >program filled :message code
+		msglen=D_WORK,-		; >resulting length address
+		bufadr=D_WORK		; >resulting string descriptor
+;
+S_TEXT:		.BLKB	GK_VALSIZE_MAX	; string storage for FAO conversion
+S_WORK:		.BLKB	GK_VALSIZE_MAX	; string storage for MSG recovery
+S_TT:		.BLKB	GK_LOGICAL_MAX	; string storage for default terminal
+D_TEXT:		.LONG	GK_VALSIZE_MAX	; descriptor for FAO
+		.ADDRESS S_TEXT		; 
+D_WORK:		.LONG	GK_VALSIZE_MAX	; descriptor for MSG
+		.ADDRESS S_WORK		; 
+D_TT:		.LONG	GK_LOGICAL_MAX	; descriptor for TRNLNM
+		.ADDRESS S_TT		; 
+;
+;; MAIN PROGRAM ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	CODE,EXE,NOWRT,NOSHR
+;
+	get_platform			; for conditional VAX/AXP code (alpha=?)
+	set_initial			; initialize assembly variables
+;
+	.ENTRY	PROBE,^M<>		; entry point, no registers saved
+					; integer overflow trap is disabled
+;
+; Boost & test privileges, ready interprocess flags, lockdown code in memory
+;
+	$setprv_s -			; update (temporary) process privileges
+		prvadr=Q_NEWPRIV, -	; >address of new privileges mask
+		enbflg=#1		; >enable masked privileges
+	blbs	R0,PRV_OK		; check successful completion, else...
+	stop	message=#PRB_NOPRIV, -	; drop out with signal
+		reason =R0		; >second message parameter
+PRV_OK:	$ascefc_s -			; associate common event flag cluster
+		name=  GS_CEFNAME, -	; >event flag cluster name
+		efn=   #GK_BASE, -	; >temporary event flag cluster id
+		prot=  #1		; >access granted to creator UIC only
+	blbs	R0,IPC_OK		; upon incorrect status
+	stop	message=#PRB_NOIPC, -	; drop out with signal
+		reason =R0		; >second message parameter
+IPC_OK:	.IF	EQ,alpha		;V22B ++ VAX only section
+	$lckpag_s -			; code lockdown
+		inadr= AL_CODE, -	; >code boundary array
+		acmode=#PSL$C_USER	; >user access mode (3)
+	blbs	R0,C_MAP		; check status
+	signal	message=R0		; ... inform user of problem
+C_MAP:	.ENDC				;V22B -- end of change section
+;
+; Create & map CONTROL and BUFFER global sections, lock them down in memory.
+; (Pages are initialized to zero, first-fit in virtual space, writable and
+;  allocated from pagefile)
+;
+gsmask	=	<SEC$M_GBL!SEC$M_DZRO!SEC$M_EXPREG!SEC$M_WRT!SEC$M_PAGFIL>
+;
+	$crmpsc_s -			; create and map Control global section
+		inadr= AL_CTL,-		; >proposed virtual address array (P0)
+		retadr=AL_CTL,-		; >actual virtual address array
+		gsdnam=GS_CTL_NAME,-	; >global section name
+		ident= GQ_CTL_IDENT,-	; >version identification
+		acmode=#PSL$C_USER,-	; >user access mode (3)
+		pagcnt=#GX_CTLPAGESIZE,-; >page count - predefined by macro
+		prot=  #<^XFFFFF888>,-	; >protection (S:RWE,O:RWE,G:RWE,W)
+		flags= #GSMASK		; >creation attribute mask
+	blbs	R0,C_LOCK		; check status
+	alert	status=R0		; drop out and signal internal problem
+C_LOCK:	$lckpag_s -			; lock global pages in memory
+                inadr= AL_CTL, -	; >actual virtual address array
+                acmode=#PSL$C_USER	; >user access mode (3)
+	blbs	R0,B_MAP		; check status
+	signal	message=R0		; ... inform user of problem
+B_MAP:	$crmpsc_s -			; create and map Buffer global section
+		inadr= AL_BUF,-		; >proposed virtual address array (P0)
+		retadr=AL_BUF,-		; >actual virtual address array
+		gsdnam=GS_BUF_NAME,-	; >global section name
+		ident= GQ_BUF_IDENT,-	; >version identification
+		acmode=#PSL$C_USER,-	; >user access mode (3)
+		pagcnt=#GX_BUFPAGESIZE,-; >page count - predefined by macro
+		prot=  #<^XFFFFF888>,-	; >protection (S:RWE,O:RWE,G:RWE,W)
+		flags= #GSMASK		; >creation attribute mask
+	blbs	R0,B_LOCK		; check status
+	alert	status=R0		; drop out and signal internal problem
+B_LOCK:	$lckpag_s -			; lock global pages in memory
+                inadr= AL_BUF, -	; >actual virtual address array
+                acmode=#PSL$C_USER	; >user access mode (3)
+	blbs	R0,I_QUE		; check status
+	signal	message=R0		; ... inform user of problem
+I_QUE:	movl	AL_CTL,R11		; load control section starting address
+	movl	AL_BUF,R10		; load buffer section starting address
+	movw	#GK_ETH,GW_EQMIN(R10)	;*DIAG*reverse bias low Q size marker
+;
+; Initialize buffer free queue (allocate slots within global section)
+;
+	movab   GAE_E_SLOT(R10),R9	; load address of first ethernet item
+	movl    #GK_ETH,R8		; load item count
+Q_FREE:	insqti  (R9),GAL_EQFREE(R10)	; update queue pointers
+        bcc     Q_OK			; if insertion error occured
+	stop	message=#PRB_QFRMINIT,-	; drop out and signal
+		msg1   =R8,-		; >current counter value
+		msg2   =#GK_ETH		; >item count (queue size)
+Q_OK:	addl2   #GQNTRY_SIZE,R9		; point to next item slot
+	sobgtr  R8,Q_FREE		; update count and loop until done
+;
+; Build heap (for system call arguments and workspace) below stack frame
+; This area will be shared by succeeding procedures...
+;
+scratch	=	100			; heap workspace offset (argument lists)
+heapsiz	=	scratch+GK_VALSIZE_MAX
+;
+        subl2   #HEAPSIZ,SP		; make space
+        movl    SP,R9			; setup pointer to heap
+	movab	SCRATCH(R9),R8		; setup pointer to (strings) workspace
+;
+; Initialize Control section from system environment & parameter
+; Parse command line and load qualifier values into Control section
+;
+	jsb	GET_ENVIRONMENT		; upon failure, flow will not return
+;
+	jsb	LOAD_ALL		; upon failure, flow may not return
+;
+; Execute following routine only when interactive so that I/O device exists...
+; Find terminal attributes & set-up manual/emergency rundown method
+;
+	bitl	#M_BATCH,GL_CSR(R11)	; if execution mode is interactive
+	bneq	DOTIM			; then
+;
+	jsb	SET_CONTROL		; upon failure, flow will not return
+DOTIM:
+;
+; Set-up subprocess creation and synchronization timeout representation.
+; Declare main exit handler
+;
+	$bintim_s -			; convert time from ASCII to VMS binary
+		timbuf=D_BASETIME, -	; >initial & terminal timeout interval
+		timadr=Q_BASETIME	; >resulting binary delta time
+	blbs	R0,DOSYNC		; check success, else
+	alert	status=R0		; drop out and signal internal problem
+DOSYNC:	cmpw	#1,GW_STANDBY(R11)	; if standby period is defined
+	bgtr	DOXIT			;  & standby is at least 2 seconds
+	beql	DOHALF			; then
+	movq	Q_STANDBY,Q_SYNCTIME	;  use standby time as basis
+	addl2	#10000000,Q_SYNCTIME	;  resync_timeout = standby_time - 1
+	adwc	#0,<Q_SYNCTIME+4>	; 
+	brb	DOXIT			; else
+DOHALF:	ashq	#-1,Q_STANDBY,Q_SYNCTIME;  resync_timeout = standby_time / 2
+DOXIT:	$dclexh_s -			; establish main exit handler routine
+                desblk=AL_EXIT		; >exit handler control block
+	blbs	R0,LETSGO		; check success, else
+	alert	status=R0		;  drop out and signal internal problem
+LETSGO:	movl	GL_CSR(R11),L_ICSR	;*DIAG* keep original control state
+;
+; Initiate network listener subprocess
+;
+	jsb	START_ACQ		; upon failure, flow will not return
+;
+; At this point, the network is connected and standing by...
+; Initiate network partner as required (V3.0)
+;
+;	bitl	#M_PARTNER,GL_CSR(R11)	; 
+;	beql	DODMS			; 
+;
+;	jsb	START_COOP		; upon failure, executor traffic lost
+DODMS:
+;
+; Initiate data manager subprocess
+;
+	jsb	START_DMS		; upon failure, will attempt to continue
+;
+; Elevate PROBE then ACQ/DMS priority level & wait for first active cycle
+;
+	movl	FP,SP			; recover stack, discard heap
+	$setpri_s -			; boost current process to real-time
+		prvpri=L_IPRIO,-	; >fallback priority upon rundown
+		pri=   #GK_TOPPRIORITY	; >target priority (25)
+	blbs	R0,PRI2			; if service unsuccesful
+	abort	status=#PRB_NOBOOST,-	; then force image rundown
+		reason=R0		; >pass error code to exit handler
+PRI2:	$setpri_s -			; boost listener to real-time
+		pidadr=GL_ACQPID(R11),-	; >target process
+		pri=   #GK_ACQPRIORITY	; >target priority (24)
+	blbs	R0,PRI3			; if service unsuccesful
+	abort	status=#PRB_NOBOOST,-	; then force image rundown
+		reason=R0		; >pass error code to exit handler
+PRI3:	tstl	GL_DMSPID(R11)		; check that a data manager exists
+	beql	READY			; otherwise nothing to boost here
+	$setpri_s -			; boost data manager to real-time
+		pidadr=GL_DMSPID(R11),-	; >target process
+		pri=   #GK_DMSPRIORITY	; >target priority (23)
+	blbs	R0,READY		; if service unsuccesful
+	cmpl	#SS$_NONEXPR,R0		;  because was process was not there
+	beql	READY			;  then disregard (it failed)
+	abort	status=#PRB_NOBOOST,-	; else force image rundown
+		reason=R0		; >pass error code to exit handler
+READY:
+;
+; Prepare to enter cycle loop... starting with a standby period (Top of Cycle),
+; followed with an active period (Middle of Cycle) leading to a synchronization
+; period (End of Cycle).
+;
+	tstw	GW_STANDBY(R11)		; if standby period specified
+	beql	TOPCYC			; then
+	$setimr_s -			;  prepare standby wait timer
+		daytim=Q_STANDBY,-	;  >delta time
+		reqidt=#1,-		;  >specific identification
+		efn=   #GV_TIMEIN	;  >synchronization event flag
+	blbs	R0,TOPCYC		;  check success
+	abort	status=R0		;  and force rundown if abnormal
+TOPCYC:
+;
+; Check that it is possible to continue & for last cycle. Set running flags.
+; Wait end of standby period.
+;
+	bitl	#<M_STATISTICS!M_LOG! -	; check that recording or processing
+		  M_DISPLAY>,GL_CSR(R11);  is active
+	bneq	PURSUE			; if no work to do then inconsistent...
+	abort	status=#PRB_NOWORK	;  rundown & report nothing to do...
+PURSUE:	bisl2	#M_GO,GL_CSR(R11)	; set activity flag
+	addw3	#1,GW_CURCYCLE(R11),R1	; compute next cycle number
+	cmpw	R1,GW_MAXCYCLE(R11)	; if reached maximum specified cycle
+	blss	SYNC1			; then
+	bicl2	#M_STANDBY,GL_CSR(R11)	;  drop continuation flag (last cycle)
+SYNC1:	movw	R1,GW_CURCYCLE(R11)	; entering next cycle... update number
+	tstw	GW_STANDBY(R11)		; if standby period exists
+	beql	MIDCYC			; then
+	$waitfr_s -			;  sleep until
+		efn=#GV_TIMEIN		;  >awaken by timer event
+	blbs	R0,MIDCYC		;  validate success
+	abort	status=R0		;  else force rundown
+MIDCYC:
+;
+; Establish base cycle time (interval "0" reference). Set activity timer as
+; required & trigger subprocesses.
+;
+	$gettim_s -			; get current/reference system time
+		timadr=GQ_GOTIME(R11)	; >start time buffer address
+	blbs	R0,CLOCK		; validate success
+	abort	status=#PRB_NOTIME,-	;  else force image rundown
+		reason=R0		;  >pass error code to exit handler
+CLOCK:	bitl	#M_TIMER,GL_CSR(R11)	; if exit mode is timed (automatic)
+	beql	NOSTOP			; then
+	$setimr_s -			;  prepare active wait timer
+		daytim=Q_ACTIVE,-	;  >delta time
+		reqidt=#1,-		;  >specific identification
+		efn=   #GV_TIMEIN	;  >synchronization event flag
+	blbs	R0,PULSE		;  check success
+	abort	status=R0		;   and force rundown if abnormal
+PULSE:	$setef_s -			;  release subprocesses
+		efn=#GV_TRIGGER		;  >trigger flag
+	blbs	R0,SYNC2		;  validate success
+	abort	status=R0		;  else force rundown... can't start
+SYNC2:	$waitfr_s -			;  sleep until
+		efn=#GV_TIMEIN		;  >awaken by timer event
+	blbs	R0,ENDCYC		;  validate success
+	abort	status=R0		;  else force rundown
+NOSTOP:	$setef_s -			; else (manual)... release subprocesses
+		efn=#GV_TRIGGER		;  >trigger flag
+	blbs	R0,SLEEP		;  validate success
+	abort	status=R0		;   else force rundown... can't start
+SLEEP:	bisl2	#M_SLEEP,GL_CSR(R11)	;  indicate hibernating state
+	$hiber_s			;  sleep "forever" (until user wakes up)
+	brw	FINISH			;  all done... complete rundown
+ENDCYC:
+;
+; According to continuation (standby) indicator, reenter (next cycle) standby
+; state or terminate the program. When continuing, drop activity flag & wait
+; for subprocesses to catch up and resynchronize. Upon subprocess timeout,
+; action rundown.
+;
+	bitl	#M_STANDBY,GL_CSR(R11)	; if standby not indicated
+	bneq	MORCYC			; then
+	movl	#PRB_CYCLEND,-		;  no more cycle message
+		GL_STATUS(R11)		;  (normal termination)
+	brw	FINISH			;  quit
+MORCYC:					; else
+;
+; Outstanding cycles to perform...
+;
+match3	=	<GM_ACQREADY!GM_DMSREADY>
+event3	=	<MATCH3!GM_TIMEOUT>
+;
+	$gettim_s -			; get current system time
+		timadr=GQ_STOPTIME(R11)	; >stop time buffer address
+	blbs	R0,EDGEOF		; validate success
+	abort	status=#PRB_NOTIME,-	;  else force image rundown... no time
+		reason=R0		;  >pass error code to exit handler
+EDGEOF:	$clref_s -			; reset subprocess trigger
+		efn=#GV_TRIGGER		; >event flag identifier
+	blbs	R0,STOP			; validate success
+	abort	status=R0		;  else force rundown... lost control
+STOP:	bicl2	#M_GO,GL_CSR(R11)	; drop activity flag
+	$setimr_s -			; entering next cycle... standby period
+		daytim=Q_STANDBY,-	; >delta time
+		reqidt=#1,-		; >specific identification
+		efn=   #GV_TIMEIN	; >synchronization event flag
+	blbs	R0,RESYNC		; check success
+	abort	status=R0		;  and force rundown if abnormal
+RESYNC:	$setimr_s -			; set slave resync timeout
+		daytim=Q_SYNCTIME,-	; >computed slave grace period
+		reqidt=#2,-		; >specific identification
+		efn=   #GV_TIMEOUT	; >expiry event flag
+	blbs	R0,SYNC3		; check success
+	abort	status=R0		;  force rundown if abnormal
+SYNC3:	movl	#EVENT3,R2		; load original wait event mask
+LOOP3:	$wflor_s -			; wait for either
+		efn= #GK_BASE,-		;  the timer expiry flag
+		mask=R2			;  or the slave "thumbs up" flags
+	blbs	R0,WAKE3		; validate success
+	abort	status=R0		;  otherwise force rundown
+WAKE3:	$readef_s -			; check event flag state
+		efn=  #GV_TIMEOUT,-	; >timeout flag
+		state=L_EFSTATE		; >complete EF cluster state
+	cmpl	#SS$_WASSET,R0		; if event was timeout
+	bneq	VRFY3			; then
+	movl	#PRB_SYNCSLOW,-		;  subprocess too slow...
+		GL_STATUS(R11)		;  notify user
+	brb	FINISH			;  quit
+VRFY3:	bbc	#<GV_ACQREADY-GK_BASE>,-; else if listener resynchronized
+		L_EFSTATE,SKP3A		;  then
+	bicl2	#GM_ACQREADY,R2		;   remove corresponding wait bit
+SKP3A:	bbc	#<GV_DMSREADY-GK_BASE>,-;  if data manager resynchronized
+		L_EFSTATE,SKP3B		;  then
+	bicl2	#GM_DMSREADY,R2		;   remove corresponding wait bit
+SKP3B:	bitl	#MATCH3,R2		;  check for remaining subprocess syncs
+	bneq	LOOP3			;  if so repeat wait
+	$cantim_s -			;  else cancel timeout
+		reqidt=#2,-		;   >timer identifier
+		acmode=#PSL$C_USER	;   >normal user mode
+;	disregard potential problem
+	brw	TOPCYC			; resume cycle start (wait on standby)
+FINISH:	movl	#SS$_NORMAL,R0		; final image status
+	ret				; quit... invoke exit handler
+;
+;; SUBROUTINES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine GET_ENVIRONMENT
+;
+; This routine loads primal information (PID, mode, node name) into the control
+; section. It also validates the ethernet adapter, if specified, or searches the
+; system configuration for an appropriate device. If no ethernet exists on this
+; system, then all processing stops.
+; Called from: MAIN
+; Subroutines: CLI$GET_VALUE , LIB$SIGNAL , LIB$STOP ,
+;	       SYS$GETDVIW , SYS$GETJPIW , SYS$GETSYIW , SYS$TRNLNM
+; Register allocation:
+; R0  - L -  /W - system call status        
+; R1  - L -  /W - (affected by system calls)
+; R2  - L -  /W - scratch (implicit thru MOVCx)
+; R3  - L -  /W - scratch (implicit thru MOVCx)
+; R4  - L -  /W - scratch (implicit thru MOVCx)
+; R5  - L -  /W - scratch (implicit thru MOVCx)
+; R6  - L -  /W - adapter descriptor pointer
+; R7  - L -  /W - default list scan pointer
+; R8  - L - R/  - workspace pointer within heap
+; R9  - L - R/  - heap argument lists pointer
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+; Structure heap fixed allocation [0..23] (for CLI$GET_VALUE)
+; Values not initialized are call instance specific
+;
+				;   (R9)  workspace/result descriptor (size)
+				;  4(R9)  workspace/result descriptor (pointer)
+	movl	#3,8(R9)		; retrieval argument list : size
+				; 12(R9)  >address of input descriptor
+	movaq	(R9),16(R9)		; >address of result string descriptor
+	movaw	(R9),20(R9)		; >address of string size
+;
+; Prepare argument lists & interrogate system
+;
+	movw	#4,24(R9)		; >PID buffer size
+        movw    #JPI$_PID,26(R9)	; >item code
+	moval	GL_PID(R11),28(R9)	; >PID result address @ section offset
+	movaw	-12(R8),32(R9)		; >PID result length address (Xcare=4)
+	movw	#4,36(R9)		; >mode (& maxbuf) buffer size
+	movw	#JPI$_MODE,38(R9)	; >item code
+	movl	R8,40(R9)		; >mode result address
+	movaw	-12(R8),44(R9)		; >mode result length address (Xcare=4)
+	clrl	48(R9)			; >item list end
+        $getjpiw_s -			; get process identification
+                itmlst=24(R9),-		; >item list
+                iosb=  -8(R8)		; >status block
+	blbc	R0,JPI_ER		; check call success
+	blbs	-8(R8),JPI_OK		; if IOSB reports service failure
+	movzwl	-8(R8),R0		; then transfer error code from IOSB
+JPI_ER:	alert	status=R0		;  notify user & stop
+JPI_OK:	cmpl	#JPI$K_INTERACTIVE,(R8)	; check process mode for interactive
+	beql	DO_SYI			; otherwise consider as "batch"
+	bisl2	#M_BATCH,GL_CSR(R11)	; mark CSR accordingly
+DO_SYI:	movw	#GK_NODESIZE_MAX,24(R9)	; >node name buffer length
+	movw	#SYI$_NODENAME,26(R9)	; >item code
+	movab	GS_NODENAME(R11),28(R9)	; >buffer address @ section offset
+	movaw	GW_NODESIZE(R11),32(R9)	; >return length address @ offset
+	movw	#SYI$_MAXBUF,38(R9)	; >item code (size preinitialized above)
+	moval	GL_MAXBUF(R11),40(R9)	; >maxbuf result address
+        $getsyiw_s -			; get node name
+                itmlst=24(R9),-		; >item list
+                iosb=  -8(R8)		; >status block
+	blbc	R0,SYI_ER		; check call success
+	blbs	-8(R8),SYI_OK		; if IOSB reports service failure
+	movzwl	-8(R8),R0		; then transfer error code from IOSB
+SYI_ER:	alert	status=R0		;  notify user & stop
+SYI_OK:	tstw	GW_NODESIZE(R11)	; if SCSNODE undefined
+	bneq	PARAM			; then (node not in a cluster)
+	movw	#LNM$_STRING,26(R9)	;  >item code
+	clrl	36(R9)			;  >mark new end of item list
+	$trnlnm_s -			;  translate SYS$NODE
+		tabnam=D_LNMTAB,-	;  >logical name table
+		lognam=D_NAME,-		;  >logical name to translate
+		itmlst=24(R9)		;  >pointer to item list descriptor
+	blbs	R0,STRIP		;  if no logical name match
+	clrw	GW_NODESIZE(R11)	;  then make string size null
+STRIP:	locc	#^A/:/,-		;  search string for trailing "::"
+		GW_NODESIZE(R11),-	; 
+		GS_NODENAME(R11)	; 
+	beql	NOD_OK			;  if found
+	subw2	R0,GW_NODESIZE(R11)	;  then reduce string length (ie. strip)
+NOD_OK:	movw	#4,36(R9)		; restore item list to previous state
+PARAM:
+;
+; Parse command line for adapter name and validate its existence and type
+; As required, scan system for existing ethernet device from default list
+; (prepare device service call argument sublist from previous lists)
+;
+        movw    #DVI$_NET,38(R9)	; >item code (network device?)
+	movl	R8,40(R9)		; >address of boolean result
+	moval	AL_ETH,R7		; load default ethernet list head
+	movaq	(R9),R6			; point to main descriptor for messaging
+	clrl	R5			; mark message not issued logical
+	movaq	D_ADAPTER,12(R9)	; load address of parameter descriptor
+	movab	GS_ADAPTER(R11),4(R9)	; point to adapter string in control
+	movzwl	#GK_ADAPSIZE_MAX,(R9)	; initialize size to maximum permissible
+	callg	8(R9),G^CLI$GET_VALUE	; get input adapter name
+	blbs	R0,CHK_DV		; if abnormal return then
+	cmpl	#CLI$_ABSENT,R0		;  check that parameter was specified
+	bneq	NGO_DV			;  otherwise
+	incl	R5			;   cancel messaging... use defaults
+NGO_DV:	bbss	#0,R5,NXT_DV		;   test and cancel messaging
+	signal	message=#PRB_ADAPTER	;    notify user of unacceptable value
+NXT_DV:	movl	(R7)+,R6		; else get ethernet default entry
+	bneq	CHK_DV			; if at end-of-list then
+	stop	message=#PRB_NOETDEV	;  quit; no ethernet on this system
+CHK_DV:	$getdviw_s -			; else get device characteristics
+                itmlst=36(R9), -	;  >item list
+                devnam=(R6), -		;  >user-specified device name
+                iosb=  -8(R8)		;  >status block
+	blbc	R0,NGO_DV		;  check call success
+	blbc	-8(R8),NGO_DV		;  check service success
+	blbc	(R8),NGO_DV		;  if device is network type then
+	blbc	R5,LOG_DV		;   if adapter is not user-supplied then
+	movc3	(R6),@4(R6), -		;    transfer name string
+		GS_ADAPTER(R11)		;    to control section
+LOG_DV:
+;
+; Assume network device is a logical name... get physical equivalence
+;
+	movl	#9,R7			; initialize translation attempt depth
+	movw	#GK_LOGICAL_MAX,36(R9)	; >buffer length
+	movw	#LNM$_STRING,38(R9)	; >item code
+	movaw	-8(R8),44(R9)		; >address of result string size
+LOG_PS:	$trnlnm_s -			; get equivalence name for SYS$OUTPUT
+		tabnam=D_LNMTAB,-	; >logical name table
+		lognam=(R6),-		; >logical name to translate
+		itmlst=36(R9)		; >pointer to item list descriptor
+	blbc	R0,TELL			; if translation successful then
+	movl	R9,R6			;  use master heap descriptor
+	movw	-8(R8),(R6)		;  update equivalence string size
+	movc5	(R6),(R8),#^A/ /, -	;  update adapter string in control
+		#GK_ADAPSIZE_MAX,@4(R6)	; 
+	sobgtr	R7,LOG_PS		;  try translation again
+TELL:	movw	(R6),GW_ADAPSIZE(R11)	; update adapter size in control
+	signal	message=#PRB_DEFSPEC,-	; advise user of default match
+		msg1   =R6		; >address of device descriptor
+	rsb				; all done
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine LOAD_ALL
+;
+; This routine controls the loading, converting and checking of all specified
+; and/or default qualifiers from the command line. Upon return, the utility's
+; internal state and operating values are fully defined.
+; Called from: MAIN
+; Subroutines: CLI$PRESENT , CLI$GET_VALUE , LIB$SIGNAL , LIB$STOP ,
+;	       OTS$CVT_TU_L ,
+;	       LOAD_TIME , LOAD_DISPLAY , LOAD_TABLE , LOAD_FILTER
+; Register allocation:
+; R0  - L -  /W - system call status           
+; R1  - L -  /W - (affected by system calls)   
+; R2  - L -  /W - scratch (implicit thru MOVCx)
+; R3  - L -  /W - scratch (implicit thru MOVCx)
+; R4  - L -  /W - scratch (implicit thru MOVCx)
+; R5  - L -  /W - scratch (implicit thru MOVCx)
+; R6  - L -  /W - scratch used by subroutines
+; R7  - L -  /W - scratch used by subroutines
+; R8  - L - R/  - workspace pointer within heap
+; R9  - L - R/  - heap argument lists pointer
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+; Structure heap fixed allocation [24..43] (for OTS$CVT_TU_L)
+; Values not initialized are call instance specific
+;
+	movl	#4,24(R9)		; conversion argument list : size
+	movaq	(R9),28(R9)		; >address of input descriptor
+				; 32(R9)  >address of result value
+				; 36(R9)  >result value type size (2,4)
+	movl	#^X11,40(R9)		; >ignore spacers
+;
+; Set-up global flags & retrieve extension qualifier(s)
+; (errors in extension values are corrected without user notification)
+;
+	bisl2	#M_STANDBY,GL_CSR(R11)	; initial standby
+;
+	pushaq	D_DMP			; >address of qualifier descriptor
+	calls	#1,G^CLI$PRESENT	; check presence in command line
+	blbc	R0,L_1N			; if so then
+	bisl2	#M_DIAGNOSTIC,GL_CSR(R11); set corresponding flag in control
+L_1N:
+;
+; Load collision fixed value (if specified). Qualifier absence implies
+; automatic line counters tracking by subprocess.
+;
+	bisl2	#M_TRACK,GL_CSR(R11)	; assume automatic line tracking
+	movaq	D_CD,12(R9)		; load address of qualifier descriptor
+	movzwl	#GK_VALSIZE_MAX,(R9)	; load transient descr with max size
+	movl	R8,4(R9)		; initialize descr to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbc	R0,L_CN			; make sure qualifier value is correct
+	movaw	GW_COLLISION(R11),32(R9); load result address (in control)
+	movl	#2,36(R9)		; load result size (in bytes)
+	callg	24(R9),G^OTS$CVT_TU_L	; convert from ASCII to binary
+	blbc	R0,L_COFF		; if conversion valid then
+	bicl2	#M_TRACK,GL_CSR(R11)	;  disable automatic line tracking
+	tstw	GW_COLLISION(R11)	;  bound check [0..999]
+	blss	L_COFF			;  if low bound
+	cmpw	#999,GW_COLLISION(R11)	;  or high bound exceeded
+	bgequ	L_CN			;  then
+L_COFF:	clrw	GW_COLLISION(R11)	;   limit at 0 (disabled)
+L_CN:	
+;
+; Load statistics file name (if specified) for subprocess usage
+;
+	pushaq	D_STATISTICS            ; >statistics label descriptor
+	calls	#1,G^CLI$PRESENT	; check qualifier presence
+	blbc	R0,L_SN			; if present then...
+	bisl2	#M_STATISTICS,GL_CSR(R11); mark statistics presence in control
+	movaq	D_RESULT,12(R9)		;  load output keyword label descriptor
+	movzwl	#GK_FILSIZE_MAX,(R9)	;  initialize descriptor size
+	movab	GS_OUTFILE(R11),4(R9)	;  point descriptor to control section
+	callg	8(R9),G^CLI$GET_VALUE	;  retrieve command line value (file)
+	blbc	R0,L_SN			;  if success then
+	movw	(R9),GW_OUTSIZE(R11)	;   set file string control size
+	bisl2	#M_OUTPUT,GL_CSR(R11)	;   mark output file presence in control
+L_SN:
+;
+; Load recording file name and data-size (if specified) for subprocess usage
+;
+	pushaq	D_RECORD		; >record label descriptor
+	calls	#1,G^CLI$PRESENT	; check qualifier presence
+	blbc	R0,L_LN			; if present then...
+	bisl2	#M_LOG,GL_CSR(R11)	;  mark recording presence in control
+	movaq	D_DATA,12(R9)		;  >data label descriptor
+	movzwl	#GK_VALSIZE_MAX,(R9)	;  initialize transient descriptor size
+	movl	R8,4(R9)		;  initialize descr to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	;  retrieve command line value
+	blbc	R0,L_DN			;  if data present then...
+	movaw	GW_FDATA(R11),32(R9)	;   load result address (in control)
+	movl	#2,36(R9)		;   load result size (in bytes)
+	callg	24(R9),G^OTS$CVT_TU_L	;   convert from ASCII to binary
+	blbc	R0,L_DN			;   if conversion valid then
+	tstw	GW_FDATA(R11)		;    bound check
+	bleq	L_DN			;    if positive then (valid)
+	bisl2	#M_DATA,GL_CSR(R11)	;     mark data logging in control
+	cmpw	#GK_MAXDATA,GW_FDATA(R11);    if out-of-bounds [..1500] bytes
+	bgequ	L_DN			;     then
+	movw	#GK_MAXDATA,GW_FDATA(R11);     limit accordingly
+L_DN:	movaq	D_SAMPLE,12(R9)		;  load output keyword label descriptor
+	movzwl	#GK_FILSIZE_MAX,(R9)	;  initialize descriptor size
+	movab	GS_LOGFILE(R11),4(R9)	;  point descriptor to control section
+	callg	8(R9),G^CLI$GET_VALUE	;  retrieve command line value (file)
+	blbc	R0,L_LN			;  if success then
+	movw	(R9),GW_LOGSIZE(R11)	;   set file string control size
+L_LN:					;  (otherwise use ACQ default name)
+;
+; Load schedule attributes, non-interactive exit must be automatic
+;
+	pushaq	D_SCHEDULE		; >schedule label descriptor
+	calls	#1,G^CLI$PRESENT	; check qualifier presence
+	blbc	R0,L_MODE		; if present then
+	bisl2	#M_TIMER,GL_CSR(R11)	;  set appropriate CSR bit
+;
+	jsb	LOAD_TIME		;  fetch & validate attributes
+;
+L_MODE:	bitl	#M_BATCH,GL_CSR(R11)	; check for mode "batch"
+     	beql	L_SANE			; if so then
+	bitl	#M_TIMER,GL_CSR(R11)	;  check for automatic exit set
+	bneq	L_SANE			;  if not then
+	stop	message=#PRB_NOTICK	;   abort... program has no mean to stop
+L_SANE:	cmpw	#1,GW_MAXCYCLE(R11)	; check that at least 1 cycle to perform
+	beql	L_TIMN			; if exactly 1... no complications
+	bgtr	L_TDEF			; if more than 1... beware of stats
+	bitl	#M_OUTPUT,GL_CSR(R11)	;  if output file inexistant
+	bneq	L_TIMN			;  and
+	bitl	#M_STATISTICS,GL_CSR(R11); if statistics selected or defaulted
+	beql	L_TIMN			;  then (multicycle terminal stats nogo)
+	bicl2	#M_STATISTICS,GL_CSR(R11);  cancel statistics
+	signal	message=#PRB_MCTTSTS	;   advise user that file is missing
+	brb	L_TIMN			;  endif
+L_TDEF:	movw	#1,GW_MAXCYCLE(R11)	; if zero... garantee default of 1
+L_TIMN:
+;
+; Load display attributes, invalid when non-interactive
+;
+	pushaq	D_DISPLAY		; >display label descriptor
+	calls	#1,G^CLI$PRESENT	; check qualifier presence
+	blbc	R0,L_DISN		; if present then
+	bitl	#M_BATCH,GL_CSR(R11)	;  check for mode "batch"
+	beql	L_DIS			;  if so then
+	signal	message=#PRB_DSPMODE	;   advise user... no terminal device
+	brb	L_DISN			;   forget display processing
+L_DIS:	bisl2	#M_DISPLAY,GL_CSR(R11)	;  else set appropriate control flag
+;
+	jsb	LOAD_DISPLAY		;   fetch attributes
+L_DISN:
+;
+; Prepare multicast entry name and default operating flags
+;
+	movab	GAE_N_SLOT(R11),R7	; point to node array base (slot 0)
+	bisb2	#M_NDISABLE, -		; do not process (illogical)
+		GB_NSRC_CTL(R7)		;  multicast (entry 0) as a source
+	bisb2	#M_NFRONT, -		; force to front of display queue
+		GB_NDST_CTL(R7)		;  multicast (entry 0) as a destination
+	movw	D_MLTCAST,GW_NSIZE(R7)	; load multicast string length
+	movc3	D_MLTCAST, -		; use specific length to copy
+		@<D_MLTCAST+4>, -	;  from constant string
+		GS_NNAME(R7)		;  to node entry block
+;
+; Load additional table (protocol, vendor, node) data if specified
+;
+	pushaq	D_TABLE			; >table label descriptor
+	calls	#1,G^CLI$PRESENT	; check qualifier presence
+	blbc	R0,L_TABN		; if present then
+	movaq	D_TABLE,12(R9)		;  load qualifier descriptor  
+	movzwl	#GK_FILSIZE_MAX,(R9)	;  initialize descriptor size
+	movl	R8,4(R9)		;  point descriptor to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	;  retrieve command line value
+	blbc	R0,L_DEFT		;  if success then (user-override)
+	movl	R8,T_FILE+FAB$L_FNA	;   set file access block name pointer
+	movb	(R9),T_FILE+FAB$B_FNS	;   set file access block name size
+L_DEFT:	movl	R8,T_REC+RAB$L_UBF	;  set record access block buffer ptr
+;
+	jsb	LOAD_TABLE		;  process table information
+L_TABN:
+;
+; Load filters if specified
+;
+	bisl2	#<M_DESTINATION! -	; destination and source select
+		  M_SOURCE>,GL_CSR(R11)	;  active by default
+	pushaq	D_FILTER		; >filter label descriptor
+	calls	#1,G^CLI$PRESENT	; check qualifier presence
+	blbc	R0,L_FLTN		; if successful then
+;
+	jsb	LOAD_FILTER		;  process filter information
+;
+L_FLTN:	rsb				; all done... parsing complete
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine LOAD_TIME
+;
+; This routine obtains the schedule specific values from the command string and
+; prepares control attributes accordingly. If the timer specifications are not
+; usable then the timer flag is reset.
+; Called from: LOAD_ALL
+; Subroutines: CLI$GET_VALUE , LIB$CVT_FROM_INTERNAL_TIME , LIB$SIGNAL
+;	       OTS$CVT_TU_L , SYS$BINTIM
+; Register allocation:
+; R0  - L -  /W - system call status
+; R1  - L -  /W - (affected by system calls)
+; R2  - * - */* - not referenced
+; R3  - * - */* - not referenced
+; R4  - * - */* - not referenced
+; R5  - * - */* - not referenced
+; R6  - * - */* - not referenced
+; R7  - * - */* - not referenced
+; R8  - L - R/  - heap workspace pointer
+; R9  - L - R/  - heap structured lists pointer
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+; Load and validate cycle value (optional attribute)
+;
+	movaq	D_CYCLE,12(R9)		; load address of attribute descriptor
+	movzwl	#GK_VALSIZE_MAX,(R9)	; load transient descr with max size
+	movl	R8,4(R9)		; point descriptor to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbc	R0,TM_CYC		; if specified then
+	movaw	GW_MAXCYCLE(R11),32(R9)	;  load result address (in control)
+	movl	#2,36(R9)		;  load result size (in bytes)
+	callg	24(R9),G^OTS$CVT_TU_L	;  convert from ASCII to binary
+	blbc	R0,TM_NOC		;  if successful then
+	tstw	GW_MAXCYCLE(R11)	;   bound check [1..32767]
+	bgtr	TM_STB			;   if out-of-bounds then
+TM_NOC:	signal	message=#PRB_INVCYC	;    notify user...
+TM_CYC:	movw	#1,GW_MAXCYCLE(R11)	; use default (1)
+TM_STB:
+;
+; Load and validate standby time value (required with multi-cycles)
+;
+	movaq	D_STANDBY,12(R9)	; load address of attribute descriptor
+	movzwl	#GK_VALSIZE_MAX,(R9)	; load transient descr with max size
+	movl	R8,4(R9)		; point descriptor to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbc	R0,TM_ACT		; if specified then
+	$bintim_s -			;  convert time from ASCII to binary
+		timbuf=(R9), -		;  >input string descriptor in heap
+		timadr=Q_STANDBY	;  > resulting binary time
+	blbc	R0,TM_NOS		;  if service successful then
+	movl	#LIB$K_DELTA_SECONDS,-	;   <time conversion factor
+		-8(R8)			;    (use scratch quad below workspace)
+	pushaq	Q_STANDBY		;   >address of source binary interval
+	pushal	-4(R8)			;   >address of integer result
+	pushal	-8(R8)			;   >address of scaling factor
+	calls	#3,G^LIB$CVT_FROM_INTERNAL_TIME	; transform binary time
+	blbc	R0,TM_NOS		;   check transformation status
+	cvtlw	-4(R8),GW_STANDBY(R11)	;   ... and load result into control
+	bvs	TM_NOS			;   bound check [1..32767]
+	bgtr	TM_ACT			;   if out-of-bounds then
+TM_NOS:	clrw	GW_STANDBY(R11)		;  guarantee unusable value
+	movw	#1,GW_MAXCYCLE(R11)	;   limit to single (active) cycle
+	signal	message=#PRB_INVTIMB	;   notify user
+TM_ACT:					; endif
+;
+; Load and validate activity time value (required)
+;
+	movaq	D_ACTIVE,12(R9)		; load address of attribute descriptor
+	movzwl	#GK_VALSIZE_MAX,(R9)	; load transient descr with max size
+	movl	R8,4(R9)		; point descriptor to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbc	R0,TM_NOA		; if specified then
+	$bintim_s -			;  convert time from ASCII to binary
+		timbuf=(R9), -		;  >input string descriptor in heap
+		timadr=Q_ACTIVE		;  > resulting binary time
+	blbc	R0,TM_NOA		;  if service successful then
+	movl	#LIB$K_DELTA_SECONDS,-	;   <time conversion factor
+		-8(R8)			;    (use scratch quad below workspace)
+	pushaq	Q_ACTIVE		;   >address of source binary interval
+	pushal	-4(R8)			;   >address of integer result
+	pushal	-8(R8)			;   >address of scaling factor
+	calls	#3,G^LIB$CVT_FROM_INTERNAL_TIME	; transform binary time
+	blbc	R0,TM_NOA		;   check transformation status
+	cvtlw	-4(R8),GW_CHRONO(R11)	;   ... and load result into control
+	bvs	TM_NOA			;   bound check [1..9999]
+	beql	TM_NOA			;   
+	cmpw	#9999,GW_CHRONO(R11)	;   
+	bgeq	TM_AOK			;   if out-of-bounds then
+TM_NOA:	bicl2	#M_TIMER,GL_CSR(R11)	;  cancel automatic behavior
+	movw	#1,GW_MAXCYCLE(R11)	;  limit to 1 (indefinite) cycle
+	signal	message=#PRB_INVTIMA	;  notify user
+TM_AOK:	rsb				; endif
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine LOAD_DISPLAY
+;
+; This routine obtains the display specific values from the command string and
+; prepares control attributes accordingly.
+; Called from: LOAD_ALL
+; Subroutines: CLI$GET_VALUE , CLI$PRESENT , LIB$SIGNAL , OTS$CVT_TU_L
+; Register allocation:
+; R0  - L -  /W - system call status
+; R1  - L -  /W - (affected by system calls)
+; R2  - * - */* - not referenced
+; R3  - * - */* - not referenced
+; R4  - * - */* - not referenced
+; R5  - * - */* - not referenced
+; R6  - * - */* - not referenced
+; R7  - * - */* - not referenced
+; R8  - L - R/  - heap workspace pointer
+; R9  - L - R/  - heap structured lists pointer
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+; Load flags (peak & scale)
+;
+	pushaq	D_PEAK			; >peak label descriptor
+	calls	#1,G^CLI$PRESENT	; check attribute presence
+	blbc	R0,DP_SC2		; if specified then
+	bisl2	#M_PEAK,GL_CSR(R11)	;  set peak state on
+DP_SC2:	pushaq	D_LOGSCALE		; >logarithmic scale label descriptor
+	calls	#1,G^CLI$PRESENT	; check attribute presence
+	blbc	R0,DP_SC1		; if specified then
+	bisl2	#M_SCALE2,GL_CSR(R11)	;  set scale value to "2" (logarithmic)
+	brb	DP_SCN			; else
+DP_SC1:	pushaq	D_100SCALE		; >full scale label descriptor
+	calls	#1,G^CLI$PRESENT	; check attribute presence
+	blbc	R0,DP_SCN		; if specified then
+	bisl2	#M_SCALE,GL_CSR(R11)	;  set scale value to "1" (100%)
+DP_SCN:					; else leave scale value at "0" (50%)
+;
+; Load refresh interval value
+;
+	movaq	D_REFRESH,12(R9)	; load next qualifier descriptor
+	movzwl	#GK_VALSIZE_MAX,(R9)	; reinitialize transient descriptor size
+	movl	R8,4(R9)		; initialize descr to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbc	R0,DP_NOI		; make sure qualifier value is correct
+	movaw	GW_REFRESH(R11),32(R9)	; load result address (in control)
+	movl	#2,36(R9)		; load result size (in bytes)
+	callg	24(R9),G^OTS$CVT_TU_L	; convert from ASCII to binary
+	blbc	R0,DP_NOI		; if conversion valid then
+	tstw	GW_REFRESH(R11)		;  bound check
+	blss	DP_NOI			;  if positive or null then (valid)
+	bisl2	#M_REFRESH,GL_CSR(R11)	;   mark qualifier presence in control
+	cmpw	#10,GW_REFRESH(R11)	;   if out-of-bounds [..10] sec
+	bgequ	DP_NOI			;   then
+	movw	#10,GW_REFRESH(R11)	;    limit accordingly
+DP_NOI:					; endif
+;
+; Load display threshold value
+;
+	movaq	D_THRESHOLD,12(R9)	; load address of attribute descriptor
+	movzwl	#GK_VALSIZE_MAX,(R9)	; load transient descr with max size
+	movl	R8,4(R9)		; point descriptor to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbc	R0,DP_SMT		; if specified then
+	movaw	-4(R8),32(R9)		;  load result address (below workspace)
+	movl	#2,36(R9)		;  load result size (in bytes)
+	callg	24(R9),G^OTS$CVT_TU_L	;  convert from ASCII to binary
+	blbc	R0,DP_NOT		;  if successful then
+	cmpw	#50,-4(R8)		;   bound check [..50]
+	blss	DP_NOT			;   if in-bounds then
+	cvtwf	-4(R8),GF_THRESHOLD(R11);    convert input value to floating
+	beql	DP_NOT			;   bound check [1..]
+	bisl2	#M_THRESHOLD,GL_CSR(R11);   if in-bounds then mark threshold on
+	brb	DP_SMT			;  else
+DP_NOT:	signal	message=#PRB_INVTHRS,-	;   notify user...
+		msg1=   R9		;   >address of input descriptor
+DP_SMT:					; endif
+;
+; Load display smoothing value
+;
+	movaq	D_SMOOTH,12(R9)		; load address of attribute descriptor
+	movzwl	#GK_VALSIZE_MAX,(R9)	; load transient descr with max size
+	movl	R8,4(R9)		; point descriptor to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbc	R0,DP_EXT		; if specified then
+	movaw	-4(R8),32(R9)		;  load result address (below workspace)
+	movl	#2,36(R9)		;  load result size (in bytes)
+	callg	24(R9),G^OTS$CVT_TU_L	;  convert from ASCII to binary
+	blbc	R0,DP_NOS		;  if successful then
+	subw3	-4(R8),#100,R1		;   complement (lag) from 100
+	bleq	DP_NOS			;   bound check [..99]
+	cmpw	#99,R1			;   if in-bounds then bound check [1..]
+	blss	DP_NOS			;   if in-bounds then
+	cvtwf	R1,GF_SMOOTH(R11)	;    convert usage value to floating
+	divf2	#100.0,GF_SMOOTH(R11)	;    express percentage as a ratio
+	bisl2	#M_SMOOTH,GL_CSR(R11)	;    mark smoothing on
+	brb	DP_EXT			;  else
+DP_NOS:	signal	message=#PRB_INVSMTH,-	;   notify user...
+		msg1=   R9		;   >address of input descriptor
+DP_EXT:	rsb				; endif... all done
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine LOAD_TABLE
+;
+; This routine opens the specified table file, loads and parses each line and
+; then dispatches control to either a protocol block update routine, a vendor
+; block update routine or a node block update routine.
+; Called from: LOAD_ALL
+; Subroutines: CLI$DCL_PARSE , CLI$DISPATCH (UPDATE_[N,P,V]TABLE) ,
+;	       LIB$SIGNAL , SYS$CONNECT , SYS$GET , SYS$OPEN
+; Register allocation:
+; R0  - L -  /W - system call status
+; R1  - L -  /W - (affected by system calls), node index
+; R2  - L -  /W - input file line number, vendor array base address
+; R3  - L -  /W - node array base address
+; R4  - L -  /W - vendor hash array index
+; R5  - L -  /W - vendor hash chain value
+; R6  - L -  /W - node prefix
+; R7  - L -  /W - node prefix/address [high part] (MBZ for hash calculation)
+; R8  - L - R/  - heap workspace pointer
+; R9  - L - R/  - heap structured lists pointer
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+; Structure heap fixed allocation [44..87] (for CLI$DCL_PARSE & CLI$DISPATCH)
+; Values not initialized are call instance specific
+;
+	movl	#5,44(R9)		; parsing argunemt list : size
+	movaq	(R9),48(R9)		; >command string descriptor
+	movab	PROBE_TABLE,52(R9)	; >address of command table module
+	clrl	56(R9)			; >no parameter routine
+	clrq	60(R9)			; >no prompt routine nor string
+	movl	#1,68(R9)		; dispatch argument list : size
+	moval	76(R9),72(R9)		; >pointer to structure pointers
+				; 76(R9)  >command line number (R2)
+	movl	R8,80(R9)		; >pointer to scratch workspace
+	movl	R9,84(R9)		; >pointer to heap
+;
+; Prepare table file for input operations
+;
+	clrl	R2			; initialize line counter
+	$open	fab=T_FILE		; open exisiting table file
+	blbc	R0,TB_ERR		; validate operation
+	$connect -			; establish record connection
+		rab=T_REC		;  using record access block
+	blbc	R0,TB_ERR		; validate operation
+TB_NXT:	
+;
+; Process each line until the end-of-file
+;
+	incl	R2			; update line count
+	$get	rab=T_REC		; read one record from input stream
+	blbc	R0,TB_ERR		; validate operation
+	movw	T_REC+RAB$W_RSZ,(R9)	;  update command descriptor size
+	movl	R8,4(R9)		;  point descriptor to heap workspace
+	.IF	EQ,alpha		;V22B ++ architecture-specific
+	.IF_TRUE			;V22B (no change for VAX)
+	movab	TRAP_SIGNAL,(FP)	;  establish anti-signal handler
+	callg	44(R9),G^CLI$DCL_PARSE	;  parse command line
+	clrl	(FP)			;  cancel (revert) temporary handler
+	blbs	R0,TB_GO		;  if parsing not perfect
+	cmpl	#CLI$_NOCOMD,R0		;  then check for no command... bypass
+	beql	TB_NXT			;  else
+	signal	message=#PRB_TBLCMD,-	;   notify user
+		msg1=	R2,-		;   ... with line number
+		msg2=	R9		;   ... and input string
+	.IF_FALSE			;V22B (new code for AXP)
+	callg	44(R9),G^CLI$DCL_PARSE	;  parse command line
+	blbs	R0,TB_GO		;  if parsing not perfect
+	.ENDC				;V22B -- end of change section
+	brb	TB_NXT			;  repeat read operation
+TB_GO:	movl	R2,76(R9)		; load argument list with current line #
+	callg	68(R9),G^CLI$DISPATCH	; perform parsed command
+	blbs	R0,TB_NXT		; validate success
+	signal	message=R0		; else inform user
+	brb	TB_NXT			; repeat for each input file line
+TB_ERR:	
+;
+; Process RMS status & restore command context
+;
+	cmpl	#RMS$_EOF,R0		; check for RMS end-of-file status
+	beql	TB_EOF			; otherwise
+	signal	message=#PRB_TABLEVT,-	;  inform user of unexpected file
+		reason=	R0		;  ... processing failure
+TB_EOF:	clrq	48(R9)			; nullify input string & command table
+	callg	44(R9),G^CLI$DCL_PARSE	; restore original command context
+;
+; Walkthrough node table and update vendor reference counts as required
+;
+	tstw	GW_VENDORCOUNT(R11)	; if some vendor OUIs are defined
+	beql	TB_END			; then
+	movzwl	GW_NODECOUNT(R11),R1	;  if some nodes are defined
+	beql	TB_END			;  then
+	clrl	R7			;   clear node address [top] (r7:r6)
+	movab	GAE_V_SLOT(R11),R2	;   position vendor array pointer
+	movab	GAE_N_SLOT(R11),R3	;   position node array pointer
+TB_NOD:	mull3	R1,#GNNTRY_SIZE,R5	;   compute node slot offset
+	extzv	#0,#24,-		;   load vendor portion of node MAC
+		GQ_NADDRESS(R3)[R5],R6	;
+	ediv	#GK_VHASH,R6,R5,R4	;   compute vendor hash index
+	movzwl	GAW_VHASH_X(R11)[R4],R5	;   check hash value
+	beql	TB_IDX			;   if valid (vendor is defined)
+	mull2	#GVNTRY_SIZE,R5		;   then
+	addl2	R2,R5			;    compute vendor slot base address
+TB_VNX:	cmpzv	#0,#24,GL_VPREFIX(R5),R6;    if vendor OUI and node mismatch
+	beql	TB_VUP			;    then
+	movl	GL_VNEXT_HASH(R5),R4	;     if vendor hash chain continues
+	beql	TB_IDX			;     then
+	addl2	R4,R5			;      compute next vendor slot base
+	brb	TB_VNX			;      and repeat check
+TB_VUP:	incw	GW_VCOUNT(R5)		;    else increment vendor reference
+TB_IDX:	sobgtr	R1,TB_NOD		;   else (no vendor) pursur next node
+;
+TB_END:	rsb				; all done... leave
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine LOAD_FILTER
+;
+; This routine adjusts specified loaded node and protocol entries to activate
+; their filtering state. It also sets overall filters such as for multicasts,
+; directions and format.
+; Called from: LOAD_ALL
+; Subroutines: CLI$GET_VALUE , CLI$PRESENT , LIB$SIGNAL , OTS$CVT_TU_L
+; Register allocation:
+; R0  - L -  /W - system call status
+; R1  - L -  /W - scratch (affected by system calls)
+; R2  - L -  /W - scratch (implicit thru CMPCx)
+; R3  - L -  /W - scratch (implicit thru CMPCx)
+; R4  -WL -  /W - scratch, string entry size
+; R5  - L -  /W - scratch, node list scanning counter, protocol filter state
+; R6  -BL -  /W - node filtering in-progress/match logicals, protocol ID
+; R7  - L -  /W - node array pointer
+; R8  - L - R/  - heap workspace pointer
+; R9  - L - R/  - heap structured lists pointer
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+; Check for global format and multicast filters & mark control accordingly
+;
+	pushaq	D_ETHERNET		; >ethernet keyword descriptor
+	calls	#1,G^CLI$PRESENT	; check attribute presence
+	blbc	R0,FT_802		; if specified then
+	bisl2	#M_802BLOCK,GL_CSR(R11)	;  set to block all non-ethernet format
+	brb	FT_MLT			; else
+FT_802:	pushaq	D_802_3			;  >ieee keyword descriptor
+	calls	#1,G^CLI$PRESENT	;  check attribute presence
+	blbc	R0,FT_MLT		;  if specified then
+	bisl2	#M_EBLOCK,GL_CSR(R11)	;   set to block all non-802.3 format
+FT_MLT:	pushaq	D_MULTICAST		; >multicast class descriptor
+	calls	#1,G^CLI$PRESENT	; check attribute presence
+	blbc	R0,FT_DIR		; if specified then
+	bisl2	#M_MFILTER,GL_CSR(R11)	;  set to capture multicast traffic only
+FT_DIR:					; endif
+;
+; Check for direction related filters & mark control accordingly
+;
+	pushaq	D_SOURCE		; >source_only class descriptor
+	calls	#1,G^CLI$PRESENT	; check attribute presence
+	blbc	R0,FT_DST		; if specified then
+	bicl2	#M_DESTINATION,GL_CSR(R11);clear destination select flag
+	brb	FT_NOD			; else
+FT_DST:	pushaq	D_DESTINATION		;  >destination_only class descriptor
+	calls	#1,G^CLI$PRESENT	;  check qualifier presence
+	blbc	R0,FT_NOD		;  if specified then
+	bicl2	#M_SOURCE,GL_CSR(R11)	;   clear source select flag
+FT_NOD:					;  endif
+;
+; Process node related filters
+; Each filter input is truncated as required to the maximum node name size.
+; If multiple node entries have the same name, all entries are equally affected
+; by a filter match (i.e. search does not end on first match).
+;
+	clrl	R6			; reset logical [1]match [0]initial
+	movaq	D_NODE,12(R9)		; load address of attribute descriptor
+	movl	R8,4(R9)		; point descriptor to heap workspace
+FT_MOR:	movzwl	#GK_VALSIZE_MAX,(R9)	; load transient descr with max size
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbs	R0,FT_LIM		; if null
+	brw	FT_PRO			; then proceed to next type
+FT_LIM:	movzwl	(R9),R4			; else load filter string size...
+	cmpw	#GK_NSIZE_MAX,R4	; if size exceeds limits
+	bgeq	FT_INI			; then
+	movw	#GK_NSIZE_MAX,R4	;  maximize string size (truncate)
+FT_INI:	movzwl	GW_NODECOUNT(R11),R5	; load node entry count
+	beql	FT_NGO			; if not null then
+	movab	GAE_N_SLOT(R11),R7	;  point to node slot 0
+FT_SCN:	addl2	#GNNTRY_SIZE,R7		;  advance to first/next slot
+	cmpc5	R4,(R8),#^XFF,-		;  if name strings match exactly
+		GW_NSIZE(R7),GS_NNAME(R7); then
+	bneq	FT_EOL			;   test & set initial pass through
+	bbss	#0,R6,FT_ENA		;   on first pass then
+	bisw2	#M_FREEZE,GW_NODECTL(R11);   lockdown node array... no additions
+	movzwl	GW_NODECOUNT(R11),R3	;    load entry count
+	movab	GAE_N_SLOT(R11),R2	;    point to slot 0
+FT_NEG:	addl2	#GNNTRY_SIZE,R2		;    repeat advance to next slot
+	bisb2	#M_NDISABLE,-		; 
+		GB_NSRC_CTL(R2)		;     disable this node source
+	bisb2	#M_NDISABLE,-		;     disable this node destination
+		GB_NDST_CTL(R2)		; 
+FT_NXT:	sobgtr	R3,FT_NEG		;    until all nodes processed
+FT_ENA:	bisb3	GB_NSRC_CTL(R7),-	;   on follow on passes...
+		GB_NDST_CTL(R7),R1	;    combine (OR) node control flags
+	bitb	#M_NDISABLE,R1		;    if either direction disabled
+	beql	FT_ON			;    then
+	bicb2	#M_NDISABLE,-		; 
+		GB_NSRC_CTL(R7)		;     reactivate matched node source
+	bicb2	#M_NDISABLE,-		;     reactivate matched node target
+		GB_NDST_CTL(R7)		; 
+	incw	GW_ACTIVNODE(R11)	;     update active node count
+FT_ON:	insv	#1,#1,#1,R6		;    mark occurence of match
+FT_EOL:	sobgtr	R5,FT_SCN		;  repeat for all node entries
+	bbsc	#1,R6,FT_PLS		;  test & clear match occurence
+FT_NGO:	signal	message=#PRB_MISNFLT,-	; endif
+		msg1=	R9		; notify user... no match
+FT_PLS:	brw	FT_MOR			; repeat until all filters exhausted
+FT_PRO:
+;
+; Process protocol related filters
+;
+	movaq	D_PROTOCOL,12(R9)	; load address of attribute descriptor
+	movl	R8,4(R9)		; point descriptor to heap workspace
+FT_TOP:	movzwl	#GK_VALSIZE_MAX,(R9)	; load transient descr with max size
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbc	R0,FT_END		; if null then proceed to next type
+	moval	-12(R8),32(R9)		; load result address (temporary store)
+	movl	#4,36(R9)		; load result size (in bytes)
+	callg	24(R9),G^OTS$CVT_TU_L	; convert from ASCII to binary
+	blbc	R0,FT_BUG		; if conversion valid then
+	movl	-12(R8),R6		;  load result
+	bleq	FT_BUG			;   bound check low [1..]
+	cmpl	#GK_PTCLS,R6		;   bound check high [..15]
+	blss	FT_BUG			;  if in-bounds then
+	extzv	R6,#1,GW_DEFPTCL(R11),R5;   get protocol state
+	beql	FT_NOP			;   if defined then
+	insv	R5,R6,#1,GW_ACTPTCL(R11);    set filtering for that protocol
+	bisw2	#M_PONOFF,GW_ACTPTCL(R11);   activate overall filtering
+	brb	FT_TOP			;   else
+FT_NOP:	signal	message=#PRB_MISPFLT,-	;    notify user
+		msg1=	R9		;    ... protocol not defined
+	brb	FT_TOP			;  endif
+FT_BUG:	signal	message=#PRB_INVPFLT,-	; else
+		msg1=	R9		;  notify user... invalid protocol ID
+	brb	FT_TOP			; endif
+FT_END:	rsb				; all done... leave
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine SET_CONTROL
+;
+; This routine is called in interactive mode. It finds the default terminal
+; and checks its attributes. Channels are set to prepare for the reception
+; of keyboard inputs (serviced through an AST). The keyboard action routine
+; handles filtering state changes and manual exit signalisation.
+; Called from: MAIN
+; Subroutines: LIB$DISABLE_CTRL , LIB$STOP ,
+;	       SMG$CREATE_PASTEBOARD , SMG$GET_PASTEBOARD_ATTRIBUTES ,
+;	       SYS$ASSIGN , SYS$DCLEXH , SYS$TRNLNM , SYS$QIO
+; Register allocation:
+; R0  - L -  /W - system call status
+; R1  - L -  /W - (affected by system calls) , device info table pointer
+; R2  - * - */* - not referenced
+; R3  - * - */* - not referenced
+; R4  - * - */* - not referenced
+; R5  - * - */* - not referenced
+; R6  - * - */* - not referenced
+; R7  - * - */* - not referenced
+; R8  - * - */* - not referenced
+; R9  - L - R/  - heap space pointer
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+; Get current default output device name (required for data manager creation)
+;
+	movw	#GK_LOGICAL_MAX,(R9)	; >buffer length
+	movw	#LNM$_STRING,2(R9)	; >item code
+	movab	S_TT,4(R9)		; >buffer address
+	movaw	D_TT,8(R9)		; >return length address
+	clrl	12(R9)			; >end of item list marker
+	$trnlnm_s -			; get equivalence name for SYS$OUTPUT
+		tabnam=D_LNMTAB,-	; >logical name table
+		lognam=D_OUTPUT,-	; >logical name to translate
+		itmlst=(R9)		; >pointer to item list descriptor
+	blbs	R0,CNXCRT		; confirm valid status
+	alert	status=R0		; drop out and signal internal problem
+CNXCRT:	subw2	#4,D_TT			; adjust system logical equivalence size
+	addl2	#4,<D_TT+4>		;  & skip system/RMS IFI (4 byte) prefix
+;
+; Connect with standard input/output device
+;
+	$assign_s -			; assign a channel to the keyboard
+		devnam=D_INPUT,-	; >terminal logical name descriptor
+		acmode=#PSL$C_USER,-	; >access in user mode
+		chan=  AL_KEY+QIO$_CHAN	; >write channel number to argument list
+	blbs	R0,IN_OK		; check returned status
+	stop	message=#PRB_NOIO,-	; if bad, drop out with signal
+		reason= R0		; >second message parameter
+IN_OK:	$assign_s -			; assign a channel to the screen
+		devnam=D_OUTPUT,-	; >terminal logical name descriptor
+		acmode=#PSL$C_USER,-	; >access in user mode
+		chan=  AL_CRT+QIO$_CHAN	; >write channel number to argument list
+	blbs	R0,OUT_OK		; check returned status
+	stop	message=#PRB_NOIO,-	; if bad, drop out with signal
+		reason= R0		; >second message parameter
+OUT_OK:	movl	AL_CRT+QIO$_CHAN,-	; share output channel between
+		AL_OUT+QIO$_CHAN	;  character and record output list
+;
+; Get terminal device characterisitics (full validation performed later)
+;
+	movzwl	#6,(R9)			; build argument list... size
+	moval	L_DEVICE_ID,4(R9)	; >terminal ID (used by next calls also)
+	clrl	8(R9)			; >use default sys$output
+	clrq	12(R9)			; >don't care about display width/height
+	moval	28(R9),20(R9)		; >input flag
+	moval	32(R9),24(R9)		; >display type
+	movl	#SMG$M_KEEP_CONTENTS,-	; do not initialize the current display
+		28(R9)			; 
+	callg	(R9),-			; get display identification
+		G^SMG$CREATE_PASTEBOARD	; 
+	blbs	R0,DEVCHR		; check service success
+	alert	status=R0		; else, inform user & stop
+DEVCHR:	cmpl	#SMG$K_VTTERMTABLE,-	; check device class
+		32(R9)			; if VT
+	bneq	OOBAND			; then
+	movl	#3,(R9)			;  built new argument list... size
+	moval	20(R9),8(R9)		;  >info table address
+	moval	16(R9),12(R9)		;  >table size address
+	movl	#SMG$C_PASTEBOARD_INFO_BLOCK,-
+		16(R9)			;  set maximum table size
+	callg	(R9),-			;  get device characteristics
+		G^SMG$GET_PASTEBOARD_ATTRIBUTES
+	blbs	R0,VALCHR		;  check service success
+	alert	status=R0		;  else, inform user & stop
+VALCHR:	moval	20(R9),R1		;  set pointer to device info table
+	movzbw	SMG$B_ROWS(R1),-	; 
+		GW_CRTLINES(R11)	;  transfer display height to control
+	movl	SMG$L_DEVDEPEND(R1),-	; 
+		GL_CRTDEV1(R11)		;  load device dependent attributes
+	movl	SMG$L_DEVDEPEND2(R1),-	; 
+		GL_CRTDEV2(R11)		; endif
+OOBAND:					;  (otherwise attributes will be blank)
+;
+; Prevent CLI out-of-band character recognition (leave CTRL/T active)
+;
+	movl	#2,(R9)			; build heap argument list... size
+	moval	12(R9),4(R9)		; >address of disabling mask
+	moval	L_ICTRL,8(R9)		; >address of saved current mask
+	movl	#^X02000000,12(R9)	; CTRL/Y mask
+	callg	(R9),G^LIB$DISABLE_CTRL	; block interrupts
+	blbs	R0,MARKX		; validate success
+	cmpl	#LIB$_NOCLI,R0		; else, image activated without CLI ?
+	beql	QUERY			; if so continue
+	alert	status=R0		; otherwise inform user & stop
+MARKX:	$dclexh_s -			; establish exit handler routine
+                desblk=AL_EXIT2		; >exit handler control block
+	blbs	R0,QUERY		; check success, else
+	alert	status=R0		; drop out and signal internal problem
+QUERY:
+;
+; Set-up user keyboard input routine, expect AST response with no parameter
+;
+	$qio_g	AL_KEY			; query keyboard for a character
+	blbs	R0,CATCH		; check service submittal status
+	stop	message=#PRB_KEY_IO,-	; if bad, drop out with signal
+		reason =R0		; >second message parameter
+CATCH:	rsb
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine START_ACQ
+;
+; This routine starts the network listener subprocess and handles primary
+; synchronization & checking.
+; Called from: MAIN
+; Subroutines: LIB$SIGNAL , SYS$CANTIM , SYS$CREPRC , SYS$DELPRC , SYS$READEF ,
+;	       SYS$SETIMR , SYS$WFLOR
+; Register allocation:
+; R0  - L -  /W - system call status
+; R1  - L -  /W - (affected by system calls)
+; R2  - * - */* - not referenced
+; R3  - * - */* - not referenced
+; R4  - * - */* - not referenced
+; R5  - * - */* - not referenced
+; R6  - * - */* - not referenced
+; R7  - * - */* - not referenced
+; R8  - * - */* - not referenced
+; R9  - * - */* - not referenced
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+; Set initialization timer to prevent waiting forever in case of problems.
+;
+	$setimr_s -			; prepare interval wait timer
+		daytim=Q_BASETIME,-	; >delta time
+		reqidt=#1,-		; >specific identification
+		efn=   #GV_TIMEIN	; >synchronization event flag
+	blbs	R0,LS_OK		; confirm success
+	alert	status=R0		; otherwise notify user
+LS_OK:
+;
+; Launch slave process... and wait for synchronization
+; (use parent privileges, no special quotas)
+;
+event1	=	<GM_ACQREADY!GM_TIMEIN>
+;
+	$creprc_s -			; spawn subprocess
+		pidadr=GL_ACQPID(R11),-	; >resulting PID
+		prcnam=D_ACQNAME,-	; >process name preset string
+		image= D_ACQIMAGE,-	; >image name preset string
+		baspri=#GK_SUBBASEP,-	; >safe low initial priority
+		stsflg=#PRC$M_PSWAPM	; >inhibit subprocess swapping
+	blbs	R0,LS_SYN		; validate success
+	alert	status=R0		; otherwise notify user
+LS_SYN:	$wflor_s -			; wait for either
+		efn= #GK_BASE,-		;  the timer expiry flag
+		mask=#EVENT1		;  or the slave "thumbs up" flag
+	blbs	R0,LS_CHK		; validate success
+	alert	status=R0		; otherwise notify user
+LS_CHK:	
+;
+; Verify which event occured...
+; If slave is READY (normal behavior), drop countdown... continue
+;
+	$readef_s -			; check event flag state
+		efn=  #GV_TIMEIN,-	; >slave inbound timeout
+		state=L_EFSTATE		; >entire EF cluster state
+	cmpl	#SS$_WASCLR,R0		; if timeout did not occur (READY)
+	bneq	LS_NGO			; then
+	$cantim_s -			;  cancel now useless timer
+		reqidt=#1,-		; >specific identification
+		acmode=#PSL$C_USER	; >user access mode
+	rsb				; all done... back to caller
+LS_NGO:
+;
+; If timer expired or other problem, clean data acquisition activities
+;
+	bicl2	#M_LOG,GL_CSR(R11)	; drop recording as appropriate
+	$delprc_s -			; make sure faulty subprocess disappear
+		pidadr=GL_ACQPID(R11)	; >subprocess PID
+;	disregard potential non-existent process or other messages
+	bitl	#GM_ACQCONTACT,L_EFSTATE; if ACQ contact was not established
+	bneq	LS_CNX			; then
+	abort	status=#PRB_ACQLINK	;  advise user of total failure
+LS_CNX:	bitl	#GM_ACQFINISH,L_EFSTATE	; else if ACQ was still working
+	bneq	LS_EXI			;  then
+	abort	status=#PRB_ACQPREP	;   advise user of slow response
+LS_EXI:	abort	status=GL_ACQSTATUS(R11); else advise of final status... quit
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine START_DMS
+;
+; This routine starts the data manager subprocess and handles primary
+; synchronization & checking.
+; Called from: MAIN
+; Subroutines: LIB$SIGNAL , SYS$CANTIM , SYS$CREPRC , SYS$DELPRC , SYS$READEF ,
+;	       SYS$SETEF , SYS$SETIMR , SYS$WFLOR
+; Register allocation:
+; R0  - L -  /W - system call status
+; R1  - L -  /W - (affected by system calls)
+; R2  - * - */* - not referenced
+; R3  - * - */* - not referenced
+; R4  - * - */* - not referenced
+; R5  - * - */* - not referenced
+; R6  - * - */* - not referenced
+; R7  - * - */* - not referenced
+; R8  - * - */* - not referenced
+; R9  - * - */* - not referenced
+; R10 - * - */* - not referenced
+; R11 - L - R/  - control section pointer
+;
+	bitl	#<M_STATISTICS!-	; check that statistics
+		M_DISPLAY>,GL_CSR(R11)	;  or display is required
+	bneq	DM_GO			; otherwise
+	brw	DM_FKE			;  bypass process creation... fake sync
+
+; Set initialization timer to prevent waiting forever in case of problems.
+;
+DM_GO:	$setimr_s -			; prepare interval wait timer
+		daytim=Q_BASETIME,-	; >delta time
+		reqidt=#1,-		; >specific identification
+		efn=   #GV_TIMEIN	; >synchronization event flag
+	blbs	R0,DM_OK		; confirm success
+	alert	status=R0		; otherwise notify user
+DM_OK:
+;
+; Launch slave process... and wait for synchronization
+; (use parent privileges, no special quotas)
+;
+event2	=	<GM_DMSREADY!GM_TIMEIN>
+;
+	$creprc_s -			; spawn subprocess
+		pidadr=GL_DMSPID(R11),-	; >resulting PID
+		prcnam=D_DMSNAME,-	; >process name preset string
+		image= D_DMSIMAGE,-	; >image name preset string
+		output=D_TT,-		; >share current output device
+		baspri=#GK_SUBBASEP,-	; >safe low initial priority
+		stsflg=#PRC$M_PSWAPM	; >inhibit subprocess swapping
+	blbs	R0,DM_SYN		; validate success
+	alert	status=R0		; otherwise notify user
+DM_SYN:	$wflor_s -			; wait for either
+		efn= #GK_BASE,-		;  the timer expiry flag
+		mask=#EVENT2		;  or the slave "thumbs up" flag
+	blbs	R0,DM_CHK		; validate success
+	alert	status=R0		; otherwise notify user
+DM_CHK:	
+;
+; Verify which event occured...
+; If slave is READY (normal behavior), drop countdown... continue
+;
+	$readef_s -			; check event flag state
+		efn=  #GV_TIMEIN,-	; >slave inbound timeout
+		state=L_EFSTATE		; >entire EF cluster state
+	cmpl	#SS$_WASCLR,R0		; if timeout did not occur (READY)
+	bneq	DM_NGO			; then
+	$cantim_s -			;  cancel now useless timer
+		reqidt=#1,-		; >specific identification
+		acmode=#PSL$C_USER	; >user access mode
+	rsb				; all done... back to caller
+DM_NGO:
+;
+; If timer expired or other problem, clean data management activities
+;
+	bicl2	#<M_STATISTICS! -	; drop statistics & display processing
+		M_DISPLAY>,GL_CSR(R11)	; 
+	$delprc_s -			; make sure faulty subprocess disappear
+		pidadr=GL_DMSPID(R11)	; >subprocess PID
+;	disregard potential non-existent process or other messages
+	bitl	#GM_DMSCONTACT,L_EFSTATE; if DMS contact was not established
+	bneq	DM_CNX			; then
+	signal	message=#PRB_DMSLINK	;  advise user of total failure
+	brb	DM_FKE			;  & fake constant synchronisation
+DM_CNX:	bitl	#GM_DMSFINISH,L_EFSTATE	; else if DMS was done working
+	beql	DM_SLO			;  then
+        signal	message=GL_DMSSTATUS(R11);  advise of final status
+	brb	DM_EXI			;  else
+DM_SLO:	signal	message=#PRB_DMSPREP	;   advise user of slow response
+DM_FKE:	$setef_s -			; fake DMS finished
+		efn=#GV_DMSFINISH	; >completion event flag
+DM_EXI:	$setef_s -			; fake DMS ready
+		efn=#GV_DMSREADY	; >synchronized event flag
+	rsb				; all done... return to caller
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine DIAGNOSE
+;
+; This routine dumps all global data structures to a file PROBE.DIAG in the
+; current directory when the diagnostic extension has been specified in the
+; command string.
+; Called from: SHUTDOWN
+; Subroutines: LIB$SIGNAL , SYS$CONNECT , SYS$CREATE , SYS$FAOL , SYS$PUT
+; Register allocation:
+; R0  - L -  /W - system call status
+; R1  - L -  /W - (affected by system calls)
+; R2  - L -  /W - scratch counter
+; R3  - * - */* - not referenced
+; R4  - * - */* - not referenced
+; R5  - * - */* - not referenced
+; R6  - * - */* - not referenced
+; R7  - L -  /W - array scan pointer
+; R8  - L - R/  - workspace pointer
+; R9  - L - R/  - heap argument list pointer (FAO parameters)
+; R10 - L - R/  - buffer section pointer
+; R11 - L - R/  - control section pointer
+;
+buffsiz	=	<3*heapsiz>-scratch	; max FAO param is (scratch/4)-2
+;
+	movzwl	#BUFFSIZ,-8(R8)		; output buffer descriptor... size
+	movab	(R8),-4(R8)		; describe workspace
+	movab	(R8),T_DREC+RAB$L_RBF	; set workspace as output buffer
+	$create	fab=T_DFILE		; create new diagnostic file
+	blbc	R0,GODIAG		; if successful
+	$connect -			; then
+		rab=T_DREC		;  connect output record stream
+	blbs	R0,GODIAG		; else
+NODIAG:	signal	message=#PRB_DIAGBUG,-	;  advise user of reporting problem
+		reason= R0		;  & leave this routine
+	rsb				; endif
+GODIAG:
+;
+; Prepare and display header line & subprocess info
+;
+	clrl	(R9)			; >use current date/time
+	movl	#GK_VERSION,4(R9)	; >section binary version identification
+	$faol_s	ctrstr=D_DIA01,-	; compose output string (header)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbc	R0,NODIAG		; validate success
+	$put	rab=T_DREC		; display header
+	blbc	R0,NODIAG		; validate success
+;
+	movl	GL_PID(R11),(R9)	; >process PID
+	movl	L_IPRIO,4(R9)		; >initial process priority
+	movl	GL_STATUS(R11),8(R9)	; >reason for stop (final completion)
+	movl	L_ICSR,12(R9)		; >initial master control mask
+	movl	L_ICTRL,16(R9)		; >initial CLI control mask
+	movl	L_XCSR,20(R9)		; >exit master control mask
+	movl	L_XEFSTATE,24(R9)	; >exit common event flag state
+	$faol_s	ctrstr=D_DIA02,-	; compose output string (this process)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIA2Y		; validate success
+	brw	NODIAG			; 
+DIA2Y:	$put	rab=T_DREC		; display block 2
+	blbs	R0,DIA2Z		; validate success
+	brw	NODIAG			; 
+DIA2Z:
+	movl	GL_ACQPID(R11),(R9)	; >subprocess ID
+	movl	GL_ACQSTATUS(R11),4(R9)	; >final status
+	movl	GL_ACQ_VMS(R11),8(R9)	; >potential VMS error code
+	movl	GL_ACQ_EXT(R11),12(R9)	; >potential VMS supplemental code
+	movzwl	GW_NODESIZE(R11),16(R9)	; >node name string size
+	movab	GS_NODENAME(R11),20(R9)	; >node name string address
+	movzwl	GW_ADAPSIZE(R11),24(R9)	; >adapter name string size
+	movab	GS_ADAPTER(R11),28(R9)	; >adapter name string address
+	movl	GL_LOGIOS(R11),32(R9)	; >logger file IO's
+	movl	GL_COLLRPT(R11),36(R9)	; >logger collision reports
+	movl	GL_LINERPT(R11),40(R9)	; >logger line tracking runs
+	movzwl	GW_MINCOLL(R11),44(R9)	; >minimum collision factor
+	movzwl	GW_MAXCOLL(R11),48(R9)	; >maximum collision factor
+	movzwl	GW_FDATA(R11),52(R9)	; >logger data extraction value
+	movl	GL_SBU(R11),56(R9)	; >line system buffer unavailable
+	movl	GL_UBU(R11),60(R9)	; >line user buffer unavailable
+	$faol_s	ctrstr=D_DIA03,-	; compose output string (ACQ)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIA3Y		; validate success
+	brw	NODIAG			; 
+DIA3Y:	$put	rab=T_DREC		; display block 3
+	blbs	R0,DIA3Z		; validate success
+	brw	NODIAG			; 
+DIA3Z:
+	movl	GL_DMSPID(R11),(R9)	; >subprocess ID
+	movl	GL_DMSSTATUS(R11),4(R9)	; >final status
+	movl	GL_DMS_VMS(R11),8(R9)	; >potential VMS error code
+	movl	GL_DMS_EXT(R11),12(R9)	; >potential VMS supplemental code
+	movzwl	GW_CRTLINES(R11),16(R9)	; >display line count
+	movl	GL_CRTDEV1(R11),20(R9)	; >display device characteristics
+	movl	GL_CRTDEV2(R11),24(R9)	; >display device characteristics # 2
+	movzwl	GW_REFRESH(R11),28(R9)	; >refresh factor
+	mulf3	#100.0,GF_SMOOTH(R11),R1; express smoothing as a percentage
+	cvtfl	R1,32(R9)		; >smoothing factor value
+	cvtfl	GF_THRESHOLD(R11),36(R9); >threshold value
+	$faol_s	ctrstr=D_DIA04,-	; compose output string (DMS)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIA4Y		; validate success
+	brw	NODIAG			; 
+DIA4Y:	$put	rab=T_DREC		; display block 4
+	blbs	R0,DIA4Z		; validate success
+	brw	NODIAG			; 
+DIA4Z:
+;
+; Display queue & frame related sections
+;
+	movzwl	GW_EFLAGS(R10),(R9)	; >queue state & control flags
+	movl	GL_EQVISIT(R10),4(R9)	; >number of refresh passes
+	bneq	DIA5A			; if null
+	clrl	8(R9)			; >0 : cannot compute average time
+	clrl	20(R9)			; >0 : cannot compute average depth
+	brb	DIA5C			; else
+DIA5A:	ediv	GL_EQVISIT(R10),-	; compute average time
+		GQ_EQTOTTIME(R10),-	; (quotient & remainder)
+		8(R9),R1		; >x
+	ashl	#1,R1,R1		; multiply remainder by 2
+	cmpl	R1,GL_EQVISIT(R10)	; if value larger or equal to divisor
+	blss	DIA5B			; then
+	incl	8(R9)			;  round result upwards
+DIA5B:	ediv	GL_EQVISIT(R10),-	; compute average depth
+		GQ_EQDEPTH(R10),-	; (quotient & remainder)
+		20(R9),R1		; >x
+	ashl	#1,R1,R1		; multiply remainder by 2
+	cmpl	R1,GL_EQVISIT(R10)	; if value larger or equal to divisor
+	blss	DIA5C			; then
+	incl	20(R9)			;  round result upwards
+DIA5C:	movzwl	GW_EQMIN(R10),12(R9)	; >minimum queue depth
+	movzwl	GW_EQMAX(R10),16(R9)	; >maximum queue depth
+	movl	GL_EQIORPHAN(R10),24(R9); >item queue insertion failure
+	movl	GL_EQFORPHAN(R10),28(R9); >free queue insertion failure
+	movl	GL_EACQDROP(R10),32(R9)	; >capture (free) queue insertion fail
+DIA5X:	$faol_s	ctrstr=D_DIA05,-	; compose output string (buffer section)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIA5Y		; validate success
+	brw	NODIAG			; 
+DIA5Y:	$put	rab=T_DREC		; display block 5
+	blbs	R0,DIA5Z		; validate success
+	brw	NODIAG			; 
+DIA5Z:
+	movl	GL_CSR(R11),(R9)	; >main control flags
+	movzwl	GW_DEFPTCL(R11),4(R9)	; >protocol definition mask
+	movzwl	GW_ACTPTCL(R11),8(R9)	; >protocol activity mask
+	movzwl	GW_CURCYCLE(R11),12(R9)	; >current active cycle
+	movzwl	GW_MAXCYCLE(R11),16(R9)	; >maximum user requested cycle
+	movzwl	GW_CHRONO(R11),20(R9)	; >activity period
+	movzwl	GW_STANDBY(R11),24(R9)	; >standby period
+	movl	GL_TOT_FRAMES(R11),28(R9);>total frames registered
+	subl3	GL_F802COUNT(R11),-	; compute
+		GL_TOT_FRAMES(R11),32(R9);>ethernet frames
+	movl	GL_F802COUNT(R11),36(R9); >802.3 frames
+	addl3	GL_FETHMLT(R11),-	; compute
+		GL_F802MLT(R11),40(R9)	; >total multicasts registered
+	movl	GL_FETHMLT(R11),44(R9)	; >ethernet multicasts
+	movl	GL_F802MLT(R11),48(R9)	; >802.3 multicasts
+	movl	GL_TOT_BYTES(R11),52(R9); >total bytes registered
+	subl3	GL_TOT_B802(R11),-	; compute
+		GL_TOT_BYTES(R11),56(R9); >ethernet bytes
+	movl	GL_TOT_B802(R11),60(R9)	; >802.3 bytes
+	movl	GL_TOT_BFILT(R11),64(R9); >total bytes filtered
+	movl	GL_FETHFILT(R11),68(R9)	; >ethernet frames filtered
+	movl	GL_F802FILT(R11),72(R9)	; >802.3 frames filtered
+	movl	GL_FPFILT(R11),76(R9)	; >protocol filtered frames
+	movl	GL_FMLTFILT(R11),80(R9)	; >multicast filtered frames
+DIA6X:	$faol_s	ctrstr=D_DIA06,-	; compose output string (contrl section)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIA6Y		; validate success
+	brw	NODIAG			; 
+DIA6Y:	$put	rab=T_DREC		; display block 6
+	blbs	R0,DIA6Z		; validate success
+	brw	NODIAG			; 
+DIA6Z:
+	movzwl	GW_FMIN(R11),(R9)	; >minimum frame size
+	movzwl	GW_FMAX(R11),4(R9)	; >maximum frame size
+	movl	GL_TOT_FRAMES(R11),R1	; if no frames registered
+	bneq	DIA7A			; then
+	movl	R1,8(R9)		; >0 : cannot compute average size
+	brb	DIA7B			; else
+DIA7A:	divl3	R1,GL_TOT_BYTES(R11),-	; compute average size
+		8(R9)			; >x
+DIA7B:	movzwl	GW_FETHMIN(R11),12(R9)	; >minimum ethernet frame size
+	movzwl	GW_FETHMAX(R11),16(R9)	; >maximum ethernet frame size
+	movzwl	GW_F802MIN(R11),20(R9)	; >minimum 802.3 frame size
+	movzwl	GW_F802MAX(R11),24(R9)	; >maximum 802.3 frame size
+	cvtrfl	GF_FMINRATE(R11),28(R9)	; >minimum frame rate
+	cvtrfl	GF_FMAXRATE(R11),32(R9)	; >maximum frame rate
+	cvtrfl	GF_FMINLOAD(R11),36(R9)	; >minimum traffic load
+	cvtrfl	GF_FMAXLOAD(R11),40(R9)	; >maximum traffic load
+DIA7X:	$faol_s	ctrstr=D_DIA07,-	; compose output string (contrl section)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIA7Y		; validate success
+	brw	NODIAG			; 
+DIA7Y:	$put	rab=T_DREC		; display block 7
+	blbs	R0,DIA7Z		; validate success
+	brw	NODIAG			; 
+DIA7Z:
+;
+; Display all protocol slots, defined vendors, nodes & complete hash tables
+;
+	movab	GAE_P_SLOT(R11),R7	; point to protocol array structure
+	clrl	R2			; initialize counter
+	movaq	D_PTAG,(R9)		; >0 : show heading tag
+DIAPA:	movl	R2,4(R9)		; >protocol id (0 is "all-others")
+	movzwl	GW_PSIZE(R7),8(R9)	; >protocol name string size
+	movab	GS_PNAME(R7),12(R9)	; >protocol name string
+	movzwl	GW_PROTOCOL(R7),16(R9)	; >protocol value
+	movl	GL_PMATCH(R7),20(R9)	; >protocol hits
+	movl	GL_PMULTI(R7),24(R9)	; >protocol multicast hits
+	movl	GL_PBYTES(R7),28(R9)	; >protocol total bytes
+	movzwl	GW_PMIN(R7),32(R9)	; >protocol min frame size
+	movzwl	GW_PMAX(R7),36(R9)	; >protocol max frame size
+	$faol_s	ctrstr=D_DIA_P,-	; compose output string (buffer section)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIAPY		; validate success
+	brw	NODIAG			; 
+DIAPY:	$put	rab=T_DREC		; display protocol block
+	blbs	R0,DIAPZ		; validate success
+	brw	NODIAG			; 
+DIAPZ:	addl2	#GPNTRY_SIZE,R7		; point to next array block
+	movaq	D_NULL,(R9)		; >x : no more tag on succeeding entries
+	aobleq	#GK_PTCLS,R2,DIAPA	; repeat until all array done [0..max]
+;
+	movzwl	GW_VENDORCOUNT(R11),(R9); >vendor array population
+	$faol_s	ctrstr=D_VTAG,-		; compose output string (buffer section)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIAVA		; validate success
+	brw	NODIAG			; 
+DIAVA:	$put	rab=T_DREC		; display vendor heading
+	blbs	R0,DIAVB		; validate success
+	brw	NODIAG			; 
+DIAVB:	movab	GAE_V_SLOT(R11),R7	; point to vendor array structure
+	clrl	R2			; initialize counter (first slot is 1)
+	brw	DIAVZ			; ...check for non-null population
+DIAVC:	movl	R2,(R9)			; >vendor number
+	movl	GL_VNEXT_HASH(R7),R1	; load hashing chain next entry offset
+	beql	DIAVD			; if not at end-of-chain then
+	divl2	#GVNTRY_SIZE,R1		;  compute offset in terms of slots
+	addl2	R2,R1			;  next_slot is current_slot + offset
+DIAVD:	movl	R1,4(R9)		; >follower vendor slot (or 0)
+	movzwl	GW_VCOUNT(R7),8(R9)	; >vendor node references
+	movzwl	GW_VSIZE(R7),12(R9)	; >vendor name string size
+	movab	GS_VNAME(R7),16(R9)	; >vendor name string
+	movzbl	<GL_VPREFIX+2>(R7),20(R9);>high portion of vendor OUI
+	movzwl	GL_VPREFIX(R7),24(R9)	; >low portion of vendor OUI
+	$faol_s	ctrstr=D_DIA_V,-	; compose output string (buffer section)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIAVY		; validate success
+	brw	NODIAG			; 
+DIAVY:	$put	rab=T_DREC		; display vendor block
+	blbs	R0,DIAVZ		; validate success
+	brw	NODIAG			; 
+DIAVZ:	addl2	#GVNTRY_SIZE,R7		; point to next vendor slot
+	acbw	GW_VENDORCOUNT(R11),#1,-; repeat for all known vendors
+		R2,DIAVC		; 
+;
+	movzwl	GW_NODECTL(R11),(R9)	; >node control flags
+	movzwl	GW_ACTIVNODE(R11),4(R9)	; >active node population
+	movzwl	GW_NODECOUNT(R11),8(R9)	; >node array population
+	movzwl	GL_NODEFAIL(R11),12(R9)	; >node dynamic allocation failure
+	$faol_s	ctrstr=D_NTAG,-		; compose output string (buffer section)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIANA		; validate success
+	brw	NODIAG			; 
+DIANA:	$put	rab=T_DREC		; display node heading
+	blbs	R0,DIANB		; validate success
+	brw	NODIAG			; 
+DIANB:	movab	GAE_N_SLOT(R11),R7	; point to node array structure
+	clrl	R2			; initialize counter
+DIANC:	movl	R2,(R9)			; >node number
+	movzwl	GW_NCONTROL(R7),4(R9)	; >node specific control flags
+	movl	GW_NSRC_PVISIT(R7),8(R9);*DSD*>protocol hit masks (S/D)
+	movzwl	GW_NSIZE(R7),12(R9)	; >node name string size
+	movab	GS_NNAME(R7),16(R9)	; >node name string
+	movl	<GQ_NADDRESS+4>(R7), -	; 
+		20(R9)			; >high portion of node address
+	movl	GQ_NADDRESS(R7),24(R9)	; >low portion of node address
+	movl	GL_NEXT_NAME(R7),28(R9)	; >sorted name linked list next index
+	movl	GL_NEXT_HASH(R7),R1	; load hashing chain next entry offset
+	beql	DIAND			; if not at end-of-chain then
+	divl2	#GNNTRY_SIZE,R1		;  compute offset in terms of slots
+	addl2	R2,R1			;  next_slot is current_slot + offset
+DIAND:	movl	R1,32(R9)		; >follower node slot (or 0)
+	movzwl	GW_NSRC_MIN(R7),36(R9)	; >minimum frame size sent
+	movzwl	GW_NDST_MIN(R7),40(R9)	; >minimum frame size received
+	movzwl	GW_NSRC_MAX(R7),44(R9)	; >maximum frame size sent
+	movzwl	GW_NDST_MAX(R7),48(R9)	; >maximum frame size received
+	movl	GL_NSRC_FRAMES(R7),52(R9);>number of frames sent
+	movl	GL_NDST_FRAMES(R7),56(R9);>number of frames received
+	movl	GL_NSRC_BYTES(R7),60(R9); >number of bytes sent
+	movl	GL_NDST_BYTES(R7),64(R9); >number of bytes received
+	movl	GL_NSRC_IFRAMES(R7), -	; 
+		68(R9)			; >last interval frames sent
+	movl	GL_NDST_IFRAMES(R7), -	; 
+		72(R9)			; >last interval frames received
+	movl	GL_NSRC_IBYTES(R7),76(R9);>last interval bytes sent
+	movl	GL_NDST_IBYTES(R7),80(R9);>last interval bytes received
+	$faol_s	ctrstr=D_DIA_N,-	; compose output string (buffer section)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIANY		; validate success
+	brw	NODIAG			; 
+DIANY:	$put	rab=T_DREC		; display node block
+	blbs	R0,DIANZ		; validate success
+	brw	NODIAG			; 
+DIANZ:	addl2	#GNNTRY_SIZE,R7		; point to next node slot
+	acbw	GW_NODECOUNT(R11),#1, -	; repeat for all known nodes
+		R2,DIANC		; 
+;
+	movzwl	GW_HASHCTL(R11),(R9)	; >hashing control flags
+	$faol_s	ctrstr=D_NHTAG,-	; compose output string (buffer section)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIAHA		; validate success
+	brw	NODIAG			; 
+DIAHA:	$put	rab=T_DREC		; display node hash table heading
+	blbs	R0,DIAHB		; validate success
+	brw	NODIAG			; 
+DIAHB:	movab	GAW_HASH_X(R11),R7	; point to hash array structure
+	clrl	R2			; initialize counter
+DIAHC:	clrl	R1			; initialize argument list pair index
+DIAHD:	movl	R2,(R9)[R1]		; >slot number
+	movzwl	(R7)[R2],4(R9)[R1]	; >node structure slot index
+	addl2	#2,R1			; update pair index
+DIAHE:	aoblss	#GK_HASH,R2,DIAHF	; check if at end of structure
+	extzv	#0,#2,R2,R0		; if so then check for line boundary
+	beql	DIAHG			;  if not
+	clrq	(R9)[R0]		;   complete line with nulls
+	brb	DIAHE			;   repeat until line complete - done
+DIAHF:	extzv	#0,#2,R2,R0		; otherwise check for line end
+	bneq	DIAHD			;  and repeat until complete - continue
+DIAHG:	$faol_s	ctrstr=D_DIA_H,-	; compose output string (buffer section)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIAHY		; validate success
+	brw	NODIAG			; 
+DIAHY:	$put	rab=T_DREC		; display hash pair
+	blbs	R0,DIAHZ		; validate success
+	brw	NODIAG			; 
+DIAHZ:	cmpl	#GK_HASH,R2		; check if all entries done
+	bgtr	DIAHC			; otherwise... start new line
+;
+	$faol_s	ctrstr=D_VHTAG,-	; compose output string (buffer section)
+		prmlst=(R9),-		; >FAO parameter list (none required)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIAXA		; validate success
+	brw	NODIAG			; 
+DIAXA:	$put	rab=T_DREC		; display vendor hash table heading
+	blbs	R0,DIAXB		; validate success
+	brw	NODIAG			; 
+DIAXB:	movab	GAW_VHASH_X(R11),R7	; point to hash array structure
+	clrl	R2			; initialize counter
+DIAXC:	clrl	R1			; initialize argument list pair index
+DIAXD:	movl	R2,(R9)[R1]		; >slot number
+	movzwl	(R7)[R2],4(R9)[R1]	; >vendor structure slot index
+	addl2	#2,R1			; update pair index
+DIAXE:	aoblss	#GK_VHASH,R2,DIAXF	; check if at end of structure
+	extzv	#0,#2,R2,R0		; if so then check for line boundary
+	beql	DIAXG			;  if not
+	clrq	(R9)[R0]		;   complete line with nulls
+	brb	DIAXE			;   repeat until line complete - done
+DIAXF:	extzv	#0,#2,R2,R0		; otherwise check for line end
+	bneq	DIAXD			;  and repeat until complete - continue
+DIAXG:	$faol_s	ctrstr=D_DIA_H,-	; compose output string (buffer section)
+		prmlst=(R9),-		; >FAO parameter list (see above)
+		outbuf=-8(R8),-		; >use workspace descriptor
+		outlen=T_DREC+RAB$W_RSZ	; >store result size into IO list
+	blbs	R0,DIAXY		; validate success
+	brw	NODIAG			; 
+DIAXY:	$put	rab=T_DREC		; display hash pair
+	blbs	R0,DIAXZ		; validate success
+	brw	NODIAG			; 
+DIAXZ:	cmpl	#GK_VHASH,R2		; check if all entries done
+	bgtr	DIAXC			; otherwise... start new line
+;
+	rsb				; all done
+;
+;; PROCEDURES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.ENTRY	TRAP_SIGNAL,^M<>
+;
+; This procedure is set as a condition handler by LOAD_TABLE prior to calling
+; CLI$DCL_PARSE to intercept potential signals due to invalid TABLE commands.
+; The only action is to return the "continue" status to the condition handling
+; mechanism thereby preventing the signaled message from reaching VMS handlers.
+; Since CLI$DCL_PARSE also returns the status it attempts to signal, LOAD_TABLE
+; will handle any required signaling based on the status value.
+;
+	movl	#SS$_CONTINUE,R0
+	ret
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.ENTRY	UPDATE_NTABLE,^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+;
+; This procedure obtains a node definition attributes. It uses the supplied
+; address to compute a hash index and attempts to find an opening in the node
+; array, checking that the node is not already defined. If unique, it adds the
+; new node definition, building a hash linked chain as required.
+; Statistical counters are reset.
+; Called from: LOAD_TABLE via CLI$DISPATCH
+; Subroutines: CLI$GET_VALUE , CLI$PRESENT , LIB$SIGNAL
+; Register allocation:
+; R0  - L -  /W - system call status & returned status
+; R1  - L -  /W - (affected by system calls)
+; R2  - L -  /W - scratch (implicit thru MOVCx), hash index
+; R3  - L -  /W - scratch (implicit thru MOVCx), node index
+; R4  - L -  /W - scratch (implicit thru MOVCx), node address low portion
+; R5  - L -  /W - scratch (implicit thru MOVCx), node address high portion
+; R6  -WL -  /W - new node block number
+; R7  - L - R/  - command sequence number (passed argument 1)
+; R8  - L - R/  - primary heap workspace pointer (passed argument 2)
+; R9  - L - R/  - primary heap structured lists pointer (passed argument 3)
+; R10 -WL -  /W - scratch, node slot pointer
+; R11 - L - R/  - control section pointer
+;
+; Restore main pointers & find/validate first available node block
+;
+	movl	AL_CTL,R11		; set control section pointer
+	movl	4(AP),R10		; point to parameter list
+	movq	4(R10),R8		; recover heap pointers (r8:r9)
+	movl	(R10),R7		; recover line number from argument list
+	movzwl	GW_NODECOUNT(R11),R6	; current top slot used in node array
+	cmpw	#<GK_NODES-1>,R6	; if no room remains in array
+	bgtr	TN_OK			; then
+	signal	message=#PRB_FULNARR,-	;  notify user
+		msg1=	R7		;  and discard this command
+	brw	TN_END			; else
+TN_OK:	incw	R6			;  compute unconfirmed new node count
+;
+; Fetch required address qualifier string value & convert to quadword binary...
+; The conversion process reverses each address byte so that it matches directly
+; the ethernet format.
+;
+	movaq	D_NODE_ADR,12(R9)	; load address of qualifier descriptor
+	movzwl	#GK_VALSIZE_MAX,(R9)	; load transient descr with max size
+	movl	R8,4(R9)		; initialize descr to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbs	R0,TN_CVT		; if unsuccessful then
+TN_BUG:	signal	message=#PRB_TBLQLF,-	;  notify user of qualifier requirement
+		msg1=	R7		;  and discard this line
+	brw	TN_END			; else... successful
+TN_CVT:	subw3	(R9),#12,R10		;  load string justification factor
+	beql	TN_ALN			;  if not null then
+	blss	TN_BUG			;   make sure user input conforms to max
+	movzwl	R10,R10			;   transform adjustment to longword idx
+	movc3	(R9),(R8),(R8)[R10]	;   right justify string
+	movc5	#0,(R8),#^A/0/,R10,(R8)	;   pad with zeros
+TN_ALN:	clrq	-8(R8)			; initialize converted address
+	movl	#6,R2			; inner loop count is result byte count
+	movl	#2,R3			; will repeat outer loop twice
+	clrl	R4			; position @ address start (even) nibble
+	movab	1(R8),R5		; position source @ odd offset...
+TN_HEX:	locc	(R5)+,#16,S_HEXA	; determine hexadecimal validity
+	beql	TN_BUG			; if recognized digit then
+	decb	R0			;  adjusted substring offset is value
+	insv	R0,R4,#4,-8(R8)		;  extract low nibble
+	addl2	#8,R4			; position @ next byte matching nibble
+	incl	R5			; position source @ next word
+	sobgtr	R2,TN_HEX		; repeat inner loop
+	movl	#6,R2			; reinitialize inner operation count
+	movl	#4,R4			; reposition @ odd nibble
+	movab	(R8),R5			; reposition source @ even offset
+	sobgtr	R3,TN_HEX		; rescan ASCII address & finalize cvt
+;
+; Make sure the address is not a multicast & fetch the required name parameter
+; Prepare new node slot address (slot_adr=base_adr+index*slot_size)
+;
+	movq	-8(R8),R4		; load binary node address (r4:r5)
+	blbc	R4,TN_NAM		; if multicast
+	signal	message=#PRB_ODDADD,-	; then
+		msg1=	R7		;  can't redefine default multicast slot
+	brw	TN_END			; else
+TN_NAM:	movaq	D_NODE_NAM,12(R9)	; load address of qualifier descriptor
+	movzwl	#GK_NSIZE_MAX,(R9)	; load transient descr with max size
+	movl	R8,4(R9)		; initialize descr to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbs	R0,TN_H			; confirm name transfer success
+	signal	message=#PRB_TBLPAR,-	; else inform user
+		msg1=	R7		;  do not complete node transaction
+	brw	TN_END			;  and leave...
+TN_H:	mull3	R6,#GNNTRY_SIZE,R10	; compute new node slot offset
+	movab	GAE_N_SLOT(R11),R1	; determine base slot address
+	addl2	R1,R10			; compute new node address (future use)
+;
+; Hash binary address to form hash table index...
+; Follow eventual collision chain to its end while checking for duplicates
+;
+	extzv	#24,#24,R4,R2		; use machine-specific address portion
+;*DSD*	clrl	R3			;  to form hask key
+	ediv	#GK_HASH,R2,R3,R2	; produce hash index from key
+	movzwl	GAW_HASH_X(R11)[R2],R3	; get corresponding node slot index
+	bneq	TN_ARR			; if no hashing collision then
+	movw	R6,GAW_HASH_X(R11)[R2]	;  update hash index table with new node
+	brb	TN_FIX			; else
+TN_ARR:	mull2	#GNNTRY_SIZE,R3		;  compute hashed slot offset
+	addl2	R1,R3			;  compute collided node slot address
+TN_CHK:	cmpl	R5,<GQ_NADDRESS+4>(R3)	;  check for duplicated (high) address
+	bneq	TN_CHN			;  if not then pursue chain traversal
+	cmpl	R4,GQ_NADDRESS(R3)	;  check for duplicated (low) address
+	beql	TN_DUP			;  if not then
+TN_CHN:	movl	GL_NEXT_HASH(R3),R2	;   load next hash entry offset
+	beql	TN_EOC			;   if chain still valid then
+	addl2	R2,R3			;    point to follow-on node
+	brb	TN_CHK			;    repeat duplicate checks
+TN_DUP:	signal	message=#PRB_DUPNDEF,-	;  else (multicast)
+	msg1=	R9,-			;   inform user of duplication
+	msg2=	R7			;   
+	brw	TN_END			;  endif
+TN_EOC:	subl3	R3,R10,GL_NEXT_HASH(R3)	; endif... chain end... fix chain link
+TN_FIX:	movq	R4,GQ_NADDRESS(R10)	; update node address
+	movw	(R9),GW_NSIZE(R10)	; update node name string size
+	movc3	(R9),(R8),GS_NNAME(R10)	; transfer name string from workspace
+	movw	R6,GW_NODECOUNT(R11)	; confirm new node count
+;
+; Process optional node filter/display attributes
+;
+	pushaq	D_NODE_SRC		; >address of source qualifier descr
+	calls	#1,G^CLI$PRESENT	; check presence in command line
+	blbc	R0,TN_DST		; if so then
+	pushaq	D_NODE_SRCDIS		; 
+	calls	#1,G^CLI$PRESENT	;  check for disabled source
+	blbc	R0,TN_S1		;  and
+	bisb2	#M_NDISABLE,-		;  set control flag accordingly
+		GB_NSRC_CTL(R10)	; 
+TN_S1:	pushaq	D_NODE_SRCPRI		; 
+	calls	#1,G^CLI$PRESENT	;  check for prioritized source
+	blbc	R0,TN_S2		;  and
+	bisb2	#M_NFRONT,-		;  set control flag accordingly
+		GB_NSRC_CTL(R10)	; 
+TN_S2:	pushaq	D_NODE_SRCSMT		; 
+	calls	#1,G^CLI$PRESENT	;  check for source smoothing bypass
+	blbc	R0,TN_S3		;  and
+	bisb2	#M_NBYPSMTH,-		;  set control flag accordingly
+		GB_NSRC_CTL(R10)	; 
+TN_S3:	pushaq	D_NODE_SRCTHR		; 
+	calls	#1,G^CLI$PRESENT	;  check for source threshold bypass
+	blbc	R0,TN_DST		;  and
+	bisb2	#M_NBYPTHRS,-		;  set control flag accordingly
+		GB_NSRC_CTL(R10)	; 
+TN_DST:	pushaq	D_NODE_DST		; >address or destination qualifier desc
+	calls	#1,G^CLI$PRESENT	; check presence in command line
+	blbc	R0,TN_END		; if so then
+	pushaq	D_NODE_DSTDIS		; 
+	calls	#1,G^CLI$PRESENT	;  check for disabled destination
+	blbc	R0,TN_D1		;  and
+	bisb2	#M_NDISABLE,-		;  set control flag accordingly
+		GB_NDST_CTL(R10)	; 
+TN_D1:	pushaq	D_NODE_DSTPRI		; 
+	calls	#1,G^CLI$PRESENT	;  check for prioritized destination
+	blbc	R0,TN_D2		;  and
+	bisb2	#M_NFRONT,-		;  set control flag accordingly
+		GB_NDST_CTL(R10)	; 
+TN_D2:	pushaq	D_NODE_DSTSMT		; 
+	calls	#1,G^CLI$PRESENT	;  check for destination smoothing byp
+	blbc	R0,TN_D3		;  and
+	bisb2	#M_NBYPSMTH,-		;  set control flag accordingly
+		GB_NDST_CTL(R10)	; 
+TN_D3:	pushaq	D_NODE_DSTTHR		; 
+	calls	#1,G^CLI$PRESENT	;  check for destination threshold byp
+	blbc	R0,TN_END		;  and
+	bisb2	#M_NBYPTHRS,-		;  set control flag accordingly
+		GB_NDST_CTL(R10)	; 
+TN_END:	movl	#SS$_NORMAL,R0		; normal successful completion
+	ret				; all done, leave
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.ENTRY	UPDATE_PTABLE,^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+;
+; This procedure obtains a protocol definition attributes. It uses the supplied
+; identification to fill the appropriate slot's information, checking that the
+; slot is previously empty. It also sets a control flag for every defined block.
+; Called from: LOAD_TABLE via CLI$DISPATCH
+; Subroutines: CLI$GET_VALUE , LIB$SIGNAL , OTS$CVT_TU_L
+; Register allocation:
+; R0  - L -  /W - system call status & returned status
+; R1  - L -  /W - (affected by system calls)
+; R2  - L -  /W - scratch (implicit thru MOVCx)
+; R3  - L -  /W - scratch (implicit thru MOVCx)
+; R4  - L -  /W - scratch (implicit thru MOVCx)
+; R5  - L -  /W - scratch (implicit thru MOVCx)
+; R6  - L -  /W - protocol identifier number
+; R7  - L - R/  - command sequence number (passed argument 1)
+; R8  - L - R/  - primary heap workspace pointer (passed argument 2)
+; R9  - L - R/  - primary heap structured lists pointer (passed argument 3)
+; R10 -WL -  /W - scratch, protocol slot pointer
+; R11 - L - R/  - control section pointer
+;
+; Restore main pointers & validate at least one free slot
+;
+	movl	AL_CTL,R11		; set control section pointer
+	movl	4(AP),R10		; point to parameter list
+	movq	4(R10),R8		; recover heap pointers (r8:r9)
+	movl	(R10),R7		; recover line number from argument list
+	movzwl	GW_DEFPTCL(R11),R10	; load protocol definition mask
+	beql	TP_FRE			; if some occupancy found
+	ffc	#1,#GK_PTCLS,R10,R2	; then scan protocol mask for vacancy
+	bneq	TP_GET			;  and return lowest free id
+	signal	message=#PRB_FULPARR,-	;  if no vacancy then
+		msg1=	R7		;   advise user... can't proceed
+	brw	TP_END			;  endif
+TP_FRE:					; else, prepare static unmatched entry
+	movab	GAE_P_SLOT(R11),R10	;  point to protocol base slot
+	movw	D_UNMATCHED,GW_PSIZE(R10); load unmatched ptcl string length
+	movc3	D_UNMATCHED, -		;  use specific length to copy
+		@<D_UNMATCHED+4>, -	;   from constant string
+		GS_PNAME(R10)		;   to unmatched protocol entry block
+TP_GET:					; endif
+;
+; Fetch protocol ethernet value and convert into binary justified form
+;
+	movaq	D_PTCL_VAL,12(R9)	; load address of qualifier descriptor
+	movzwl	#GK_VALSIZE_MAX,(R9)	; load transient descr with max size
+	movl	R8,4(R9)		; initialize descr to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbc	R0,TP_BUG		; if successful then
+	subw3	(R9),#4,R10		;  load string justification factor
+	beql	TP_ALN			;  if not null then
+	blss	TP_BUG			;   make sure user input conforms to max
+	movc3	(R9),(R8),(R8)[R10]	;   right justify string
+	movc5	#0,(R8),#^A/0/,R10,(R8)	;   pad with zeros
+TP_ALN:	clrq	-8(R8)			; initialize converted address
+	movl	#2,R2			; inner loop count is result byte count
+	movl	#2,R3			; will repeat outer loop twice
+	clrl	R4			; position @ address start (even) nibble
+	moval	1(R8),R5		; position source @ odd offset...
+TP_HEX:	locc	(R5)+,#16,S_HEXA	; determine hexadecimal validity
+	beql	TP_BUG			; if recognized digit then
+	decb	R0			;  adjusted substring offset is value
+	insv	R0,R4,#4,-8(R8)		;  extract low nibble
+	addl2	#8,R4			; position @ next byte matching nibble
+	incl	R5			; position source @ next word
+	sobgtr	R2,TP_HEX		; repeat inner loop
+	movl	#2,R2			; reinitialize inner operation count
+	movl	#4,R4			; reposition @ odd nibble
+	moval	(R8),R5			; reposition source @ even offset
+	sobgtr	R3,TP_HEX		; rescan ASCII address & finalize cvt
+;
+; Fetch definition identifier and protocol name
+;
+	movaq	D_PTCL_IDN,12(R9)	; load address of qualifier descriptor
+	movzwl	#GK_VALSIZE_MAX,(R9)	; load transient descr with max size
+	movl	R8,4(R9)		; initialize descr to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbs	R0,TP_ID		; if unsuccessful then
+TP_BUG:	signal	message=#PRB_TBLQLF,-	;  notify user of qualifier requirement
+		msg1=	R7		;  and discard this line
+	brw	TP_END			; else
+TP_ID:	moval	-12(R8),32(R9)		;  load result address (temporary store)
+	movl	#4,36(R9)		;  load result size (in bytes)
+	callg	24(R9),G^OTS$CVT_TU_L	;  convert from ASCII to binary
+	blbc	R0,TP_BUG		;  if conversion valid then
+	movl	-12(R8),R6		;   load result
+	bleq	TP_BUG			;    bound check low [1..]
+	cmpl	#GK_PTCLS,R6		;    bound check high [..15]
+	blss	TP_BUG			;   if in-bounds then
+	movaq	D_PTCL_NAM,12(R9)	;    load qualifier descriptor address
+	movzwl	#GK_PSIZE_MAX,(R9)	;    load transient descr with max size
+	movl	R8,4(R9)		;    initialize descr to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	;    retrieve command line value
+	blbs	R0,TP_VLD		;    confirm name transfer success
+	signal	message=#PRB_TBLPAR,-	;    else inform user
+		msg1=	R7		;  do not complete protocol transaction
+	brb	TP_END			;  and leave...
+TP_VLD:					; endif, continue
+;
+; Validate requested protocol is free and load values into computed slot
+;
+	bbcs	R6,GW_DEFPTCL(R11),-	; mark protocol occupancy
+		TP_NEW			; if already defined
+	signal	message=#PRB_DUPPDEF,-	; then
+		msg1=	R9,-		;  advise user
+		msg2=	R7		;  will not superseed existing protocol
+	brb	TP_END			; endif
+TP_NEW: bisw2	#M_PDEFINED,-		; make sure protocol filtering
+		GW_DEFPTCL(R11)		;  inhibition is lifted
+	movab	GAE_P_SLOT(R11),R10	; point to protocol base slot
+	mull2	#GPNTRY_SIZE,R6		; compute offset into protocol array
+	addl2	R6,R10			;  and update pointer to current slot
+TP_UPD:	movw	-8(R8),GW_PROTOCOL(R10)	; load binary protocol representation
+	movw	(R9),GW_PSIZE(R10)	; load protocol name string size
+	movc3	(R9),(R8),GS_PNAME(R10)	; transfer protocol string
+TP_END:	movl	#SS$_NORMAL,R0		; normal successful completion
+	ret				; all done... leave
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.ENTRY	UPDATE_VTABLE,^M<R2,R3,R4,R5,R6,R7,R8,R9,R10,R11>
+;
+; This procedure obtains a vendor definition attributes. It uses the supplied
+; address to compute a hash index and attempts to find an opening in the vendor
+; array, checking that the vendor is not already defined. If unique, it adds the
+; new vendor definition, building a hash linked chain as required.
+; Called from: LOAD_TABLE via CLI$DISPATCH
+; Subroutines: CLI$GET_VALUE , CLI$PRESENT , LIB$SIGNAL
+; Register allocation:
+; R0  - L -  /W - system call status & returned status
+; R1  - L -  /W - (affected by system calls)
+; R2  - L -  /W - scratch (implicit thru MOVCx), hash index
+; R3  - L -  /W - scratch (implicit thru MOVCx), vendor index
+; R4  - L -  /W - scratch (implicit thru MOVCx), vendor prefix
+; R5  - L -  /W - scratch (implicit thru MOVCx)
+; R6  -WL -  /W - new vendor block number
+; R7  - L - R/  - command sequence number (passed argument 1)
+; R8  - L - R/  - primary heap workspace pointer (passed argument 2)
+; R9  - L - R/  - primary heap structured lists pointer (passed argument 3)
+; R10 -WL -  /W - scratch, vendor slot pointer
+; R11 - L - R/  - control section pointer
+;
+; Restore main pointers & find/validate first available vendor block
+;
+	movl	AL_CTL,R11		; set control section pointer
+	movl	4(AP),R10		; point to parameter list
+	movq	4(R10),R8		; recover heap pointers (r8:r9)
+	movl	(R10),R7		; recover line number from argument list
+	movzwl	GW_VENDORCOUNT(R11),R6	; current top slot used in vendor array
+	cmpw	#<GK_VENDORS-1>,R6	; if no room remains in array
+	bgtr	TV_OK			; then
+	signal	message=#PRB_FULVARR,-	;  notify user
+		msg1=	R7		;  and discard this command
+	brw	TV_END			; else
+TV_OK:	incw	R6			;  compute unconfirmed new node count
+;
+; Fetch required prefix qualifier string value & convert to longword binary...
+; The conversion process reverses each prefix byte so that it matches directly
+; the ethernet format.
+;
+	movaq	D_VEND_OUI,12(R9)	; load address of qualifier descriptor
+	movzwl	#GK_VALSIZE_MAX,(R9)	; load transient descr with max size
+	movl	R8,4(R9)		; initialize descr to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbs	R0,TV_CVT		; if unsuccessful then
+TV_BUG:	signal	message=#PRB_TBLQLF,-	;  notify user of qualifier requirement
+		msg1=	R7		;  and discard this line
+	brw	TV_END			; else... successful
+TV_CVT:	subw3	(R9),#6,R10		;  load string justification factor
+	beql	TV_ALN			;  if not null then
+	blss	TV_BUG			;   make sure user input conforms to max
+	movzwl	R10,R10			;   transform adjustment to longword idx
+	movc3	(R9),(R8),(R8)[R10]	;   right justify string
+	movc5	#0,(R8),#^A/0/,R10,(R8)	;   pad with zeros
+TV_ALN:	clrq	-8(R8)			; initialize converted address
+	movl	#3,R2			; inner loop count is result byte count
+	movl	#2,R3			; will repeat outer loop twice
+	clrl	R4			; position @ address start (even) nibble
+	movab	1(R8),R5		; position source @ odd offset...
+TV_HEX:	locc	(R5)+,#16,S_HEXA	; determine hexadecimal validity
+	beql	TV_BUG			; if recognized digit then
+	decb	R0			;  adjusted substring offset is value
+	insv	R0,R4,#4,-8(R8)		;  extract low nibble
+	addl2	#8,R4			; position @ next byte matching nibble
+	incl	R5			; position source @ next word
+	sobgtr	R2,TV_HEX		; repeat inner loop
+	movl	#3,R2			; reinitialize inner operation count
+	movl	#4,R4			; reposition @ odd nibble
+	movab	(R8),R5			; reposition source @ even offset
+	sobgtr	R3,TV_HEX		; rescan ASCII address & finalize cvt
+;
+; Make sure the address is not a multicast & fetch the required name parameter
+; Prepare new node slot address (slot_adr=base_adr+index*slot_size)
+;
+	movq	-8(R8),R4		; load binary node address (r4:r5)
+	blbc	R4,TV_NAM		; if multicast
+	signal	message=#PRB_ODDADD,-	; then
+		msg1=	R7		;  invalid OUI
+	brw	TV_END			; else
+TV_NAM:	movaq	D_VEND_NAM,12(R9)	; load address of qualifier descriptor
+	movzwl	#GK_VSIZE_MAX,(R9)	; load transient descr with max size
+	movl	R8,4(R9)		; initialize descr to heap workspace
+	callg	8(R9),G^CLI$GET_VALUE	; retrieve command line value
+	blbs	R0,TV_H			; confirm name transfer success
+	signal	message=#PRB_TBLPAR,-	; else inform user
+		msg1=	R7		;  do not complete node transaction
+	brw	TV_END			;  and leave...
+TV_H:	mull3	R6,#GVNTRY_SIZE,R10	; compute new vendor slot offset
+	movab	GAE_V_SLOT(R11),R1	; determine base slot address
+	addl2	R1,R10			; new vendor slot address (future use)
+;
+; Hash binary address to form hash table index...
+; Follow eventual collision chain to its end while checking for duplicates
+;
+	extzv	#0,#24,R4,R2		; use vendor-specific address portion
+;*DSD*	clrl	R3			;  to form hask key
+	ediv	#GK_VHASH,R2,R3,R2	; produce hash index from key
+	movzwl	GAW_VHASH_X(R11)[R2],R3	; get corresponding vendor slot index
+	bneq	TV_ARR			; if no hashing collision then
+	movw	R6,GAW_VHASH_X(R11)[R2]	;  update hash index table with vendor
+	brb	TV_FIX			; else
+TV_ARR:	mull2	#GVNTRY_SIZE,R3		;  compute hashed slot offset
+	addl2	R1,R3			;  compute collided vendor slot address
+TV_CHK:	cmpl	R4,GL_VPREFIX(R3)	;  check for duplicated prefix
+	beql	TV_DUP			;  if not then (pursue chain traversal)
+	movl	GL_VNEXT_HASH(R3),R2	;   load next hash entry offset
+	beql	TV_EOC			;   if chain still valid then
+	addl2	R2,R3			;    point to follow-on node
+	brb	TV_CHK			;    repeat duplicate checks
+TV_DUP:	signal	message=#PRB_DUPVDEF,-	;  else (multicast)
+	msg1=	R9,-			;   inform user of duplication
+	msg2=	R7			;   
+	brw	TV_END			;  endif
+TV_EOC:	subl3	R3,R10,GL_VNEXT_HASH(R3); endif... chain end... fix chain link
+TV_FIX:	movl	R4,GL_VPREFIX(R10)	; update vendor prefix
+	movw	(R9),GW_VSIZE(R10)	; update vendor name string size
+	movc3	(R9),(R8),GS_VNAME(R10)	; transfer name string from workspace
+	movw	R6,GW_VENDORCOUNT(R11)	; confirm new vendor count
+TV_END:	movl	#SS$_NORMAL,R0		; normal successful completion
+	ret				; all done, leave
+;
+;; MODULES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	HANDLE,EXE,NOWRT,NOSHR
+;
+	.ENTRY	KEYBOARD,^M<R2,R11>	; entry saved state, IV trap is disabled
+;
+; Asynchronous system trap code - invoked automatically by VMS I/O handler
+;
+; This routine allows the toggling of filters and manual program termination
+; sequence initiation when the user presses the space bar. Filters are toggled
+; when their numbers are entered, in hexadecimal. The "M" or "." keys are used
+; for multicasts filter changes. The "H" and "I" keys are used for format
+; filter changes.
+; Output varies according to display ownership. If the display is not reserved
+; (display flag off) then message output is performed. Otherwise, a notification
+; is posted (notify flag on) for the display manager to handle.
+; Invalid inputs are echoed back as terminal "bells" and no further action takes
+; place. The bell is also heard when an invalid protocol filter state is reached
+; or requested (i.e. filter with no active protocols). Such state is cancelled.
+; Called from: unpredictable
+; Subroutines: SYS$EXIT , SYS$FAO , SYS$GETMSG , SYS$QIO
+;
+	movl	AL_CTL,R11		; load control section pointer
+	blbs	Q_KEYIOSB,C_SP		; check that input IO was successful
+	cmpw	#SS$_ABORT,Q_KEYIOSB	; otherwise check failure type
+	beql	C_SHUT			; if not provoked (upon $cancel)
+	abort	status=#PRB_KEY_IO,-	; then advise user of problem
+		reason=Q_KEYIOSB	;  & exit with failure status
+C_SHUT:	ret				; else stop operation... just leave
+C_SP:	movzbl	L_KEYBUFFER,R2		; load inputted ASCII value
+	locc	R2,#2,W_EXITMASK	; check input for valid escape
+	bneq	C_EXIT			; if so then
+	bbc	#V_DISPLAY, -		;  if display is uncommited (no owner)
+		GL_CSR(R11),C_INT1	;  then process messaging
+	brw	C_INT2			;  else (streamlined) notify manager
+C_EXIT:	abort	status=#PRB_SPACEBAR	; else rundown with normal status
+;
+; Display ownership undefined
+;
+C_INT1:	locc	R2,#2,W_MLTMASK 	; if multicast key
+	beql	C_FMT			; then
+	movl	#PRB_MLTCSTOF,R1	;  assume multicast to be switched off
+	bbsc	#V_MFILTER,GL_CSR(R11),-;  if multicast bit previously cleared
+		C_MON			;  then
+	bisl2	#M_MFILTER,GL_CSR(R11)	;   set the bit
+	movl	#PRB_MLTCSTON,R1	;   replace incorrectly assumed message
+C_MON:	brw	C_MSG			;  notify user
+C_FMT:	locc	R2,#2,W_FMTMASK		; else if valid format filter key
+	beql	C_PTCL			; then
+	movl	#PRB_TYPEOFF,R1		;  assume format filter to switch off
+	cmpb	#^A/I/,R2		;  if Ethernet filter input (H)
+	beql	C_FI			;  then
+	bicl2	#M_EBLOCK,GL_CSR(R11)	;   force ethernet block off
+	bbsc	#V_802BLOCK,GL_CSR(R11),-;  if IEEE block active (toggle)
+		C_FEON			;   then, deactivate
+	bisl2	#M_802BLOCK,GL_CSR(R11)	;   else, activate IEEE block
+	movl	#PRB_TYPETHR,R1		;    replace incorrect assumption
+C_FEON:	brw	C_MSG			;  else (I)
+C_FI:	bicl2	#M_802BLOCK,GL_CSR(R11)	;   force IEEE block off
+	bbsc	#V_EBLOCK,GL_CSR(R11),-	;   if Ethernet block active (toggle)
+		C_FION			;   then, deactivate
+	bisl2	#M_EBLOCK,GL_CSR(R11)	;   else, activate Ethernet block
+	movl	#PRB_TYPE802,R1		;    replace incorrect assumption
+C_FION:	brw	C_MSG			;  endif, notify user
+C_PTCL:	locc	R2,#16,S_HEXA		; else if invalid hexadecimal (protocol)
+	bneq	C_HEX			;  then
+	brw	C_BELL			;   ring the bell & discard
+C_HEX:	subl3	#1,R0,R2		;  else, adjusted offset is value
+	beql	C_ZER			;  if not master control (index=0)
+	cmpb	#GK_PTCLS,R2		;  then
+	bgeq	C_DGT			;   if above digit high boundary
+	brw	C_BELL			;   then ring the bell & discard
+C_ZER:	movl	#PRB_PFLTINH,R1		;  else, assume all protocols undefined
+	blbc	GW_DEFPTCL(R11),C_MSG	;*DSD* check the assumption
+	movl	#PRB_PFLTNUL,R1		;  assume no standby protocols waiting
+	tstw	GW_ACTPTCL(R11)		;  if so... avoid invalid state
+	beql	C_MSG			;  else
+	movl	#PRB_PFLTENA,R1		;  assume filtering to be switched on
+	bbcs	#V_PONOFF,-		;  if filtering previously set
+		GW_ACTPTCL(R11),C_MSG	;  then
+	bicw2	#M_PONOFF,GW_ACTPTCL(R11);  reset filtering
+	movl	#PRB_PFLTDIS,R1		;   replace incorrectly assumed msg
+	brb	C_MSG			; else
+C_DGT:	movl	#PRB_UNKPFLT,R1		; assume protocol is undefined
+	extzv	R2,#1,GW_DEFPTCL(R11),R0;  get protocol definition status
+	beql	C_MSG			;  if defined then
+	movl	#PRB_PFLTOFF,R1		;   assume filtering to be switched off
+	bbsc	R2,GW_ACTPTCL(R11),C_MSG;   if filtering previously off then
+	insv	#1,R2,#1,GW_ACTPTCL(R11);    new state is on (toggle)
+	movl	#PRB_PFLTON1,R1		;    assume active state
+	blbs	GW_ACTPTCL(R11),C_MSG	;*DSD*if not then
+	movl	#PRB_PFLTON2,R1		;     replace bad assumption message
+C_MSG:	movl	R1,AL_MSG+GETMSG$_MSGID	; prepare appropriate message
+	movw	#GK_VALSIZE_MAX,D_WORK	; prepare work storage descriptor
+	$getmsg_g -			; get ASCII message
+		AL_MSG			; 
+	blbc	R0,C_QUIT		; check call status
+	movl	R2,AL_TEXT+FAO$_P1	; if no parameters associated with msg
+	bneq	C_FAO			; then
+	movl	<D_WORK+4>,-		;  point to transfer buffer
+		AL_OUT+QIO$_P1		; 
+	movzwl	D_WORK,AL_OUT+QIO$_P2	;  load transfer size
+	brb	C_LINE			; else
+C_FAO:  movw	#GK_VALSIZE_MAX,D_TEXT	;  prepare final message descriptor
+	$fao_g	AL_TEXT			;  insert parameter into control string
+	blbc	R0,C_QUIT		;  check call status
+	movl	<D_TEXT+4>,-		;  point to transfer buffer
+		AL_OUT+QIO$_P1		; 
+	movzwl	D_TEXT,AL_OUT+QIO$_P2	;  load transfer size
+C_LINE:	$qio_g	AL_OUT			; inform user of action taken
+	blbc	R0,C_QUIT		; if successful
+	brw	C_VAL			; then complete
+C_QUIT:	abort	status=#PRB_DSP_IO,-	; else advise user
+		reason=R0		;  of reported problem
+;
+; Display ownership reserved (DMS will handle visual feedback)
+;
+C_INT2:	locc	R2,#2,W_MLTMASK 	; if either multicast keys input
+	beql	C_TYPE			; then
+	bisl2	#M_NOTICE,GL_CSR(R11)	;  post display notice
+	bbsc	#V_MFILTER,GL_CSR(R11),-;  if multicast bit previously cleared
+		C_MOK			;  then
+	bisl2	#M_MFILTER,GL_CSR(R11)	;   set the bit
+C_MOK:	brw	C_END			; else
+C_TYPE:	locc	R2,#2,W_FMTMASK		;  if valid format filter key
+	beql	C_NUM			;  then
+	bisl2	#M_NOTICE,GL_CSR(R11)	;   post display notice
+	cmpb	#^A/I/,R2		;   if Ethernet filter input (H)
+	beql	C_F802			;   then
+	bicl2	#M_EBLOCK,GL_CSR(R11)	;    force ethernet block off
+	bbsc	#V_802BLOCK,GL_CSR(R11),-;   if IEEE block active (toggle)
+		C_END			;    then, deactivate
+	bisl2	#M_802BLOCK,GL_CSR(R11)	;    else, activate IEEE block
+	brb	C_END			;   else (I)
+C_F802:	bicl2	#M_802BLOCK,GL_CSR(R11)	;    force IEEE block off
+	bbsc	#V_EBLOCK,GL_CSR(R11),-	;    if Ethernet block active (toggle)
+		C_END			;    then, deactivate
+	bisl2	#M_EBLOCK,GL_CSR(R11)	;    else, activate Ethernet block
+	brb	C_END			; else
+C_NUM:	locc	R2,#16,S_HEXA		;  if valid hexadecimal number
+	beql	C_BELL			;  then
+	subl3	#1,R0,R2		;   adjusted offset is value
+	cmpb	#GK_PTCLS,R2		;   bound check high
+	blss	C_BELL			;   if in-bounds then
+	mcomw	GW_ACTPTCL(R11),R1	;    form activity mask
+	bbcs	R2,R1,C_RDY		;    if filter bit previously set then
+	insv	#0,R2,#1,R1		;     reset the bit
+C_RDY:	bicw3	R1,GW_DEFPTCL(R11),-	;    merge new activity mask with
+		GW_ACTPTCL(R11)		;     inhibit (filter definition) mask
+	bisl2	#M_NOTICE,GL_CSR(R11)	;    post display notice
+C_VAL:	cmpw	#1,GW_ACTPTCL(R11)	;   check for invalid state (filter all)
+	bneq	C_END			;   if so then
+	clrw	GW_ACTPTCL(R11)		;    drop protocol filter
+C_BELL:	$qio_g	AL_CRT			;  ring terminal bell, disregard status
+C_END:	$qio_g	AL_KEY			; query keyboard for next character
+	blbs	R0,C_OK			; check service submittal status
+	abort	status=#PRB_KEY_IO,-	; and report any problem
+		reason=R0		; 
+C_OK:	movb	#07,L_KEYBUFFER		; default key buffer to bell key
+	ret				; ...sleep
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.ENTRY	SHUTDOWN,^M<>
+;
+; This module is called automatically by VMS upon image rundown after being
+; declared as an exit handler prior to starting subprocesses.
+; This module performs necessary steps to insure that:
+; 1. The ACQ subprocess is permitted to shutdown gracefully so that log entry
+;    blocks are properly and completely stored to disk if required.
+; 2. The DMS subprocess is permitted to shutdown gracefully so that statistics
+;    can be generated and the screen released.
+; 3. A timeout period is alloted for both subprocess to perform their shutdown
+;    operation. If exceeded, both processes are sommarily destroyed.
+; 4. The main process priority is returned to its original level.
+; 5. A diagnostic dump occurs if requested by the user.
+; 6. Image termination messages are displayed if required.
+;
+; Called from: KEYBOARD or TIMER (can be externally forced)
+; Subroutines: SYS$CANTIM , SYS$CLREF , SYS$DELPRC , SYS$FORCEX , SYS$GETTIM ,
+;	       SYS$PUTMSG , SYS$READEF , SYS$SETPRI , SYS$SETIMR , SYS$WFLOR
+;	       DIAGNOSE
+; Register allocation: unpredictable upon entry, no further impact upon exit
+;
+; Prepare exit environment... take a snapshot of valuable states
+;
+	movl	AL_CTL,R11		; load control section pointer
+	movl	AL_BUF,R10		; load buffer section pointer
+	subl2	#<3*HEAPSIZ>,SP		; build large heap (for DIAGNOSE)
+	movl	SP,R9			; setup pointer to heap
+	movab	SCRATCH(R9),R8		; setup pointer to workspace
+	movl	GL_CSR(R11),L_XCSR	;*DIAG*save incoming master control
+	movl	L_EFSTATE,L_XEFSTATE	;*DIAG*save incoming last CEF state
+;
+; Rundown each underlying process activities
+;
+matchx	=	<GM_ACQFINISH!GM_DMSFINISH>
+eventx	=	<MATCHX!GM_TIMEOUT>
+;
+	movl	#EVENTX,R2		; load termination wait event mask
+	$gettim_s -			; get current system time
+		timadr=GQ_STOPTIME(R11)	; >stop time buffer address
+HOLD:	$clref_s -			; reset subprocess trigger
+		efn=#GV_TRIGGER		; >event flag identifier
+DROP:	bicl2	#<M_GO!M_STANDBY>, -	; reset all main activity flags
+		GL_CSR(R11)		;  to notify subprocesses to halt
+HALT1:	$readef_s -			; if listener in-gate
+		efn=  #GV_ACQREADY,-	; >event flag position
+		state=L_EFSTATE		; >complete interprocess sync flags
+	cmpl	#SS$_WASSET,R0		; then
+	bneq	HALT2			; 
+	$forcex_s -			;  inherent sync... force exit
+		pidadr=GL_ACQPID(R11)	;  >target ACQ PID
+	blbs	R0,HALT2		;  if result non-conclusive
+	cmpl	#SS$_NONEXPR,R0		;  then if process was non existent
+	bneq	HALT2			;   then (result already achieved)
+	bicl2	#GM_ACQFINISH,R2	;    remove listener from event mask
+HALT2:	tstl	GL_DMSPID(R11)		; if data manager process was created
+	beql	NULDMS			; then
+	bbc	#<GV_DMSREADY-GK_BASE>,-;  if data manager in-gate
+		L_EFSTATE,TICK		;  then
+	$forcex_s -			;   inherent sync... force exit
+		pidadr=GL_DMSPID(R11)	;   >target DMS PID
+	blbs	R0,TICK			;   if result non-conclusive
+	cmpl	#SS$_NONEXPR,R0		;   then if process was non existent
+	bneq	TICK			;    then (result already achieved)
+NULDMS:	bicl2	#GM_DMSFINISH,R2	;     remove manager from event mask
+TICK:	$setimr_s -			; set slave resync timeout
+		daytim=Q_BASETIME,-	; >maximum slave grace period
+		reqidt=#2,-		; >specific identification
+		efn=   #GV_TIMEOUT	; >expiry event flag
+TESTX:	bitl	#MATCHX,R2		; check for remaining events in mask
+	bneq	LOOPX			; if all subprocesses are finished
+	$cantim_s -			; then cancel timeout
+		reqidt=#2,-		;  >timer identifier
+		acmode=#PSL$C_USER	;  >normal user mode
+	brw	STEP4			; else
+LOOPX:	$wflor_s -			;  wait for either
+		efn= #GK_BASE,-		;   the timer expiry flag
+		mask=R2			;   or the slave "thumbs down" flags
+WAKEX:	$readef_s -			;  check event flag state
+		efn=  #GV_TIMEOUT,-	;  >timeout flag
+		state=L_EFSTATE		;  >complete EF cluster state
+	cmpl	#SS$_WASSET,R0		;  if event was not timeout
+	beql	KILL1			;  then
+	bbc	#<GV_ACQFINISH-GK_BASE>,-;  if listener finished
+		L_EFSTATE,SKPXA		;   then
+	bicl2	#GM_ACQFINISH,R2	;    remove corresponding wait bit
+SKPXA:	bbc	#<GV_DMSFINISH-GK_BASE>,-;  if data manager finished
+		L_EFSTATE,SKPXB		;   then
+	bicl2	#GM_DMSFINISH,R2	;    remove corresponding wait bit
+SKPXB:	brb	TESTX			; repeat until both subprocess terminate
+KILL1:	bitl	#GM_DMSFINISH,R2	; if data manager event still pending
+	beql	KILL2			; then
+	$setpri_s -			;  drop subprocess out of real-time
+		pidadr=GL_DMSPID(R11),-	;  >listener PID
+		pri=   #GK_SUBBASEP	;  >safe low priority
+	$delprc_s -			;  destroy hung or slow subprocess
+		pidadr=GL_DMSPID(R11)	;  >manager PID
+	signal	message=#PRB_KILLDMS	;  notify user of interruption
+KILL2:	bitl	#GM_ACQFINISH,R2	; if listener event still pending
+	beql	STEP4			; then
+	$setpri_s -			;  drop subprocess out of real-time
+		pidadr=GL_ACQPID(R11),-	;  >listener PID
+		pri=   #GK_SUBBASEP	;  >safe low priority
+	$delprc_s -			;  destroy hung subprocess
+		pidadr=GL_ACQPID(R11)	;  >listener PID
+	signal	message=#PRB_KILLACQ	;  notify user of interruption
+STEP4:
+;
+; Return this process priority to normal (previous)
+;
+	cmpl	#-1,L_IPRIO		; check that process was boosted
+	beql	STEP5			; if so then
+	$setpri_s -			;  drop out of real-time
+		pri=L_IPRIO		;  >original base priority
+	blbs	R0,STEP5		;  validate success
+	signal	message=R0		;   else inform user
+STEP5:					; endif
+;
+; Dump internal structure for analysis
+;
+	bitl	#M_DIAGNOSTIC,-		; check for diagnostic request
+		GL_CSR(R11)		; if present
+	beql	STEP6			; then
+;
+	jsb	DIAGNOSE		;  format global section data
+STEP6:
+;
+; Display accumulated status messages starting with subprocesses
+;
+	movq	GL_DMSSTATUS(R11),R3	; load and check DMS messages
+	beql	STEP6B			; if not null then
+	movl	#^X000F0002,(R9)	;  >minimum vector size & active fields
+	movl	R3,4(R9)		;  >status message (DMS)
+	movl	#^X000F0000,8(R9)	;  >no FAO argument, default fields
+	movl	R4,12(R9)		;  preload possible VMS status
+	beql	MSGDMS			;  if not null then
+	incw	(R9)			;   adjust vector size as for system msg
+	movl	GL_DMS_EXT(R11),16(R9)	;   preload possible extension status
+	beql	MSGDMS			;   if not null then
+	clrl	20(R9)			;    follow-on safety
+	addw2	#2,(R9)			;    adjust vector size as for user msg
+MSGDMS:	$putmsg_s -			;  display termination status
+		msgvec=(R9)		;  >message vector
+;
+STEP6B:	movq	GL_ACQSTATUS(R11),R3	; load and check ACQ messages
+	beql	STEP6C			; 
+	movl	#^X000F0002,(R9)	;  >minimum vector size & active fields
+	movl	R3,4(R9)		;  >status message (ACQ)
+	movl	#^X000F0000,8(R9)	;  >no FAO argument, default fields
+	movl	R4,12(R9)		;  preload possible VMS status
+	beql	MSGACQ			;  if not null then
+	incw	(R9)			;   adjust vector size as for system msg
+	movl	GL_ACQ_EXT(R11),16(R9)	;   preload possible extension status
+	beql	MSGACQ			;   if not null then
+	clrl	20(R9)			;    follow-on safety
+	addw2	#2,(R9)			;    adjust vector size as for user msg
+MSGACQ:	$putmsg_s -			;  display termination status
+		msgvec=(R9)		;  >message vector
+;
+STEP6C:	tstl	GL_STATUS(R11)		; check for a process termination code
+	beql	QUIT			; if so then
+	movl	#^X000F0002,(R9)	; >message vector size and active fields
+	movl	GL_STATUS(R11),4(R9)	; >status message
+	movl	#^X000F0000,8(R9)	; >no FAO argument, default fields
+	$putmsg_s -			; display termination status
+		msgvec=(R9)		; >message vector
+	movl	FP,SP			; recover stack, discard heap
+QUIT:	movl	#SS$_NORMAL,R0		; good run, thank the system!
+	ret				; leave PROBE...
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.ENTRY	RESET,^M<>
+;
+; This module is called automatically by VMS upon image rundown after being
+; declared as an exit handler by SET_CONTROL when controlled interrupts have
+; been modified for the CLI. In that case and when image rundown has been
+; initiated externally, a keyboard IO is likely still pending. To be safe,
+; the keyboard channel is flushed so that control can be returned directly
+; to the user. This is the last module executed within the scope of PROBE.
+;
+; Called from: VMS after SHUTDOWN has terminated
+; Subroutines: SYS$CANCEL , LIB$ENABLE_CTRL
+; Register allocation: unpredictable upon entry, no further impact upon exit
+;
+	clrl	-(SP)			; >actual mask (known hence don't care)
+	pushal	L_ICTRL			; >previous control mask
+	calls	#2,G^LIB$ENABLE_CTRL	; reset CLI to previous state
+	$cancel_s -			; terminate any pending keyboard IO
+		chan=AL_KEY+QIO$_CHAN	; >channel number
+	ret				; leave PROBE...
+;
+	.END	PROBE

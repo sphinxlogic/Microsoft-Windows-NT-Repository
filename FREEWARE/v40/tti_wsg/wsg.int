@@ -1,0 +1,1345 @@
+1     ! Copyright (c), 1993   Touch Technologies, Inc.
+      ! 03-Jul-1993
+      ! Daniel Esbensen
+
+100   option arithmetic integer
+
+900   dim board$(0 to 6, 0 to 6)
+      dim bsel (0 to 6, 0 to 6)
+      dim zstart (0 to 6, 0 to 6)
+      dim st_sel(25, -1 to 1, -1 to 1)
+      dim points(2)
+      dim moves(0 to 25,2)
+      dim last_moves(0 to 25,2)
+      dim word$(25)
+      dim zmoves$(200)
+      dim words$(200)
+      dim goods$(8)
+      goods$(5) = "   -- Good word --"
+      goods$(6) = "   -- Great play --"
+      goods$(7) = "   -- Excellent play --"
+      goods$(8) = "   -- Fantastic word --"
+      dim cubes$(25)
+      cubes$(1)  = 'N,O,W,O,T,U'
+      cubes$(2)  = 'D,R,O,H,L,N'
+      cubes$(3)  = 'M,E,A,E,E,E'
+      cubes$(4)  = 'S,I,R,P,F,Y'
+      cubes$(5)  = 'A,F,A,A,S,R'
+      cubes$(6)  = 'N,R,L,H,D,O'
+      cubes$(7)  = 'E,G,N,A,M,N'
+      cubes$(8)  = 'O,D,D,N,T,H'
+      cubes$(9)  = 'T,I,T,E,I,I'
+      cubes$(10) = 'S,N,S,S,E,U'
+      cubes$(11) = 'E,T,M,T,O,T'
+      cubes$(12) = 'B,X,J,K,Z,QU'
+      cubes$(13) = 'T,T,U,O,O,O'
+      cubes$(14) = 'D,R,O,H,H,L'
+      cubes$(15) = 'E,A,E,A,E,E'
+      cubes$(16) = 'D,E,A,N,N,N'
+      cubes$(17) = 'A,U,M,E,E,G'
+      cubes$(18) = 'T,E,L,P,I,C'
+      cubes$(19) = 'R,W,G,O,V,R'
+      cubes$(20) = 'E,T,P,S,I,C'
+      cubes$(21) = 'A,F,A,I,S,R'
+      cubes$(22) = 'E,C,I,I,T,L'
+      cubes$(23) = 'P,R,I,Y,R,R'
+      cubes$(24) = 'Y,I,F,A,S,R'
+      cubes$(25) = 'S,N,T,C,C,E'
+      dim lpoints(0 to 8)
+      lpoints(4) = 1
+      lpoints(5) = 2
+      lpoints(6) = 3
+      lpoints(7) = 5
+      lpoints(8) = 11
+      pmnu$ = '%at 7,35,%columns 3,%size 12,%title "Your words",'
+      zmnu$ = '%at 7,35,%columns 3,%size 12,%title"Zelda''s words",'
+
+      private_file$ = 'sys$login:game_words.dat'
+
+1000  ! S e t   u p   c o n s t a n t s
+
+1015  x_offset = 1
+      y_offset = 4
+      word_loc = 22
+
+1050  new_skill$ = '10'
+      ask system, logical 'tti_game_loc': value z0$
+      if z0$ = '' then set system, logical 'tti_game_loc': value 'devdisk:[games]'
+      open structure wlist : name 'tti_game_loc:tti_game_words.str'
+
+1090  randomize
+      set messageline 24
+
+1095  frame off
+
+
+1100  ! S t a r t   o f   g a m e
+      !
+     start_game:
+
+1150  clear
+      print at 1,1,bold,reverse: &
+        cpad$('A Word Search Game -- written in INTOUCH 4GL', 80)
+      message delay: 'Copyright 1994, Touch Technologies, Inc.'
+      message ''
+      do_help
+      if _exit then
+        clear
+        stop
+      end if
+      message 'Skill of 100 is a top rated Player.'
+
+
+
+1200  ! Get skill level
+      !
+     get_skill:
+
+1205  clear area 3,1, 23, 80
+
+1210  do
+        input screen '<at 4,1, digits:Skill level (10-100)? ###>' &
+              , default  new_skill$: skill
+        if _exit or _back then 
+          clear
+          stop
+        end if
+        if _help then
+          do_help
+          repeat do
+        end if
+        if  skill < 10  or  skill > 100  then
+          message error: 'Illegal skill level: '; _reply
+          repeat do
+        end if
+      end do
+
+1220  do
+        randomize
+        line input 'Game series', at 5,1, erase, default 'random', &
+           length 7: gs$
+        if lcase$(gs$) = 'random' then
+          randomize
+          set seed rnd(9999000)
+          exit do
+        end if
+        if _exit then 
+          clear
+          stop
+        end if
+        if _back then goto get_skill  ! tacky as this is...fix this later on
+        if _help then
+          do_help
+          repeat do
+        end if
+        if not valid(gs$, 'integer; allow 1 to 9999000')  then
+          message error: 'Illegal game series: '; _reply
+          repeat do
+        end if
+        set seed val(gs$)
+      end do
+      ask seed game_series
+      clear area 3,1, 5,80
+
+
+2000  ! M A I N   L O G I C   A R E A
+
+      points(1) = 0
+      points(2) = 0
+      done? = false
+      load_private_words
+      message 'Press HELP or ? for assistance'
+      do
+        setup_game
+        setup_screen
+        show_board
+        game_series = game_series + 1
+        print at y_offset, x_offset+11, reverse, bold: 'Your turn'
+        ttime = 180
+        gosub get_move
+        unshow_moves
+        clear_time
+        if done? then exit do
+        message error: 'Your time is up!  Now it''s Zelda''s turn.'
+        message ''
+        print at y_offset, x_offset+9, reverse, bold: "Zelda's turn"
+        ttime = 60
+        find_words
+        print at word_loc,1, erase:;
+        clear_time
+        message error: ''   ! alert that Zelda is done now too
+        if done? then exit do
+        calc_scores
+        update_score
+        show_results
+        if points(1) >= 100 or points(2) >= 100 then exit do
+      loop
+      store_private_words
+
+3100  if  points(1) > points(2) then
+        print at 23,6,erase, bold, reverse: 'You win!'
+      elseif points(2) > points(1) then
+        print at 23,6,erase, bold, reverse: 'Zelda wins'
+      else
+        print at 23,6,erase, bold, reverse: 'Tie game'
+      end if
+
+3200   ! G e t   n e w   s k i l l   l e v e l
+
+3220   if points(1) > points(2) then
+         new_skill = skill + (points(1)-points(2))/6
+       else
+         new_skill = skill - (points(2)-points(1))/2
+       end if
+       new_skill = max(10, min(100, new_skill))
+       new_skill$ = str$(new_skill)
+       delay
+       message delay: 'Your new skill level should be '; new_skill
+
+3990   goto get_skill
+
+
+
+10000  ! S e t   u p   t h e   s c r e e n
+       !
+      routine setup_screen
+        clear area 3,35, 23, 80
+        clear area box, reverse: y_offset, x_offset+1, &
+                                y_offset+12, x_offset+28
+        show_score
+        print at 19,2, using "Skill level   : ###": skill
+        print at 20,2: 'Time left     :';
+      end routine
+
+
+11000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   R E S U L T S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Show the results of the game so far.
+        ! 
+        ! Expected:
+        !   play_words$  = player's words
+        !   comp_words$  = computer's words
+        !
+        ! Results:
+        !  The user can examine their words and the computer's words
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_results
+          if len(play_words$) = 0 then play_words$ = '"-none-"'
+          if len(comp_words$) = 0 then comp_words$ = '"-none-"'
+          menu$ = '%at 4,35,%menubar,%maxwidth 42,%title "Words and Points",' &
+                + '"Go"=EXIT,' &
+                + '"Your''s  '+str$(play_pts)+'"={' + pmnu$ + play_words$ + '},' &
+                + '"Zelda''s '+str$(comp_pts)+'"={' + zmnu$ + comp_words$ +'}'
+          menu_default$ = ''
+          do
+            input menu menu$, default menu_default$: ans$
+            menu_default$ = _string
+            if _help then
+              do_help
+              repeat do
+            end if
+            if _exit or _back then exit do
+            if ans$ = '-none-' then 
+              menu_default$ = ''  ! main menu again
+              repeat do
+            end if
+            ans$ = change$(ans$, '- 0123456789', '')
+            idx = match(zwords$, ans$)
+            if idx = 0 then
+              message error: 'You can only show Zelda''s words'
+              repeat do
+            end if
+            show_word_moves
+          loop
+          unshow_moves
+        end routine
+
+
+
+12000  ! G e t   a   m o v e
+       !
+       !
+       routine get_move
+         stime = time(5)
+         down   = rnd(5)
+         across = rnd(5)
+         mcount = 0
+         wcount = 0
+         cword$ = ''
+         word_count = wcount
+         print at y_offset, 34, reverse: ' Words found by you  : '; tab(78);
+         show_last_word
+         last_mcount = 0
+         moves(mcount,1) = down
+         moves(mcount,2) = across
+         move_cursor
+         do
+           show_time
+           if tleft = 0 then exit routine
+           org_down   = down
+           org_across = across
+           when exception in
+             key input prompt '', timeout 2: ans$
+           use
+           end when
+           if _error then repeat do
+           select case _terminator
+           case 'UP'    : down   = max(1, down-1)
+           case 'DOWN'  : down   = min(5, down+1)
+           case 'LEFT'  : across = max(1, across-1)
+           case 'RIGHT' : across = min(5, across+1)
+           case 'DELETE','REM': delete_move
+           case 'RETURN','NEXT': finish_word
+           case 'CTRL/Z': 
+             done? = true
+             exit do
+           case 'CTRL/F': exit do
+           case 'TAB','PREV': recall_last_moves
+           case 'HELP','?','/','h','H': do_help
+           case 'CTRL/C': clear\stop
+           case ' ','SEL'
+             if bsel(down,across) then repeat do
+             bsel(down,across) = true
+             mcount = mcount + 1
+             moves(mcount,1) = down
+             moves(mcount,2) = across
+             word$(mcount) = board$(down,across)
+             show_word
+           case else
+             message error: 'Invalid choice'
+             repeat do
+           end select
+           check_distance
+           if _error then
+             down   = org_down
+             across = org_across
+             repeat do
+           end if
+           move_cursor
+         loop
+       end routine
+
+
+
+12050   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   D I S T A N C E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Check the distance from the cursor to the last selected
+        !  item.  We can only be one square away in each direction.
+        ! 
+        ! Expected:
+        !  mcount = number of selected moves
+        !  moves() = the down,across of each move
+        !  down, across = current cursor location we are checking
+        ! 
+        ! Results:
+        !  _error = true if too far away
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_distance
+          if mcount = 0 then exit routine
+          if abs(moves(mcount,1)-down) > 1 or &
+            abs(moves(mcount,2)-across) > 1 then
+            set error on
+          end if
+        end routine
+
+
+
+
+
+12100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D E L E T E   M O V E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Delete a move
+        ! 
+        ! Expected:
+        !  mcount = number of moves so far
+        !  moves() = down,across of each move
+        ! 
+        ! Results:
+        !  The move is deleted.  mcount is adjusted
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine delete_move
+          if mcount = 0 then exit routine
+          down  = moves(mcount,1)
+          across= moves(mcount,2)
+          bsel(down,across) = false
+          move_cursor
+          mcount = mcount - 1
+          down  = moves(mcount,1)
+          across= moves(mcount,2)
+          if mcount = 0 then
+            down  = moves(1,1)
+            across= moves(1,2)
+          end if
+          move_cursor
+          erase? = true
+          show_word
+        end routine
+
+
+
+13050   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N I S H   W O R D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  They have finished with a word
+        ! 
+        ! Expected:
+        !  mcount = number of selected letters
+        !  word$() = the collection of letters
+        ! 
+        ! Results:
+        !  The word is stored and scored.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine finish_word
+          build_word
+          if cword$ = '' then exit routine
+          do
+            if len(cword$) < 4 then
+              message error: 'Words must be at least 4 letters long'
+              exit do
+            end if
+            for z0 = 1 to wcount
+              if words$(z0) = cword$ then
+                message error: 'Duplicate word: '; cword$
+                exit do
+              end if
+            next z0
+            wcount = wcount + 1
+            words$(wcount) = cword$
+            plevel = min(8, len(cword$))
+            pts = lpoints(plevel)
+            message cword$;', points '; pts; goods$(plevel)
+            word_count = wcount
+            show_last_word
+          end do
+          down   = moves(1,1)
+          across = moves(1,2)      
+          last_mcount = mcount
+          for midx = 1 to last_mcount
+            last_moves(midx,1) = moves(midx,1)
+            last_moves(midx,2) = moves(midx,2)
+          next midx
+          mcount = 0
+          erase? = true
+          show_word
+        end routine
+
+
+
+
+
+13062   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E C A L L   L A S T   M O V E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Recall the last moves that the user made.
+        ! 
+        ! Expected:
+        !  last_moves() = last moves made
+        !  last_mcount  = # of last moves
+        !  moves()      = current move array
+        ! 
+        ! Results:
+        !  moves() = new moves
+        !  mcount  = # of moves
+        !  the moves are shown on the screen
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine recall_last_moves
+          build_word  !?? clear out last word??
+          for midx = 1 to last_mcount
+            down   = last_moves(midx,1)
+            across = last_moves(midx,2)
+            moves(midx,1) = down
+            moves(midx,2) = across
+            bsel(down,across) = true
+            move_cursor
+          next midx
+          mcount = last_mcount
+          erase? = true
+          show_word
+        end routine
+
+
+
+13075   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B U I L D   W O R D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Build a selected word
+        ! 
+        ! Expected:
+        !  mcount = number of selected moves
+        !  moves() = down,across for each selected move
+        !  bsel()  = selection flag
+        ! 
+        ! Results:
+        !  bsel() cleared for each selected move
+        !  cword$ = current word that was built
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine build_word
+          cword$ = ''
+          if mcount = 0 then exit routine
+          for midx  = 1 to mcount
+            down  = moves(midx,1)
+            across= moves(midx,2)
+            bsel(down,across) = false
+            item$ = board$(down,across)
+            cword$ = cword$ + item$
+            move_cursor
+          next midx
+        end routine
+
+
+
+
+13800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! U P D A T E   S C O R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine update_score
+          points(1) = points(1) + play_pts
+          points(2) = points(2) + comp_pts
+          show_score
+        end routine
+
+
+
+14000  ! S h o w   s c o r e
+       !
+       ! points(1)  = user's points
+       ! points(2)  = Zelda's points
+       !
+      routine show_score
+
+14020  print at 17,2, using "Your score    : ###": points(1)
+       print at 18,2, using "Zelda's score : ###": points(2)
+
+14090  end routine
+
+
+14100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   T I M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Show remaining time
+        ! 
+        ! Expected:
+        !  stime = starting time
+        !  ttime = total time allowed in seconds
+        ! 
+        ! Results:
+        !  The elapsed time left is displayed
+        !  tleft = time left on the clock
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_time
+          ask window: row r, column c
+          el = time(5) - stime
+          tleft = max(0, ttime - el)
+          if last_time = tleft then return
+          last_time = tleft
+          print using '###', at 20,18, blink: tleft;
+          if last_date$ <> date$ then
+            last_date$ = date$
+            print at 1,1 : date$(days(date$),3);
+          end if
+          z0$ = time$[1:5]
+          if last_time$ <> z0$ then
+            last_time$ = z0$
+            print at 1,74: z0$;
+          end if
+          set window: row r, column c
+        end routine
+
+
+
+15000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N D   W O R D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Find words on the board.  We scan from a random starting point
+        !  for words.
+        !
+        ! Expected:
+        !  board$() = the board filled with letters.
+        !  zstart() = list of compute rstarting points
+        !  skill    = player's skill level
+        ! 
+        ! Results:
+        !  zwords$ = the computer's words
+        !  zwcount   = total words found by the computer
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine find_words
+          done? = false
+          stime = time(5)
+          zwcount = 0
+          for z1 = 0 to 6
+            for z2 = 0 to 6
+              zstart(z1,z2) = false
+            next z2
+          next z1
+          zwords$ = ''
+          cword$ = ''
+          word_count = zwcount
+          print at y_offset, 34, reverse: ' Words found by Zelda: '; tab(78);
+          clear area y_offset+1, 34, 23, 80
+          for tries = 1 to 25
+            do
+              down   = rnd(5)
+              across = rnd(5)
+            loop while zstart(down,across)
+            zstart(down,across) = true
+            search_thread            
+            show_time
+            if tleft = 0 then exit for
+            ask window: typeahead z0$
+            if pos(z0$, chr$(26)) > 0 then
+              set window: typeahead ''
+              message error: 'Zelda''s turn aborted by user'
+              done? = true
+              exit for
+            end if
+          next tries
+          zwords$[1:1] = ''
+        end routine
+
+
+
+15100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   W O R D   M O V E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Show the moves for a given word.
+        ! 
+        ! Expected:
+        !  idx = word index#
+        !  zmoves$(idx) = move pattern (MMNNOOPP...)
+        ! 
+        ! Results:
+        !   The moves are displayed for this word
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_word_moves
+          word_moves$ = zmoves$(idx)
+          clear_board_sel
+          unshow_moves
+          mcount = len(word_moves$)/2
+          idx = 0
+          for z5 = 1 to mcount*2 step 2
+            down   = ascii(mid(word_moves$,z5,1))  -ascii('0')
+            across = ascii(mid(word_moves$,z5+1,1))-ascii('0')
+            idx = idx + 1
+            moves(idx,1) = down
+            moves(idx,2) = across
+            bsel(down,across) = true
+          next z5
+          erase? = true          
+          show_word
+          show_moves
+          print at 24,1:;  ! so we can read the stuff
+        end routine
+
+
+
+
+
+
+16000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E A R C H   T H R E A D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Search for words from a given starting point.  WE *thread*
+        !  our way through the board...looking for words.
+        ! 
+        ! Expected:
+        !  down  = starting DOWN   location
+        !  across= starting ACROSS location
+        !  zwcount   = new words count
+        !  zwords$   = computer-found words
+        ! 
+        ! Results:
+        !  zwcount   = new words count
+        !  zwords$   = computer-found words
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine search_thread
+          clear_board_sel
+          mcount = 1
+          moves(1,1) = down
+          moves(1,2) = across
+          clear_flags
+          cword$ = board$(down,across)
+          do
+            sel_letter
+            if _error then
+              move_back_level
+              if mcount = 0 then exit routine
+              repeat do
+            end if
+            mcount = mcount + 1
+            moves(mcount,1) = down
+            moves(mcount,2) = across
+            clear_flags
+            cword$ = cword$ + board$(down,across)
+            ask structure wlist: current z0$
+            if match(new_words$, cword$) > 0 then
+              store_zword
+            elseif z0$ <> '' then !?? how does this happen (no current record)
+              if cword$ = wlist(word) then store_zword
+            end if
+            show_time
+            if tleft = 0 then exit do
+          loop
+        end routine
+
+
+
+16025   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M O V E   B A C K   L E V E L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Move back one level for Zelda
+        ! 
+        ! Expected:
+        !  mcount = current level
+        !  bsel() = board selected squares so far
+        ! 
+        ! Results:
+        !  mcount = new level
+        !  cword$ = what the partial word looks like now
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine move_back_level
+          down   = moves(mcount,1)
+          across = moves(mcount,2)
+          bsel(down,across) = false
+          mcount = mcount - 1
+          cword$ = ''
+          for z = 1 to mcount
+            cword$ = cword$ + board$(moves(z,1),moves(z,2))
+          next z
+        end routine
+
+
+
+16050   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C L E A R   F L A G S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Cleat flags for this move level
+        ! 
+        ! Expected:
+        !  mcount = move level counter
+        !  down,across = current location
+        ! 
+        ! Results:
+        !  st_sel() is cleared
+        !  bsel(down,across) is flagged
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine clear_flags
+          for z1 = -1 to 1
+            for z2 = -1 to 1
+              st_sel(mcount,z1,z2) = false
+            next z2
+          next z1
+          bsel(down,across) = true
+        end routine
+
+
+
+16100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S T O R E   Z W O R D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Store a word for the computer.
+        !  
+        ! Expected:
+        !  cword$    = word to be stored
+        !  zwords$   = stored words so far
+        !  skill     = player's skill level
+        !  moves()   = moves made to make this word
+        !  zmoves$() = moves made for all words
+        ! 
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine store_zword
+          if len(cword$) < 4 then exit routine
+          if match(zwords$, cword$) > 0 then exit routine  ! no dups
+          zwcount = zwcount + 1
+          zwords$ = zwords$ + ',' + cword$
+
+          z0$ = ''
+          for z0 = 1 to mcount
+            z0$ = z0$ + chr$(ascii('0') + moves(z0,1)) &
+                      + chr$(ascii('0') + moves(z0,2))
+          next z0
+          zmoves$(zwcount) = z0$
+
+          erase? = true          
+          show_word
+          word_count = zwcount
+          for z0 = 1 to wcount
+            if cword$ = words$(z0) then exit for
+          next z0
+          dup? = (z0 <= wcount)  ! true if a dup word
+          show_last_word
+          show_moves
+          print at 24,1:;  ! so we can read the stuff
+          for idx = 1 to (100-skill)/5 + rnd((100-skill)/7)
+            show_time
+            delay .25
+          next idx
+          unshow_moves
+        end routine
+
+
+
+16150   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   L A S T   W O R D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Show the last word that you chose.
+        ! 
+        ! Expected:
+        !  cword$ = the chosen word
+        !  word_count = number of words
+        !  y_offset = starting location for the board
+        !  dup? = true  if a duplicate word (flag cleared on exit)
+        ! 
+        ! Results:
+        !  The last word is displayed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_last_word
+          d? = dup?
+          dup? = false
+          max_col_len = 12
+          print at y_offset,57, reverse: word_count;
+          if word_count = 0 then exit routine
+          z0  = min (4 * max_col_len, word_count)
+          col = (z0-1)/max_col_len
+          z5  = mod(z0,max_col_len)
+          if z5 = 0 then z5 = max_col_len
+          if d? then
+            print at z5+y_offset, col*11+35, &
+                  erase, underline: left(cword$,11-1);
+          else
+            print at z5+y_offset, col*11+35, &
+                  erase, bold: left(cword$,11-1);
+          end if
+        end routine
+
+
+
+
+
+
+16200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   M O V E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Show the moves that someone made
+        ! 
+        ! Expected:
+        !  mcount = moves made
+        !  moves() = down,across of each move
+        ! 
+        ! Results:
+        !  The moves are shown
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_moves
+          for idx = 1 to mcount
+            down  = moves(idx,1)
+            across= moves(idx,2)
+            move_cursor
+            delay .10
+          next idx
+        end routine
+
+
+
+16250   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! U N S H O W   M O V E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Unshow (remove) shown moves
+        ! 
+        ! Expected:
+        !  mcount = moves to UNSHOW
+        !  moves() = down,across of each move
+        ! 
+        ! Results:
+        !  The moves are UNSHOWN
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine unshow_moves
+          clear_it? = true
+          for idx = mcount to 1 step -1
+            down  = moves(idx,1)
+            across= moves(idx,2)
+            move_cursor
+          next idx
+          clear_it? = false
+          print at word_loc,1, erase:;
+        end routine
+
+
+
+
+16950   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C L E A R   T I M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Cleat out any time remaining.
+        ! 
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine clear_time
+          ask window: row r, column c
+          print using '###', at 20,18: 0;
+          set window: row r, column c
+        end routine
+
+
+
+
+
+17000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E L   L E T T E R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Select a letter on the board.
+        ! 
+        ! Expected:
+        !  moves(mcount,1), moves(mcount,2) = where we are now
+        !  st_sel() = search thread selected items so far
+        ! 
+        ! Results:
+        !   down,across = possible move to try
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine sel_letter
+          if zwcount > skill/3 + rnd(skill/2) then
+            set error on
+            exit routine
+          end if
+          if (rnd(75) > skill) and (mcount > 2+(skill/15)) then
+            set error on
+            exit routine
+          end if
+          for dwn = -1 to 1
+            for acr = -1 to 1
+              if st_sel(mcount,dwn,acr) then iterate for
+              st_sel(mcount,dwn,acr) = true
+              down   = moves(mcount,1) + dwn
+              across = moves(mcount,2) + acr
+              if board$(down,across) = '' then iterate for
+              if bsel(down,across) then iterate for
+              try_word$ = cword$ + board$(down,across)
+              set structure wlist, field word: partial key try_word$
+              if _extracted = 0 then 
+                if item(new_words$, try_word$) = 0 then iterate for
+              end if
+              exit routine
+            next acr
+          next dwn
+          set error on
+        end routine
+
+
+
+18000  ! S e t   u p   a   n e w   g a m e
+       !
+       routine setup_game
+         set seed game_series
+         cube = 0
+         for i = 1 to 5
+           for j = 1 to 5
+             bsel(i,j) = false
+             board$(i,j) = ''
+           next j
+         next i
+         for i = 1 to 25
+           do
+             z0 = rnd(5)
+             z1 = rnd(5)
+           loop until board$(z0,z1) = ''
+           cube = cube + 1
+           board$(z0,z1) = element$(cubes$(cube), rnd(6))
+         next i
+         randomize
+       end routine
+
+
+
+19000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   B O A R D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Show the entire board
+        ! 
+        ! Expected:
+        !  ??
+        ! 
+        ! Results:
+        !  The board is displayed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_board
+          for down = 1 to 5
+            for across = 1 to 5
+              move_cursor
+            next across
+          next down
+          print at 2,1, erase: 'Game series:'; game_series
+        end routine
+
+
+19050   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   C L E A R   B O A R D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Show a clear board (no highlighted parts)
+        ! 
+        ! Expected:
+        !  ??
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_clear_board
+          clear_it? = true
+          for down = 1 to 5
+            for across = 1 to 5
+              move_cursor
+            next across
+          next down
+          clear_it? = false
+        end routine
+
+
+
+19200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   W O R D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Show what they have done so far with this word.
+        ! 
+        ! Expected:
+        !  mcount = number of selected letters and moves
+        !  word$() = letters in the word so far
+        !  erase? = true  if we should erase the line before displaying it
+        ! 
+        ! Results:
+        !  The word so far is displayed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_word
+          if erase? then
+            print at word_loc,x_offset/2+2, wide, erase:;
+            erase? = false
+          end if
+          print at word_loc,x_offset/2+2, wide:;
+          for z = 1 to mcount
+            item$ = board$(moves(z,1), moves(z,2))
+            print reverse, bold, wide: item$;
+          next z
+        end routine
+
+
+
+19300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C L E A R   B O A R D   S E L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Clear board selection information
+        ! 
+        ! Expected:
+        !  bsel() = board selection flagsd
+        ! 
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine clear_board_sel
+          for z1 = 1 to 5
+            for z2 = 1 to 5
+              bsel(z1,z2) = false
+            next z2
+          next z1
+        end routine
+
+
+
+
+
+19800   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M O V E   C U R S O R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Move the cursor from one word to the next
+        ! 
+        ! Expected:
+        !   x_offset, y_offset = board offsets
+        !   down,across = where to move to
+        !   bsel() = board flags
+        !   clear_it? = true  if we want a clear board (not highlighted)
+        ! Results:
+        !  The cursor location is updated
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine move_cursor
+          item$ = board$(down,across)
+          sel? = bsel(down,across)
+          if sel? and not clear_it? then
+            print at y_offset+down*2, x_offset+across*5, &
+                reverse, bold : item$;
+          else
+            print at y_offset+down*2, x_offset+across*5, reverse: item$;
+          end if
+          print at y_offset+down*2, x_offset+across*5:;
+        end routine
+
+
+
+20000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C A L C   S C O R E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Calculate score for each player.
+        ! 
+        ! Expected:
+        !  words$() = each word for the person
+        !  wused()  = word used flags
+        !  zwords$  = word list of the computer
+        !  points() = total game points for each player
+        !  wcount   = total words for the player
+        !  zwcount  = total words for the computer
+        ! 
+        ! Results:
+        !  play_pts = player's earned points
+        !  comp_pts = computer's earned points
+        !  play_words$ = player's words (dups highlighted)
+        !  comp_words$ = computer's words (dups highlighted)
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine calc_scores
+          play_pts = 0
+          comp_pts = 0
+          play_words$ = ''  
+          comp_words$   = ''
+          pwords$ = ''
+          for idx = 1 to wcount
+            wrd$ = words$(idx)
+            check_word
+            if not okay? then iterate for
+            pwords$ = pwords$ + ',' + wrd$
+            z0 = match(zwords$, wrd$)
+            if z0 = 0 then 
+              play_words$ = play_words$ + ',' &
+                  + quote$(wrd$+' '+str$(lpoints(min(8,len(wrd$)))))
+              play_pts = play_pts + lpoints(min(8,len(wrd$)))
+              iterate for
+            end if
+            play_words$ = play_words$ + "," + quote$(wrd$+"--")
+            comp_words$ = comp_words$ + "," + quote$(wrd$+"--")
+          next idx
+          play_words$[1:1] = ''
+          pwords$[1:1] = ''
+          for idx = 1 to zwcount
+            wrd$ = element$(zwords$, idx)
+            z0 = match(pwords$, wrd$)
+            if z0 > 0 then iterate for
+            comp_pts = comp_pts + lpoints(min(8,len(wrd$)))
+            comp_words$ = comp_words$ + "," &
+                + quote$(wrd$+' '+str$(lpoints(min(8,len(wrd$)))))
+          next idx
+          comp_words$[1:1] = ''
+          play_words$ = sort$(play_words$)
+          comp_words$ = sort$(comp_words$)
+        end routine
+
+
+
+21000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   W O R D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Check to see if this is a known word.
+        !  If not, ask if this is a new one.  If so, store it for later.
+        ! 
+        ! Expected:
+        !  wrd$  = word to be checked
+        ! 
+        ! Results:
+        !  okay? = true  if this word is okay
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine check_word
+          okay? = true
+          if match(new_words$, wrd$) > 0 then exit routine
+          set structure wlist, field word: key wrd$
+          if _extracted = 0 then
+            okay? = false
+            message error: 'Your word is unknown to Zelda: '; wrd$
+            line input prompt 'Is '+wrd$+' really a word? ', &
+                at 23,1, erase, valid 'yes/no', default 'no': ans$
+            if not _integer then exit routine
+            okay? = true
+            new_words$ = new_words$ + ',' + wrd$
+            message wrd$, 'added to Zelda''s dictionary'
+          end if
+        end routine
+
+
+
+
+
+29000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   H E L P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Show any help for the game.
+        ! 
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !  Help is displayed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_help
+          ask window: current help_save$
+          clear area box: 7,20, 21, 63
+          print at 8,22: '   First to score 100 points wins!!'
+          print
+          print at 10,22: 'Use the arrow keys to move the cursor.'
+          print at 11,22: 'Use the SPACE BAR to SELECT a letter.'
+          print at 12,22: 'Use the DELETE key to UNSELECT a letter.'
+          print at 13,22: 'Press RETURN to complete your word.'
+          print
+          print at 15,22: 'Remember, each new letter must touch'
+          print at 16,22: 'the previous letter.  Only unique'
+          print at 17,22: 'words earn points.  Longer words'
+          print at 18,22: 'earn extra points!'
+          print
+          print at 20,22: 'Press CTRL/Z to exit, "\" to go back.'
+          delay
+          set window: current help_save$
+        end routine
+
+30000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O A D   P R I V A T E   W O R D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Load any private words that the user might have.
+        !  These words can then be used by both the user and Zelda
+        !  without being challenged.
+        ! 
+        ! Expected:
+        !  private_file$ = name of the private words file.
+        ! 
+        ! Results:
+        !   new_words$ = the words from the private file
+        !   private_wcount = number of private words we loaded
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine load_private_words
+          new_words$ = ''
+          private_wcount = 0
+          when exception in
+            priv_ch = _channel
+            open #priv_ch: name private_file$
+            do
+              line input #priv_ch: nword$
+              nword$ = parse$(nword$)
+              if nword$ = '' then repeat do
+              if match(new_words$, nword$) then repeat do
+              new_words$ = new_words$ + ',' + nword$
+              private_wcount = private_wcount + 1
+            loop
+          use
+          end when
+          close #priv_ch
+        end routine
+
+
+
+31000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S T O R E   P R I V A T E   W O R D S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Store any new private words that might have come up.
+        ! 
+        ! Expected:
+        !  new_words$ = new words from the private word file and from
+        !               this game.
+        ! 
+        !  private_wcount = number of words from the private word file
+        !  private_file$  = file to write the new words to
+        ! 
+        ! Results:
+        !  The private file is updated with any additional words
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine store_private_words
+          if new_words$[1:1] = ',' then new_words$[1:1] = ''
+          new_wcount = elements(new_words$)
+          sp_wcount = new_wcount - private_wcount
+          if sp_wcount = 0 then exit routine
+          when exception in
+            priv_ch = _channel
+            open #priv_ch: name private_file$, access outin
+          use
+          end when
+          if _error then exit routine
+          do
+            line input #priv_ch, eof eof?: z0$
+          loop until eof?
+          print #priv_ch: '! '; sp_wcount;' WSG word';
+          if sp_wcount <> 1 then print #priv_ch: 's';
+          print #priv_ch: ' added ';date$(days(date$), 4);' at ';time$
+          for idx = private_wcount+1 to new_wcount
+            print #priv_ch: element$(new_words$, idx)
+          next idx
+          print #priv_ch:
+          close #priv_ch
+          message delay: 'New words in your private dictionary: '; new_wcount
+        end routine
+
+
+
+99999  end

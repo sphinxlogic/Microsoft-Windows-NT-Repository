@@ -1,0 +1,80 @@
+#
+# File:		makefile.bcc
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds bombs example (DOS).
+
+!if "$(BCCDIR)" == ""
+!error You must define the BCCDIR variable in autoexec.bat, e.g. BCCDIR=d:\bc4
+!endif
+
+!if "$(WXWIN)" == ""
+!error You must define the WXWIN variable in autoexec.bat, e.g. WXWIN=c:\wx
+!endif
+
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makebcc.env
+
+THISDIR = $(WXDIR)\samples\bombs
+WXLIB = $(WXDIR)\lib\wx.lib
+
+LIBS=$(WXLIB) mathwl cwl import
+INC=-I$(WXDIR)\include\base -I$(WXDIR)\include\msw
+CFG=$(WXDIR)\src\wxwin.cfg
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+!if "$(FINAL)" == "0"
+LINKFLAGS=/v/Vt /Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS= -v
+!else
+LINKFLAGS=/Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+OPT = -O2
+DEBUG_FLAGS =
+!endif
+CPPFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+
+HEADERS = bombs.h
+SOURCES = bombs.$(SRCSUFF)
+OBJECTS = bombs.obj bombs1.obj game.obj
+
+bombs:    bombs.exe
+
+all:    bombs.exe
+
+bombs.exe:      $(WXLIB) $(OBJECTS) bombs.def bombs.res
+        tlink $(LINKFLAGS) @&&!
+c0wl.obj $(OBJECTS)
+bombs
+nul
+$(LIBS)
+bombs.def
+!
+        rc -30 -K bombs.res
+
+.$(SRCSUFF).obj:
+	bcc $(CPPFLAGS) -c {$< }
+
+bombs.obj:      bombs.h bombs.$(SRCSUFF)
+
+bombs1.obj:      bombs.h bombs1.$(SRCSUFF)
+
+game.obj:      game.h game.$(SRCSUFF)
+
+bombs.res :      bombs.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(BCCDIR)\include /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa bombs
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.rws

@@ -1,0 +1,329 @@
+Hi there,
+
+These are the changes I needed to make to compile wxWin162d
+with Borland 4.5 as 32bit. I had some problems with inclusions of 
+g++ header files when using garbage collection, but except this I've
+selected everything in wx_Setup.h. I think, I've compiled/tested every lib, 
+sample, utility and contribution delivered with wxWin for MSW except some
+library test programs (e.g. test of wxstring), but if you are missing 
+something, please let me know.
+
+
+changes in makefiles:
+=====================
+
+src/make32.bat: 
+
+  - added -DBCCDIR=
+  - make32.bat now passes up to 3 parameters to make.exe
+  - due to the changes to src/makefile.b32 you can now specify the lib or
+    executable you want to be build (e.g. make32 fafa)
+
+src/makefile.b32:
+ 
+  - renamed target wxwin.cfg as wxwin32.cfg
+  - wxwin32.cfg now contains the values of OPT and DEBUG_FLAGS, so there will
+    be no need to pass them to the child makefiles (otherwise I had too long
+    command lines)
+  - there was a missing '-D' before DEBUG; I've added it, although Borland's
+    make did not complain about it
+  - renamed -DWXDIR= as -DWXWIN=
+  - added some include pathes to wxwin32.cfg
+  - now makefile.b32 is capable of building most of the wxWin libs and execs
+    on demand (just added the right targets):
+    
+    target                 builds what ?
+    ------------------------------------------------------------------------
+    all                    the name says it all
+    all_execs              builds all executables (without winstall.exe, see
+                           'unsolved problems')
+    all_libs               builds all libs from utils/, contrib/ and
+                           wx-lib, of course
+    all_contrib            builds everything in contrib/
+    all_utils              builds everything in utils/
+    all_samples            builds everything in samples/
+    (name_of_lib_or_exe)   builds the specified lib or exe (e.g. 'fafa' for
+                           contrib/fafa)
+                         
+src/msw/makefile.b32:
+
+  - moved wx_clipb.h from base headers to local headers
+  - library page size increased to 256
+  - ..\base\wx_lay.obj was a member of BASEOBJECTS2 and BASEOBJECTS4 -
+    deleted the second one
+  - some base object files were missing in the makefile (see below)
+  - exchanged 
+      tlib $(WXLIB)\wx.lib /P256 @&&!
+    with
+      tlib $(LIBTARGET) /P256 @&&!
+
+src/base/makefile.b32
+
+  - the following source- and object-files were missing in the makefile:
+      wb_res
+      wb_scrol
+      wb_stat
+      wb_vlbox
+      wx_doc
+      wx_enhdg
+
+contrib/fafa/makefile.b32:
+
+  - created
+
+contrib/wxstring/makefile.b32:
+
+  - created
+
+contrib/itsybits/makefile.b32:
+
+  - a bit face-lifting :)
+  
+contrib/gauge/makefile.b32:
+
+  - created
+
+contrib/wxxpm/makefile.b32:
+
+  - created
+
+utils/xpmshow/src/makefile.b32:
+
+  - created
+
+utils/hytext/src/makefile.b32:
+
+  - created
+
+utils/wxhelp/src/makefile.b32:
+
+  - created
+
+utils/tex2rtf/src/makefile.b32:
+
+  - created
+
+utils/prologio/src/makefile.b32:
+
+  - created
+
+utils/wxtree/src/makefile.b32:
+
+  - created
+
+utils/wxgraph/src/makefile.b32:
+
+  - created
+
+utils/image/src/makefile.b32:
+
+  - created
+
+utils/wxbuild/src/makefile.b32:
+
+  - created
+
+utils/rcparser/src/makefile.b32:
+
+  - created
+
+utils/winstall/src/makefile.b32:
+
+  - created
+
+utils/mfutils/src/makefile.b32:
+
+  - created
+
+utils/dib/makefile.b32:
+
+  - created
+
+samples/hello/makefile.b32:
+
+  - face-lifting again
+
+samples/ipc/makefile.b32:
+
+  - created
+
+samples/form/makefile.b32:
+
+  - created
+
+samples/animate/makefile.b32:
+
+  - face-lifted
+
+samples/mdi/makefile.b32:
+
+  - created
+
+samples/minimal/makefile.b32:
+
+  - face-lifted
+
+samples/fractal/makefile.b32:
+
+  - created
+
+samples/vlist/makefile.b32:
+
+  - created
+
+samples/panel/makefile.b32:
+
+  - created
+
+samples/layout/makefile.b32:
+
+  - face-lifted
+
+samples/static/makefile.b32:
+
+  - created
+
+samples/printing/makefile.b32:
+
+  - face-lifted
+
+samples/toolbar/makefile.b32:
+
+  - created
+
+samples/buttnbar/makefile.b32:
+
+  - created
+
+samples/docview/makefile.b32:
+
+  - created
+
+samples/memcheck/makefile.b32:
+
+  - created
+
+samples/odbc/makefile.b32:
+
+  - face-lifted
+
+
+changes in source files:
+========================
+
+src/base/wb_print.cc and src/msw/wx_dc.cc:
+
+  - removed comment marks in the lines
+      // #ifndef __BORLANDC__
+      #include <print.h>
+      // #endif
+    otherwise I got multiple declarations
+    
+src/msw/wx_win.cc:
+
+  - lines 3172- : changed
+      #if WIN32
+        short minPos, maxPos;
+      #else
+        int minPos, maxPos;
+      #endif
+
+      to
+      
+      #ifdef WIN32
+      #ifdef __BORLANDC__
+        int minPos, maxPos;
+      #else
+         short minPos, maxPos;
+      #endif  
+      #else
+        int minPos, maxPos;
+      #endif
+
+contrib/gauge/zyzgauge.c:
+
+  - Win32s has no GetTextExtent function. I hope GetTextExtentPoint will do
+    its job now (see lines 269-273 and 359-365).
+    
+contrib/wxstring/wxregex.h:
+
+  - added '#ifndef __BORLANDC__' at line 138; bcc32 complains
+    about '#define alloca _alloca'
+
+contrib/wxstring/wxregex.cc:
+
+  - added '#ifndef __BORLANDC__' at line 203; bcc32 complains
+    about 'char *alloca ();'
+
+utils/image/src/wx_image.h:
+
+  - added '#ifdef wx_x' before line 36: #include "wx_imgx.h"
+
+utils/mfutils/src/mfutils.h:
+
+  - line 34: replaced #ifndef META_SETBKCOLOR with
+  
+    #if !defined(META_SETBKCOLOR) || (defined(__BORLANDC__) && defined(WIN32)),
+    
+    because Win32s seems to have less META_xxx constants; then I got
+    redefinitions of the FF_xxx constants, so I ifdef'ed them out
+
+samples/vlist/_srchdlg.cc:
+
+  - line 12: deleted misplaced #endif
+  
+samples/buttnbar/test.rc:
+
+  - there were no bitmap-files in samples/buttnbar/bitmap/, so I've copied
+    as many files as I could get from samples/toolbar/bitmaps and 
+    utils/wxbuild/src/bitmaps, but there are still some missing; used help.bmp
+    instead
+  
+
+unsolved problems:
+==================
+
+utils/winstall:
+
+  - I was unable to compile it. I got an error in line 35 of install.h:
+    'Declaration terminated incorrectly', but could not figure out why.
+    I got some 'xxx is not member of class xxx' messages, too.
+
+samples/buttnbar:
+
+  - the toolbox icons were not loaded properly; there are only black squares
+  - the toolbar icons have a similar problem, they are grainy
+  
+utils/wxbuild:
+
+  - toolbar icons are grainy
+  - forms are completely black even if you put some panels or items on it
+
+samples/form:
+
+  - forms are painted completely black
+  
+src/include/base/wx_obj.h:
+
+  - gc_c++.h will be included when garbage collection is set on; is there
+    a work around for MSW ?
+  
+
+
+
+That's it.
+
+
+
+BTW: If you have memory problems when compiling wxWin with Borland and do
+     not want to mess up the DPMI, just compile it in a DOS box under Windows
+     (with a right sized swap file, of course) - it's unbelievable, but
+     MSW3.1 had no problems with that on my 8MB machine :).
+
+
+Good luck
+
+- patrick (patrick@zaphod.ruhr.de)
+
+    
+

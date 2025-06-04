@@ -1,0 +1,653 @@
+<!-- VDE_MANUAL_006.HTML continuation of VDED$:[VDE.VDEDOC.DOC]VDE_MANUAL.HTML -->
+<html>
+<head>
+<title>VDE</title>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">VDE<br>VDE<br> Reference Manual</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_manual_005.html#bottom_005">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_manual_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_manual_index.html">Index</a>
+</table>
+
+<hr>
+
+<hr>
+<a name="vde_cmd_cre_fac"><h1><font color=maroon>CREATE FACILITY</font></h1></a>
+
+<p>
+<blockquote>
+<a name="index_x_170"></a>
+Creates a new facility definition and its associated disk directories 
+in the current VDE library.
+
+<p>
+<strong>Requires CREFAC privilege.</strong>
+<a name="index_x_171"></a>
+</blockquote>
+
+<hr>
+<h2>Format</h2>
+<blockquote>
+<h3>CREATE FACILITY facil-name [, facil-name...] </h3>
+</blockquote>
+
+<hr>
+<h2>Parameter</h2>
+<blockquote>
+<h3>facil-name</h3>
+The name of the new facility to be created. This name can be up to 39 
+characters long and must follow VDE name syntax.
+
+<p>
+VDE prohibits the creation of any facilities with names that 
+begin with the character sequences &quot;VDE$&quot;, &quot;VSC$&quot;, 
+and &quot;VTSC$&quot;, as these prefixes are used within VDE.
+</blockquote>
+
+<hr>
+<h2>Description</h2>
+<blockquote>
+A facility is the highest level of organization in a VDE 
+library and identifies a set of related modules. For example, the RMS 
+facility is composed of all the modules needed to build the Record 
+Management Services portion of the OpenVMS operating system.
+
+<p>
+All modules within a given facility must have unique names; no two 
+modules in the same facility can have the same module name and module 
+type. If, however, two modules belong to different facilities, they can 
+have the same module name and type.
+
+<p>
+The VDE library stores modules from separate facilities in 
+separate disk directories. Therefore, you may want to create a separate 
+facility for each component of your software system that is developed 
+independently.
+
+<p>
+When you create a facility, the CREATE FACILITY command first creates 
+an entry for the new facility in the VDE database. It then 
+creates a disk directory to hold the delta files of the facility's 
+source modules. VDE uses callable CMS
+<a name="index_x_172"></a>
+to create a CMS library in that directory. When you later
+<a name="index_x_173"></a>
+create source modules in the facility, VDE uses callable CMS 
+to create delta files for those modules. A delta file (which is 
+identical to a CMS &quot;element&quot;) contains all past and present 
+versions of your source file in a compressed form.
+
+<p>
+The CREATE FACILITY command also creates a disk directory structure 
+(directory tree) for the new facility for the default stream. This 
+directory structure is repeated for all streams that are successors of 
+the default stream. These directories will hold all files associated 
+with the facility that are stream-specific. Such files include 
+clear-copy source files, object files, object libraries, executable 
+images, and other derived files. For each stream, this
+<a name="index_x_174"></a>
+structure consists of the following directories:
+
+<ul>
+  <li> a facility root directory, which is a subdirectory of the stream 
+  root directory
+  <li> several facility subdirectories that will contain source files, 
+  derived files, build log files, and certain other kinds of files. The 
+  subdirectories that are created depend on the SET DIRECTORY commands 
+  you have used as well as VDE defaults.
+</ul>
+
+<p>
+If the default disk directory structure is not suitable for the new 
+facility, you can defer its creation until you have defined the 
+structure you want. To defer creation of the directory structure, use 
+the /DEFER qualifier. Then use the SET DIRECTORY command to define the 
+directory structure you want. Finally, use the CREATE DIRECTORY_TREE 
+command to create the desired directory structure.
+</blockquote>
+
+<hr>
+<h2>Qualifiers</h2>
+<blockquote>
+<h3>/DEFER</h3>
+<h3>/NODEFER (default)</h3>
+Specifies whether the creation of the disk directory structure for the 
+new facility should be postponed. The /DEFER qualifier postpones 
+creation of the disk directory structure and the /NODEFER qualifier 
+causes the directory structure to be created immediately. Use the 
+/DEFER qualifier when the default directory structure is inappropriate 
+for the new facility.
+
+<p>
+If the /NODEFER qualifier is specified (or /DEFER is omitted), the 
+CREATE FACILITY command first creates the delta-file directory for the 
+facility and creates a CMS library within that directory. It
+<a name="index_x_175"></a>
+then creates the facility root directory for the default stream. Next 
+it creates the facility subdirectories within that root directory. The 
+subdirectories that are created are determined by the SET DIRECTORY 
+commands entered for the stream and by the default rules of the 
+VDE utility. Once the directory structure exists, source 
+modules and other files can be added to the new facility. The 
+directory-creation sequence is repeated for all successors of the 
+default stream.
+
+<p>
+If the /DEFER qualifier is specified, the CREATE FACILITY command does 
+not create the delta-file directory, nor the stream-specific root 
+directories, nor the associated subdirectories. You can therefore enter 
+SET DIRECTORY commands to specify the disk directories you want created 
+for the facility. You then use the CREATE DIRECTORY_TREE command to 
+create the directory structure on disk according to the rules specified 
+by the SET DIRECTORY commands and VDE defaults.
+<h3>/DELETE</h3>
+<h3>/NODELETE</h3>
+Controls whether the <strong>delete</strong> attribute is set for the 
+new facility. This attribute allows the facility to be deleted with the 
+DELETE FACILITY command. The /DELETE qualifier sets the delete 
+attribute so that the new facility can be deleted. The /NODELETE 
+qualifier clears the delete attribute so that the new facility cannot 
+be deleted unless you first reset this attribute with a MODIFY FACILITY 
+command. Marking a facility as /NODELETE makes it harder to 
+accidentally delete the facility.
+
+<p>
+If this qualifier is not specified, VDE uses the value of the 
+allow-deletion library attribute. The library allow-deletion default 
+attribute can be set or reset by using the /ALLOW_DELETE qualifier on 
+the CREATE LIBRARY or on the MODIFY LIBRARY command.
+<h3>/FROM_CMS_LIBRARY[=date-time]</h3>
+Specifies that the delta-file root directory for the new facility 
+already contains a CMS library and that VDE should enter all 
+modules and module
+<a name="index_x_176"></a>
+generations present in that CMS library into the current VDE 
+database. This qualifier gives you a way to automatically populate a 
+VDE library with modules from an existing CMS library. If 
+this qualifier is omitted, VDE creates a new CMS library in 
+the facility's delta-file root directory.
+
+<p>
+If you specify the optional <strong>date-time</strong> parameter, 
+VDE additionally retrieves all reservations from the CMS 
+library that were created since the date and time given by that 
+parameter. VDE prints warning messages for any reservations 
+created earlier than this time and for any reservations whose stream 
+(CMS class) cannot be ascertained. If you omit the 
+<strong>date-time</strong> parameter, VDE does not retrieve 
+reservations from the CMS library, only modules and generations.
+
+<p>
+This qualifier has no effect if you also specify the /DEFER qualifier. 
+If you defer directory creation, you must use the /FROM_CMS_LIBRARY 
+qualifier on the CREATE DIRECTORY_TREE command that actually creates 
+the delta-file directories for the new facility.
+
+<p>
+If this qualifer is specified, all VDE streams <em>must</em> 
+be created <em>prior</em> to issuing this command, and these stream 
+names must match (a subset of) the CMS class names in use in the CMS 
+libraries; these stream names must match the CMS classes to be uploaded 
+from within the CMS library. In order to correctly establish the main 
+and variant lines of descent and the correct CMS generation number 
+sequence, all streams involved must be created with the appropriate 
+/MAIN, /NOMAIN, /PARENT and /SUCCESSOR settings.
+<h3>/LOG (default)</h3>
+<h3>/NOLOG</h3>
+Controls whether log messages are printed after the new facilities are 
+created. The /LOG qualifier causes the messages to be printed and the 
+/NOLOG qualifier suppresses them. The messages indicate that each new 
+facility has been created, that its CMS library has been created, that 
+its disk directories have been created, and that the database 
+transaction has successfully committed.
+<h3>/PROPAGATE (default)</h3>
+<h3>/NOPROPAGATE</h3>
+Specifies whether automatic change propagation is allowed by default 
+for new modules created in this facility. /PROPAGATE causes new modules 
+added to the facility to be marked as allowing automatic change 
+propagation when reserved and replaced. /NOPROPAGATE marks such modules 
+as not allowing change propagation. When you create new modules, you 
+can override these defaults with qualifiers to the CREATE MODULE 
+command.
+<h3>/REMARK="string"</h3>
+Specifies a remark string to be stored for the new facility. The quoted 
+remark string, which can be up to 132 characters long, may contain any 
+explanatory remark about the new facility that you want stored in the 
+VDE database. Typically the remark describes the function or 
+contents of the facility.
+
+<p>
+Although this qualifier is required, you can specify an empty remark 
+string. If you do not specify the /REMARK qualifier, VDE 
+prompts you for a remark string.
+</blockquote>
+
+<hr>
+<h2><h3>Examples</H3></h2>
+<blockquote>
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#1</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE FACILITY ACCTNG /REMARK="Accounting function"
+Creating directory tree for delta files:
+   Facility ACCTNG root directory DEV$:[PROJDIR.VDE$CMS.ACCTNG] has been created
+      CMS library for facility ACCTNG has been created
+   All directories for delta files now exist
+ 
+Creating directory tree for stream MAIN:
+   Facility ACCTNG root directory DEV$:[PROJDIR.MAIN.ACCTNG] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.ACCTNG.OBJ] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.ACCTNG.SRC] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.ACCTNG.VDE$COM] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.ACCTNG.VDE$LOG] has been created
+   All directories for stream MAIN now exist
+ 
+%VDE-I-FACADDED, facility ACCTNG added to the database
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This example creates a new facility called ACCTNG. The remark string 
+indicates that this facility performs an accounting function in the 
+user's software system. The log messages indicate that the delta-file 
+disk directory has been created, that a CMS library has been 
+established in that directory, that a facility root directory and 
+various facility subdirectories have been created for stream MAIN, and 
+that the facility was successfully added to the database.
+</blockquote>
+
+<hr>
+<a name="vde_cmd_cre_fold"><h1><font color=maroon>CREATE FOLD</font></h1></a>
+
+<p>
+<blockquote>
+<a name="index_x_177"></a>
+Creates a new fold record in the VDE database. A fold record 
+is a reminder that a source change should be manually 
+&quot;folded&quot; into a given development stream in order to 
+propagate the change.
+
+<p>
+<strong>Requires RESREP privilege.</strong>
+<a name="index_x_178"></a>
+</blockquote>
+
+<hr>
+<h2>Format</h2>
+<blockquote>
+<h3>CREATE FOLD mod-name [, mod-name...] </h3>
+</blockquote>
+
+<hr>
+<h2>Parameter</h2>
+<blockquote>
+<h3>mod-name</h3>
+Specifies a module for which a fold record is to be created. The module 
+name consists of an optional facility name enclosed in square brackets, 
+a module name, and an optional type name preceded by a period (such as 
+[FACIL]MOD1.MAR). If the facility name is omitted, the module is 
+assumed to belong to the default facility. If the type name is omitted, 
+VDE creates fold records for all source modules with the 
+specified module name in the given facility.
+
+<p>
+You can create fold records for more than one module by using wildcard 
+characters in any of the three components of the module name. The 
+percent sign (%) in a name matches any single character in the position 
+it occupies and the asterisk (*) matches zero or more characters in the 
+position it occupies. VDE creates fold records for the source 
+modules whose names match the wildcard pattern.
+</blockquote>
+
+<hr>
+<h2>Description</h2>
+<blockquote>
+A fold record is a record in the VDE database that reminds a 
+user to manually &quot;fold&quot; a source change from one development 
+stream into another. A fold record is created when the REPLACE or 
+PERFORM REPLACEMENT command attempts to propagate a source change from 
+a given development stream to one of its successors, but finds that it 
+cannot automatically propagate the change because the source module has 
+already diverged between the two streams. The user must then reserve 
+the module in the successor stream, manually edit the change into that 
+generation of the module, and then replace it. This operation is known 
+as &quot;folding&quot; the change into the successor stream. Once the 
+fold operation has been performed, its fold record should be deleted 
+from the VDE database with the /FOLD qualifier to the REPLACE 
+command or with the CANCEL FOLD command.
+
+<p>
+The CREATE FOLD command lets you manually enter a fold record into the 
+VDE database. This fold record and its remark string can 
+serve as a reminder to perform some action on a specified module in a 
+specified stream. Once you have performed this action, you can delete 
+the fold record with the CANCEL FOLD command. The new fold record 
+records that some change should be propagated from the latest 
+generation of the specified module in the default development stream 
+into another development stream that you specify.
+</blockquote>
+
+<hr>
+<h2>Qualifiers</h2>
+<blockquote>
+<h3>/CONFIRM</h3>
+<h3>/NOCONFIRM (default)</h3>
+Controls whether VDE asks you to confirm that you want a fold 
+record created for each module. The /CONFIRM qualifier causes 
+VDE to print a message for each module asking whether you 
+want to create a fold record for that module. If you answer YES (or Y), 
+VDE creates a fold record for it. If you answer NO (or N), 
+VDE does not create a fold record for it. If you enter a 
+module name with a wildcard specification, VDE asks you to 
+confirm the creation of a fold record for each module whose name 
+matches the wildcard specification. The /NOCONFIRM qualifier causes 
+VDE to create the fold records without asking for 
+confirmation.
+<h3>/FROM_STREAM=stream-name</h3>
+Specifies the development stream from which the source change should be 
+folded. The <strong>stream-name</strong> parameter gives the name of 
+the stream. If you omit this qualifier, VDE determines what 
+generation you want to fold by looking up the latest generation for the 
+current default stream. VDE then records that you want to 
+fold the change from the stream in which that generation was created.
+<h3>/IDENTIFICATION=fold-ident</h3>
+Specifies a fold identifier for the new fold record. Each fold record 
+has a unique fold identifier so that you can distinguish between 
+multiple fold records for the same module and user in the same stream. 
+By default, the CREATE FOLD command assigns a unique numeric identifier 
+to each fold record, such as &quot;1&quot;, &quot;2&quot;, and so on. 
+The /IDENTIFICATION qualifier overrides this default and allows you to 
+select a fold identifier of your choice, such as a mnemonic name. The 
+<strong>fold-ident</strong> parameter specifies the fold identifier. It 
+can be up to 39 characters long and must follow VDE name 
+syntax.
+<h3>/LOG (default)</h3>
+<h3>/NOLOG</h3>
+Controls whether log messages are printed when the new fold records are 
+created. The /LOG qualifier causes the messages to be printed and the 
+/NOLOG qualifier suppresses them. The messages indicate that a fold 
+record has been created for each specified module and that the database 
+transaction has successfully committed.
+<h3>/REMARK="string"</h3>
+Specifies a remark string to be stored for each new fold record. The 
+quoted remark string, which can be up to 132 characters long, may 
+contain any explanatory remark about the fold to be performed that you 
+want stored in the VDE database. Typically the remark 
+describes the function or contents of the source change to be folded 
+into the new stream.
+
+<p>
+Although this qualifier is required, you can specify an empty remark 
+string. If you do not specify the /REMARK qualifier, VDE 
+prompts you for a remark string.
+<a name="index_x_179"></a>
+<h3>/STREAM=stream-name</h3>
+Specifies the development stream into which the source change should be 
+folded. The <strong>stream-name</strong> parameter gives the name of 
+the stream. This qualifier is required; if you do not specify it, 
+VDE prompts you for the stream name.
+<a name="index_x_180"></a>
+<h3>/USERNAME=username</h3>
+Specifies that the fold record be created on behalf of another user. 
+The <strong>username</strong> parameter specifies the OpenVMS 
+username of the other user. You must have the USERNAME privilege to use 
+this qualifier.
+<a name="index_x_181"></a>
+</blockquote>
+
+<hr>
+<h2><h3>Examples</H3></h2>
+<blockquote>
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#1</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE FOLD X.FOR/STREAM=V1.0/REMARK="Fix access violation in sort routine"
+%VDE-I-FOLDADDED, fold record 1 for module [CODE]X.FOR added to database
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+VDE„ SHOW FOLD
+Fold 1 of [CODE]X.FOR;2(2) into stream V1.0            26-JUN-1990 JONES
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This example creates a new fold record for module [CODE]X.FOR. The 
+remark indicates that a sort routine access violation should be fixed 
+in that module. The change should be made in stream V1.0. The log 
+message shows that VDE assigned the unique fold identifier 1 
+to the new fold record. The SHOW FOLD command shows that the fold 
+record is now in the VDE database.
+</blockquote>
+
+<hr>
+<a name="vde_cmd_cre_grp"><h1><font color=maroon>CREATE GROUP</font></h1></a>
+
+<p>
+<blockquote>
+<a name="index_x_182"></a>
+Creates a new group definition in the VDE database. A group 
+is either a source group or a build group. A source group consists of a 
+set of source modules to be acted upon when the group name is specified 
+with various source control commands. A build group consists of a set 
+of modules to be built when the group name is specified with a BUILD 
+command.
+
+<p>
+<strong>Requires CREGRP privilege.</strong>
+<a name="index_x_183"></a>
+</blockquote>
+
+<hr>
+<h2>Format</h2>
+<blockquote>
+<h3>CREATE GROUP group-name = mod-name [, mod-name...] </h3>
+</blockquote>
+
+<hr>
+<h2>Parameters</h2>
+<blockquote>
+<h3>group-name</h3>
+The name of the new group to be created. This name may be up to 39 
+characters long and must follow VDE name syntax.
+<h3>mod-name</h3>
+The name of a module to be included in the group. The module name 
+consists of an optional facility name enclosed in square brackets, a 
+module name, and an optional type name preceded by a period. An example 
+is [FACIL]MOD1.PAS. If no facility name is specified, the current 
+default facility is assumed. If no type name is specified, all source 
+modules (for a source group) or all module (for a build group) with the 
+given module name in the given facility are included in the group.
+
+<p>
+You can add many modules to the group with one 
+<strong>mod-name</strong> parameter by specifying wildcard characters 
+in any of the three components of the module name. The percent sign (%) 
+in a name matches any single character in the position it occupies and 
+the asterisk (*) matches zero or more characters in the position it 
+occupies. Those source modules (for a source group) or modules (for a 
+build group) whose names match the wildcard pattern become members of 
+the new group.
+</blockquote>
+
+<hr>
+<h2>Description</h2>
+<blockquote>
+A group consists of the set of modules that are members of the group. A 
+source group only consists of source modules. When the name of a source 
+group is specified with the RESERVE, REPLACE, FETCH, UNRESERVE, or SHOW 
+RESERVATION command, that command acts on all modules that are members 
+of the group. A build group can consists of both source modules and 
+derived modules, although it normally only consists of executable
+<a name="index_x_184"></a>
+images and other derived modules that can be the outputs of a system 
+build. When the name of a build group is specified with the BUILD 
+command, that command builds all modules that are members of the group.
+
+<p>
+When a new group is created, it is only defined in the default 
+development stream. You can refer to the new group only from within the 
+stream to which it belongs.
+
+<p>
+When you want to create the same group for more than one development 
+stream, you must use the CREATE GROUP command for each stream. For each 
+stream, first enter the SET STREAM command to set the development 
+stream, then enter the CREATE GROUP command to create the desired group 
+within the stream.
+
+<p>
+When a new development stream is created, all group definitions from 
+the parent stream are copied to the child stream. If modified, the 
+group definitions then evolve independently in the two development 
+streams.
+</blockquote>
+
+<hr>
+<h2>Qualifiers</h2>
+<blockquote>
+<h3>/BUILD</h3>
+<h3>/SOURCE (default)</h3>
+Specifies whether a source group or build group is created. The /SOURCE 
+qualifier causes VDE to create a source group and the /BUILD 
+qualifier causes VDE to create a build group. If neither 
+qualifier is specified, VDE creates a source group.
+
+<p>
+Of /BUILD and /SOURCE, /SOURCE is the default.
+<h3>/CONFIRM</h3>
+<h3>/NOCONFIRM (default)</h3>
+Controls whether VDE asks you to confirm that you want each 
+module matching the <strong>mod-name</strong> parameters added to the 
+group. The /CONFIRM qualifier causes VDE to print a message 
+for each matching module asking whether you want that module added. If 
+you answer YES (or Y), the module is added to the group. If you answer 
+NO (or N), the module is not added to the group. The /NOCONFIRM 
+qualifier causes VDE to add all modules matching the 
+<strong>mod-name</strong> parameters to the group without asking for 
+confirmation.
+<h3>/LOG (default)</h3>
+<h3>/NOLOG</h3>
+Controls whether log messages are printed after the new group has been 
+created. The /LOG qualifier causes the messages to be printed and the 
+/NOLOG qualifier suppresses them. The messages indicate that the new 
+group has been created, that the requested modules are members of the 
+group, and that the database transaction has committed successfully.
+<h3>/REMARK="string"</h3>
+Specifies a remark string to be stored for the new group. The quoted 
+remark string, which can be up to 132 characters long, may contain any 
+explanatory remark about the new group that you want stored in the 
+VDE database. Typically the remark describes the purpose or 
+contents of the group.
+</blockquote>
+
+<hr>
+<h2><h3>Examples</H3></h2>
+<blockquote>
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#1</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE GROUP/REMARK="Two modules" GRP1 = A.PAS, B.MAR
+%VDE-I-GRPADDED, group GRP1 added to the database
+%VDE-I-GRPADD, module [CODE]A.PAS is added to group GRP1
+%VDE-I-GRPADD, module [CODE]B.MAR is added to group GRP1
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This command creates a new source group called GRP1. The new group 
+contains two members, source modules A.PAS and B.MAR. These modules are 
+reserved if the group name is specified with the RESERVE command, for 
+example. Both modules are assumed to belong to the current default 
+facility, facility CODE in this example. The remark string &quot;Two 
+modules&quot; is stored in the database with the rest of the group 
+definition and can be retrieved later with the SHOW GROUP command. The 
+example shows the informational messages created by the /LOG qualifier, 
+specified by default in this example.
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#2</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE GROUP/BUILD SYSGRP = X.EXE, Y.EXE, Z.HLB
+%VDE-I-GRPADDED, group SYSGRP added to the database
+%VDE-I-GRPADD, module [BUILD_TEST]X.EXE is added to group SYSGRP
+%VDE-I-GRPADD, module [BUILD_TEST]Y.EXE is added to group SYSGRP
+%VDE-I-GRPADD, module [BUILD_TEST]Z.HLB is added to group SYSGRP
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This command creates a new build group called SYSGRP. The build group 
+contains three members, executable images X.EXE and Y.EXE and the help 
+library Z.HLB. If group name SYSGRP is specified as a parameter to a 
+BUILD command, VDE will build these three modules.
+</blockquote>
+
+<a name="bottom_006"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_manual_005.html#bottom_005">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vde_manual_007.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_manual_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_manual_index.html">Index</a>
+</table>
+</body>
+</html>

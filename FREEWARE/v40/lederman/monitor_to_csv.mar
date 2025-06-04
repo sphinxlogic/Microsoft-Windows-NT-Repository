@@ -1,0 +1,700 @@
+	.TITLE	Monitor_To_CSV - Convert some MONITOR data records
+	.IDENT	/0.17/
+
+; This program converts monitor records to fixed format for
+; processing
+;
+; B. Z. Lederman	14-Dec-1995	Start with Accounting Conversion
+;			15-Dec-1995	Add modes
+;			18-Dec-1995	separate holders for records,
+;					preparation for merging records
+;			22-Dec-1995	Alpha-ize (minimum needed),
+;					add locks
+;
+
+;
+;  Define ALPHA if R22 is a register and not a symbol (from Hunter Goatley)
+;
+	.NTYPE	...IS_IT_ALPHA,R22		;Get the type of R22
+	...IS_IT_ALPHA = <...IS_IT_ALPHA@-4&^XF>-5
+	.IIF EQ,...IS_IT_ALPHA,	ALPHA=1
+
+	.ENABLE	SUPPRESSION
+
+	.LIBRARY	/LOCAL.MLB/
+
+; Macro library calls
+
+	$NAMDEF				; RMS Name Block Definitions
+	$DSCDEF				; descriptor definitions
+
+	$MNRDEF				; invoke local definitions
+					; of monitor record offsets
+
+	.PSECT	RWDATA, WRT, NOEXE, QUAD
+
+; RMS control blocks - these are first to make them aligned
+;
+; Input FAB
+;
+
+MON_FAB:
+	$FAB	FAC = GET, -			; Only GETs are required
+		DNM = <MONITOR.DAT>, -		; default file name
+		SHR = <GET, PUT, UPI>, -	; shared
+		FOP = SQO			; Sequential access only
+
+	.ALIGN	QUAD
+
+; Input RAB
+
+MON_RAB:
+	$RAB	FAB = MON_FAB, -		; Associated FAB
+		ROP = RAH, -			; Read ahead
+		UBF = MON_REC, -		; User buffer address
+		USZ = MON_REC_LEN		; User buffer size
+
+	.ALIGN	QUAD
+
+; Output FAB
+;
+; The output file is MONITOR.CSV in the current default directory
+
+OUT_FAB:
+	$FAB	FAC = PUT, -			; Access for $PUTs
+		DNM = <MONITOR.CSV>, -		; File name
+		FOP = <TEF, -			; Truncate at end of file
+			SQO>, -			; Sequential access only
+		RAT = CR, -			; CR carriage control
+		RFM = VAR			; Variable length records
+
+	.ALIGN	QUAD
+
+; Output RAB  (real address and length filled in at run time)
+
+OUT_RAB:
+	$RAB	FAB = OUT_FAB, -		; Associated FAB
+		RBF = MON_REC, -		; Output buffer
+		RSZ = MON_REC_LEN, -		; Record size
+		ROP = WBH			; Write behind
+
+; Input file name stuff
+
+	.ALIGN	QUAD
+
+MON_FSPEC:
+	.LONG	NAM$C_MAXRSS
+	.LONG	MON_FSPEC_BUF
+MON_FSPEC_BUF:
+	.BLKB	NAM$C_MAXRSS
+MON_FSPEC_LEN:
+	.BLKW	1
+MON_FILE_QUAL:
+	.ASCID	/INPUT_FILE/
+
+; Output file name stuff
+
+	.ALIGN	QUAD
+
+OUT_FSPEC:
+	.LONG	NAM$C_MAXRSS
+	.LONG	OUT_FSPEC_BUF
+OUT_FSPEC_BUF:
+	.BLKB	NAM$C_MAXRSS
+OUT_FSPEC_LEN:
+	.BLKW	1
+OUT_FILE_QUAL:
+	.ASCID	/OUTPUT_FILE/
+
+; Other Flags
+
+S1_QUAL:
+	.ASCID	/SPECIAL1/
+
+; record buffer
+
+	.ALIGN	QUAD
+
+MON_REC_LEN ==	4096
+MON_REC:
+	.BLKB	MON_REC_LEN
+
+BIGBUF:
+	.WORD	0		; dynamic string descriptors
+	.BYTE	DSC$K_DTYPE_T
+	.BYTE	DSC$K_CLASS_D
+	.ADDRESS 0
+
+DATEBUF:
+	.WORD	0
+	.BYTE	DSC$K_DTYPE_T
+	.BYTE	DSC$K_CLASS_D
+	.ADDRESS 0
+
+MODEBUF:
+	.WORD	0
+	.BYTE	DSC$K_DTYPE_T
+	.BYTE	DSC$K_CLASS_D
+	.ADDRESS 0
+
+STATBUF:
+	.WORD	0
+	.BYTE	DSC$K_DTYPE_T
+	.BYTE	DSC$K_CLASS_D
+	.ADDRESS 0
+
+DISKBUF:
+	.WORD	0
+	.BYTE	DSC$K_DTYPE_T
+	.BYTE	DSC$K_CLASS_D
+	.ADDRESS 0
+
+SYSTBUF:
+	.WORD	0
+	.BYTE	DSC$K_DTYPE_T
+	.BYTE	DSC$K_CLASS_D
+	.ADDRESS 0
+
+LOCKBUF:
+	.WORD	0
+	.BYTE	DSC$K_DTYPE_T
+	.BYTE	DSC$K_CLASS_D
+	.ADDRESS 0
+
+; Local Flags
+
+FIRSTREC:
+	.BLKL	1
+
+S1_FLAG:
+	.BLKL	1
+
+; Copied values.  All byte and word values have to be passed as longs for
+; FAO to work.  Only the appropriate amount of the value will actually be
+; used in the FAO directive.
+
+STAMP:	.BLKQ	1
+ELTCT:	.BLKL	1
+
+; Disk Record	(fields not seen here don't have to be stored for FAO)
+
+ALLOCLS:
+	.BLKL	1
+CTRLR:	.BLKB	4
+UNITNO:	.BLKL	1
+VOLNAME:
+	.BLKB	12
+
+; Modes Record
+
+CPUID:	.BLKL	1
+
+
+	.PSECT	RODATA, NOWRT, NOEXE, QUAD
+
+; Name of record, date/time
+
+BASE1:	.ASCID	/"!%D"/
+
+; allocation class, controller, unit, volume, operations, queue
+
+DISK1:	.ASCID	/, !UB, !AC!UW, !AD, !UL, !UL/
+
+MODE1:	.ASCID	/, !UB, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL/
+
+SYST1:	.ASCID	/, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL/
+
+STAT1:	.ASCID	-
+ /, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL/
+
+LOCK1:	.ASCID	/, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL, !UL/
+
+; Record Types
+
+DISKT:	.ASCID	/DISK, /
+MODET:	.ASCID	/MODE, /
+SYSET:	.ASCID	/SYST, /
+STATT:	.ASCID	/STAT, /
+LOCKT:	.ASCID	/LOCK, /
+FIRSTT:	.ASCID	/(date), bufio, dirio, mfycnt, freecnt, preadio, / -
+		/faults, procs, othstat, busy, / -
+		/cpuid, inter, mpsync, kernel, exec, super, user, / -
+		/compat, idle, / -
+		/colpg, mwait, cef, pfw, lef, lefo, hib, hibo, susp, suspo, / -
+		/fpg, com, como, cur, / -
+		/enqnew, enqcvt, deq, blkast, enqwait, enqnotqd, dlcksrch, / -
+		/dlckfind, numlocks, numres, / -
+		/allocls, disk, volume, opcnt, ioqueln/
+
+UNKNOWN:
+	.ASCID	/UNKNOWN/		; should never happen
+
+INPRMPT:
+	.ASCID	/Monitor_to_CSV: /
+
+          ;;;;;;;;;;;;;;;   CODE STARTS HERE  ;;;;;;;;;;;;;;;;;
+
+	.PSECT	CODE, NOWRT, EXE, QUAD
+
+; The program opens the input and output files.  It then loops through each
+; record moving the fields.
+
+; Any error status returned from a system service or an RMS service is
+; emitted on exit, otherwise SS$_NORMAL
+
+	.ENTRY	MON_BINARY, ^M<R8, R9, R10>
+
+; R8 holds input record buffer pointer
+; R9 holds record type address
+; R10 holds data record address
+
+; Initialize some flags
+
+	MOVL	#1, FIRSTREC		; we are on the first record
+	CLRL	S1_FLAG			; clear special processing
+
+	PUSHAL	S1_QUAL			; is there a special processing
+	CALLS	#1, G^CLI$PRESENT	; qualifier
+	BLBC	R0, 5$			; branch if not
+	INCL	S1_FLAG			; mark special processing true
+
+5$:	PUSHAL	MON_FILE_QUAL		; is there an input (P1) parameter?
+	CALLS	#1, G^CLI$PRESENT
+	BLBC	R0, 10$			; branch if not
+
+	PUSHAL	MON_FSPEC		; get the file specification
+	PUSHAL	MON_FILE_QUAL
+	CALLS	#2, G^CLI$GET_VALUE
+					; check and skip if error
+	PUSHAL	MON_FSPEC_LEN
+	PUSHAL	MON_FSPEC
+	PUSHAL	MON_FSPEC
+	CALLS	#3, G^STR$TRIM		; trim off trailing blanks
+
+	$FAB_STORE -			; put real name into FAB
+		FAB = MON_FAB, -
+		FNA = @MON_FSPEC+4, -	; address
+		FNS = MON_FSPEC_LEN	; real length
+
+10$:	$OPEN	FAB = MON_FAB		; Open the monitor data file
+	BSBW	ERROR
+
+	$CONNECT RAB = MON_RAB
+	BSBW	ERROR
+					; See if user specified an output file
+	PUSHAL	OUT_FILE_QUAL		; is there an /OUTPUT qualifier?
+	CALLS	#1, G^CLI$PRESENT
+	BLBC	R0, 20$			; branch if not
+
+	PUSHAL	OUT_FSPEC		; get the file specification
+	PUSHAL	OUT_FILE_QUAL
+	CALLS	#2, G^CLI$GET_VALUE
+					; check and skip if error
+	PUSHAL	OUT_FSPEC_LEN
+	PUSHAL	OUT_FSPEC
+	PUSHAL	OUT_FSPEC
+	CALLS	#3, G^STR$TRIM		; trim off trailing blanks
+
+	$FAB_STORE -			; put real name into FAB
+		FAB = OUT_FAB, -
+		FNA = @OUT_FSPEC+4, -	; address
+		FNS = OUT_FSPEC_LEN	; real length
+
+20$:	$CREATE	FAB = OUT_FAB		; Open output file
+	BSBW	ERROR
+
+	$CONNECT RAB = OUT_RAB
+	BSBW	ERROR
+
+NEXT_RECORD:					; Main Processing loop
+
+	$GET	RAB = MON_RAB			; Read record
+	CMPL	R0, #RMS$_RTB			; ignore anything
+	BEQL	NEXT_RECORD			; too large
+	BLBS	R0, 20$				; If LBS - read was ok
+	CMPL	R0, #RMS$_EOF			; Is it end of file ?
+	BNEQ	10$				; If EQL - all done
+	BRW	FINISH
+
+	.ALIGN	QUAD
+
+10$:	BSBW	ERROR				; Show the error
+
+20$:	CMPB	MON_REC, #MNR_DSK$K_TYPE	; is this a disk record?
+	BNEQ	30$				; no, check more
+
+	MOVAQ	DISKT, R9			; address of input string
+	BRW	DO_CLASS			; yes, we want this
+
+	.ALIGN	QUAD
+
+30$:	CMPB	MON_REC, #MNR_MOD$K_TYPE	; is this a modes record?
+	BNEQ	40$				; no, check more
+
+	MOVAQ	MODET, R9			; address of string copy
+	BRB	DO_CLASS
+
+	.ALIGN	QUAD
+
+40$:	CMPB	MON_REC, #MNR_SYS$K_TYPE	; is this a system record?
+	BNEQ	50$
+	MOVAQ	SYSET, R9			; address of string copy
+	BRB	DO_CLASS
+
+	.ALIGN	QUAD
+
+50$:	CMPB	MON_REC, #MNR_LCK$K_TYPE	; is this a lock record?
+	BNEQ	60$
+	MOVAQ	LOCKT, R9			; address of string copy
+	BRB	DO_CLASS
+
+	.ALIGN	QUAD
+
+60$:	CMPB	MON_REC, #MNR_STA$K_TYPE	; is this a states record?
+	BNEQ	300$
+	MOVAQ	STATT, R9			; address of string copy
+	BRB	DO_CLASS
+
+	.ALIGN	QUAD
+
+300$:	BRW	NEXT_RECORD			; get next record
+
+	.ALIGN	QUAD
+
+
+DO_CLASS:
+	MOVAB	MON_REC, R8		; Get start of record in register
+
+; Move data from class header to temp area
+
+	MOVQ	MNR_CLS$Q_STAMP(R8), STAMP	; quadword time stamp
+	ADDL2	#MNR_CLS$K_HDRLEN, R8		; move past header
+
+; Move data from class prefix to temp area
+
+	MOVL	MNR_CMP$L_ELTCT(R8), ELTCT	; Number of data blocks
+	ADDL2	#MNR_CMP$K_HDRLEN, R8		; move past header
+
+; Convert fixed part of data record (date/time)
+
+	PUSHAQ	STAMP			; last argument
+	PUSHAQ	DATEBUF			; output buffer
+	PUSHL	#0			; don't need size
+	PUSHAQ	BASE1			; control string
+	CALLS	#4, G^LIB$SYS_FAO	; format the string
+	BSBW	ERROR
+
+; For each data block: move data, convert data, and append to string
+
+	CMPB	MON_REC, #MNR_DSK$K_TYPE	; is this a disk record?
+	BEQL	DISK_BLOCK			; yes, we want this
+
+	CMPB	MON_REC, #MNR_MOD$K_TYPE	; is this a modes record?
+	BNEQ	10$
+	BRW	MODE_BLOCK			; yes, we want this
+
+	.ALIGN	QUAD
+10$:
+	CMPB	MON_REC, #MNR_SYS$K_TYPE	; is this a system record?
+	BNEQ	20$
+	BRW	SYST_BLOCK			; yes, we want this
+
+	.ALIGN	QUAD
+20$:
+	CMPB	MON_REC, #MNR_LCK$K_TYPE	; is this a Lock record?
+	BNEQ	30$
+	BRW	LOCK_BLOCK			; yes, we want this
+
+	.ALIGN	QUAD
+30$:
+	CMPB	MON_REC, #MNR_STA$K_TYPE	; is this a states record?
+	BNEQ	BADBLOCK
+	BRW	STAT_BLOCK			; yes, we want this
+
+; Shouldn't get here, but if we do write out what we have
+
+	.ALIGN	QUAD
+BADBLOCK:
+	BRW	WRITE_RECORD
+
+	.ALIGN	QUAD
+
+DISK_BLOCK:
+	PUSHAQ	DISKBUF			; address of string to clear
+	CALLS	#2, G^STR$FREE1_DX	; clear string
+	BSBW	ERROR
+
+DISK_PROCESS:
+
+	CVTBL	MNR_DSK$B_ALLOCLS(R8), ALLOCLS		; allocation class
+	MOVC3	#4, MNR_DSK$T_CTRLR(R8), CTRLR		; controller name
+	CVTWL	MNR_DSK$W_UNITNO(R8), UNITNO		; unit number
+	MOVC3	#12, MNR_DSK$T_VOLNAME(R8), VOLNAME	; volume name
+
+	PUSHL	MNR_DSK$L_IOQUELN(R8)	; last argument
+	PUSHL	MNR_DSK$L_OPCNT(R8)
+	PUSHAB	VOLNAME
+	PUSHL	#12.			; length of volume
+	PUSHL	UNITNO
+	PUSHAB	CTRLR
+	PUSHL	ALLOCLS			; first argument
+	PUSHAQ	BIGBUF			; output buffer
+	PUSHL	#0			; don't need size
+	PUSHAQ	DISK1			; control string
+	CALLS	#10, G^LIB$SYS_FAO	; format the string
+	BSBW	ERROR
+
+	PUSHAQ	BIGBUF			; address of string to append
+	PUSHAQ	DISKBUF			; address of string receiving more
+	CALLS	#2, G^STR$APPEND	; append date/time to base string
+	BSBW	ERROR
+
+	DECL	ELTCT			; count elements
+	BGTR	10$			; branch if not all done
+
+	MOVAQ	DISKBUF, R10		; save address of buffer
+	BRW	WRITE_RECORD
+
+	.ALIGN	QUAD
+
+10$:	ADDL2	#MNR_DSK$K_RECLEN, R8	; offset to next block
+	BRW	DISK_PROCESS		; repeat
+
+	.ALIGN	QUAD
+
+MODE_BLOCK:
+
+	CVTBL	MNR_MOD$B_CPUID(R8), CPUID	; must convert for FAO
+
+	PUSHL	MNR_MOD$L_IDLE(R8)	; other values passed directly
+	PUSHL	MNR_MOD$L_COMPAT(R8)	; to FAO
+	PUSHL	MNR_MOD$L_USER(R8)
+	PUSHL	MNR_MOD$L_SUPER(R8)
+	PUSHL	MNR_MOD$L_EXEC(R8)
+	PUSHL	MNR_MOD$L_KERNEL(R8)
+	PUSHL	MNR_MOD$L_MPSYNC(R8)
+	PUSHL	MNR_MOD$L_INTER(R8)
+	PUSHL	CPUID			; first argument
+	PUSHAQ	MODEBUF			; output buffer
+	PUSHL	#0			; don't need size
+	PUSHAQ	MODE1			; control string
+	CALLS	#12, G^LIB$SYS_FAO	; format the string
+	BSBW	ERROR
+
+	MOVAQ	MODEBUF, R10		; address of string to append
+
+	DECL	ELTCT			; count elements
+	BGTR	10$
+	BRW	WRITE_RECORD		; if le 0, all done
+
+	.ALIGN	QUAD
+
+10$:	ADDL2	#MNR_MOD$K_RECLEN, R8	; offset to next block
+	BRB	MODE_BLOCK		; repeat
+
+	.ALIGN	QUAD
+
+STAT_BLOCK:
+
+	PUSHL	MNR_STA$L_CUR(R8)	; all data values can be
+	PUSHL	MNR_STA$L_COMO(R8)	; passed directly to FAO
+	PUSHL	MNR_STA$L_COM(R8)
+	PUSHL	MNR_STA$L_FPG(R8)
+	PUSHL	MNR_STA$L_SUSPO(R8)
+	PUSHL	MNR_STA$L_SUSP(R8)
+	PUSHL	MNR_STA$L_HIBO(R8)
+	PUSHL	MNR_STA$L_HIB(R8)
+	PUSHL	MNR_STA$L_LEFO(R8)
+	PUSHL	MNR_STA$L_LEF(R8)
+	PUSHL	MNR_STA$L_PFW(R8)
+	PUSHL	MNR_STA$L_CEF(R8)
+	PUSHL	MNR_STA$L_MWAIT(R8)
+	PUSHL	MNR_STA$L_COLPG(R8)
+	PUSHAQ	STATBUF			; output buffer
+	PUSHL	#0			; don't need size
+	PUSHAQ	STAT1			; control string
+	CALLS	#17, G^LIB$SYS_FAO	; format the string
+	BSBW	ERROR
+
+	MOVAQ	STATBUF, R10		; address of string to append
+
+; This only happens once (I hope)
+
+	BRW	WRITE_RECORD
+
+	.ALIGN	QUAD
+
+LOCK_BLOCK:
+
+	PUSHL	MNR_LCK$L_NUMRES(R8)	; all data values can be passed
+	PUSHL	MNR_LCK$L_NUMLOCKS(R8)	; directly to FAO
+	PUSHL	MNR_LCK$L_DLCKFND(R8)
+	PUSHL	MNR_LCK$L_DLCKSRCH(R8)
+	PUSHL	MNR_LCK$L_ENQNOTQD(R8)
+	PUSHL	MNR_LCK$L_ENQWAIT(R8)
+	PUSHL	MNR_LCK$L_BLKAST(R8)
+	PUSHL	MNR_LCK$L_DEQ(R8)
+	PUSHL	MNR_LCK$L_ENQCVT(R8)
+	PUSHL	MNR_LCK$L_ENQNEW(R8)
+	PUSHAQ	LOCKBUF			; output buffer
+	PUSHL	#0			; don't need size
+	PUSHAQ	LOCK1			; control string
+	CALLS	#13, G^LIB$SYS_FAO	; format the string
+	BSBW	ERROR
+
+	MOVAQ	LOCKBUF, R10		; address of string to append
+
+; This only happens once
+
+	BRW	WRITE_RECORD
+
+	.ALIGN	QUAD
+
+SYST_BLOCK:
+
+	PUSHL	MNR_SYS$L_BUSY(R8)	; data values passed directly
+	PUSHL	MNR_SYS$L_OTHSTAT(R8)	; to FAO
+	PUSHL	MNR_SYS$L_PROCS(R8)
+	PUSHL	MNR_SYS$L_FAULTS(R8)
+	PUSHL	MNR_SYS$L_PREADIO(R8)
+	PUSHL	MNR_SYS$L_FREECNT(R8)
+	PUSHL	MNR_SYS$L_MFYCNT(R8)
+	PUSHL	MNR_SYS$L_DIRIO(R8)
+	PUSHL	MNR_SYS$L_BUFIO(R8)
+	PUSHAQ	SYSTBUF			; output buffer
+	PUSHL	#0			; don't need size
+	PUSHAQ	SYST1			; control string
+	CALLS	#12, G^LIB$SYS_FAO	; format the string
+	BSBW	ERROR
+
+	MOVAQ	SYSTBUF, R10		; address of string to append
+
+; This only happens once (I hope), fall through to write block
+
+WRITE_RECORD:
+	TSTL	S1_FLAG			; is this special processing?
+	BNEQ	5$			; branch if yes
+	BRW	40$			; branch if not
+
+; one big record (special1) processing here
+
+; First record is different
+
+5$:	TSTL	FIRSTREC		; is this the first record?
+	BEQL	10$			; branch if not
+
+	CLRL	FIRSTREC		; mark first record done
+	PUSHAQ	FIRSTT			; address of output header
+	PUSHAQ	BIGBUF			; address of string receiving more
+	CALLS	#2, G^STR$COPY_DX	; copy record name to base string
+	BSBW	ERROR
+	BRW	210$			; write just header
+
+	.ALIGN	QUAD
+
+; Not first record
+
+; System block should come last (record type is highest at 17) so use
+; it to flush combined records.
+
+10$:	CMPB	MON_REC, #MNR_SYS$K_TYPE	; is this a system record?
+	BEQL	20$				; branch if yes
+	BRW	NEXT_RECORD			; no, must wait for more data
+
+	.ALIGN	QUAD
+20$:
+	PUSHAQ	DATEBUF			; address of string to copy
+	PUSHAQ	BIGBUF			; address of string receiving more
+	CALLS	#2, G^STR$COPY_DX	; start with date/time
+	BSBW	ERROR
+
+	PUSHAQ	SYSTBUF			; address of string to append
+	PUSHAQ	BIGBUF			; address of string receiving more
+	CALLS	#2, G^STR$APPEND	; append date/time to base string
+	BSBW	ERROR
+
+	PUSHAQ	MODEBUF			; address of string to append
+	PUSHAQ	BIGBUF			; address of string receiving more
+	CALLS	#2, G^STR$APPEND	; append date/time to base string
+	BSBW	ERROR
+
+	PUSHAQ	STATBUF			; address of string to append
+	PUSHAQ	BIGBUF			; address of string receiving more
+	CALLS	#2, G^STR$APPEND	; append date/time to base string
+	BSBW	ERROR
+
+	PUSHAQ	LOCKBUF			; address of string to append
+	PUSHAQ	BIGBUF			; address of string receiving more
+	CALLS	#2, G^STR$APPEND	; append date/time to base string
+	BSBW	ERROR
+
+	PUSHAQ	DISKBUF			; address of string to append
+	PUSHAQ	BIGBUF			; address of string receiving more
+	CALLS	#2, G^STR$APPEND	; append date/time to base string
+	BSBW	ERROR
+
+	BRB	210$			; write record
+
+	.ALIGN	QUAD
+
+; one output record per input record processing here
+
+40$:	PUSHL	R9			; address of record type
+	PUSHAQ	BIGBUF			; address of string receiving more
+	CALLS	#2, G^STR$COPY_DX	; copy record name to base string
+	BSBW	ERROR
+
+	PUSHAQ	DATEBUF			; address of string to append
+	PUSHAQ	BIGBUF			; address of string receiving more
+	CALLS	#2, G^STR$APPEND	; append date/time to base string
+	BSBW	ERROR
+
+	PUSHL	R10			; address of string to append
+	PUSHAQ	BIGBUF			; address of string receiving more
+	CALLS	#2, G^STR$APPEND	; append disk to base string
+	BSBW	ERROR
+
+210$:	MOVL	BIGBUF+DSC$A_POINTER, OUT_RAB+RAB$L_RBF	; buffer address
+	MOVW	BIGBUF+DSC$W_LENGTH, OUT_RAB+RAB$W_RSZ	; and size
+
+; Output the record
+
+	$PUT	RAB = OUT_RAB
+	BSBW	ERROR
+
+	BRW	NEXT_RECORD		; get next record
+
+	.ALIGN	QUAD
+
+FINISH:
+	$CLOSE	FAB = MON_FAB		; Close the input file
+	BSBW	ERROR
+
+	$CLOSE	FAB = OUT_FAB		; Close the output file
+	BSBW	ERROR
+
+	$EXIT_S	CODE = #SS$_NORMAL
+
+	RET				; needed for Alpha
+
+; If any errors occur, the program exits with the error status
+
+	.ALIGN	QUAD
+
+.IF DEFINED ALPHA
+
+ERROR:	.JSB32_ENTRY	PRESERVE=R0
+
+.IFF
+
+ERROR::					; Check system service status (in R0)
+
+.ENDC
+	BLBC	R0, ERR			; If low bit clear then error occurred
+	RSB				; No errors so return
+
+	.ALIGN	QUAD
+
+ERR:	$EXIT_S	CODE = R0		; Error occurred, exit with status
+
+	.END	MON_BINARY

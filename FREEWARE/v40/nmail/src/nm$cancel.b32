@@ -1,0 +1,570 @@
+%title 'Nmail job killer'
+module nm$cancel(
+    	        ident='16',
+    	        addressing_mode(external=general)
+                ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1991, 1992, 1993, 1994
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	15-Aug-1985
+!
+! Revision history:
+!
+!   01  14-Oct-1985
+!	Support for cancellation of jobs belonging to
+!	another user (/USER qualifier)
+!
+!   02	14-Nov-1985
+!	Remove local literal definitions for sizes of
+!	queue names, etc.
+!
+!   03	15-Apr-1986
+!	Don't call JBC$_NOSUCHQUE unexpected.
+!
+!   04	17-Apr-1986
+!	Add VOLATILEs to data referenced from item lists.
+!
+!   05	19-Apr-1986
+!	. Use common routine NM$NEXT_QUEUE to help in queue scan.
+!	. Support /LOG qualifier
+!
+!   06	22-Apr-1986
+!	Use CH$EQL/CH$NEQ rather than STR$COMPARE
+!
+!   07	2-Sep-1987
+!	Remove NM$FIND_ENTRY to module NM$QUESUBS, since
+!	it's needed by the new RELEASE command as well
+!
+!   08	7-Feb-1989
+!	Use new $GETQUI item to return file-id, rather than
+!	using the filespec (which may be wrong)
+!
+!   09	18-Feb-1989
+!	Add return-to-sender option
+!
+!   10	24-Feb-1989
+!	Add handler to deallocate dynamic strings on unwinds
+!
+!   11	16-Dec-1991	Cathy Wright
+!	Alpha porting modifications.
+!
+!   12	7-May-1992
+!	Merge VAX, ALPHA cases
+!
+!   13	4-Jul-1992
+!	Add some VOLATILE attributes
+!
+!   14	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!
+!   15	18-Nov-1993
+!	Add support for giving a reason for the return-to-sender
+!	case (only in format6 or later control files)
+!
+!   16	14-Jan-1994
+!	Tweaks to JBC$_xxx status use, in the interest of
+!	consistency.
+!--
+
+
+!
+! Library calls
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+! 
+! Internal routines
+!
+forward routine
+    nm$delete_file,
+    nm$mark_file,
+    nm$chand;
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+%sbttl 'kill queue entry'
+global routine nm$cancel_entry (
+			       entry_num : alias, 
+			       flags     : block[,byte],
+			       user      : ref descrip,
+			       reason	 : ref descrip
+			       ) =
+
+!++
+! Functional description:
+!
+! Routine which cancels a single Nmail message (identified by
+! queue entry number).  The entry is removed from the system 
+! queues, and associated files are deleted.
+!
+! Formal parameters:
+!
+! entry_num.rl.v = entry number to be killed
+! flags.rl.v     = option flags
+!		     can$v_user = user name owning job
+!		     otherwise, job is owned by self
+!		     can$v_log  = be chatty
+!		     can$v_rts  = return to sender
+! user.rt.dx1    = user name for entry to be killed, if can$v_user set
+! reason.rt.dx1  = message text giving reason, if can$v_rts set
+!
+! Routine value:
+!
+! status.wlc.v = true if it worked
+!		 false otherwise
+!
+!--
+
+    begin
+
+    !
+    ! Assorted scratch locations
+    !
+    local
+	status,
+	fcount,
+	dcount;
+
+    !
+    ! Data describing what we're scanning and what we've got to delete.
+    !
+    local
+	queue_list    : descrip initial($dynamic) volatile,
+	fileid_list   : blockvector[nm$k_maxfile,nm$s_fileid,byte] alias,
+	job_status    : block[%upval,byte];
+
+    !
+    ! System service item lists
+    !
+    local
+	dpy_file  : $itemlist(
+		      	qui$_file_identification, nm$s_fileid, fileid_list, 0
+			),
+        del_job   : $itemlist(
+  			sjc$_queue,               0,           0,           0,
+			sjc$_entry_number,        %upval,      entry_num,   0
+			),
+        rel_job : $itemlist(
+  			sjc$_queue,               0,           0,           0,
+			sjc$_entry_number,        %upval,      entry_num,   0,
+			sjc$_no_after_time,       0,           0,           0,
+			sjc$_no_hold,             0,           0,           0
+			);
+
+    !
+    ! Ensure we deallocate dynamic strings on unwinds
+    !
+    enable nm$freestr(queue_list);
+
+    !
+    ! Locate the indicated entry in the queues
+    !
+    status = nm$find_entry(
+		          queue_list, .entry_num, 
+			  (if .flags[can$v_user] then .user else 0),
+			  del_job, job_status
+			  );
+    if not .status 
+    then 
+	begin
+	signal(nm$_nonxjob);
+	str$free1_dx(queue_list);
+	return nm$_nonxjob;
+	end;
+    rel_job[0] = .del_job[0];
+    rel_job[1] = .del_job[1];
+
+    !
+    ! Check job is not executing or otherwise being munged around
+    ! by the job controller
+    !
+    if .job_status[qui$v_job_executing] or
+       .job_status[qui$v_job_starting] or
+       .job_status[qui$v_job_aborting]
+    then
+	begin
+	signal(nm$_jobact);
+	str$free1_dx(queue_list);
+	return nm$_jobact;
+	end;
+
+    !
+    ! Loop through all files in the job, storing the file-IDs for 
+    ! later use in deleting the files (have to delete the job before 
+    ! the files to avoid race conditions).  Note that if the job starts
+    ! up whilst we're here, there's a slight chance that we'll get
+    ! some weird error from the following code and thus crap out. Oh well.
+    !
+    fcount = dcount = 0;
+    while begin
+	  dpy_file[1] = fileid_list[.fcount,long0];
+	  status = nm$getqui(qui$_display_file, dpy_file);
+	  if not .status
+	  then 
+	      if .status neq jbc$_nomorefile and
+		 .status neq jbc$_nosuchfile
+	      then
+		  signal_stop(nm$_jbc, 0, .status);
+	  .status
+	  end
+    do
+	if .fcount lss nm$k_maxfile
+	then
+	    fcount = .fcount + 1
+	else
+	    begin
+	    signal(if .flags[can$v_rts] then nm$_filofl2 else nm$_filoflo);
+	    exitloop;
+	    end;
+
+    !
+    ! Tell job controller it can tidy up
+    !
+    status = nm$getqui(qui$_cancel_operation, %ref(0));
+    if not .status then signal_stop(nm$_jbc, 0, .status);
+
+    !
+    ! For the straightforward CANCEL case, we simply remove the
+    ! job from the queue, and then delete the work file (or files).
+    !
+    if not .flags[can$v_rts]
+    then
+        begin
+
+	!
+    	! Delete the job from the queue.  Note this is done
+	! even if the files turn out to be invalid.
+    	!
+        status = nm$sndjbc(sjc$_delete_job, del_job);
+        if not .status then signal_stop(nm$_jbc, 0, .status);
+        if .flags[can$v_log] then signal(nm$_cancel, 1, .entry_num);
+
+    	!
+    	! All the queue stuff is over with, we can now delete 
+	! the files.
+    	!
+    	incr f from 0 to .fcount-1 do
+	    begin
+	    status = nm$delete_file(fileid_list[.f,long0]);
+	    if .status then dcount = .dcount + 1;
+	    end;
+
+ 	! 	
+	! End of non-return-to-sender case
+	!
+	end
+
+    !
+    ! If return-to-sender was requested, then we have to let the
+    ! daemon do that.  We mark the files as cancelled, then release
+    ! the job so the daemon can see it.
+    !
+    else
+	begin
+
+	!
+	! Mark file for cancellation
+	!
+    	incr f from 0 to .fcount-1 do
+	    begin	
+	    status = nm$mark_file(fileid_list[.f,long0], .flags, .reason);
+	    if .status or .status eql nm$_noreasn then dcount = .dcount + 1;
+	    end;
+
+	!
+    	! Release the job if it had at least one valid file (invalid
+	! may mean a bad file, or it's already been cancelled, or it's	
+	! from the daemon). If there were no valid files, the job is 
+	! left unchanged.
+    	!
+	if .dcount neq 0 
+	then
+	    begin
+            status = nm$sndjbc(sjc$_alter_job, rel_job);
+            if not .status then signal_stop(nm$_jbc, 0, .status);
+            if .flags[can$v_log] then signal(nm$_canpend, 1, .entry_num);
+	    end;
+
+   	!
+	! End of return-to-sender case
+	!
+	end;
+
+    !
+    ! If we get to here, then it all worked (more-or-less)
+    !
+    str$free1_dx(queue_list);
+    ss$_normal
+
+    end;
+
+%sbttl 'delete file'
+routine nm$delete_file (fileid) =
+
+!++
+! Functional description:
+!
+! Given a file-id, this routine opens that file, checks it's
+! a valid control file, and then deletes it.  Invalid control
+! files are not deleted.
+!
+! Formal parameters:
+! 
+! fileid.rr.r = file-id of control file
+!
+! Routine values:
+!
+! status.wl.v = true if valid control file
+!
+!--
+
+    begin
+
+    !
+    ! Local data
+    !
+    local
+	buffer : block[nm$s_ctl_buf,byte] alias,
+	buflen : alias;
+
+    !
+    ! Catch signals
+    !
+    enable nm$chand;
+
+    !
+    ! Open the control file, read the first record (the control record)
+    !
+    nm$open_ctl_file(.fileid, buffer, buflen, false);
+    nm$read_ctl();
+
+    !
+    ! Ensure it's a control file before we make a fool of ourself.
+    !
+    if not nm$chk_ctl_file(buffer, .buflen) 
+    then 
+	signal(nm$_badfil)
+
+    !
+    ! It's a control file; close and delete it
+    !
+    else
+	nm$close_ctl_file(true);
+
+    ss$_normal
+
+    end;
+
+%sbttl 'mark file for cancellation'
+routine nm$mark_file (fileid, flags : block[,byte], reason : ref descrip) =
+
+!++
+! Functional description:
+!
+! Given a file-id, this routine opens that file, checks it's
+! a valid control file, and then marks the file for later
+! cancellation by the daemon.
+!
+! A cancellation detail record is stored for current format
+! control files (format > 5) but not for older files which
+! don't have the necessary support.
+!
+! Formal parameters:
+! 
+! fileid.rr.r  = file-id of control file
+! flags.rl.v   = option flags
+!		  can$v_user = implies third-party cancel
+! reason.rt.dx = optional reason string
+!
+! Routine values:
+!
+! status.wl.v = ss$_normal       : complete success
+!	      = nm$_noreasn      : no support for reason string (warning)
+!	      = some other error : failed
+!
+!--
+
+    begin
+
+    !
+    ! Local data
+    !
+    literal
+	maxuser = 32;
+    local
+	buffer  : block[nm$s_ctl_buf,byte] alias,
+	buflen  : alias,
+	ctl_rfa : vector[3,word],
+        can_rfa : vector[3,word],
+	retsts  : initial(ss$_normal),
+        canbuf  : block[can$s_hdr+maxuser,byte],
+        userlen;
+
+    !
+    ! Catch signals
+    !
+    enable nm$chand;
+
+    !
+    ! Open the control file, read the first record (the control record)
+    !
+    nm$open_ctl_file(.fileid, buffer, buflen, false);
+    nm$read_ctl();
+
+    !
+    ! Ensure it's a control file before we make a fool of ourself.
+    !
+    if not nm$chk_ctl_file(buffer, .buflen) 
+    then
+	begin 
+	signal(nm$_badfil);
+	return nm$_badfil;
+	end;
+
+    !
+    ! It's a control file; make sure it's not already being canned
+    !
+    if .buffer[ctl$v_can]
+    then
+	begin
+	signal(nm$_jobcan);
+	return nm$_badfil;
+	end;
+
+    !
+    ! Make sure the sender is willing to accept the returned message
+    !
+    if .buffer[ctl$v_norpt]
+    then
+	begin
+	signal(nm$_nonret);
+	return nm$_nonret;
+	end;
+
+    !
+    ! Prepare cancellation details
+    !
+    ch$fill(0, can$s_hdr, canbuf);
+    canbuf[can$b_type] = (if .flags[can$v_user] then can$k_3rdp else can$k_can);
+    $gettim(timadr=canbuf[can$q_time]);
+    nm$username(canbuf[can$t_user], maxuser, userlen);
+
+    !
+    ! If supported, write a cancellation details record, and point
+    ! the control record to the cancellation record, after flushing 
+    ! to make sure it has really got into the file.
+    !
+    if .buffer[ctl$b_form] lssu 6
+    then
+	begin
+	if .reason[dsc$w_length] neq 0 then retsts = nm$_noreasn;
+	end
+    else
+	begin
+	nm$get_rfa(ctl_rfa);
+    	nm$point_eof_ctl();
+	nm$write_ctl(canbuf, can$s_hdr+.userlen);
+	nm$get_rfa(can_rfa);
+	if .reason[dsc$w_length] neq 0
+	then
+	    nm$write_ctl(.reason[dsc$a_pointer], minu(.reason[dsc$w_length],255));
+	nm$write_ctl(uplit(0), 1);
+        nm$flush_ctl();
+        nm$read_by_rfa(ctl_rfa);
+	buffer[ctl$w_canrfa0] = .can_rfa[0];
+	buffer[ctl$w_canrfa2] = .can_rfa[1];
+	buffer[ctl$w_canrfa4] = .can_rfa[2];
+	end;
+
+    !
+    ! Set flags to show the job is to be cancelled, 
+    ! rewrite the control record, and close the file again.
+    !
+    buffer[ctl$v_can]   = true;
+    buffer[ctl$v_noret] = false;
+    nm$update_ctl();
+    nm$close_ctl_file(false);
+    
+    !
+    ! Success or partial success
+    !
+    if not .retsts then signal(.retsts);
+    .retsts
+
+    end;
+
+%sbttl 'condition handler'
+routine nm$chand (sig : ref block[,byte], mech : ref block[,byte]) =
+
+!++
+! Functional description:
+!
+! Fields any NM$_xxx signals. The error message is displayed,
+! and then the stack is unwound.
+!
+! Formal parameters:
+!
+! sig.mr.r  = signal array
+! mech.mr.r = mechanism array
+!
+! Routine value/condition codes:
+!
+! status.wlc.v = ss$_resignal (always, but ignored if signal was an NM$_xxx
+!	 	 error because we'll have unwound the stack)
+!
+!--
+
+    begin
+
+    bind 
+	args = sig[chf$l_sig_args] : byte,
+	cond = sig[chf$l_sig_name] : block[,byte];
+
+    !
+    ! If this is a rundown call, ensure control file gets closed
+    !
+    if .cond eql ss$_unwind
+    then
+	nm$rundown_ctl();
+
+    !
+    ! For Nmail errors only, output the error message,
+    ! then unwind the stack
+    !
+    if .cond[sts$v_fac_no] eql nmail$_facility
+    then
+	begin
+	args = .args - 2;
+	$putmsg(msgvec=.sig);
+        args = .args + 2;
+	$setstatus(mech, .cond);
+	setunwind();
+	end;
+
+    !
+    ! Always say resignal, which is ignored if we're unwinding
+    !
+    ss$_resignal
+
+    end;
+
+end
+eludom

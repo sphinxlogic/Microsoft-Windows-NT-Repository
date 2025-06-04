@@ -1,0 +1,169 @@
+$! MX_SITE_DELIVER.COM_TEMPLATE
+$!
+$! +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+$! +  DSNlink_NEW version V5.6                                               +
+$! +                                                                         +
+$! +  This is a sample file to automate DSNlink_NEW's GET Processing with    +
+$! +  MX's SITE Agent.  See DSNlink_NEW documentation for installation       +
+$! +  instructions.                                                          +
+$! +                                                                         +
+$! +  The string "*%*" marks sections you may want to modify                 +
+$! +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+$!
+$!
+$! ABSTRACT:
+$!   Provides for automatic fetching of DSNlink article text by using the 
+$!   MX SITE Agent.
+$!
+$! PARAMETERS:
+$!   P1 = ROUTE (host name or value of /ROUTE qualifier from DEFINE PATH)
+$!   P2 = filename containing entire message (including RFC822 headers)
+$!   P3 = filename containing recipient's address
+$!   P4 = originator's address
+$!
+$! PRIVILEGES REQUIRED:
+$!   This .COM file runs from the MX SITE Agent, which is fully privileged.
+$!   As written, this .COM file expects CMKRNL, OPER, and SYSPRV to be
+$!   enabled when the .COM file is started.
+$!
+$! ENVIRONMENT:
+$!   DCL, executed from MX SITE Agent.  The MX SITE Agent starts the
+$!   process without going through LOGINOUT.EXE, so SYS$LOGIN and SYS$SCRATCH
+$!   are undefined in the job table.
+$!
+$! REQUIRES:
+$!   MX mailer
+$!
+$!   The logical SYS$SCRATCH must be defined in the system or group logical
+$!   name tables, or this code needs to be modified to use a specific
+$!   scratch area for its temporary file.
+$!
+$!   This file would be named SITE_DELIVER.COM and placed in the MX_EXE:
+$!   directory.
+$!
+$!
+$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+$! 
+$! Copyright © 1991-1995 by Dan Wing.  Copyright © 1997 MadGoat Software.
+$! This code may be freely distributed and modified for no commercial gain as 
+$! long as this copyright notice is retained.  This program is supplied 
+$! 'as-is', and with no warranty.
+$!
+$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+$
+$  ON WARNING THEN GOTO ERROR
+$
+$  ! strip off stuff so we only have the local username
+$  USER = F$EDIT(P4 - ">" - "<" - F$TRNLNM("MX_VMSMAIL_LOCALHOST"),"UPCASE")
+$
+$  ! allow only certain users to activate the SITE agent
+$!*%* modify following line for your site - be sure to keep a comma in front
+$!*%* and behind the comma-separated list of authorized users.
+$  AUTHORIZED_USERS = ",SYSTEM,DWING,"
+$  IF F$LOCATE(",''USER',",AUTHORIZED_USERS) .EQ. F$LENGTH(AUTHORIZED_USERS) -
+     THEN GOTO INVALID_USER
+$
+$  ! copy the Email message to another location; we will be deleting the
+$  ! original file shortly (MX's SITE agent would delete it for us in any
+$  ! case).
+$  ! Set the file protection so the user specified in /USER=username can 
+$  ! delete the file.
+$!*%* You may need to modify SYS$SCRATCH -- see REQUIRES section, above
+$  TEMPFILE = F$PARSE("SYS$SCRATCH:DSNLINK_NEW_GET_" + F$GETJPI(0,"PID") + -
+     "_" + F$CVTIME(,,"HOUR") + F$CVTIME(,,"MINUTE") + -
+     F$CVTIME(,,"SECOND") + ".TMP",,,,"NO_CONCEAL")
+$  COPY 'P2' 'TEMPFILE'/PROTECTION=W:RD
+$
+$  ! find a good place for the batch job's .LOG file; try a few places in 
+$  ! case SYS$SCRATCH isn't defined.  Hopefully one of DSN$SCRATCH or 
+$  ! DSN$LOGS is defined (we're running DSNlink, so they should be!)!
+$  LOG_FILE = "SYS$SCRATCH:DSNLINK_NEW_GET.LOG"
+$  IF F$PARSE(LOG_FILE) .EQS. "" THEN LOG_FILE = "DSN$SCRATCH:DSNLINK_NEW_GET.LOG"
+$  IF F$PARSE(LOG_FILE) .EQS. "" THEN LOG_FILE = "DSN$LOGS:DSNLINK_NEW_GET.LOG"
+$
+$  SUBMIT_USER = "DSN$SERVER"
+$  IF F$TRNLNM("DSN$VERSION") .NES. "" THEN SUBMIT_USER = "AES_DSNLINK"  ! DSNlink V2.2 and higher
+$
+$  ! kick off the GET processing.  Any errors are sent to the user specified
+$  ! with P5, and a "Sent By:" line is put on all mail messages.
+$  SUBMIT -
+     /USER='SUBMIT_USER' -                        ! any non-privileged username will work (user has to be able to use DSN ITS)
+     /LOG_FILE='LOG_FILE' -                       ! the user needs WRITE access to this directory
+     /KEEP -
+     /noPRINTER -
+     /QUEUE=DSN$BATCH -
+     /NAME="DSNlink_NEW:get" -
+     /PARAMETERS=( -
+          "DSNLINK_NEW_DIR:DSNLINK_NEW_CONFIG.DAT", -  ! P1, config filename
+          "$GET$", -                                   ! P2, $GET
+          'TEMPFILE', -                                ! P3, articles to retrieve
+          "Specific=''USER'", -                        ! P4, groupname
+          'USER') -                                    ! P5, $ERROR$ username
+     DSNLINK_NEW_DIR:DSNLINK_NEW.COM
+$
+$  ENTRY = $ENTRY
+$
+$  REPLY/USERNAME='USER'/noNOTIFY -
+     "%DSNlink_NEW-I-SITEDONE, DSNlink_NEW GET Processing initiated (entry ''ENTRY')"
+$
+$  SET noON
+$  PURGE/LOG/KEEP=10 SYS$SCRATCH:DSNLINK_NEW_GET.LOG
+$  SET ON
+$
+$  DELETE 'P2'
+$  EXIT %X00000001
+$
+$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+$  ! An invalid user activated the SITE agent -- inform the local node's
+$  ! Postmaster (you may want to modify this to inform the user that 
+$  ! manages DSNlink_NEW, or inform multiple people, etc.)
+$INVALID_USER:
+$  ADDRFILE = "MX_SITE_DIR:DSNLINK_NEW_1_" + F$GETJPI(0,"PID") + ".TMP"
+$  MAILFILE = "MX_SITE_DIR:DSNLINK_NEW_2_" + F$GETJPI(0,"PID") + ".TMP"
+$  LOCAL_POSTMASTER = "<Postmaster" + F$TRNLNM("MX_VMSMAIL_LOCALHOST") + ">"
+$  RETURN_ADDRESS = "<DSNlink_NEW-SiteAgent" + F$TRNLNM("MX_VMSMAIL_LOCALHOST") + ">"
+$
+$  CREATE 'MAILFILE'
+$  OPEN/APPEND FILE 'MAILFILE'
+$  ! first we write the RFC822 headers
+$  WRITE FILE "From: ", RETURN_ADDRESS
+$  WRITE FILE "Subject: DSNlink_NEW SITE AGENT warning"
+$  WRITE FILE F$FAO("Date: !AS, !AS !AS !AS !AS PST", -
+     F$EXTRACT(0,3,F$CVTIME(,,"WEEKDAY")), -
+     F$CVTIME(,"ABSOLUTE","DAY"), -
+     F$CVTIME(,"ABSOLUTE","MONTH"), -
+     F$CVTIME(,"ABSOLUTE","YEAR"), -
+     F$CVTIME(,,"TIME"))
+$  WRITE FILE "To: ", LOCAL_POSTMASTER
+$  ! and a blank line
+$  WRITE FILE ""
+$  ! and now the text of the message....
+$  WRITE FILE "     DSNlink_NEW SITE AGENT warning"
+$  WRITE FILE "     Invalid user ", P4, " activated DSNlink_NEW SITE agent."
+$  WRITE FILE "     File MX_EXE:SITE_DELIVER.COM contains list of valid users."
+$  WRITE FILE ""
+$  WRITE FILE "-- begin attached file --"
+$  CLOSE FILE
+$  APPEND 'P2',SYS$INPUT: 'MAILFILE'
+-- end attached file --
+$
+$  ! create file containing the address we're sending to (RCPT TO:)
+$  OPEN/WRITE FILE 'ADDRFILE'
+$  WRITE FILE LOCAL_POSTMASTER
+$  CLOSE FILE
+$
+$  ! And get all of this into MX
+$  MX_ENTER = "$MX_EXE:MX_SITE_IN"
+$  MX_ENTER 'MAILFILE' 'ADDRFILE' "''RETURN_ADDRESS'"
+$
+$  ! delete work files
+$  DELETE 'ADDRFILE';,'MAILFILE';
+$
+$  ! and bounce the original message back to the sender
+$  EXIT %X0000002C       ! %X02C is "%SYSTEM-F-ABORT"
+$
+$!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+$  ! Generic error handler:  forces the message to bounce to back to sender
+$ERROR:
+$  EXIT_STATUS = ($STATUS .AND. %XFFFFFFF8) .OR. %X00000004  ! make it fatal
+$  EXIT 'EXIT_STATUS'

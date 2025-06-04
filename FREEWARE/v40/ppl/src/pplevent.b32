@@ -1,0 +1,2381 @@
+MODULE PPL$EVENT (ADDRESSING_MODE(EXTERNAL=GENERAL), 
+		  IDENT='V57-001'
+		  ) =
+BEGIN
+
+!
+!			  COPYRIGHT (c) 1987 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:
+!		PPL ( Parallel Processing Library )
+!
+! ABSTRACT:
+!	PPL events allow the user to define and control the occurrence of
+!	circumstances important to the application.  An event has a
+!	user-specified name and a PPL-controlled id.  An event occurs
+!	asynchronously with respect to its target parties.  An event is
+!	triggered under user-defined circumstances by any participant in the
+!	application.
+!
+!	Notification of an event is available to any participant(s) in the
+!	application by means of an exception (signal) or an AST.  An event
+!	can also be awaited.
+!
+!	An event can be in one of 2 states - "occurred" or "not_occurred".
+!	At creation, an event is in the "not_occurred" state.
+!	An event state becomes "occurred" at the time of call to trigger_event.
+!	If there are actions enabled for that event at the time of the
+!	trigger, those actions ar taken, and the state is immediately reset
+!	to "not_occurred".  If no actions are queued for that event, the state
+!	is set to "occurred", and the first caller to enable some action for
+!	the event finds the event in the "occurred" state.  This means the
+!	appropriate actions are immediately taken, and the state is reset
+!	to "not_occurred".
+!
+!
+!	PPL supports some pre-defined events, such as:
+!		    normal_termination
+!		    abnormal_termination
+!
+! ENVIRONMENT: 
+!		Multi-process-, multi-processor-, multi-thread-, and
+!		AST-reentrant.
+!
+! IMPLEMENTATION NOTES:
+!
+!   You can create an event, then enable it for notification to you in one
+!   of 3 ways - AST, signal, or wait - and you can trigger it.
+!
+!TRIGGER:
+!	lock event;
+!	if (state = not_occurred) then
+!	    state = occurred;
+!	    process queue;
+!	else	!state = occurred can't happen
+!	    null;	!so a 2nd trigger won't get in here until the unlock
+!	endif;		!we presume 2 conflicting triggers is rare
+!	unlock event;
+!ENABLE:
+!	lock event;
+!	if (state = occurred) then	!i just do my request now & clear state-
+!	    state = not_occurred;	!this case (trigger before enable) only 
+!	    unlock event;		!lets the 1st one thru for that trigger
+!	    post_event (event);
+!	else	!state = not_occurred	!add me at the end
+!	    Q my request at tail;
+!	    unlock event;
+!	endif;
+!
+! Both routines have an exception handler so if something happens before the
+! unlock_event, the handler can unlock it.
+!
+! If we queued triggers, we'd have to insert enables in the middle of the queue,
+! which we don't want to, and can't anyway.
+!
+! All this is only slightly complicated by the fact that the information is
+! actually queued in 2 places - pplsect_block and context_block.
+!
+!--
+!<BLF/PAGE>
+
+!++
+!
+! AUTHOR:	Doug Ray, CREATION DATE: (07-13-87)
+!
+!
+! MODIFIED BY:
+!
+! X01-000	- Original version				DLR 13-JUL-1987
+!
+! X01-001	- Add spin_wait and notify_one support.		DLR  9-NOV-1987
+!
+! X2		- Take out spin-wait argument to create_event	DLR 28-JAN-1987
+!		  pending proof of its utility.
+!
+! V50-001	- Fix for PPL$Name_Lookup returning PPL$_Normal instead of
+!		    SS$_Normal					WWS  6-Jul-1988
+!		    
+! V50-002	- Updated the routine comments to include a complete set of
+!		    completion codes				WWS  7-Jul-1988
+!
+! V51-001	- Replaced uses of local PPLSECT by global PPL$$GL_PPLSECT
+!		- Added "output" parameter to PPL$AWAIT_EVENT
+!		- Added CR_Handler -- Critical Region Handler to reenable ASTs
+!		- Changed CTX_A_MY_PROC to CTX_L_MY_PROC
+!		- Reformatted debugging messages
+!		- Streamlined the event handling routines
+!		- Added Interlock_ on PPL$Read_Event		WWS  9-Sep-1988
+!
+! V53-001	- Added PPL$Disable_Event			WWS 21-Feb-1989
+!
+! V53-002	- Added PPL$Reset_Event				WWS  7-Mar-1989
+!		- Removed declarations and references to local ctx
+!
+! V53-003	- Reworked debugging code, replacing UTIL$OUTPUT
+!		  by DEBUG_MSG_					WWS 28-Apr-1989
+!
+! V53-004	- Changed DEBUG_MSG_ to take a string literal 
+!		  instead of an %ascid				WWS 28-Apr-1989
+!
+! V53-005	- Moved EQEs from PROC_BLOCK to CTX_BLOCK	WWS 17-May-1989
+!
+! V53-006	- Fixed critical region lockout in PPL$$TRIGGER_PPL_EVENT
+!		  like we had for PPL$TRIGGER_EVENT, and added an unwind
+!		  handler to reenable ASTs.			WWS 17-May-1989
+!
+! V53-007	- additions for event deletion			HPO 27-JUN-1989
+!
+! V53-008	- Modified call to PPL$$Post_Event in PPL$Tell
+!		  to pass trigger parameters by value.  	WWS 28-Jul-1989
+!
+! V53-009	- Fixed mutex inconsistency in ppl$await_event  PJC 15-Aug-1989
+!		- Added clear ev_v_lock inside of		WWS 
+!		  ppl$trigger_event on return from do_actions_for
+!		- Modified calls in do_actions_for to pass trigger
+!		  parameters by value.
+!
+! V53-010	- Added event debug statements			PJC 25-Oct-1989
+!		- replaced ss$_syserror with ppl$_badlogic
+!
+! V53-011	- Added ppl$$condition_handler to numerous	PJC 30-Nov-1989
+!		  routines.
+!
+! V57-001	- EVMS/Alpha port				PJC 12-Nov-1991
+!
+! V57-002	- Add check to ppl$disable_event to see if	PJC 02-Feb-1993
+!		  event may already have been disabled. 
+!
+! V57-003	- Fix two memory leaks in event code.		PJC 22-Feb-1993
+!
+! V57-004	- Add code to support the PPL$M_IGNORE_EXITS	PJC 06-Aug-1993	
+!		  flag to be used with PPL$CREATE_APPLICATION.
+!--
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+
+LIBRARY 'RTLSTARLE';			! System symbols
+LIBRARY 'SYS$LIBRARY:XPORT';
+UNDECLARE %QUOTE $DESCRIPTOR;		! clears up conflict
+LIBRARY 'OBJ$:PPLLIB';
+REQUIRE 'RTLIN:RTLPSECT';		! Define DECLARE_PSECTS macro
+
+!
+! FORWARD ROUTINE
+!
+FORWARD ROUTINE
+    ppl$$post_event,
+    ppl$$post_event_deletion,   ! deletes eqe blocks 
+    ppl$create_event,
+    do_actions_for,
+    ppl$trigger_event,
+    ppl$await_event,
+    ppl$enable_event_ast,
+    ppl$enable_event_signal,
+    ppl$read_event,
+    ppl$disable_event,
+    ppl$reset_event;
+
+!
+! EQUATED SYMBOLS:
+!
+GLOBAL LITERAL
+    ppl$end_marker  = -1;   !fake ID inserted to indicate end of queue of IDs
+
+
+!
+! PSECT DECLARATIONS
+!
+DECLARE_PSECTS (PPL);		! coordinate psects for transfer vector use
+
+!
+! OWN STORAGE:
+!
+
+!
+! LINKAGE DECLARATIONS;
+!
+LINKAGE
+    jsb_r0_r01 =	jsb(register=0;register=0,register=1):
+			preserve (2,3,4,5,6,7,8,9,10,11);
+
+!
+! EXTERNAL ROUTINES
+!
+EXTERNAL ROUTINE
+    ppl$$condition_handler,
+    ppl$$name_lookup,			    !look for a name & its element block
+    str$analyze_sdesc_r1    : JSB_R0_R01;   !cleanse string descriptor
+
+!
+! EXTERNAL REFERENCES
+!
+EXTERNAL
+    ppl$$gl_pplsect : ref pplsect_block,
+    ppl$$gl_context : ref ctx_block;
+
+
+!
+! MACROS:
+!
+
+macro
+    validate_event_id_ =
+    (
+    local
+	    stats,	    
+            sdesc   :   $bblock[dsc$c_s_bln];
+
+    builtin nullparameter;
+
+    if (.ppl$$gl_pplsect eql 0) or (.ppl$$gl_context eql 0) then
+        return ppl$_noinit;			
+
+    if nullparameter (event_id) then
+	return ppl$_invarg;
+
+    !+
+    ! On normal exit and abnormal exit events check to see that 
+    ! they have been created.  It is possible that the user specified
+    ! PPL$M_IGNORE_EXITS upon application creation - which would
+    ! cause the events to be created only upon first use (ie, here).
+    !-
+
+    if (.event_id[0] eql ppl$k_normal_exit) then
+     if (.ppl$$gl_pplsect[pplsect_l_normal_exit_ev] eql 0) then
+      (
+      sdesc[dsc_l_length] = %charcount(x_normal_exit_event);
+      sdesc[dsc$a_pointer] = uplit byte(x_normal_exit_event);
+      stats = ppl$create_event (ppl$$gl_pplsect[pplsect_l_normal_exit_ev],
+                                    sdesc[base_]);
+      if not .stats then return .stats;
+      event = (.ppl$$gl_pplsect[pplsect_l_normal_exit_ev] + .ppl$$gl_pplsect);
+      )
+     else
+      event = (.ppl$$gl_pplsect[pplsect_l_normal_exit_ev] + .ppl$$gl_pplsect)
+    else if (.event_id[0] eql ppl$k_abnormal_exit) then
+     if (.ppl$$gl_pplsect[pplsect_l_abnormal_exit_ev] eql 0) then
+      (
+      sdesc[dsc_l_length] = %charcount(x_abnormal_exit_event);
+      sdesc[dsc$a_pointer] = uplit byte(x_abnormal_exit_event);
+      stats = ppl$create_event (ppl$$gl_pplsect[pplsect_l_abnormal_exit_ev],
+                                    sdesc[base_]);
+      if not .stats then return .stats;
+      event = (.ppl$$gl_pplsect[pplsect_l_abnormal_exit_ev] + .ppl$$gl_pplsect);
+      )
+     else
+      event = (.ppl$$gl_pplsect[pplsect_l_abnormal_exit_ev] + .ppl$$gl_pplsect)
+    else
+	(
+	event = .event_id[0] + .ppl$$gl_pplsect;
+	if (.event[ev_v_deleted]) then
+	    return ppl$_inveleid;
+	if (.event[ev_l_eid] neq .event_id[0]) then
+	    return ppl$_inveleid;
+	if (.event[ev_l_type] neq ppl$k_event) then
+	    return ppl$_inveletyp;
+	);
+    )
+    %;	!end validate_event_id_
+
+
+!+
+! This macro locates an Event Queue Entry in the current process's context event
+! queue.
+! 
+! Note:  this macro assumes that EVENT is already initialized in the
+! calling routine
+!-
+macro
+    find_entry_ (event, eqe) =
+	begin
+	local
+	    start   : unsigned long;
+
+	start = ppl$$gl_context[ctx_q_events] - %fieldexpand_(eqe_l_flink,0);
+	eqe = first_sr_(.start, eqe_l_flink);
+	while (eqe[base_] neq .start) do
+	    begin		    !scan the process-local enabled event list
+	    if (.eqe[eqe_l_eid] eql .event[ev_l_eid]) then    !it's what we want
+		EXITLOOP;
+	    eqe = next_sr_(eqe[base_], eqe_l_flink);
+	    end;
+	if (eqe[base_] eql .start) then false else true
+	end
+    %;
+
+!+
+! This macro locates an Event Queue Entry in the current process's context event
+! queue.
+! 
+! Note:  this macro makes no assumptions on the existance of the EVENT - block 
+!-
+macro
+    find_matching_entry_ (event_id, eqe) =
+	begin
+	local
+	    start   : unsigned long;
+
+	start = ppl$$gl_context[ctx_q_events] - %fieldexpand_(eqe_l_flink,0);
+	eqe = first_sr_(.start, eqe_l_flink);
+	while (eqe[base_] neq .start) do
+	    begin		    !scan the process-local enabled event list
+	    if (.eqe[eqe_l_eid] eql .event_id) then    !it's what we want
+		EXITLOOP;
+	    eqe = next_sr_(eqe[base_], eqe_l_flink);
+	    end;
+	if (eqe[base_] eql .start) then false else true
+	end
+    %;
+
+
+macro
+    clear_eqe_ (eqe) =
+	    !leave flink/blink and eid alone
+	    !leave trigprm alone, as it will be over-writen with the new value,
+	    ! and the old value may still be required right up until it is
+	    ! overwritten.  Eg, if a process has enabled an AST for the event
+	    ! and is also awaiting it, and if the AST handler re-enables the
+	    ! event, then when the AST is delivered, the re-enabling would zero
+	    ! the trgprm before the await got a chance to return it.
+	    !it's queued for an event, but it's not enabled 
+	    ! (ie, eqe[eqe_v_enabled] = 0)
+        (
+	eqe[eqe_a_astrtn] = 0;
+	eqe[eqe_l_astprm] = 0;
+	eqe[eqe_l_sig_value] = 0;
+	eqe[eqe_v_ast] = 0;
+	eqe[eqe_v_signal] = 0;
+	eqe[eqe_v_blocked] = 0;
+        )
+        %;
+
+macro
+        x_normal_exit_event   = 'ppl$normal_exit' %,
+        x_abnormal_exit_event = 'ppl$abnormal_exit' %;
+
+
+
+%SBTTL 'ROUTINE: PPL$$POST_EVENT - do event notification'
+
+GLOBAL ROUTINE PPL$$POST_EVENT
+    (
+        event		: ref event_block,	!in
+	trig_param_1	: unsigned long,	!in
+	trig_param_2	: unsigned long,	!in
+	trig_param_3	: unsigned long 	!in
+    ) =
+begin
+
+! Deliver notification of an event in the context of this process.
+! Invoked by trigger_event, or at ast level by got_back_again.
+
+builtin
+    testbitsc;
+
+
+local
+    eqe		: ref eqe_block,
+    start	: unsigned long,
+    ast_status	: volatile unsigned long,
+    status	: unsigned long,
+    dummy	: unsigned long volatile,
+    top_flag    : unsigned volatile long,
+    mutex_flag  : unsigned volatile long,
+    mutex       : unsigned volatile long;
+
+enable		! handler variables are initially zero from volatile def.
+    ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+ 
+
+%if %variant %then
+    begin
+    
+    external routine 
+	dump_event;
+
+    external
+	ppl$$gl_debug_flags;
+	    
+
+    debug_msg_(3, '!/Index: !UL, In ppl$$post_event', 
+	.ppl$$gl_context[ctx_l_my_index]);
+	
+    if (.ppl$$gl_debug_flags and  (1 ^ (2))) neq 0 then
+	dump_event (.event);
+	
+    end;
+%fi;
+
+
+enter_critical_region_;		!process-wide
+
+
+!+
+! Scan the ctx_block event list to find *the* entry with the right event_id.
+! If the user enabled both an ast & a signal, both bits are set in the eqe.
+!-
+status = ppl$_normal;
+
+if not find_entry_ (event, eqe) then	!should have found something
+    (
+    debug_msg_(3, 
+	    'Index: !UL, (ppl$$post_event) ERROR - No Event Entry found',
+	    .ppl$$gl_context[ctx_l_my_index]);
+    ppl_signal_(ppl$_badlogic);
+    );
+
+!+
+! Do the event notification.
+! Wake up first, if I have to.  Then do the signal or ast if needed.
+!-
+if testbitsc (eqe[eqe_v_blocked]) then
+    !leave eqe.v_blocked clear so the hiber loop knows it's legit
+    !We will only be waking up if this is called at ast level.
+    !So the hiber loop won't execute till this routine exits, plus whatever
+    !actions we force here.
+    (
+    ! Copy in the trigger parameter
+    if .eqe[eqe_l_trigprm] neq 0 then ppl_signal_(ppl$_badlogic);
+    eqe[eqe_l_trigprm] = .trig_param_1;
+    status = $wake ();
+
+    debug_msg_(3, 'Index: !UL, (ppl$$post_event) waking myself',
+			.ppl$$gl_context[ctx_l_my_index]);
+    );
+
+! A param specified to enable_event_ast is stored in eqe_l_astprm and a param
+! to enable_event_signal is stored in eqe_l_sig_value.
+!
+! If the user passed a param to trigger_event, it's stored in the trigger's
+! mkr.
+!
+! The params the user gets in his signal handler or AST routine is the enable
+! param, followed by the the trigger param.
+!-
+eqe[eqe_v_enabled] = false;
+
+if testbitsc(eqe[eqe_v_ast]) then	    !declare the ast
+    (
+    debug_msg_(3, 'Index: !UL, (ppl$$post_event) issuing ast',
+			.ppl$$gl_context[ctx_l_my_index]);
+    if (.eqe[eqe_l_astprm] eql 0) then	!user wants only the (1st) trigger param
+        $dclast (astadr = .eqe[eqe_a_astrtn], astprm = .trig_param_1)
+
+    else    !user gave a place to put all the info
+	(
+        bind    params  = .eqe[eqe_l_astprm] : vector [ , long, unsigned];
+	params[1] = .trig_param_1;
+        if (.trig_param_1 eql ppl$_normal_exit) or
+		(.trig_param_1 eql ppl$_abnormal_exit) then
+	    (
+	    params[2] = .trig_param_2;
+	    params[3] = .trig_param_3;
+	    );
+	$dclast (astadr = .eqe[eqe_a_astrtn], astprm = .eqe[eqe_l_astprm]);
+	);
+    );
+
+
+if testbitsc(eqe[eqe_v_signal]) then  !signal required
+    (
+    local   excp_code	: unsigned long;
+    debug_msg_(3, 'Index: !UL, (ppl$$post_event) issuing signal',
+			.ppl$$gl_context[ctx_l_my_index]);
+    leave_critical_region_;
+    if (.trig_param_1 eql ppl$_normal_exit) or
+		(.trig_param_1 eql ppl$_abnormal_exit) then
+        (
+	debug_msg_(3, 'Index: !UL, Signaling a ** PPL event **',
+			    .ppl$$gl_context[ctx_l_my_index]);
+	signal (.eqe[eqe_l_sig_value], 0,   !enable param always 1st
+		.trig_param_1, 2,  !followed by trigger param(s)
+		.trig_param_2,
+		.trig_param_3);
+	)
+    else
+	signal (.eqe[eqe_l_sig_value], 0, .trig_param_1, 0);
+    return .status;
+    );
+
+
+leave_critical_region_;
+
+.status
+
+end; !ppl$$post_event
+
+%SBTTL 'ROUTINE: PPL$$POST_EVENT_DELETION - do event deletion'
+
+GLOBAL ROUTINE PPL$$POST_EVENT_DELETION
+    (
+        event_id	!in
+    ) =
+begin
+
+! Deletion of an event in the context of this process.
+! Invoked at ast level by got_back_again.
+
+
+local
+    qh		: ref eqe_block,
+    eqe		: ref eqe_block,
+    q		: ref eqe_block,
+    status	: unsigned long,
+    ast_status	: volatile unsigned long,   
+    top_flag    : unsigned volatile long,
+    mutex_flag  : unsigned volatile long,
+    mutex       : unsigned volatile long;
+ 
+enable		! handler variables are initially zero from volatile def.
+    ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+%if %variant %then
+    begin
+    
+
+    external
+	ppl$$gl_debug_flags;
+	    
+
+    debug_msg_(3, '!/Index: !UL, In ppl$$post_event_deletion', 
+	.ppl$$gl_context[ctx_l_my_index]);
+	
+	
+    end;
+%fi;
+
+
+enter_critical_region_;		!process-wide
+
+
+!+
+! Scan the ctx_block event list to find *the* entry with the right event_id.
+!-
+
+if not find_matching_entry_ (event_id, eqe) then !should have found something
+    (
+    debug_msg_(2, 
+	    'Index: !UL, (ppl$$post_event_deletion) ERROR - No Event Entry found',
+	    .ppl$$gl_context[ctx_l_my_index]);
+    leave_critical_region_;
+    ppl_signal_(ppl$_badlogic);
+    );
+
+!+
+! Do the eqe block deletion
+!-
+
+qh = next_sr_(eqe[eqe_l_flink],eqe_l_flink);
+
+while remq_busy_(status=remqti(qh[eqe_l_flink], q)) do 0; ! extract eqe entry
+
+if remq_null_(.status) then
+    (
+    debug_msg_(2,
+	    'Index: !UL, (ppl$$post_event_deletion) ERROR no eqe entry found',
+	    .ppl$$gl_context[ctx_l_my_index]);
+     ppl_signal_(ppl$_badlogic);
+     )
+else
+     release_event_entry_(q);
+
+
+
+leave_critical_region_;
+
+    debug_msg_(2, 
+	    'Index: !UL, (ppl$$post_event_deletion) Event successfully deleted',
+	    .ppl$$gl_context[ctx_l_my_index]);
+
+return ppl$_normal;
+
+end; !ppl$$post_event_deletion
+
+
+%SBTTL 'ROUTINE: PPL$CREATE_EVENT - Creates a user-defined event'
+!
+GLOBAL ROUTINE PPL$CREATE_EVENT
+    (
+	event_id	    : ref vector [1],	!out
+	event_name	    : ref $bblock,	![in]
+	flags		    : ref vector [1]	![in]
+    ) =	
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Creates an event, and enters it in the name/id list.  The returned
+!	id is used to enable, trigger, or await the event.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value =
+!		PPL$CREATE_EVENT ( event-id,
+!				    [event-name] )
+!
+! FORMAL ARGUMENT(S):
+!
+!	EVENT-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the event.  This identifier must be
+!	used in other calls to identify the event.
+!
+!	EVENT-NAME
+!	VMS USAGE	:  char_string
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	The name of the event passed in by the user.
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/identifier List entry.
+!	
+! IMPLICIT OUTPUTS:
+!
+!	A Name/Identifier List entry, which includes the event block.
+!
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_ELEALREXI	An element of the same name already exists.
+!			( Success ).
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+!	PPL$_INCOMPEXI	An incompatible kind of element with the same
+!			name already exists.
+!
+!	PPL$_INSVIRMEM  Insufficient memory available to create the
+!			element.
+!
+!	PPL$_INVARG	Invalid argument(s).
+!
+!	PPL$_INVELENAM	Invalid element name, illegal character
+!			string.
+!
+!	Any status from ppl$initialize if this routine calls it.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+BEGIN	!ppl$create_event
+
+builtin
+	actualcount,
+	nullparameter;
+
+literal
+	k_max_args = 2,		! maximum arguments (add spin_wait later)
+	k_min_args = 1;		! minimum arguments		
+
+literal
+	m_valid_flags = ppl$m_spin_wait;
+
+local
+	proto		: event_block,			!prototype event block
+	event		: ref event_block,		!actual event block
+	ev_name		: ref $bblock [dsc$c_s_bln],	!event name ptr
+	ev_name_desc	: $bblock [dsc$c_s_bln],	!event name descriptor
+	eid		: unsigned long,		!element id
+	spin_wait	: unsigned long,		!temp for flags
+	status		: unsigned long,
+        ast_status	: unsigned volatile long,
+        top_flag	: unsigned volatile long,
+        mutex_flag	: unsigned volatile long,
+        mutex		: unsigned volatile long;
+  
+enable		! handler variables are initially zero from volatile def.
+        ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate parameters.
+!-
+if (actualcount () gtr k_max_args) or (actualcount () lss k_min_args) then
+    return ppl$_wronumarg;
+
+%( add this later
+if nullparameter (flags) then
+    spin_wait = false
+else
+    (
+    if (.flags[0] and not m_valid_flags) neq 0 then
+	return ppl$_invarg;
+    if (.flags[0] and ppl$m_spin_wait) neq 0 then
+	spin_wait = true
+    else
+	spin_wait = false;
+    );
+)%
+
+ev_name = 0;	!null pointer = null name
+if not nullparameter (event_name) then
+    (		!treat the user param with care
+    ev_name_desc[dsc$b_dtype] = dsc$k_dtype_t;
+    ev_name_desc[dsc$b_class] = dsc$k_class_s;
+    str$analyze_sdesc_r1 (event_name[base_];
+			       ev_name_desc[dsc$w_length],
+			       ev_name_desc[dsc$a_pointer]);
+    ev_name = ev_name_desc[base_];	!reset pointer to the real name
+    );
+
+verify_init_;
+
+
+!+
+! Params are ok and we've initted if we get here.
+! Now try to find an existing element of the same name.
+! If the name does not exist, it gets created here.
+!-
+ch$fill (0, event_s_bln, proto[base_]);
+proto[ev_l_type] = ppl$k_event;
+!***proto[ev_l_eid] = 0;
+
+status = ppl$$name_lookup (ev_name[base_], event, event_s_bln, proto);
+if not .status then	    ! Presumably, we got PPL$_INSVIRMEM
+    return (.status);
+
+!+
+! If the element already exists, be sure it's an event.
+!-
+if .status eql ppl$_normal then	! something already existed
+    (
+    if ( .event[ev_l_type] neq ppl$k_event ) then   !it's an event or
+	return (ppl$_incompexi);		    !it's an error
+    status = ppl$_elealrexi;
+    )
+else	    ! it just now got created, with all data portions zeroed
+    (
+%(    event[ev_v_spin_wait] = .spin_wait; )%
+    status = ppl$_normal;
+    );
+
+
+!+
+! Ensure that the EID is correctly initialized.
+!-
+eid = .event - .ppl$$gl_pplsect;
+if .event[ev_l_eid] neq .eid then
+    (				    !it's either un-initted or wrong
+    if (.event[ev_l_eid] eql 0) then
+	event[ev_l_eid] = .eid
+    else
+	ppl_signal_(ppl$_badlogic);
+    );
+
+
+!give the user the handle
+event_id[0] = .eid;
+
+.status
+
+END;	!ppl$create_event
+
+
+%SBTTL 'ROUTINE: do_actions_for'
+!
+GLOBAL ROUTINE DO_ACTIONS_FOR
+    (
+	event	    : ref event_block
+    ) =	
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Process the queue of events associated with the input event.
+!	This means requesting the event notification via ppl$$tell when
+!	the process which enabled the notification is not the current caller.
+!	Otherwise, call ppl$$post_event to do the notification here.
+!	If the trigger's notify_one flag is set, just notify 1st queued enabler.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value =
+!		do_actions_for ( event-id )
+!
+! FORMAL ARGUMENT(S):
+!
+!	EVENT-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  modify
+!	MECHANISM	:  by reference
+!
+!	The event block.
+!
+! IMPLICIT INPUTS:
+!
+!	NONE
+!	
+! IMPLICIT OUTPUTS:
+!
+!	All requests are removed from the event_block's queue of enables.
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL		Normal successful completion.
+!
+!	PPL$_NOONE_ENABLED	No one has enabled for event notification.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+! NOTES:
+!   1) See module PPL$TELL for the support it provides in actually doing the
+!	work_item requested here in the context of the targeted process -
+!	except when the targeted process is this one.
+!
+!   2) Assumption: the event mutex is locked by the caller.
+!
+!--
+begin	!do_actions_for
+
+
+external routine
+    ppl$$tell;
+
+local
+    return_status	: unsigned long,
+    stat		: unsigned long,    ! REMQHI returns
+    status		: unsigned long,    ! A real status return
+    trig		: ref mkr_block,
+    my_mkr		: ref mkr_block,
+    mkr			: ref mkr_block;
+
+
+return_status = ppl$_normal;
+my_mkr = 0;
+
+!+
+! Get the first trigger and process it.  (There has to be one.)
+!-
+while remq_busy_ (stat = remqhi (event[ev_l_triggers_f], trig)) do 0;
+if remq_null_ (.stat) then ppl_signal_(ppl$_badlogic);
+
+debug_msg_ (14, 'Index: !SL, (do_actions_for) Remove:  event !XL, mkr !XL',
+	    .ppl$$gl_context[ctx_l_my_index], event[base_], mkr[base_]);
+
+!+
+! Get the first enable, there has to be one (prime for loop)
+!-
+while remq_busy_ (stat = remqhi (event[ev_l_enables_f], mkr)) do 0;
+if remq_null_ (.stat) then ppl_signal_(ppl$_badlogic);
+
+!+
+! Process pplsect event queue, & notify each enabled eventee using ppl$$tell.
+! If the notify_one bit is set, just notify the first one on the list.
+!-
+while not remq_null_ (.stat) do
+    (
+
+    !+
+    ! If the calling process enabled the event, we'll process it here shortly.
+    ! Otherwise, tell the enabler to process the event in its own context.
+    !-
+    if (.mkr[mkr_l_pid] eql .ppl$$gl_context[ctx_l_my_index]) then	!save it till later
+	(
+	! Sanity Check:  There should only be one marker to save.  If my_mkr is
+	! non-zero, that means that we already are saving one, and we're trying
+	! to save another.
+	if .my_mkr neq 0 then ppl_signal_(ppl$_badlogic);
+	my_mkr = .mkr
+	)
+    else
+	(
+	status = ppl$$tell (.mkr[mkr_l_pid], 
+			    do_post_event,
+			    .event[ev_l_eid],
+			    .trig[mkr_l_param1],
+			    .trig[mkr_l_param2],
+			    .trig[mkr_l_param3]);
+
+	if not .status then
+	    if .return_status then
+		return_status = .status;
+        ungrab_marker_ (mkr);
+	);
+
+    if .trig[mkr_v_flag] then EXITLOOP;	!only notify one
+
+    ! Get the next enable
+    while remq_busy_ (stat = remqhi (event[ev_l_enables_f], mkr)) do 0;
+    ); !end loop
+
+
+!+
+! Do my own work, if there is any.
+!-
+if (.my_mkr neq 0) then
+    (
+    ppl$$post_event (event[base_],
+		    .trig[mkr_l_param1],
+		    .trig[mkr_l_param2],
+		    .trig[mkr_l_param3]);
+    return_status = ppl$_normal;
+    ungrab_marker_ (my_mkr);
+    );
+
+ungrab_marker_ (trig);
+
+.return_status
+
+end; !do_actions_for
+
+
+
+%SBTTL 'ROUTINE: PPL$TRIGGER_EVENT - Trigger the specified event'
+!
+GLOBAL ROUTINE PPL$TRIGGER_EVENT
+    (
+	event_id	    : ref vector [1],	!in
+	event_param	    : vector [1],	![in]
+	flags		    : ref vector [1]	![in]
+    ) =	
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Trigger the event identified by event_id, using the specified value
+!	in doing so.  Note that this value is only passed to the enabled event
+!	handler (ast routine or condition handler) if the user did not specify
+!	a param to enable_event_xxx.  For an exception, the value is raised as
+!	the exception.  For an AST routine, the value is passed as the AST
+!	argument.  The event is triggered in all application participants
+!	which have enabled it at the time of the trigger.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value =
+!		PPL$TRIGGER_EVENT ( event-id,
+!				    [event-param])
+!
+! FORMAL ARGUMENT(S):
+!
+!	EVENT-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the event.
+!
+!
+!	EVENT-PARAM
+!	VMS USAGE	:  user_arg
+!	TYPE		:  longword (unsigned)
+!	ACCESS		:  read only
+!	MECHANISM	:  by value
+!
+!	The value to be used as the event parameter.
+!
+!
+!	FLAGS
+!	VMS USAGE	:  mask_longword
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	Specifies options for the decrement_semaphore operation.  The flags
+!	argument is the value of a longword bit mask containing the flag.
+!	The bit, when set, specifies the corresponding option:
+!
+!	PPL$M_NOTIFY_ONE	Indicates that only one participant is to be
+!				notified.  If no one has enabled notification
+!				of this event, the trigger is queued for receipt
+!				by the first enabler.
+!
+!				DEFAULT:  all enabled parties will be notified
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/identifier List entry.
+!	
+! IMPLICIT OUTPUTS:
+!
+!	The event is raised in each participant which currently has it enabled,
+!	and so an AST or exception will occur in each of them.
+!
+! COMPLETION CODES:
+!
+!	PPL$_NORMAL	    Normal successful completion.
+!
+!	PPL$_WRONUMARG	    Wrong number of arguments.
+!
+!	PPL$_INVELEID	    Invalid element id.
+!
+!	PPL$_INVELETYP	    Invalid element type.
+!
+!	PPL$_INSVIRMEM	    Insufficient virtual memory available.
+!
+!	PPL$_INVARG	    Invalid argument(s).
+!
+!	PPL$_NOINIT	    PPL$INITIALIZE must be called before this routine.
+!
+!	PPL$_NOONE_ENABLED  Noone presently enabled for event notification.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+! IMPLEMENTATION NOTE:
+!	If an event fell in a forest, would it make any sound?
+!	Not until someone was ready to listen.
+!--
+
+begin	!ppl$trigger_event
+
+builtin
+    actualcount,
+    nullparameter;
+
+literal
+    k_max_args = 3,		! maximum arguments
+    k_min_args = 1;		! minimum arguments		
+
+local
+    event		: ref event_block volatile,	!event block ptr
+    ev_name		: ref $bblock [dsc$c_s_bln],	!event name ptr
+    ev_name_desc	: $bblock [dsc$c_s_bln],	!event name descriptor
+    status		: unsigned long,
+    mkr			: ref mkr_block,
+    notify_one		: unsigned long,
+    ast_status		: unsigned volatile long,	! Used in critical area
+    top_flag		: unsigned volatile long,
+    mutex_flag		: unsigned volatile long,
+    mutex		: unsigned volatile long;
+					
+
+literal
+    m_valid_flags = ppl$m_notify_one;
+
+enable		! handler variables are initially zero from volatile def.
+    ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+!+
+! Validate parameters.
+!-
+if (actualcount () gtr k_max_args) or (actualcount () lss k_min_args) then
+    return ppl$_wronumarg;
+
+notify_one = false;	!default: notify all queued enablers
+if not nullparameter (flags) then
+    (
+    if (.flags[0] and not m_valid_flags) neq 0 then
+        return ppl$_invarg;
+    !see if we should notify only one enabler
+    if (.flags[0] and ppl$m_notify_one) neq 0 then
+	notify_one = true;
+    );
+
+validate_event_id_;
+status = ppl$_normal;
+
+grab_marker_ (mkr);
+
+mkr[mkr_v_flag] = .notify_one;
+
+!set the trigger_param for use in notification
+if nullparameter (event_param)
+then
+    mkr[mkr_l_param1] = 0
+else
+    mkr[mkr_l_param1] = .event_param[0];    !save param per trigger
+
+!+
+! Disabling AST's until the mutex is released prevents your own
+! process from being locked out of the mutex.
+!
+! When the PPL$POST_EVENT leaves a critical region we still need to 
+! stop all AST's until this mutex is unlocked below.  Enabling AST's
+! too soon will cause your process to spin waiting for the lock in 
+! PPL$ENABLE_EVENT_AST.
+!-
+enter_critical_region_;
+
+!+
+! Get a mutex on the event, then check the state.
+! Do any needed event notifications, or queue the trigger.
+!-
+mutex = event[ev_v_lock];
+mutex_flag = 1;
+lock_bit_ (event[ev_v_lock]);
+
+!+
+! make sure nobody deleted event
+!-
+
+if .event[ev_v_deleted] then
+    ppl_signal_(ppl$_inveleid);
+
+!put this trigger on the list for processing
+while insq_busy_ (insqti (mkr[mkr_l_flink], event[ev_l_triggers_f])) do 0;
+
+debug_msg_ (14, 'Index: !SL, (ppl$trigger_event) Insert:  event !XL, mkr !XL',
+	    .ppl$$gl_context[ctx_l_my_index], event[base_], mkr[base_]);
+
+if not .event[ev_v_occurred] then
+    if queue_empty_ (event[ev_l_enables_f]) then    !nothing to do
+	(
+	event[ev_v_occurred] = true;
+	status = ppl$_noone_enabled;
+	)
+    else    !something to do
+	status = do_actions_for (.event)
+else	!it has occurred once in silence already - no one was ready for it
+    status = ppl$_noone_enabled;    !this is an alternate success code
+
+unlock_bit_ (event[ev_v_lock]);
+mutex_flag = 0;
+
+!+
+! We can enable AST's now that the mutex is unlocked.
+!-
+leave_critical_region_;
+
+.status
+
+
+end; !ppl$trigger_event
+
+%SBTTL 'ROUTINE: PPL$$TRIGGER_PPL_EVENT - Trigger a PPL-defined event'
+!
+GLOBAL ROUTINE PPL$$TRIGGER_PPL_EVENT
+    (
+	event_id	    : ref vector [1],	!in
+	trigger_param	    : vector [1],	![in]
+	extra_param1	    : vector [1],	![in]
+	extra_param2	    : vector [1]	![in]
+    ) =	
+
+!+
+! The essential difference beteen this and the user-visible routine is the
+! number of parameters and the trust we place in their validity.
+!-
+
+begin	!ppl$$trigger_ppl_event
+
+local
+    event	    : ref event_block volatile,	    !event block ptr
+    ev_name	    : ref $bblock [dsc$c_s_bln],    !event name ptr
+    ev_name_desc    : $bblock [dsc$c_s_bln],	    !event name descriptor
+    status	    : unsigned long,
+    mkr		    : ref mkr_block,
+    ast_status	    : unsigned long volatile,	    ! Used in critical area
+    top_flag	    : unsigned volatile long,
+    mutex_flag	    : unsigned volatile long,
+    mutex	    : unsigned volatile long;
+
+
+enable	    ! handler variables are initially zero from volatile def.
+    ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! If this is for normal_exit or abnormal exit check to see if 
+! the events have been created yet or not.  If the events 
+! haven't been created then we assume that the user passed 
+! PPL$M_IGNORE_EXITS into create application and the events
+! have yet to be initiated, so we just return.
+!-
+
+if (.event_id[0] eql ppl$k_normal_exit) then
+    if (.ppl$$gl_pplsect[pplsect_l_normal_exit_ev] eql 0) then
+	return ppl$_normal
+    else
+	event = (.ppl$$gl_pplsect[pplsect_l_normal_exit_ev] + .ppl$$gl_pplsect)
+else if (.event_id[0] eql ppl$k_abnormal_exit) then
+    if (.ppl$$gl_pplsect[pplsect_l_abnormal_exit_ev] eql 0) then
+	return ppl$_normal
+    else
+	event = (.ppl$$gl_pplsect[pplsect_l_abnormal_exit_ev] + .ppl$$gl_pplsect)
+else
+	(
+	event = .event_id[0] + .ppl$$gl_pplsect;
+	if (.event[ev_v_deleted]) then
+	    return ppl$_inveleid;
+	if (.event[ev_l_eid] neq .event_id[0]) then
+	    return ppl$_inveleid;
+	if (.event[ev_l_type] neq ppl$k_event) then
+	    return ppl$_inveletyp;
+	);
+
+status = ppl$_normal;
+
+!get a marker to save per trigger info
+grab_marker_ (mkr);
+
+mkr[mkr_v_flag] = true;	    !notify only one enabler
+mkr[mkr_l_param1] = .trigger_param;
+mkr[mkr_l_param2] = .extra_param1;
+mkr[mkr_l_param3] = .extra_param2;
+
+!+
+! Disabling AST's until the mutex is released prevents your own
+! process from being locked out of the mutex.
+!
+! When the PPL$POST_EVENT leaves a critical region we still need to 
+! stop all AST's until this mutex is unlocked below.  Enabling AST's
+! too soon will cause your process to spin waiting for the lock in 
+! PPL$ENABLE_EVENT_AST.
+!-
+enter_critical_region_;
+
+!check the state - do any needed event notifications, or count the trigger
+mutex = event[ev_v_lock];
+mutex_flag = 1;
+lock_bit_ (event[ev_v_lock]);
+
+!put this trigger on the list for processing
+while insq_busy_ (insqti (mkr[mkr_l_flink], event[ev_l_triggers_f])) do 0;
+
+debug_msg_ (14, 'Index: !SL, (ppl$trigger_ppl_event) Insert:  event !XL, mkr !XL',
+	    .ppl$$gl_context[ctx_l_my_index], event[base_], mkr[base_]);
+
+if not .event[ev_v_occurred] then
+    if queue_empty_ (event[ev_l_enables_f]) then
+	(
+	status = ppl$_noone_enabled;
+	event[ev_v_occurred] = true;
+	)
+    else    !hay trabajo
+        status = do_actions_for (.event)
+else	!it has occurred once in silence already - no one was ready for it
+    status = ppl$_noone_enabled;    !this is an alternate success code
+
+unlock_bit_ (event[ev_v_lock]);
+mutex_flag = 0;
+
+!+
+! We can enable AST's now that the mutex is unlocked.
+!-
+leave_critical_region_;
+
+.status
+
+
+end; !ppl$$trigger_ppl_event
+
+%SBTTL 'ROUTINE: PPL$AWAIT_EVENT - Wait for occurrence of an event'
+
+GLOBAL ROUTINE PPL$AWAIT_EVENT
+    (
+	event_id	    : ref vector [1],	!in
+	outprm		    : ref vector [1]	![out]
+    ) =	
+!++
+
+! FUNCTIONAL DESCRIPTION:
+!
+!	Block until the occurrence of the specified event.  If the event
+!	is in the "occurred" state at the time of the call, the call
+!	returns immediately, without blocking.
+!
+!	If the optional output parameter is specified, return the parameter
+!	specified with the trigger for this event or zero if none is specified.
+!
+!	An event becomes "occurred" when someone triggers it, and immediately
+!	goes to "not_occurred" when some action which has been enabled for
+!	the event has been taken.  If multiple requests to enable actions
+!	were queued prior to the trigger, all of them are taken at the time
+!	of the trigger.
+!
+!	NOTE: Calls to this routine are completely independent of whether the
+!	    user has issued a call to either of the enable_event_xxx routines.
+!	    This means that if an ast has been previously requested for the
+!	    same event, and if the caller then waits in this routine, the later
+!	    occurrence of the event causes the process to wake AND delivers the
+!	    AST.  Likewise for signals.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value =
+!		PPL$AWAIT_EVENT ( [event-id] )
+!
+! FORMAL ARGUMENT(S):
+!
+!	EVENT-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the event.
+!
+!	EVENT-PARAM
+!	VMS USAGE	:  user_arg
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	Optional longword to receive trigger output parameter.
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/identifier List entry.
+!	
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_NOINIT	PPL$INITIALIZE must be called before this routine.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_INSVIRMEM	Insufficient virtual memory available.
+!
+!	PPL$_INVARG	Invalid argument(s).
+!
+!	PPL$_INVELEID	Invalid element id.
+!
+!	PPL$_INVELETYP	Invalid element type.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+! Notes:
+!   The process of awaiting an event breaks down into three cases:
+!	1) The event is not currently enabled for this process, and the event
+!	    state is currently NOT_OCCURRED.
+!	2) The event is not currently enabled for this process, and the event
+!	    state is already OCCURRED.
+!	3) The event *is* currently enabled for this process.  (This implies
+!	    that the event state is currently NOT_OCCURRED.)
+!
+!   Each of these cases is handled by a separate branch of code in this routine.
+!--
+begin	!ppl$await_event
+
+builtin
+    actualcount,
+    nullparameter,
+    testbitss;
+
+external routine
+    ppl$$hiber;
+
+literal
+    k_min_args = 1,		! minimum number of arguments
+    k_max_args = 2;		! maximum number of arguments
+
+local
+    event	    : ref event_block volatile,	    !event block ptr
+    ev_name	    : ref $bblock [dsc$c_s_bln],    !event name ptr
+    ev_name_desc    : $bblock [dsc$c_s_bln],	    !event name descriptor
+    eqe		    : ref eqe_block,		    !marker for queue
+    trig	    : ref mkr_block,		    !trigger queue marker
+    mkr		    : ref mkr_block,		    !event entry marker
+    status	    : unsigned long,
+    ast_status	    : unsigned long volatile,
+    top_flag	    : unsigned volatile long,
+    mutex_flag	    : unsigned volatile long,
+    mutex	    : unsigned volatile long;
+
+
+enable	    ! handler variables are initially zero from volatile def.
+    ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+!+
+! Validate parameters.
+!-
+if (actualcount () gtr k_max_args) or (actualcount () lss k_min_args) then
+    return ppl$_wronumarg;
+
+validate_event_id_;
+
+enter_critical_region_;
+	!can't let any other thread contend for proc_blk queue
+
+!+
+! Scan the proc_block's event queue to see if this event has existed previously,
+! and if so, re-use the eqe.  Else, get a new eqe and use it.
+! Then get the marker for the pplsect's event_block.
+! We do all this up front so that the time spent under the lock is minimal.
+! It can result in a trifle more overhead for the caller when the event turns
+! out to already have occurred, but it always minimizes impact on others.
+!-
+mutex = event[ev_v_lock];
+mutex_flag = 1;
+lock_bit_ (event[ev_v_lock]);
+
+!+
+! make sure nobody deleted event
+!-
+
+if .event[ev_v_deleted] then
+    ppl_signal_(ppl$_inveleid);
+
+if find_entry_ (event, eqe) then    !we already queued something for this event
+    (				    !is it current?
+    if testbitss (eqe[eqe_v_enabled]) then  !yes - just add the wait to it
+	(
+	event[ev_l_await_cnt]= .event[ev_l_await_cnt] + 1;
+	eqe[eqe_v_blocked] = true;
+	unlock_bit_(event[ev_v_lock]);
+	mutex_flag = 0;
+	leave_critical_region_;
+	
+	while .eqe[eqe_v_blocked] do ppl$$hiber ();
+
+	enter_critical_region_;
+	mutex_flag = 1;
+	lock_bit_(event[ev_v_lock]);	
+	event[ev_l_await_cnt]= .event[ev_l_await_cnt] - 1;
+	unlock_bit_(event[ev_v_lock]);
+	mutex_flag = 0;
+
+	! Do this inside the critical region to prevent outside AST interference
+	if not nullparameter(outprm) then 
+	    begin
+	    outprm[0] = .eqe[eqe_l_trigprm];
+	    end;
+
+	eqe[eqe_l_trigprm] = 0;
+
+	leave_critical_region_;
+	
+	return ppl$_normal;
+	)
+    else
+	clear_eqe_ (eqe);    !it's an oldie - re-use it
+				    !go now & queue mkr to event
+    )
+else	!we have queued nothing else for this event
+    (
+    grab_event_entry_ (eqe);
+    eqe[eqe_l_eid] = .event[ev_l_eid];
+    while insq_busy_ (insqti (eqe[eqe_l_flink], ppl$$gl_context[ctx_q_events]))
+	do 0;
+    );
+
+!+
+! Now set up the event params, get the mkr for the event_block, and decide
+! what to do with them.
+!-
+eqe[eqe_v_enabled] = true;
+eqe[eqe_v_blocked] = true;
+
+!+
+! Lock the event_block so we can find out if it occurred.  If so, we
+! don't have to wait.  If not, we do.
+!-
+
+if .event[ev_v_occurred] then	!it happened - I can just continue now
+    (
+    while remq_busy_ (status = remqhi (event[ev_l_triggers_f], trig)) do 0;
+    if remq_null_ (.status) then ppl_signal_(ppl$_badlogic);
+
+    debug_msg_ (14, 'Index: !SL, (ppl$await_event) Remove:  event !XL, mkr !XL',
+	    .ppl$$gl_context[ctx_l_my_index], event[base_], mkr[base_]);
+
+    if remq_last_ (.status) then
+	event[ev_v_occurred] = false;	!no more triggers Qd
+
+    unlock_bit_ (event[ev_v_lock]);
+    mutex_flag = 0;
+
+    eqe[eqe_v_enabled] = false;
+
+    ! Do this inside the critical region to prevent outside AST interference
+    if not nullparameter(outprm) then 
+	outprm[0] = .trig[mkr_l_param1];
+
+    leave_critical_region_;
+
+    !I don't have to wake myself up here since I'm not asleep
+    !(on this event), so I don't call post_event.
+    !Of course, this also means any enabled ast or signal is not delivered...
+
+    ungrab_event_entry_ (eqe);
+    ungrab_marker_ (trig);
+    )
+else
+    (
+    grab_marker_ (mkr);
+
+    !mkr_l_pid holds the *participant index* on an event queue, not the PID
+    mkr[mkr_l_pid] = .ppl$$gl_context[ctx_l_my_index];
+    event[ev_l_await_cnt]= .event[ev_l_await_cnt] + 1;
+    !queue up and hiber until the event occurs
+    while insq_busy_ (insqti (mkr[mkr_l_flink], event[ev_l_enables_f])) do 0;
+    unlock_bit_ (event[ev_v_lock]); !others may need it while i'm sleeping
+    mutex_flag = 0;
+    leave_critical_region_;
+
+    while .eqe[eqe_v_blocked] do ppl$$hiber ();
+
+    enter_critical_region_;
+    mutex_flag = 1;
+    lock_bit_(event[ev_v_lock]);	
+    event[ev_l_await_cnt]= .event[ev_l_await_cnt] - 1;
+    unlock_bit_(event[ev_v_lock]);
+    mutex_flag = 0;
+
+    ! Do this inside the critical region to prevent outside AST interference
+    if not nullparameter(outprm) then
+	begin 
+	outprm[0] = .eqe[eqe_l_trigprm];
+	end;
+
+    eqe[eqe_l_trigprm] = 0;
+
+    leave_critical_region_;
+    );
+
+return ppl$_normal;
+
+end; !ppl$await_event
+
+%SBTTL 'ROUTINE: PPL$ENABLE_EVENT_AST - Enable event notification via AST'
+!
+GLOBAL ROUTINE PPL$ENABLE_EVENT_AST
+    (
+	event_id    : ref vector [1],	!in
+	astadr	    : ref vector,	!in
+	astprm	    : vector [1]	![in]
+    ) =	
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Enable delivery of the specified AST to the caller as event
+!	notification.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value =
+!		PPL$ENABLE_EVENT_AST ( event-id,
+!				    astadr,
+!				    [astprm])
+!
+! FORMAL ARGUMENT(S):
+!
+!	EVENT-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the event.
+!
+!	ASTADR
+!	VMS USAGE	:  ast_procedure
+!	TYPE		:  procedure entry mask
+!	ACCESS		:  call without stack unwinding
+!	MECHANISM	:  by reference
+!
+!	The address of the AST routine to be invoked when the event occurs.
+!
+!	ASTPRM
+!	VMS USAGE	:  user_arg
+!	TYPE		:  longword (unsigned)
+!	ACCESS		:  read only
+!	MECHANISM	:  by value
+!
+!	A value to be used as the parameter to the event AST routine.
+!
+! IMPLICIT INPUTS:
+!
+!	The event_block identified by the input id.
+!	
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_INSVIRMEM	    Insufficient virtual memory available.
+!
+!	PPL$_INVARG	    Invalid argument(s).
+!
+!	PPL$_INVELEID	    Invalid element id.
+!
+!	PPL$_INVELETYP	    Invalid element type.
+!
+!	PPL$_NOINIT	    PPL$INITIALIZE must be called before this routine.
+!
+!	PPL$_NORMAL	    Normal successful completion.
+!
+!	PPL$_WRONUMARG	    Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+begin	!ppl$enable_event_ast
+
+builtin
+    actualcount,
+    nullparameter;
+	
+literal
+    k_max_args = 3,
+    k_min_args = 2;
+
+local
+    event	: ref event_block volatile,
+    eqe		: ref eqe_block,
+    trig	: ref mkr_block,
+    mkr		: ref mkr_block,
+    status	: unsigned long,
+    ast_status	: unsigned long volatile,
+    top_flag    : unsigned volatile long,
+    mutex_flag  : unsigned volatile long,
+    mutex       : unsigned volatile long;
+
+enable		! handler variables are initially zero from volatile def.
+    ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate parameters.
+!-
+if (actualcount () gtr k_max_args) or (actualcount () lss k_min_args) then
+    return ppl$_wronumarg;
+
+if (.astadr lss 0) or
+	((.astadr gtr 0) and (.astadr lss %x'200')) then
+    return ppl$_invarg;
+if not nullparameter (astprm) then
+    if (.astprm[0] lss 0) or
+		((.astprm[0] gtr 0) and (.astprm[0] lss %x'200')) then
+	return ppl$_invarg;
+
+
+validate_event_id_;
+
+enter_critical_region_;
+
+!+
+! Scan the proc_block's event queue to see if this event has existed previously,
+! and if so, re-use the eqe.  Else, get a new eqe & use it to queue the request.
+!-
+if find_entry_ (event, eqe) then    !we already queued something for this event
+    (				    !but is it current?
+    if .eqe[eqe_v_enabled] then	    !yes - just add the ast to it
+        (			    !NOTE: OVERWRITES ANY PREVIOUS AST REQUEST
+        eqe[eqe_v_ast] = true;
+        eqe[eqe_a_astrtn] = .astadr;
+        if nullparameter (astprm) then
+            eqe[eqe_l_astprm] = 0
+	else
+            eqe[eqe_l_astprm] = .astprm[0];
+        leave_critical_region_;
+        return ppl$_normal;
+        )
+    else
+	clear_eqe_ (eqe);   !it's an oldie - re-use it
+			    !go now & queue mkr to event
+    )
+else	!we have queued nothing else for this event
+    (
+    grab_event_entry_ (eqe);
+    eqe[eqe_l_eid] = .event[ev_l_eid];
+    while insq_busy_ (insqti (eqe[eqe_l_flink], ppl$$gl_context[ctx_q_events]))
+	do 0;
+    );
+
+
+!+
+! If we get here, we have an event entry which has to get queued -
+! either we created a new one or we found an old one which wasn't in use.
+! Now set up the event params, get the mkr for the event_block, and decide
+! what to do with them.
+!-
+eqe[eqe_v_enabled] = true;
+eqe[eqe_v_ast] = true;
+eqe[eqe_a_astrtn] = .astadr;
+if nullparameter (astprm) then
+    eqe[eqe_l_astprm] = 0
+else
+    eqe[eqe_l_astprm] = .astprm[0];
+
+!+
+! Now we have all that's needed to queue to both proc_block & event_block.
+! Check the event state and proceed accordingly.
+!-
+mutex = event[ev_v_lock];
+mutex_flag = 1;
+lock_bit_ (event[ev_v_lock]);
+
+!+
+! make sure nobody deleted event
+!-
+
+if (.event[ev_v_deleted] neq 0) then
+    ppl_signal_(ppl$_inveleid);
+
+if .event[ev_v_occurred] then	!it happened - I can just continue now
+    (
+    while remq_busy_ (status = remqhi (event[ev_l_triggers_f], trig)) do 0;
+    if remq_null_ (.status) then ppl_signal_(ppl$_badlogic);
+
+    debug_msg_ (14, 'Index: !SL, (ppl$enable_event_AST) Remove:  event !XL, mkr !XL',
+	    .ppl$$gl_context[ctx_l_my_index], event[base_], mkr[base_]);
+
+    if remq_last_ (.status) then
+	event[ev_v_occurred] = false;	!no more triggers Qd
+
+    unlock_bit_ (event[ev_v_lock]);
+    mutex_flag = 0;
+
+    ppl$$post_event (event[base_],
+		    .trig[mkr_l_param1],
+		    .trig[mkr_l_param2],
+		    .trig[mkr_l_param3]);
+
+    leave_critical_region_;
+    ungrab_event_entry_ (eqe);
+    ungrab_marker_ (trig);
+    )
+else
+    (
+    ! get an event_block mkr, and show who's making this request
+
+    grab_marker_ (mkr);
+
+    ! mkr_l_pid holds the ppl participant index (not PID) on an event queue
+    mkr[mkr_l_pid] = .ppl$$gl_context[ctx_l_my_index];
+
+    !queue up the enabled action, and let user go until the event occurs
+    while insq_busy_ (insqti (mkr[mkr_l_flink], event[ev_l_enables_f])) do 0;
+    unlock_bit_ (event[ev_v_lock]);
+    mutex_flag = 0;
+    leave_critical_region_;
+    );
+
+return ppl$_normal;
+
+
+end; !ppl$enable_event_ast
+
+%SBTTL 'ROUTINE: PPL$ENABLE_EVENT_SIGNAL - Enable event notification via signal'
+!
+GLOBAL ROUTINE PPL$ENABLE_EVENT_SIGNAL
+    (
+	event_id	    : ref vector [1],	!in
+	signal_value	    : vector [1]	![in]
+    ) =	
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Enable delivery of the specified signal (if any, else the default
+!	signal ppl$_event_occurred) to the caller as event notification.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value =
+!		PPL$ENABLE_EVENT_SIGNAL ( event-id,
+!					    [signal-value] )
+!
+! FORMAL ARGUMENT(S):
+!
+!	EVENT-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the event.
+!
+!	SIGNAL-VALUE
+!	VMS USAGE	:  user_arg
+!	TYPE		:  longword (unsigned)
+!	ACCESS		:  read only
+!	MECHANISM	:  by value
+!
+!	The value to be used as the event parameter.
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/identifier List entry.
+!	
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_NOINIT	PPL$INITIALIZE must be called before this routine.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+!	PPL$_NOINIT	PPL$INITIALIZE must be called before this routine.
+!
+!	PPL$_INVELEID	Invalid element id.
+!
+!	PPL$_INVELETYP	Invalid element type.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+
+begin	!ppl$enable_event_signal
+
+builtin
+    actualcount,
+    nullparameter;
+
+literal
+    k_max_args = 2,		! maximum arguments
+    k_min_args = 1;		! minimum arguments
+
+local
+    event	: ref event_block volatile,
+    eqe		: ref eqe_block,
+    trig	: ref mkr_block,
+    mkr		: ref mkr_block,
+    status	: unsigned long,
+    ast_status	: unsigned volatile long,
+    top_flag    : unsigned volatile long,
+    mutex_flag  : unsigned volatile long,
+    mutex       : unsigned volatile long;
+
+
+enable		! handler variables are initially zero from volatile def.
+    ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate parameters.
+!-
+if (actualcount () gtr k_max_args) or (actualcount () lss k_min_args) then
+    return ppl$_wronumarg;
+
+validate_event_id_;
+
+enter_critical_region_;
+
+!+
+! Set up the local and global markers with event info.
+! If the caller has already enabled this event, we have less work to do.
+!-
+if find_entry_ (event, eqe) then    !we already queued something for this event
+    (				    !but is it current?
+    if .eqe[eqe_v_enabled] then	    !yes - add the signal to it
+	(   !Note that this can't be delivered out from under us because we're
+	    !in a process-wide critical region.  Also, event's state has to be
+	    !"not_occurred".  Can't trust the event_block without the v_lock
+	    !because another process might have made state = occurred and
+	    !dequeued my request.  If so, this process gets the notification
+	    !thru post_event like everyone else because we set the info here.
+	    !WE OVERWRITE ANY PREVIOUS SIGNAL REQUEST FOR THIS PROCESS...
+        eqe[eqe_v_signal] = true;
+	if nullparameter (signal_value) then
+	    eqe[eqe_l_sig_value] = ppl$_event_occurred
+	else
+	    eqe[eqe_l_sig_value] = .signal_value[0];
+	leave_critical_region_;
+	return ppl$_normal;
+	)
+    else
+	clear_eqe_ (eqe);   !it's an oldie - re-use it
+    )
+else	!we have queued nothing else for this event
+    (
+    grab_event_entry_ (eqe);
+    eqe[eqe_l_eid] = .event[ev_l_eid];
+    while insq_busy_ (insqti (eqe[eqe_l_flink], ppl$$gl_context[ctx_q_events]))
+	do 0;
+    );
+
+!+
+! If we get here, we have an event entry which has to get queued -
+! either we created a new one or we found an old one which wasn't in use.
+! Now set up the event params, get the mkr for the event_block, and decide
+! what to do with them.
+!-
+
+eqe[eqe_v_enabled] = true;
+eqe[eqe_v_signal] = true;
+if nullparameter (signal_value) then
+    eqe[eqe_l_sig_value] = ppl$_event_occurred
+else
+    eqe[eqe_l_sig_value] = .signal_value[0];
+
+!+
+! Now deliver the signal if the event occurred, or else just queue for it.
+!-
+mutex = event[ev_v_lock];
+mutex_flag = 1;
+lock_bit_ (event[ev_v_lock]);
+
+!+
+! make sure nobody deleted event
+!-
+
+if (.event[ev_v_deleted] neq 0) then
+    ppl_signal_(ppl$_inveleid);
+
+if .event[ev_v_occurred] then	!it happened - I can just signal now
+    (
+    while remq_busy_ (status = remqhi (event[ev_l_triggers_f], trig)) do 0;
+    if remq_null_ (.status) then ppl_signal_(ppl$_badlogic);
+
+    debug_msg_ (14, 'Index: !SL, (ppl$enable_event_signal) Remove:  event !XL, mkr !XL',
+	    .ppl$$gl_context[ctx_l_my_index], event[base_], mkr[base_]);
+
+    if remq_last_ (.status) then
+	event[ev_v_occurred] = false;	!no more triggers Qd
+
+    unlock_bit_ (event[ev_v_lock]);
+    mutex_flag = 0;
+
+    ppl$$post_event (event[base_],
+		    .trig[mkr_l_param1],
+		    .trig[mkr_l_param2],
+		    .trig[mkr_l_param3]);
+
+    leave_critical_region_;
+    ungrab_event_entry_ (eqe);
+    ungrab_marker_ (trig);
+    )
+else
+    (
+    grab_marker_ (mkr);
+    mkr[mkr_l_pid] = .ppl$$gl_context[ctx_l_my_index];
+
+    !queue up the enabled action, and let user go until the event occurs
+    while insq_busy_ (insqti (mkr[mkr_l_flink], event[ev_l_enables_f])) do 0;
+    unlock_bit_ (event[ev_v_lock]);
+    mutex_flag = 0;
+    leave_critical_region_;
+    );
+
+return ppl$_normal;
+
+end; !ppl$enable_event_signal
+
+
+%SBTTL 'ROUTINE: PPL$READ_EVENT - Read event info'
+!
+GLOBAL ROUTINE PPL$READ_EVENT
+    (
+	event_id    : ref vector [1],	!in
+	occurred    : ref vector [1]	!out
+    ) =	
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Read the current (instantaneous) state of the specified event.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value =
+!		PPL$READ_EVENT ( event-id, [occurred])
+!
+! FORMAL ARGUMENT(S):
+!
+!	EVENT-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the event.
+!
+!
+!	OCCURRED
+!	VMS USAGE	:  user_arg
+!	TYPE		:  longword (unsigned)
+!	ACCESS		:  write only
+!	MECHANISM	:  by reference
+!
+!	Returns true if the state is occurred, false otherwise.
+!
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/identifier List entry.
+!	
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_NOINIT	PPL$INITIALIZE must be called before this routine.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+!	PPL$_INVARG	Invalid argument(s).
+!
+!	PPL$_INVELEID	Invalid element id.
+!
+!	PPL$_INVELETYP	Invalid element type.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!--
+begin	!ppl$read_event
+
+builtin
+    actualcount,
+    nullparameter;
+
+literal
+    k_max_args = 2,		! maximum arguments
+    k_min_args = 1;		! minimum arguments		
+
+local
+    event		: ref event_block;		!event block ptr
+
+
+!+
+! Validate parameters.
+!-
+if (actualcount () gtr k_max_args) or (actualcount () lss k_min_args) then
+    return ppl$_wronumarg;
+
+validate_event_id_;
+
+!+
+! We are about to read from shared memory:  Interlock to insure cache consistency
+!-
+interlock_(event[ev_v_lock]);
+IF (.event[ev_v_deleted] NEQ 0) THEN RETURN PPL$_INVELEID;
+
+!+
+! Return current event state.
+!-
+occurred[0] = .event[ev_v_occurred];
+
+ppl$_normal
+
+
+end; !ppl$read_event
+
+
+%SBTTL 'ROUTINE: PPL$DISABLE_EVENT - Disable asynchronous event notification'
+!
+GLOBAL ROUTINE PPL$DISABLE_EVENT
+    (
+	event_id    : ref vector [1]	!in
+    ) =	
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Disable delivery of asynchronous event notification to the caller
+!	(Note, this has no effect on processes waiting at PPL$Await_Event)
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$DISABLE_EVENT ( event-id )
+!
+! FORMAL ARGUMENT(S):
+!
+!	EVENT-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the event.
+!
+!
+! IMPLICIT INPUTS:
+!
+!	The event_block identified by the input id.
+!	
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVELEID	    Invalid element id.
+!
+!	PPL$_INVELETYP	    Invalid element type.
+!
+!	PPL$_NOINIT	    PPL$INITIALIZE must be called before this routine.
+!
+!	PPL$_NORMAL	    Normal successful completion.
+!
+!	PPL$_WRONUMARG	    Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+begin	!ppl$disable_event
+
+builtin
+    actualcount;
+	
+literal
+    k_num_args = 1;
+
+local
+    event	: ref event_block volatile,
+    eqe		: ref eqe_block,
+    mkr		: ref mkr_block,
+    stat	: unsigned long,
+    ast_status	: unsigned long volatile,
+    top_flag    : unsigned volatile long,
+    mutex_flag  : unsigned volatile long,
+    mutex       : unsigned volatile long;
+
+enable		! handler variables are initially zero from volatile def.
+    ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate parameters.
+!-
+if (actualcount () neq k_num_args) then
+    return ppl$_wronumarg;
+
+validate_event_id_;
+
+enter_critical_region_;
+
+!+
+! Scan the proc_block's event queue to see if this event has existed previously,
+!-
+if find_entry_ (event, eqe) and .eqe[eqe_v_enabled] then
+    begin
+    if .eqe[eqe_v_blocked] then	    ! If there's a process waiting on this event
+	begin			    ! then just clear asynchronous notification
+	eqe[eqe_v_ast] = false;
+	eqe[eqe_v_signal] = false;
+	end
+    else			    ! There is no process waiting, so...
+	begin			    ! ...disable the whole event
+	local
+	    start   : unsigned long;! Used in queue manipulation macros
+
+	ungrab_event_entry_ (eqe);  ! Clear event queue entry
+
+	mutex = event[ev_v_lock];
+	mutex_flag = 1;
+	lock_bit_ (event[ev_v_lock]);! Mutex the event while we play with it
+
+!+
+! make sure nobody deleted event
+!-
+
+	IF (.event[ev_v_deleted] NEQ 0) THEN
+	    ppl_signal_(ppl$_inveleid);
+
+	! Find the beginning of the enables queue
+	start = event[ev_l_enables_f] - %fieldexpand_(mkr_l_flink,0);
+	mkr = first_sr_(.start, mkr_l_flink);
+
+	! Scan this event's enabled process list 
+	while (mkr[base_] neq .start) do
+	    begin
+	    ! Quit if it's what we want
+	    if (.mkr[mkr_l_pid] eql .ppl$$gl_context[ctx_l_my_index]) then
+		EXITLOOP;
+	    mkr = next_sr_(mkr[base_], mkr_l_flink);	! Advance to next mrk
+	    end;
+	    
+	if (mkr[base_] neq .start) then
+	    begin
+	    ! Found our marker now advance it one beyond
+	    mkr = next_sr_(mkr[base_], mkr_l_flink);
+
+	    ! Use this mkr as a "queue header", remove mkr at the tail
+	    ! queue, ie one back, the one qe want.
+	    while remq_busy_ (stat = remqti (mkr[mkr_l_flink], mkr)) do 0;
+	    confirm_ (not(remq_null_ (.stat)));  !Sanity Check
+
+	    ungrab_marker_(mkr);
+	    end;
+
+	unlock_bit_ (event[ev_v_lock]);
+	mutex_flag = 0;
+	end;
+	
+    leave_critical_region_;
+    return ppl$_normal;
+    end;
+
+leave_critical_region_;		    ! We have nothing queued for this event
+return ppl$_normal;		    ! The event was successfully disabled
+
+end; !ppl$disable_event_ast
+
+
+
+%SBTTL 'ROUTINE: PPL$RESET_EVENT - Reset event state'
+!
+GLOBAL ROUTINE PPL$RESET_EVENT
+    (
+	event_id    : ref vector [1]	!in
+    ) =	
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Reset the specified event's state to "not_occurred" and dequeue any
+!	pending triggers.
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$RESET_EVENT ( event-id )
+!
+! FORMAL ARGUMENT(S):
+!
+!	EVENT-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  read only
+!	MECHANISM	:  by reference
+!
+!	The user's handle on the event.
+!
+!
+! IMPLICIT INPUTS:
+!
+!	The event_block identified by the input id.
+!	
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVELEID	    Invalid element id.
+!
+!	PPL$_INVELETYP	    Invalid element type.
+!
+!	PPL$_NOINIT	    PPL$INITIALIZE must be called before this routine.
+!
+!	PPL$_NORMAL	    Normal successful completion.
+!
+!	PPL$_WRONUMARG	    Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+begin	!ppl$reset_event
+
+builtin
+    actualcount;
+	
+literal
+    k_num_args = 1;
+
+local
+    event	: ref event_block volatile,
+    eqe		: ref eqe_block,
+    trig	: ref mkr_block,
+    mkr		: ref mkr_block,
+    stat	: unsigned long,
+    status	: unsigned long,
+    ast_status	: unsigned long volatile,
+    top_flag    : unsigned volatile long,
+    mutex_flag  : unsigned volatile long,
+    mutex       : unsigned volatile long;
+
+enable		! handler variables are initially zero from volatile def.
+    ppl$$condition_handler(ast_status, top_flag, mutex_flag, mutex);
+
+
+!+
+! Validate parameters.
+!-
+if (actualcount () neq k_num_args) then
+    return ppl$_wronumarg;
+
+validate_event_id_;
+
+enter_critical_region_;
+
+mutex = event[ev_v_lock];
+mutex_flag = 1;
+lock_bit_ (event[ev_v_lock]);
+
+!+
+! make sure nobody deleted event
+!-
+
+if .event[ev_v_deleted] then
+    ppl_signal_(ppl$_inveleid);
+
+if not .event[ev_v_occurred] then
+    begin			    ! There is nothing to do.
+    unlock_bit_ (event[ev_v_lock]);
+    mutex_flag = 0;
+    leave_critical_region_;
+    return ppl$_normal;		    ! The event is reset
+    end;
+
+do				    ! Deque pending triggers (there's at least one)
+    begin
+    while remq_busy_ (stat = remqhi (event[ev_l_triggers_f], trig)) do 0;
+    confirm_(not(remq_null_ (.stat)));
+
+    ungrab_marker_ (trig);
+
+    debug_msg_ (14, 'Index: !SL, (ppl$reset_event) Remove:  event !XL, mkr !XL',
+	    .ppl$$gl_context[ctx_l_my_index], event[base_], mkr[base_]);
+    end
+until queue_empty_ (event[ev_l_triggers_f]); 
+
+event[ev_v_occurred] = false;	    ! The event is now reset
+
+unlock_bit_ (event[ev_v_lock]);
+mutex_flag = 0;
+
+!+
+! We can enable AST's now that the mutex is unlocked.
+!-
+leave_critical_region_;
+
+return ppl$_normal;
+
+
+end; !ppl$reset_event
+
+
+END				! End of module PPL$EVENT
+ELUDOM
+	

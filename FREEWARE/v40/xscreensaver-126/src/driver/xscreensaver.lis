@@ -1,0 +1,1248 @@
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 1
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (1)
+
+
+
+    1        	/* xscreensaver, Copyright (c) 1991-1995 Jamie Zawinski <jwz@netscape.com>
+    2        	 *
+    3        	 * Permission to use, copy, modify, distribute, and sell this software and its
+    4        	 * documentation for any purpose is hereby granted without fee, provided that
+    5        	 * the above copyright notice appear in all copies and that both that
+    6        	 * copyright notice and this permission notice appear in supporting
+    7        	 * documentation.  No representations are made about the suitability of this
+    8        	 * software for any purpose.  It is provided "as is" without express or 
+    9        	 * implied warranty.
+   10        	 */
+   11        	
+   12        	#include "version.h"
+   15        	
+   16        	/*   ========================================================================
+   17        	 *   First we wait until the keyboard and mouse become idle for the specified
+   18        	 *   amount of time.  We do this in one of three different ways: periodically
+   19        	 *   checking with the XIdle server extension; selecting key and mouse events
+   20        	 *   on (nearly) all windows; or by waiting for the MIT-SCREEN-SAVER extension
+   21        	 *   to send us a "you are idle" event.
+   22        	 *
+   23        	 *   Then, we map a full screen black window (or, in the case of the 
+   24        	 *   MIT-SCREEN-SAVER extension, use the one it gave us.)
+   25        	 *
+   26        	 *   We place a __SWM_VROOT property on this window, so that newly-started
+   27        	 *   clients will think that this window is a "virtual root" window.
+   28        	 *
+   29        	 *   If there is an existing "virtual root" window (one that already had
+   30        	 *   an __SWM_VROOT property) then we remove that property from that window.
+   31        	 *   Otherwise, clients would see that window (the real virtual root) instead
+   32        	 *   of ours (the impostor.)
+   33        	 *
+   34        	 *   Then we pick a random program to run, and start it.  Two assumptions 
+   35        	 *   are made about this program: that it has been specified with whatever
+   36        	 *   command-line options are necessary to make it run on the root window;
+   37        	 *   and that it has been compiled with vroot.h, so that it is able to find
+   38        	 *   the root window when a virtual-root window manager (or this program) is
+   39        	 *   running.
+   40        	 *
+   41        	 *   Then, we wait for keyboard or mouse events to be generated on the window.
+   42        	 *   When they are, we kill the inferior process, unmap the window, and restore
+   43        	 *   the __SWM_VROOT property to the real virtual root window if there was one.
+   44        	 *
+   45        	 *   While we are waiting, we also set up timers so that, after a certain 
+   46        	 *   amount of time has passed, we can start a different screenhack.  We do
+   47        	 *   this by killing the running child process with SIGTERM, and then starting
+   48        	 *   a new one in the same way.
+   49        	 *
+   50        	 *   If there was a real virtual root, meaning that we removed the __SWM_VROOT
+   51        	 *   property from it, meaning we must (absolutely must) restore it before we
+   52        	 *   exit, then we set up signal handlers for most signals (SIGINT, SIGTERM,
+   53        	 *   etc.) that do this.  Most Xlib and Xt routines are not reentrant, so it
+   54        	 *   is not generally safe to call them from signal handlers; however, this
+   55        	 *   program spends most of its time waiting, so the window of opportunity 
+   56        	 *   when code could be called reentrantly is fairly small; and also, the worst
+   57        	 *   that could happen is that the call would fail.  If we've gotten one of
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 2
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (1)
+
+   58        	 *   these signals, then we're on our way out anyway.  If we didn't restore the
+   59        	 *   __SWM_VROOT property, that would be very bad, so it's worth a shot.  Note
+   60        	 *   that this means that, if you're using a virtual-root window manager, you
+   61        	 *   can really fuck up the world by killing this process with "kill -9".
+   62        	 *
+   63        	 *   This program accepts ClientMessages of type SCREENSAVER; these messages
+   64        	 *   may contain the atom ACTIVATE or DEACTIVATE, meaning to turn the 
+   65        	 *   screensaver on or off now, regardless of the idleness of the user,
+   66        	 *   and a few other things.  The included "xscreensaver_command" program
+   67        	 *   sends these messsages.
+   68        	 *
+   69        	 *   If we don't have the XIdle or MIT-SCREENSAVER extensions, then we do the
+   70        	 *   XAutoLock trick: notice every window that gets created, and wait 30
+   71        	 *   seconds or so until its creating process has settled down, and then
+   72        	 *   select KeyPress events on those windows which already select for
+   73        	 *   KeyPress events.  It's important that we not select KeyPress on windows
+   74        	 *   which don't select them, because that would interfere with event
+   75        	 *   propagation.  This will break if any program changes its event mask to
+   76        	 *   contain KeyRelease or PointerMotion more than 30 seconds after creating
+   77        	 *   the window, but that's probably pretty rare.
+   78        	 *   
+   79        	 *   The reason that we can't select KeyPresses on windows that don't have
+   80        	 *   them already is that, when dispatching a KeyPress event, X finds the
+   81        	 *   lowest (leafmost) window in the hierarchy on which *any* client selects
+   82        	 *   for KeyPress, and sends the event to that window.  This means that if a
+   83        	 *   client had a window with subwindows, and expected to receive KeyPress
+   84        	 *   events on the parent window instead of the subwindows, then that client
+   85        	 *   would malfunction if some other client selected KeyPress events on the
+   86        	 *   subwindows.  It is an incredible misdesign that one client can make
+   87        	 *   another client malfunction in this way.
+   88        	 *
+   89        	 *   To detect mouse motion, we periodically wake up and poll the mouse
+   90        	 *   position and button/modifier state, and notice when something has
+   91        	 *   changed.  We make this check every five seconds by default, and since the
+   92        	 *   screensaver timeout has a granularity of one minute, this makes the
+   93        	 *   chance of a false positive very small.  We could detect mouse motion in
+   94        	 *   the same way as keyboard activity, but that would suffer from the same
+   95        	 *   "client changing event mask" problem that the KeyPress events hack does.
+   96        	 *   I think polling is more reliable.
+   97        	 *
+   98        	 *   None of this crap happens if we're using one of the extensions, so install
+   99        	 *   one of them if the description above sounds just too flaky to live.  It
+  100        	 *   is, but those are your choices.
+  101        	 *
+  102        	 *   A third idle-detection option could be implement (but is not): when
+  103        	 *   running on the console display ($DISPLAY is `localhost`:0) and we're on a
+  104        	 *   machine where /dev/tty and /dev/mouse have reasonable last-modification
+  105        	 *   times, we could just stat those.  But the incremental benefit of
+  106        	 *   implementing this is really small, so forget I said anything.
+  107        	 *
+  108        	 *   Debugging hints:
+  109        	 *     - Have a second terminal handy.
+  110        	 *     - Be careful where you set your breakpoints, you don't want this to
+  111        	 *       stop under the debugger with the keyboard grabbed or the blackout
+  112        	 *       window exposed.
+  113        	 *     - you probably can't set breakpoints in functions that are called on
+  114        	 *       the other side of a call to fork() -- if your clients are dying 
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 3
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (1)
+
+  115        	 *       with signal 5, Trace/BPT Trap, you're losing in this way.
+  116        	 *     - If you aren't using XIdle, don't leave this stopped under the
+  117        	 *       debugger for very long, or the X input buffer will get huge because
+  118        	 *       of the keypress events it's selecting for.  This can make your X
+  119        	 *       server wedge with "no more input buffers."
+  120        	 *       
+  121        	 *   ======================================================================== */
+  122        	
+  123        	#if __STDC__
+  124   X    	#include <stdlib.h>
+  125   X    	#include <unistd.h>
+  126        	#endif
+  127        	
+  128        	#ifdef VMS
+  129        	#include <signal.h>
+  226        	#include <unixlib.h>    /*for getpid*/
+  310        	#endif
+  311        	
+  312        	#include <stdio.h>
+  574        	#include <X11/Xlib.h>
+ 6002        	#include <X11/Xatom.h>
+ 6110        	#include <X11/Intrinsic.h>
+15953        	#include <X11/Xos.h>
+16276        	#ifndef VMS
+16277   X    	#include <X11/Xmu/Error.h>
+16278        	#else
+16279        	#include "sys$common:[decw$include.xmu]Error.h"
+16308        	#endif
+16309        	
+16310        	#ifdef HAVE_XIDLE_EXTENSION
+16311   X    	#include <X11/extensions/xidle.h>
+16312        	#endif /* HAVE_XIDLE_EXTENSION */
+16313        	
+16314        	#ifdef HAVE_SAVER_EXTENSION
+16315   X    	#include <X11/extensions/scrnsaver.h>
+16316        	#endif /* HAVE_SAVER_EXTENSION */
+16317        	
+16318        	#include "yarandom.h"
+16338        	#include "xscreensaver.h"
+16782        	
+16783        	extern char *get_string_resource P((char *, char *));
+16784        	extern Bool get_boolean_resource P((char *, char *));
+16785        	extern int get_integer_resource P((char *, char *));
+16786        	extern unsigned int get_minutes_resource P((char *, char *));
+16787        	extern unsigned int get_seconds_resource P((char *, char *));
+16788        	
+16789        	extern Visual *get_visual_resource P((Display *, char *, char *));
+16790        	extern int get_visual_depth P((Display *, Visual *));
+16791        	
+16792        	extern void notice_events_timer P((XtPointer closure, XtIntervalId *timer));
+16793        	extern void cycle_timer P((void *junk1, XtPointer junk2));
+16794        	extern void activate_lock_timer P((void *junk1, XtPointer junk2));
+16795        	extern void sleep_until_idle P((Bool until_idle_p));
+16796        	
+16797        	extern void ensure_no_screensaver_running P((void));
+16798        	extern void initialize_screensaver_window P((void));
+16799        	extern void disable_builtin_screensaver P((void));
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 4
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (1)
+
+16800        	
+16801        	extern void hack_environment P((void));
+16802        	extern void grab_keyboard_and_mouse P((void));
+16803        	extern void ungrab_keyboard_and_mouse P((void));
+16804        	
+16805        	extern void save_argv P((int argc, char **argv));
+16806        	
+16807        	extern void initialize_stderr P((void));
+16808        	
+16809        	char *screensaver_version;
+16810        	char *progname;
+16811        	char *progclass;
+16812        	XrmDatabase db;
+16813        	
+16814        	XtAppContext app;
+16815        	
+16816        	Display *dpy;
+16817        	Screen *screen;
+16818        	Visual *visual;
+16819        	int visual_depth;
+16820        	
+16821        	Widget toplevel_shell;
+16822        	
+16823        	Time lock_timeout;
+16824        	
+16825        	extern Time timeout;
+16826        	extern Time cycle;
+16827        	#ifndef NO_LOCKING
+16828        	extern Time passwd_timeout;
+16829        	#endif
+16830        	extern Time pointer_timeout;
+16831        	extern Time notice_events_timeout;
+16832        	extern XtIntervalId lock_id, cycle_id;
+16833        	
+16834        	Bool use_xidle_extension;
+16835        	Bool use_saver_extension;
+16836        	Bool verbose_p;
+16837        	Bool lock_p, locked_p;
+16838        	
+16839        	extern char **screenhacks;
+16840        	extern int screenhacks_count;
+16841        	extern char *shell;
+16842        	extern int nice_inferior;
+16843        	extern Window screensaver_window;
+16844        	extern Cursor cursor;
+16845        	extern Colormap cmap, cmap2;
+16846        	extern Bool fade_p, unfade_p;
+16847        	extern int fade_seconds, fade_ticks;
+16848        	extern Bool install_cmap_p;
+16849        	extern Bool locking_disabled_p;
+16850        	extern char *nolock_reason;
+16851        	extern Bool demo_mode_p;
+16852        	extern Bool dbox_up_p;
+16853        	extern int next_mode_p;
+16854        	
+16855        	#ifdef HAVE_SAVER_EXTENSION
+16856   X    	int saver_ext_event_number = 0;
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 5
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (1)
+
+16857   X    	int saver_ext_error_number = 0;
+16858        	#endif /* HAVE_SAVER_EXTENSION */
+16859        	
+16860        	static time_t initial_delay;
+16861        	
+16862        	extern Atom XA_VROOT, XA_XSETROOT_ID;
+16863        	extern Atom XA_SCREENSAVER_VERSION, XA_SCREENSAVER_ID;
+16864        	
+16865        	static Atom XA_SCREENSAVER;
+16866        	static Atom XA_ACTIVATE, XA_DEACTIVATE, XA_CYCLE, XA_NEXT, XA_PREV;
+16867        	static Atom XA_EXIT, XA_RESTART, XA_DEMO, XA_LOCK;
+16868        	
+16869        	#ifdef NO_MOTIF /* kludge */
+16870   X    	Bool demo_mode_p = 0;
+16871   X    	Bool dbox_up_p = 0;
+16872        	#endif
+16873        	
+16874        	
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 6
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (2)
+
+             	
+16875        	#ifdef NO_DEMO_MODE
+16876   X    	# define demo_mode() abort()
+16877        	#else
+16878        	extern void demo_mode P((void));
+16879        	#endif
+16880        	
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 7
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (3)
+
+             	
+16881        	static XrmOptionDescRec options [] = {
+16882        	  { "-timeout",		   ".timeout",		XrmoptionSepArg, 0 },
+16883        	  { "-cycle",		   ".cycle",		XrmoptionSepArg, 0 },
+16884        	  { "-idelay",		   ".initialDelay",	XrmoptionSepArg, 0 },
+16885        	  { "-nice",		   ".nice",		XrmoptionSepArg, 0 },
+16886        	  { "-visual",		   ".visualID",		XrmoptionSepArg, 0 },
+16887        	  { "-lock-timeout",	   ".lockTimeout",	XrmoptionSepArg, 0 },
+16888        	  { "-install",		   ".installColormap",	XrmoptionNoArg, "on" },
+16889        	  { "-no-install",	   ".installColormap",	XrmoptionNoArg, "off" },
+16890        	  { "-verbose",		   ".verbose",		XrmoptionNoArg, "on" },
+16891        	  { "-silent",		   ".verbose",		XrmoptionNoArg, "off" },
+16892        	  { "-xidle-extension",	   ".xidleExtension",	XrmoptionNoArg, "on" },
+16893        	  { "-no-xidle-extension", ".xidleExtension",	XrmoptionNoArg, "off" },
+16894        	  { "-ss-extension",	   ".saverExtension",	XrmoptionNoArg, "on" },
+16895        	  { "-no-ss-extension",	   ".saverExtension",	XrmoptionNoArg, "off" },
+16896        	  { "-lock",		   ".lock",		XrmoptionNoArg, "on" },
+16897        	  { "-no-lock",		   ".lock",		XrmoptionNoArg, "off" }
+16898        	};
+16899        	
+16900        	static char *defaults[] = {
+16901        	#ifndef VMS
+16902   X    	#include "XScreenSaver.ad.h"
+16903        	#else
+16904        	#include "XScreenSaver_ad.h"
+17013        	#endif
+17014        	 0
+17015        	};
+17016        	
+17017        	static void
+17018        	do_help P((void))
+17019        	{
+17020    1   	  printf ("\
+17021    1   	xscreensaver %s, copyright (c) 1991-1995 by Jamie Zawinski <jwz@netscape.com>.\n\
+17022    1   	The standard Xt command-line options are accepted; other options include:\n\
+17023    1   	\n\
+17024    1   	    -timeout <minutes>         When the screensaver should activate.\n\
+17025    1   	    -cycle <minutes>           How long to let each hack run.\n\
+17026    1   	    -idelay <seconds>          How long to sleep before startup.\n\
+17027    1   	    -visual <id-or-class>      Which X visual to run on.\n\
+17028    1   	    -demo                      Enter interactive demo mode on startup.\n\
+17029    1   	    -install                   Install a private colormap.\n\
+17030    1   	    -no-install                Don't.\n\
+17031    1   	    -verbose                   Be loud.\n\
+17032    1   	    -silent                    Don't.\n\
+17033    1   	    -xidle-extension           Use the R5 XIdle server extension.\n\
+17034    1   	    -no-xidle-extension        Don't.\n\
+17035    1   	    -ss-extension              Use the R6 MIT-SCREEN-SAVER server extension.\n\
+17036    1   	    -no-ss-extension           Don't.\n\
+17037    1   	    -lock                      Require a password before deactivating.\n\
+17038    1   	    -no-lock                   Don't.\n\
+17039    1   	    -lock-timeout <minutes>    Grace period before locking; default 0.\n\
+17040    1   	    -help                      This message.\n\
+17041    1   	\n\
+17042    1   	Use the `xscreensaver-command' program to control a running screensaver.\n\
+17043    1   	\n\
+17044    1   	The *programs, *colorPrograms, and *monoPrograms resources control which\n\
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 8
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (3)
+
+17045    1   	graphics demos will be launched by the screensaver.  See the man page for\n\
+17046    1   	more details.\n\n",
+17047    1   		  screensaver_version);
+17048    1   	
+17049    1   	#ifdef NO_LOCKING
+17050   X    	  printf ("Support for locking was not enabled at compile-time.\n");
+17051    1   	#endif
+17052    1   	#ifdef NO_DEMO_MODE
+17053   X    	  printf ("Support for demo mode was not enabled at compile-time.\n");
+17054    1   	#endif
+17055    1   	#if !defined(HAVE_XIDLE_EXTENSION) && !defined(HAVE_SAVER_EXTENSION)
+17056    1   	  printf ("Support for the XIDLE and MIT-SCREEN-SAVER server extensions\
+17057    1   	 was not\nenabled at compile-time.\n");
+17058    1   	#endif /* !HAVE_XIDLE_EXTENSION && !HAVE_SAVER_EXTENSION */
+17059    1   	
+17060    1   	  fflush (stdout);
+17061    1   	  exit (1);
+17062    1   	}
+17063        	
+17064        	
+17065        	static void
+17066        	get_screenhacks P((void))
+17067        	{
+17068    1   	  char *data[3];
+17069    1   	  int i, hacks_size = 10;
+17070    1   	
+17071    1   	  data[0] = get_string_resource ("programs", "Programs");
+17072    1   	  data[1] = ((CellsOfScreen (screen) <= 2)
+17073    1   		     ? get_string_resource ("monoPrograms", "MonoPrograms")
+17074    1   		     : get_string_resource ("colorPrograms", "ColorPrograms"));
+17075    1   	  data[2] = 0;
+17076    1   	  if (! data[0]) data[0] = data[1], data[1] = 0;
+17077    1   	
+17078    1   	  screenhacks = (char **) malloc (sizeof (char *) * hacks_size);
+17079    1   	  screenhacks_count = 0;
+17080    1   	
+17081    1   	  for (i = 0; data[i]; i++)
+17082    1   	    {
+17083    2   	      int j = 0;
+17084    2   	      char *d = data [i];
+17085    2   	      int size = strlen (d);
+17086    2   	      while (j < size)
+17087    2   		{
+17088    3   		  int end, start = j;
+17089    3   		  if (d[j] == ' ' || d[j] == '\t' || d[j] == '\n' || d[j] == 0)
+17090    3   		    {
+17091    4   		      j++;
+17092    4   		      continue;
+17093    4   		    }
+17094    3   		  if (hacks_size <= screenhacks_count)
+17095    3   		    screenhacks = (char **) realloc (screenhacks,
+17096    3   						     (hacks_size = hacks_size * 2) *
+17097    3   						     sizeof (char *));
+17098    3   		  screenhacks [screenhacks_count++] = d + j;
+17099    3   		  while (d[j] != 0 && d[j] != '\n')
+17100    3   		    j++;
+17101    3   		  end = j;
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 9
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (3)
+
+17102    3   		  while (j > start && (d[j-1] == ' ' || d[j-1] == '\t'))
+17103    3   		    j--;
+17104    3   		  d[j] = 0;
+17105    3   		  j = end + 1;
+17106    3   		}
+17107    2   	    }
+17108    1   	
+17109    1   	  /* shrink all whitespace to one space, for the benefit of the "demo"
+17110    1   	     mode display.  We only do this when we can easily tell that the
+17111    1   	     whitespace is not significant (no shell metachars).
+17112    1   	   */
+17113    1   	  for (i = 0; i < screenhacks_count; i++)
+17114    1   	    {
+17115    2   	      char *s = screenhacks [i];
+17116    2   	      char *s2;
+17117    2   	      int L = strlen (s);
+17118    2   	      int j, k;
+17119    2   	      for (j = 0; j < L; j++)
+17120    2   		{
+17121    3   		  switch (s[j])
+17122    3   		    {
+17123    4   		    case '\'': case '"': case '`': case '\\':
+17124    4   		      goto DONE;
+17125    4   		    case '\t':
+17126    4   		      s[j] = ' ';
+17127    4   		    case ' ':
+17128    4   		      k = 0;
+17129    4   		      for (s2 = s+j+1; *s2 == ' ' || *s2 == '\t'; s2++)
+17130    4   			k++;
+17131    4   		      if (k > 0)
+17132    4   			for (s2 = s + j + 1; *s2; s2++)
+17133    4   			  s2 [0] = s2 [k];
+17134    4   		      break;
+17135    4   		    }
+17136    3   		}
+17137    2   	    DONE:
+17138    2   	      ;
+17139    2   	    }
+17140    1   	
+17141    1   	  if (screenhacks_count)
+17142    1   	    {
+17143    2   	      /* Shrink down the screenhacks array to be only as big as it needs to.
+17144    2   		 This doesn't really matter at all. */
+17145    2   	      screenhacks = (char **)
+17146    2   		realloc (screenhacks, ((screenhacks_count + 1) * sizeof(char *)));
+17147    2   	      screenhacks [screenhacks_count] = 0;
+17148    2   	    }
+17149    1   	  else
+17150    1   	    {
+17151    2   	      free (screenhacks);
+17152    2   	      screenhacks = 0;
+17153    2   	    }
+17154    1   	}
+17155        	
+17156        	
+17157        	static void
+17158        	get_resources P((void))
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 10
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (3)
+
+17159        	{
+17160    1   	  /* Note: we can't use the resource ".visual" because Xt is SO FUCKED. */
+17161    1   	  visual	  = get_visual_resource (dpy, "visualID", "VisualID");
+17162    1   	  timeout         = 1000 * get_minutes_resource ("timeout", "Time");
+17163    1   	  cycle           = 1000 * get_minutes_resource ("cycle",   "Time");
+17164    1   	  lock_timeout	  = 1000 * get_minutes_resource ("lockTimeout", "Time");
+17165    1   	  nice_inferior   = get_integer_resource ("nice", "Nice");
+17166    1   	  verbose_p       = get_boolean_resource ("verbose", "Boolean");
+17167    1   	  lock_p          = get_boolean_resource ("lock", "Boolean");
+17168    1   	  install_cmap_p  = get_boolean_resource ("installColormap", "Boolean");
+17169    1   	  fade_p	  = get_boolean_resource ("fade", "Boolean");
+17170    1   	  unfade_p	  = get_boolean_resource ("unfade", "Boolean");
+17171    1   	  fade_seconds	  = get_seconds_resource ("fadeSeconds", "Time");
+17172    1   	  fade_ticks	  = get_integer_resource ("fadeTicks", "Integer");
+17173    1   	  shell           = get_string_resource ("bourneShell", "BourneShell");
+17174    1   	  initial_delay   = get_seconds_resource ("initialDelay", "Time");
+17175    1   	  pointer_timeout = 1000 * get_seconds_resource ("pointerPollTime", "Time");
+17176    1   	  notice_events_timeout = 1000 * get_seconds_resource ("windowCreationTimeout",
+17177    1   							       "Time");
+17178    1   	#ifndef NO_LOCKING
+17179    1   	  passwd_timeout  = 1000 * get_seconds_resource ("passwdTimeout", "Time");
+17180    1   	  if (passwd_timeout == 0) passwd_timeout = 30000;
+17181    1   	#endif
+17182    1   	  if (timeout < 10000) timeout = 10000;
+17183    1   	  if (cycle != 0 && cycle < 2000) cycle = 2000;
+17184    1   	  if (pointer_timeout == 0) pointer_timeout = 5000;
+17185    1   	  if (notice_events_timeout == 0) notice_events_timeout = 10000;
+17186    1   	  if (fade_seconds == 0 || fade_ticks == 0) fade_p = False;
+17187    1   	  if (! fade_p) unfade_p = False;
+17188    1   	
+17189    1   	  visual_depth = get_visual_depth (dpy, visual);
+17190    1   	
+17191    1   	  if (visual_depth <= 1 || CellsOfScreen (screen) <= 2)
+17192    1   	    install_cmap_p = False;
+17193    1   	
+17194    1   	#ifdef NO_LOCKING
+17195   X    	  locking_disabled_p = True;
+17196   X    	  nolock_reason = "not compiled with locking support";
+17197   X    	  if (lock_p)
+17198   X    	    {
+17199   X    	      lock_p = False;
+17200   X    	      fprintf (stderr, "%s: %snot compiled with support for locking.\n",
+17201   X    		       progname, (verbose_p ? "## " : ""));
+17202   X    	    }
+17203    1   	#else  /* ! NO_LOCKING */
+17204    1   	  if (lock_p && locking_disabled_p)
+17205    1   	    {
+17206    2   	      fprintf (stderr, "%s: %slocking is disabled (%s).\n", progname,
+17207    2   		       (verbose_p ? "## " : ""), nolock_reason);
+17208    2   	      lock_p = False;
+17209    2   	    }
+17210    1   	#endif /* ! NO_LOCKING */
+17211    1   	
+17212    1   	  /* don't set use_xidle_extension unless it is explicitly specified */
+17213    1   	  if (get_string_resource ("xidleExtension", "Boolean"))
+17214    1   	    use_xidle_extension = get_boolean_resource ("xidleExtension", "Boolean");
+17215    1   	  else
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 11
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (3)
+
+17216    1   	#ifdef HAVE_XIDLE_EXTENSION	/* pick a default */
+17217   X    	    use_xidle_extension = True;
+17218    1   	#else  /* !HAVE_XIDLE_EXTENSION */
+17219    1   	    use_xidle_extension = False;
+17220    1   	#endif /* !HAVE_XIDLE_EXTENSION */
+17221    1   	
+17222    1   	  /* don't set use_saver_extension unless it is explicitly specified */
+17223    1   	  if (get_string_resource ("saverExtension", "Boolean"))
+17224    1   	    use_saver_extension = get_boolean_resource ("saverExtension", "Boolean");
+17225    1   	  else
+17226    1   	#ifdef HAVE_SAVER_EXTENSION	/* pick a default */
+17227   X    	    use_saver_extension = True;
+17228    1   	#else  /* !HAVE_SAVER_EXTENSION */
+17229    1   	    use_saver_extension = False;
+17230    1   	#endif /* !HAVE_SAVER_EXTENSION */
+17231    1   	
+17232    1   	
+17233    1   	  get_screenhacks ();
+17234    1   	}
+17235        	
+17236        	char *
+17237        	timestring P((void))
+17238        	{
+17239    1   	  long now = time ((time_t *) 0);
+17240    1   	  char *str = (char *) ctime (&now);
+17241    1   	  char *nl = (char *) strchr (str, '\n');
+17242    1   	  if (nl) *nl = 0; /* take off that dang newline */
+17243    1   	  return str;
+17244    1   	}
+17245        	
+17246        	#ifdef NO_SETUID
+17247        	# define hack_uid()
+17248        	# define hack_uid_warn()
+17249        	#else /* !NO_SETUID */
+17250   X    	extern void hack_uid P((void));
+17251   X    	extern void hack_uid_warn P((void));
+17252        	#endif /* NO_SETUID */
+17253        	
+17254        	
+17255        	#ifndef NO_LOCKING
+17256        	extern Bool unlock_p P((Widget));
+17257        	extern Bool lock_init P((void));
+17258        	#endif
+17259        	
+17260        	static void initialize P((int argc, char **argv));
+17261        	static void main_loop P((void));
+17262        	
+17263        	#ifndef VMS
+17264   X    	void
+17265        	#else
+17266        	int
+17267        	#endif
+17268        	main (argc, argv)
+17269        	     int argc;
+17270        	     char **argv;
+17271        	{
+17272    1   	  initialize (argc, argv);
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 12
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (3)
+
+17273    1   	  main_loop ();
+17274    1   	}
+17275        	
+17276        	
+17277        	static int
+17278        	saver_ehandler (dpy, error)
+17279        	     Display *dpy;
+17280        	     XErrorEvent *error;
+17281        	{
+17282    1   	  fprintf (real_stderr, "\nX error in %s:\n", progname);
+17283    1   	  if (XmuPrintDefaultErrorMessage (dpy, error, real_stderr))
+17284    1   	    exit (-1);
+17285    1   	  else
+17286    1   	    fprintf (real_stderr, " (nonfatal.)\n");
+17287    1   	  return 0;
+17288    1   	}
+17289        	
+17290        	static void
+17291        	#if __STDC__
+17292   X    	initialize_connection (int argc, char **argv)
+17293        	#else
+17294        	initialize_connection (argc, argv)
+17295        	     int argc;
+17296        	     char **argv;
+17297        	#endif
+17298        	{
+17299    1   	  toplevel_shell = XtAppInitialize (&app, progclass,
+17300    1   					    options, XtNumber (options),
+17301    1   					    &argc, argv, defaults, 0, 0);
+17302    1   	
+17303    1   	  dpy = XtDisplay (toplevel_shell);
+17304    1   	  screen = XtScreen (toplevel_shell);
+17305    1   	  db = XtDatabase (dpy);
+17306    1   	  XtGetApplicationNameAndClass (dpy, &progname, &progclass);
+17307    1   	
+17308    1   	  if (argc == 2 && !strcmp (argv[1], "-help"))
+17309    1   	    do_help ();
+17310    1   	  else if (argc > 1)
+17311    1   	    {
+17312    2   	      fprintf (stderr, "%s: unknown option %s\n", progname, argv [1]);
+17313    2   	      exit (1);
+17314    2   	    }
+17315    1   	  get_resources ();
+17316    1   	  hack_uid_warn ();
+17317    1   	  hack_environment ();
+17318    1   	  XA_VROOT = XInternAtom (dpy, "__SWM_VROOT", False);
+17319    1   	  XA_SCREENSAVER = XInternAtom (dpy, "SCREENSAVER", False);
+17320    1   	  XA_SCREENSAVER_VERSION = XInternAtom (dpy, "_SCREENSAVER_VERSION", False);
+17321    1   	  XA_SCREENSAVER_ID = XInternAtom (dpy, "_SCREENSAVER_ID", False);
+17322    1   	  XA_XSETROOT_ID = XInternAtom (dpy, "_XSETROOT_ID", False);
+17323    1   	  XA_ACTIVATE = XInternAtom (dpy, "ACTIVATE", False);
+17324    1   	  XA_DEACTIVATE = XInternAtom (dpy, "DEACTIVATE", False);
+17325    1   	  XA_RESTART = XInternAtom (dpy, "RESTART", False);
+17326    1   	  XA_CYCLE = XInternAtom (dpy, "CYCLE", False);
+17327    1   	  XA_NEXT = XInternAtom (dpy, "NEXT", False);
+17328    1   	  XA_PREV = XInternAtom (dpy, "PREV", False);
+17329    1   	  XA_EXIT = XInternAtom (dpy, "EXIT", False);
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 13
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (3)
+
+17330    1   	  XA_DEMO = XInternAtom (dpy, "DEMO", False);
+17331    1   	  XA_LOCK = XInternAtom (dpy, "LOCK", False);
+17332    1   	}
+17333        	
+17334        	#ifdef HAVE_SAVER_EXTENSION
+17335   X    	
+17336   X    	static int
+17337   X    	ignore_all_errors_ehandler (dpy, error)
+17338   X    	     Display *dpy;
+17339   X    	     XErrorEvent *error;
+17340   X    	{
+17341   X    	  return 0;
+17342   X    	}
+17343   X    	
+17344   X    	static void
+17345   X    	init_saver_extension ()
+17346   X    	{
+17347   X    	  XID kill_id;
+17348   X    	  Atom kill_type;
+17349   X    	  Window root = RootWindowOfScreen (screen);
+17350   X    	  XScreenSaverInfo *info;
+17351   X    	  Pixmap blank_pix = XCreatePixmap (dpy, root, 1, 1, 1);
+17352   X    	
+17353   X    	  /* Kill off the old MIT-SCREEN-SAVER client if there is one.
+17354   X    	     This tends to generate X errors, though (possibly due to a bug
+17355   X    	     in the server extension itself?) so just ignore errors here. */
+17356   X    	  if (XScreenSaverGetRegistered (dpy, XScreenNumberOfScreen (screen),
+17357   X    					 &kill_id, &kill_type)
+17358   X    	      && kill_id != blank_pix)
+17359   X    	    {
+17360   X    	      int (*old_handler) ();
+17361   X    	      old_handler = XSetErrorHandler (ignore_all_errors_ehandler);
+17362   X    	      XKillClient (dpy, kill_id);
+17363   X    	      XSync (dpy, False);
+17364   X    	      XSetErrorHandler (old_handler);
+17365   X    	    }
+17366   X    	
+17367   X    	  XScreenSaverSelectInput (dpy, root, ScreenSaverNotifyMask);
+17368   X    	
+17369   X    	  XScreenSaverRegister (dpy, XScreenNumberOfScreen (screen),
+17370   X    				(XID) blank_pix, XA_PIXMAP);
+17371   X    	  info = XScreenSaverAllocInfo ();
+17372   X    	
+17373   X    	#if 0
+17374   X    	  /* #### I think this is noticing that the saver is on, and replacing it
+17375   X    	     without turning it off first. */
+17376   X    	  saver = info->window;
+17377   X    	  if (info->state == ScreenSaverOn)
+17378   X    	    {
+17379   X    	      if (info->kind != ScreenSaverExternal) 
+17380   X    		{
+17381   X    		  XResetScreenSaver (display);
+17382   X    		  XActivateScreenSaver (display);
+17383   X    		}
+17384   X    	      StartSaver ();
+17385   X    	    }
+17386   X    	#endif
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 14
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (3)
+
+17387   X    	}
+17388        	#endif /* HAVE_SAVER_EXTENSION */
+17389        	
+17390        	
+17391        	extern void init_sigchld P((void));
+17392        	
+17393        	static void
+17394        	initialize (argc, argv)
+17395        	     int argc;
+17396        	     char **argv;
+17397        	{
+17398    1   	  Bool initial_demo_mode_p = False;
+17399    1   	  screensaver_version = (char *) malloc (5);
+17400    1   	  memcpy (screensaver_version, screensaver_id + 17, 4);
+17401    1   	  screensaver_version [4] = 0;
+17402    1   	  progname = argv[0]; /* reset later; this is for the benefit of lock_init() */
+17403    1   	
+17404    1   	#ifdef NO_LOCKING
+17405   X    	  locking_disabled_p = True;
+17406   X    	  nolock_reason = "not compiled with locking support";
+17407    1   	#else
+17408    1   	  locking_disabled_p = False;
+17409    1   	
+17410    1   	#ifdef SCO
+17411   X    	  set_auth_parameters(argc, argv);
+17412    1   	#endif
+17413    1   	
+17414    1   	  if (! lock_init ())	/* before hack_uid() for proper permissions */
+17415    1   	    {
+17416    2   	      locking_disabled_p = True;
+17417    2   	      nolock_reason = "error getting password";
+17418    2   	    }
+17419    1   	#endif
+17420    1   	
+17421    1   	  hack_uid ();
+17422    1   	  progclass = "XScreenSaver";
+17423    1   	
+17424    1   	  /* remove -demo switch before saving argv */
+17425    1   	  {
+17426    2   	    int i;
+17427    2   	    for (i = 1; i < argc; i++)
+17428    2   	      while (!strcmp ("-demo", argv [i]))
+17429    2   		{
+17430    3   		  int j;
+17431    3   		  initial_demo_mode_p = True;
+17432    3   		  for (j = i; j < argc; j++)
+17433    3   		    argv [j] = argv [j+1];
+17434    3   		  argv [j] = 0;
+17435    3   		  argc--;
+17436    3   		  if (argc <= i) break;
+17437    3   		}
+17438    2   	  }
+17439    1   	  save_argv (argc, argv);
+17440    1   	  initialize_connection (argc, argv);
+17441    1   	  ensure_no_screensaver_running ();
+17442    1   	
+17443    1   	  if (verbose_p)
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 15
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (3)
+
+17444    1   	    printf ("\
+17445    1   	%s %s, copyright (c) 1991-1995 by Jamie Zawinski <jwz@netscape.com>.\n\
+17446    1   	 pid = %d.\n", progname, screensaver_version, getpid ());
+17447    1   	  ensure_no_screensaver_running ();
+17448    1   	
+17449    1   	  demo_mode_p = initial_demo_mode_p;
+17450    1   	  screensaver_window = 0;
+17451    1   	  cursor = 0;
+17452    1   	  initialize_screensaver_window ();
+17453    1   	  srandom ((int) time ((time_t *) 0));
+17454    1   	  cycle_id = 0;
+17455    1   	  lock_id = 0;
+17456    1   	  locked_p = False;
+17457    1   	
+17458    1   	  if (use_saver_extension)
+17459    1   	    {
+17460    2   	#ifdef HAVE_SAVER_EXTENSION
+17461   X    	      if (! XScreenSaverQueryExtension (dpy,
+17462   X    						&saver_ext_event_number,
+17463   X    						&saver_ext_error_number))
+17464   X    		{
+17465   X    		  fprintf (stderr,
+17466   X    		 "%s: %sdisplay %s does not support the MIT-SCREEN-SAVER extension.\n",
+17467   X    			   progname, (verbose_p ? "## " : ""), DisplayString (dpy));
+17468   X    		  use_saver_extension = False;
+17469   X    		}
+17470   X    	      else if (use_xidle_extension)
+17471   X    		{
+17472   X    		  fprintf (stderr,
+17473   X    		 "%s: %sMIT-SCREEN-SAVER extension used instead of XIDLE extension.\n",
+17474   X    			   progname, (verbose_p ? "## " : ""));
+17475   X    		  use_xidle_extension = False;
+17476   X    		}
+17477    2   	#else  /* !HAVE_SAVER_EXTENSION */
+17478    2   	      fprintf (stderr,
+17479    2   	       "%s: %snot compiled with support for the MIT-SCREEN-SAVER extension.\n",
+17480    2   		       progname, (verbose_p ? "## " : ""));
+17481    2   	      use_saver_extension = False;
+17482    2   	#endif /* !HAVE_SAVER_EXTENSION */
+17483    2   	    }
+17484    1   	
+17485    1   	  if (use_xidle_extension)
+17486    1   	    {
+17487    2   	#ifdef HAVE_XIDLE_EXTENSION
+17488   X    	      int first_event, first_error;
+17489   X    	      if (! XidleQueryExtension (dpy, &first_event, &first_error))
+17490   X    		{
+17491   X    		  fprintf (stderr,
+17492   X    			   "%s: %sdisplay %s does not support the XIdle extension.\n",
+17493   X    			   progname, (verbose_p ? "## " : ""), DisplayString (dpy));
+17494   X    		  use_xidle_extension = False;
+17495   X    		}
+17496    2   	#else  /* !HAVE_XIDLE_EXTENSION */
+17497    2   	      fprintf (stderr, "%s: %snot compiled with support for XIdle.\n",
+17498    2   		       progname, (verbose_p ? "## " : ""));
+17499    2   	      use_xidle_extension = False;
+17500    2   	#endif /* !HAVE_XIDLE_EXTENSION */
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 16
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (3)
+
+17501    2   	    }
+17502    1   	
+17503    1   	  init_sigchld ();
+17504    1   	
+17505    1   	  disable_builtin_screensaver ();
+17506    1   	
+17507    1   	#ifdef HAVE_SAVER_EXTENSION
+17508   X    	  if (use_saver_extension)
+17509   X    	    init_saver_extension ();
+17510    1   	#endif /* HAVE_SAVER_EXTENSION */
+17511    1   	
+17512    1   	  if (verbose_p && use_saver_extension)
+17513    1   	    fprintf (stderr, "%s: using MIT-SCREEN-SAVER server extension.\n",
+17514    1   		     progname);
+17515    1   	  if (verbose_p && use_xidle_extension)
+17516    1   	    fprintf (stderr, "%s: using XIdle server extension.\n",
+17517    1   		     progname);
+17518    1   	
+17519    1   	  initialize_stderr ();
+17520    1   	  XSetErrorHandler (saver_ehandler);
+17521    1   	
+17522    1   	  if (initial_demo_mode_p)
+17523    1   	    /* If the user wants demo mode, don't wait around before doing it. */
+17524    1   	    initial_delay = 0;
+17525    1   	
+17526    1   	  if (!use_xidle_extension && !use_saver_extension)
+17527    1   	    {
+17528    2   	      if (initial_delay)
+17529    2   		{
+17530    3   		  if (verbose_p)
+17531    3   		    {
+17532    4   		      printf ("%s: waiting for %d second%s...", progname,
+17533    4   			      (int) initial_delay, (initial_delay == 1 ? "" : "s"));
+17534    4   		      fflush (stdout);
+17535    4   		    }
+17536    3   		  sleep (initial_delay);
+17537    3   		  if (verbose_p)
+17538    3   		    printf (" done.\n");
+17539    3   		}
+17540    2   	      if (verbose_p)
+17541    2   		{
+17542    3   		  printf ("%s: selecting events on extant windows...", progname);
+17543    3   		  fflush (stdout);
+17544    3   		}
+17545    2   	      notice_events_timer ((XtPointer)
+17546    2   				   RootWindowOfScreen (XtScreen (toplevel_shell)),
+17547    2   				   0);
+17548    2   	      if (verbose_p)
+17549    2   		printf (" done.\n");
+17550    2   	    }
+17551    1   	}
+17552        	
+17553        	
+17554        	extern void suspend_screenhack P((Bool suspend_p));
+17555        	
+17556        	static void
+17557        	main_loop ()
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 17
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (3)
+
+17558        	{
+17559    1   	  while (1)
+17560    1   	    {
+17561    2   	      if (! demo_mode_p)
+17562    2   		sleep_until_idle (True);
+17563    2   	
+17564    2   	      if (demo_mode_p)
+17565    2   		demo_mode ();
+17566    2   	      else
+17567    2   		{
+17568    3   		  if (verbose_p)
+17569    3   		    printf ("%s: user is idle; waking up at %s.\n", progname,
+17570    3   			    timestring());
+17571    3   		  blank_screen ();
+17572    3   		  spawn_screenhack (True);
+17573    3   		  if (cycle)
+17574    3   		    cycle_id = XtAppAddTimeOut (app, cycle,
+17575    3   						(XtTimerCallbackProc)cycle_timer, 0);
+17576    3   	
+17577    3   	#ifndef NO_LOCKING
+17578    3   		  if (lock_p && lock_timeout == 0)
+17579    3   		    locked_p = True;
+17580    3   		  if (lock_p && !locked_p)
+17581    3   		    /* locked_p might be true already because of ClientMessage */
+17582    3   		    lock_id = XtAppAddTimeOut (app,lock_timeout,
+17583    3   					       (XtTimerCallbackProc)
+17584    3   					       activate_lock_timer,0);
+17585    3   	#endif
+17586    3   	
+17587    3   		PASSWD_INVALID:
+17588    3   	
+17589    3   		  sleep_until_idle (False); /* until not idle */
+17590    3   	
+17591    3   	#ifndef NO_LOCKING
+17592    3   		  if (locked_p)
+17593    3   		    {
+17594    4   		      Bool val;
+17595    4   		      if (locking_disabled_p) abort ();
+17596    4   		      dbox_up_p = True;
+17597    4   	
+17598    4   		      /* We used to ungrab the keyboard here, before calling unlock_p()
+17599    4   			 to pop up the dialog box.  This left the keyboard ungrabbed
+17600    4   			 for a small window, during an insecure state.  Bennett Todd
+17601    4   			 was seeing the bahavior that, when the load was high, he could
+17602    4   			 actually get characters through to a shell under the saver
+17603    4   			 window (he accidentally typed his password there...)
+17604    4   	
+17605    4   			 So the ungrab has been moved down into pop_passwd_dialog()
+17606    4   			 just after the server is grabbed, closing this window
+17607    4   			 entirely.
+17608    4   		       */
+17609    4   		      /* ungrab_keyboard_and_mouse (); */
+17610    4   	
+17611    4   		      suspend_screenhack (True);
+17612    4   		      XUndefineCursor (dpy, screensaver_window);
+17613    4   		      if (verbose_p)
+17614    4   			printf ("%s: prompting for password.\n", progname);
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 18
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (3)
+
+17615    4   		      val = unlock_p (toplevel_shell);
+17616    4   		      if (verbose_p && val == False)
+17617    4   			printf ("%s: password incorrect!\n", progname);
+17618    4   		      dbox_up_p = False;
+17619    4   		      XDefineCursor (dpy, screensaver_window, cursor);
+17620    4   		      suspend_screenhack (False);
+17621    4   	
+17622    4   		      /* I think this grab is now redundant, but it shouldn't hurt. */
+17623    4   		      grab_keyboard_and_mouse ();
+17624    4   	
+17625    4   		      if (! val)
+17626    4   			goto PASSWD_INVALID;
+17627    4   		      locked_p = False;
+17628    4   		    }
+17629    3   	#endif
+17630    3   		  unblank_screen ();
+17631    3   		  kill_screenhack ();
+17632    3   		  if (cycle_id)
+17633    3   		    {
+17634    4   		      XtRemoveTimeOut (cycle_id);
+17635    4   		      cycle_id = 0;
+17636    4   		    }
+17637    3   	#ifndef NO_LOCKING
+17638    3   		  if (lock_id)
+17639    3   		    {
+17640    4   		      XtRemoveTimeOut (lock_id);
+17641    4   		      lock_id = 0;
+17642    4   		    }
+17643    3   	#endif
+17644    3   		  if (verbose_p)
+17645    3   		    printf ("%s: user is active; going to sleep at %s.\n", progname,
+17646    3   			    timestring ());
+17647    3   		}
+17648    2   	    }
+17649    1   	}
+17650        	
+17651        	
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 19
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (4)
+
+             	
+17652        	
+17653        	Bool
+17654        	handle_clientmessage (event, until_idle_p)
+17655        	     XEvent *event;
+17656        	     Bool until_idle_p;
+17657        	{
+17658    1   	  Atom type = 0;
+17659    1   	  if (event->xclient.message_type != XA_SCREENSAVER)
+17660    1   	    {
+17661    2   	      char *str;
+17662    2   	      str = XGetAtomName (dpy, event->xclient.message_type);
+17663    2   	#ifdef VMS
+17664    2   	      if (str)
+17665    2   	      {
+17666    3   	      	  if (str[0] == 'V' &&
+17667    3   		      str[1] == 'U' &&
+17668    3   		      str[2] == 'E' &&
+17669    3   		      str[3] == '_')
+17670    3   		  {
+17671    4   		      if (verbose_p)
+17672    4   		       printf ("%s: VUE_ ClientMessage ignored: %s .\n", progname, str);
+17673    4   		      return False;
+17674    4   		  }
+17675    3   	      }
+17676    2   	#endif   /* Patche made by sandre@clamart.wireline.slb.com - Oct 95 */
+17677    2   	
+17678    2   	      fprintf (stderr, "%s: %sunrecognised ClientMessage type %s received\n",
+17679    2   		       progname, (verbose_p ? "## " : ""),
+17680    2   		       (str ? str : "(null)"));
+17681    2   	      if (str) XFree (str);
+17682    2   	      return False;
+17683    2   	    }
+17684    1   	  if (event->xclient.format != 32)
+17685    1   	    {
+17686    2   	      fprintf (stderr, "%s: %sClientMessage of format %d received, not 32\n",
+17687    2   		       progname, (verbose_p ? "## " : ""), event->xclient.format);
+17688    2   	      return False;
+17689    2   	    }
+17690    1   	  type = event->xclient.data.l[0];
+17691    1   	  if (type == XA_ACTIVATE)
+17692    1   	    {
+17693    2   	      if (until_idle_p)
+17694    2   		{
+17695    3   		  if (verbose_p)
+17696    3   		    printf ("%s: ACTIVATE ClientMessage received.\n", progname);
+17697    3   		  if (use_saver_extension)
+17698    3   		    {
+17699    4   		      XForceScreenSaver (dpy, ScreenSaverActive);
+17700    4   		      return False;
+17701    4   		    }
+17702    3   		  else
+17703    3   		    {
+17704    4   		      return True;
+17705    4   		    }
+17706    3   		}
+17707    2   	      fprintf (stderr,
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 20
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (4)
+
+17708    2   		       "%s: %sClientMessage ACTIVATE received while already active.\n",
+17709    2   		       progname, (verbose_p ? "## " : ""));
+17710    2   	    }
+17711    1   	  else if (type == XA_DEACTIVATE)
+17712    1   	    {
+17713    2   	      if (! until_idle_p)
+17714    2   		{
+17715    3   		  if (verbose_p)
+17716    3   		    printf ("%s: DEACTIVATE ClientMessage received.\n", progname);
+17717    3   		  if (use_saver_extension)
+17718    3   		    {
+17719    4   		      XForceScreenSaver (dpy, ScreenSaverReset);
+17720    4   		      return False;
+17721    4   		    }
+17722    3   		  else
+17723    3   		    {
+17724    4   		      return True;
+17725    4   		    }
+17726    3   		}
+17727    2   	      fprintf (stderr,
+17728    2   		       "%s: %sClientMessage DEACTIVATE received while inactive.\n",
+17729    2   		       progname, (verbose_p ? "## " : ""));
+17730    2   	    }
+17731    1   	  else if (type == XA_CYCLE)
+17732    1   	    {
+17733    2   	      if (! until_idle_p)
+17734    2   		{
+17735    3   		  if (verbose_p)
+17736    3   		    printf ("%s: CYCLE ClientMessage received.\n", progname);
+17737    3   		  if (cycle_id)
+17738    3   		    XtRemoveTimeOut (cycle_id);
+17739    3   		  cycle_id = 0;
+17740    3   		  cycle_timer (0, 0);
+17741    3   		  return False;
+17742    3   		}
+17743    2   	      fprintf (stderr,
+17744    2   		       "%s: %sClientMessage CYCLE received while inactive.\n",
+17745    2   		       progname, (verbose_p ? "## " : ""));
+17746    2   	    }
+17747    1   	  else if (type == XA_NEXT || type == XA_PREV)
+17748    1   	    {
+17749    2   	      if (verbose_p)
+17750    2   		printf ("%s: %s ClientMessage received.\n", progname,
+17751    2   			(type == XA_NEXT ? "NEXT" : "PREV"));
+17752    2   	      next_mode_p = 1 + (type == XA_PREV);
+17753    2   	
+17754    2   	      if (! until_idle_p)
+17755    2   		{
+17756    3   		  if (cycle_id)
+17757    3   		    XtRemoveTimeOut (cycle_id);
+17758    3   		  cycle_id = 0;
+17759    3   		  cycle_timer (0, 0);
+17760    3   		}
+17761    2   	      else
+17762    2   		return True;
+17763    2   	    }
+17764    1   	  else if (type == XA_EXIT)
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 21
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (4)
+
+17765    1   	    {
+17766    2   	      /* Ignore EXIT message if the screen is locked. */
+17767    2   	      if (until_idle_p || !locked_p)
+17768    2   		{
+17769    3   		  if (verbose_p)
+17770    3   		    printf ("%s: EXIT ClientMessage received.\n", progname);
+17771    3   		  if (! until_idle_p)
+17772    3   		    {
+17773    4   		      unblank_screen ();
+17774    4   		      kill_screenhack ();
+17775    4   		      XSync (dpy, False);
+17776    4   		    }
+17777    3   		  exit (0);
+17778    3   		}
+17779    2   	      else
+17780    2   		fprintf (stderr, "%s: %sEXIT ClientMessage received while locked.\n",
+17781    2   			 progname, (verbose_p ? "## " : ""));
+17782    2   	    }
+17783    1   	  else if (type == XA_RESTART)
+17784    1   	    {
+17785    2   	      /* The RESTART message works whether the screensaver is active or not,
+17786    2   		 unless the screen is locked, in which case it doesn't work.
+17787    2   	       */
+17788    2   	      if (until_idle_p || !locked_p)
+17789    2   		{
+17790    3   		  if (verbose_p)
+17791    3   		    printf ("%s: RESTART ClientMessage received.\n", progname);
+17792    3   		  if (! until_idle_p)
+17793    3   		    {
+17794    4   		      unblank_screen ();
+17795    4   		      kill_screenhack ();
+17796    4   		      XSync (dpy, False);
+17797    4   		    }
+17798    3   		  restart_process ();
+17799    3   		}
+17800    2   	      else
+17801    2   		fprintf(stderr, "%s: %sRESTART ClientMessage received while locked.\n",
+17802    2   			progname, (verbose_p ? "## " : ""));
+17803    2   	    }
+17804    1   	  else if (type == XA_DEMO)
+17805    1   	    {
+17806    2   	#ifdef NO_DEMO_MODE
+17807   X    	      fprintf (stderr,
+17808   X    		       "%s: %snot compiled with support for DEMO mode\n",
+17809   X    		       progname, (verbose_p ? "## " : ""));
+17810    2   	#else
+17811    2   	      if (until_idle_p)
+17812    2   		{
+17813    3   		  if (verbose_p)
+17814    3   		    printf ("%s: DEMO ClientMessage received.\n", progname);
+17815    3   		  demo_mode_p = True;
+17816    3   		  return True;
+17817    3   		}
+17818    2   	      fprintf (stderr,
+17819    2   		       "%s: %sDEMO ClientMessage received while active.\n",
+17820    2   		       progname, (verbose_p ? "## " : ""));
+17821    2   	#endif
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 22
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (4)
+
+17822    2   	    }
+17823    1   	  else if (type == XA_LOCK)
+17824    1   	    {
+17825    2   	#ifdef NO_LOCKING
+17826   X    	      fprintf (stderr, "%s: %snot compiled with support for LOCK mode\n",
+17827   X    		       progname, (verbose_p ? "## " : ""));
+17828    2   	#else
+17829    2   	      if (locking_disabled_p)
+17830    2   		fprintf (stderr,
+17831    2   		       "%s: %sLOCK ClientMessage received, but locking is disabled.\n",
+17832    2   			 progname, (verbose_p ? "## " : ""));
+17833    2   	      else if (locked_p)
+17834    2   		fprintf (stderr,
+17835    2   		       "%s: %sLOCK ClientMessage received while already locked.\n",
+17836    2   			 progname, (verbose_p ? "## " : ""));
+17837    2   	      else
+17838    2   		{
+17839    3   		  locked_p = True;
+17840    3   		  if (verbose_p) 
+17841    3   		    printf ("%s: LOCK ClientMessage received;%s locking.\n",
+17842    3   			    progname, until_idle_p ? " activating and" : "");
+17843    3   	
+17844    3   		  if (lock_id)	/* we're doing it now, so lose the timeout */
+17845    3   		    {
+17846    4   		      XtRemoveTimeOut (lock_id);
+17847    4   		      lock_id = 0;
+17848    4   		    }
+17849    3   	
+17850    3   		  if (until_idle_p)
+17851    3   		    {
+17852    4   		      if (use_saver_extension)
+17853    4   			{
+17854    5   			  XForceScreenSaver (dpy, ScreenSaverActive);
+17855    5   			  return False;
+17856    5   			}
+17857    4   		      else
+17858    4   			{
+17859    5   			  return True;
+17860    5   			}
+17861    4   		    }
+17862    3   		}
+17863    2   	#endif
+17864    2   	    }
+17865    1   	  else
+17866    1   	    {
+17867    2   	      char *str;
+17868    2   	      str = (type ? XGetAtomName(dpy, type) : 0);
+17869    2   	      if (str)
+17870    2   		fprintf (stderr,
+17871    2   			 "%s: %sunrecognised screensaver ClientMessage %s received\n",
+17872    2   			 progname, (verbose_p ? "## " : ""), str);
+17873    2   	      else
+17874    2   		fprintf (stderr,
+17875    2   			"%s: %sunrecognised screensaver ClientMessage 0x%x received\n",
+17876    2   			 progname, (verbose_p ? "## " : ""),
+17877    2   			 (unsigned int) event->xclient.data.l[0]);
+17878    2   	      if (str) XFree (str);
+
+XSCREENSAVER                                                    27-DEC-1995 12:11:04    VAX C      V3.2-044                 Page 23
+V1.0                                                            26-DEC-1995 14:39:38    XSCREENSAVER.C;3 (4)
+
+17879    2   	    }
+17880    1   	  return False;
+17881    1   	}
+
+ 
+ 
+Command Line
+------------
+ 
+CC/DEFINE=(VMS,NO_SELECT,NO_SETUID) XSCREENSAVER.C/LIS
+

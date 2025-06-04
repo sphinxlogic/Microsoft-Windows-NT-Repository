@@ -1,0 +1,116 @@
+	.title	lan_startup_prm
+	.ident	"X1-001"
+
+;+
+; Version:	X1-001
+;
+; Facility:	LAN - Ethernet Routines
+;
+; Abstract:	Startup an ethernet device in promiscuous mode.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	08-Jul-1994, DBS, Version X1-001
+; 001 -	Original version.
+;-
+
+;++
+; Functional Description:
+;	This routine will attempt to startup the specified ethernet device
+;	in promiscuous mode using protocol 60-06.
+;
+; Calling Sequence:
+;	status = lan_format_header (%descr(device)
+;				,%ref(channel), $ref(iosb))
+;
+; Formal Argument(s):
+;	device.rt.ds	The address of a descriptor specifying the device to
+;			be used.
+;	channel.wl.r	The address of a longword to receive the channel
+;			assigned to the device.
+;	iosb.wq.r	The address of a quadword to receive the iosb from
+;			the $qio calls.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_normal	Successful completion.
+;	ss$_insfarg	Insufficient arguments supplied.
+;	ss$_ovrmaxarg	Too many arguments supplied.
+;	Any other completion code returned by $assign or $qio.
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	_landef
+	$iodef
+	$nmadef
+	$ssdef
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+	arg_count = 3			; MUST have 3 parameters
+	device = 4			; offsets to parameters
+	channel = 8
+	iosb = 12
+
+	receive_buffers = 16
+	protocol = ^X0660		; 60-06
+
+param_list:	.word	nma$c_pcli_bus
+		.long	lan_s_ethernet
+		.word	nma$c_pcli_bfn
+		.long	receive_buffers
+		.word	nma$c_pcli_pad
+		.long	nma$c_state_off
+		.word	nma$c_pcli_pty
+		.long	protocol
+		.word	nma$c_pcli_prm
+		.long	nma$c_state_on
+param_desc:	.long	param_desc-param_list
+		.address param_list
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+lan_startup_prm, ^m<>
+
+	movl	#ss$_insfarg, r0	; be cynical...
+	cmpb	(ap), #arg_count	; check the number of arguments
+	beql	20$			; ok, so carry on
+	bgtru	10$			; too many
+	brw	exit			; too few, so bail out
+10$:	movl	#ss$_ovrmaxarg, r0	; too many, let them know
+	brw	exit			;  and bail out
+20$:	$assign_s -
+		devnam=@device(ap), -
+		chan=@channel(ap)
+	blbc	r0, exit
+	movab	param_desc, r0
+	$qiow_s	chan=@channel(ap), -
+		func=#<io$_setmode!io$m_ctrl!io$m_startup>, -
+		iosb=@iosb(ap), -
+		p2=r0
+
+exit:	ret
+
+	.end

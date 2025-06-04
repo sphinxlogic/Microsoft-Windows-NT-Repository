@@ -1,0 +1,267 @@
+\documentstyle[a4,makeidx,verbatim,texhelp,fancyhea,mysober,mytitle]{report}
+\parindent 0pt
+\parskip 11pt
+\title{Manual for PROLOGIO: a Prolog-compatible I/O and RPC library for C++}
+\author{Julian Smart\\Decision Support Group\\Artificial Intelligence Applications Institute\\80 South Bridge\\University of Edinburgh\\EH1 1HN}
+\date{April 1995}
+%
+\makeindex
+\begin{document}
+\maketitle
+%
+\pagestyle{fancyplain}
+\bibliographystyle{plain}
+\pagenumbering{roman}
+\setheader{{\it CONTENTS}}{}{}{}{}{{\it CONTENTS}}
+\setfooter{\thepage}{}{}{}{}{\thepage}
+\tableofcontents%
+\newpage%
+\pagenumbering{arabic}%
+
+\chapter*{Summary}
+\setheader{{\it SUMMARY}}{}{}{}{}{{\it SUMMARY}}%
+\setfooter{\thepage}{}{}{}{}{\thepage}
+
+PROLOGIO is a C++ library for performing two main functions:
+
+\begin{enumerate}
+\item reading and writing a subset of Prolog syntax
+\item implementing a remote procedure call facility (RPC) for
+client-server communication
+\end{enumerate}
+
+This document describes the PROLOGIO API (Application Programming
+Interface). It can be used to develop programs with readable, robust and
+Prolog-compatible data files, as well as making RPC communication simple
+to program on UNIX and PCs. The library requires the wxWindows library
+for XView and Windows 3.
+
+The Prolog I/O and RPC facilities are combined in the one package since
+they both relate to reading and writing complex structures to and from
+ASCII strings or files, and use the same YACC and LEX-based parser to do
+so.
+
+\chapter{Introduction}
+\pagenumbering{arabic}%
+\setheader{{\it CHAPTER \thechapter}}{}{}{}{}{{\it CHAPTER \thechapter}}%
+\setfooter{\thepage}{}{}{}{}{\thepage}
+
+During the development of the tool HARDY within the AIAI, a need arose
+for a data file format for C++ that was easy for both humans and
+programs to read, was robust in the face of fast-moving software
+development, and that provided some compatibility with AI languages
+such as Prolog and LISP.
+
+The result was the PROLOGIO library, which is able to read and write a
+Prolog-like attribute-value syntax, and is additionally capable of
+writing LISP syntax for no extra programming effort.  The advantages of
+such a library are as follows:
+
+\begin{enumerate}
+\item The data files are readable by humans
+\item I/O routines are easier to write and debug compared with using binary files
+\item The files are robust: unrecognised data will just be ignored by the application
+\item Inbuilt hashing gives a random access capability, useful for when linking
+up C++ objects as data is read in
+\item Prolog and LISP programs can load the files using a single command
+\end{enumerate}
+
+The library was extended to use the ability to read and write
+Prolog-like structures for remote procedure call (RPC) communication.
+The next two sections outline the two main ways the library can be used.
+
+\section{PROLOGIO for data file manipulation}
+
+The fact that the output is in Prolog syntax may be irrelevant for most
+programmers, who just need a reasonable I/O facility.  Typical output
+looks like this:
+
+\begin{verbatim}
+diagram_definition(type = "Spirit Belief Network").
+
+node_definition(type = "Model",
+  image_type = "Diamond",
+  attribute_for_label = "name",
+  attribute_for_status_line = "label",
+  colour = "CYAN",
+  default_width = 120,
+  default_height = 80,
+  text_size = 10,
+  can_resize = 1,
+  has_hypertext_item = 1,
+  attributes = ["name", "combining_function", "level_of_belief"]).
+
+arc_definition(type = "Potentially Confirming",
+  image_type = "Spline",
+  arrow_type = "End",
+  line_style = "Solid",
+  width = 1,
+  segmentable = 0,
+  attribute_for_label = "label",
+  attribute_for_status_line = "label",
+  colour = "BLACK",
+  text_size = 10,
+  has_hypertext_item = 1,
+  can_connect_to = ["Evidence", "Cluster", "Model", "Evidence", "Evidence", "Cluster"],
+  can_connect_from = ["Data", "Evidence", "Cluster", "Evidence", "Data", "Cluster"]).
+\end{verbatim}
+
+This is substantially easier to read and debug than a series of numbers and
+strings.
+
+Note the object-oriented style: a file comprises a series of {\it clauses}.
+Each clause is an object with a {\it functor}\/ or object name, followed
+by a list of attribute-value pairs enclosed in parentheses, and finished
+with a full stop.  Each attribute value may be a string, a word (no quotes),
+an integer, a real number, or a list with potentially recursive elements.
+
+The way that the facility is used by an application to read in a file is
+as follows:
+
+\begin{enumerate}
+\item The application creates a PrologDatabase instance.
+\item The application tells the database to read in the entire file.
+\item The application searches the database for objects it requires,
+decomposing the objects using the PROLOGIO API. The database may be hashed,
+allowing rapid linking-up of application data.
+\item The application deletes or clears the PrologDatabase.
+\end{enumerate}
+
+Writing a file is just as easy:
+
+\begin{enumerate}
+\item The application creates a PrologDatabase instance.
+\item The application adds objects to the database using the API.
+\item The application tells the database to write out the entire database,
+in Prolog, LISP or CLIPS notation.
+\item The application deletes or clears the PrologDatabase.
+\end{enumerate}
+
+To use the library, include "wx.h", "read.h" and link with libproio.a
+(UNIX) or prologio.lib (PC) and the wxWindows library.
+
+\section{PROLOGIO for RPC}
+
+An RPC package is required because one application cannot simply call
+into another's program area. The arguments and return value(s) need to
+be wrapped up at one end and parsed at the other. This library provides
+a convenient way of doing so, allowing a range of types of data to be passed
+between applications, namely integers, reals, strings, words (unquoted
+strings), and lists of these types (which can include further lists).
+Therefore two main capabilities are required: a way of encoding
+information in a string, and a way of communicating this string between
+applications.  The basic PROLOGIO functions described above are used for
+the first, and the wxWindows implementation of DDE is used for the
+second.
+
+The RPC facility is used in much the same way as the DDE facility in
+wxWindows, only the base classes to use are rpcServer, rpcClient and
+rpcConnection.  From these derive your own client, server and connection classes,
+overriding {\bf OnAcceptConnection} (server) and {\bf OnMakeConnection}
+(client) as usual. You now have a choice of how the server connection
+responds to calls: either you can install your own {\bf OnCall} handler
+which accepts and returns Prolog structures, or you may install an {\bf
+rpcCallTable} so calls get automatically routed to appropriate C++
+functions.  If no call table has been installed, the library will call
+{\bf OnCall} instead.
+
+Note that the topic name when using the RPC package must always be
+"RPC".
+
+RPC is implemented as follows. When the client calls {\bf
+rpcConnection::Call} with a {\bf PrologExpr} structure as argument, this
+structure is written to a string and {\bf Execute} is called. At the
+server end, the data is parsed back into a {\bf PrologExpr} structure,
+and either {\bf OnCall} is called, or, if there is a call table, a
+functor (procedure name) matching the supplied name is searched for. If
+one is found, the argument types are checked. If they are incorrect, an
+error structure is sent back to the client. If they are correct, the
+appropriate user-supplied C++ function implementing this command is
+called, which returns another {\bf PrologExpr}. This structure is
+written to a string, and when the client side {\bf Requests} the result, is
+returned. The client side parses the result and returns a {\bf
+PrologExpr} as the result of the original {\bf Call}.
+
+To the client application, the {\bf Call} is like a normal procedure
+call except the name and arguments need to be wrapped up in a {\bf
+PrologExpr} structure, and the result is also a {\bf PrologExpr}.
+Similarly, the server application implements a series of functions, one
+per command, receiving and returning {\bf PrologExpr} structures.
+
+To use the library, include "wx.h", "read.h", "prorpc.h" and link with
+libproio.a (UNIX) or prologio.lib (PC) and the wxWindows library.
+
+\section{Availability and location of PROLOGIO}
+
+PROLOGIO is distributed as part of the wxWindows GUI library. Anyone
+interested in using the library can contact Julian Smart, email
+J.Smart@ed.ac.uk, tel. 031-650-2746.
+
+\chapter{PROLOGIO compilation}
+\setheader{{\it CHAPTER \thechapter}}{}{}{}{}{{\it CHAPTER \thechapter}}%
+\setfooter{\thepage}{}{}{}{}{\thepage}
+
+To make use of PROLOGIO, you currently need the following:
+
+\begin{enumerate}
+\item GNU C++ version 2.1 or later, or Microsoft C/C++ version 7 or Visual C++
+\item The PROLOGIO library (libproio.a or prologio.lib) and header files
+\item The wxWindows library (available from Julian Smart at AIAI)
+\end{enumerate}
+
+For UNIX compilation, ensure that YACC and LEX or FLEX are on your system. Check that
+the makefile uses the correct programs: a common error is to compile
+y\_tab.c with a C++ compiler. Edit the CCLEX variable in make.env
+to specify a C compiler. Also, do not attempt to compile lex\_yy.c
+since it is included by y\_tab.c.
+
+For DOS compilation, the simplest thing is to copy dosyacc.c to y\_tab.c, and doslex.c to
+lex\_yy.c. It is y\_tab.c that must be compiled (lex\_yy.c is included by
+y\_tab.c) so if adding source files to a project file, ONLY add y\_tab.c
+plus the .cc files. If you wish to alter the parser, you will need YACC
+and FLEX on DOS.
+
+The DOS tools are available at the AIAI ftp site, in the tools directory. Note that
+for FLEX installation, you need to copy flex.skl into the directory
+c:/lib.
+
+If you are using Borland C++ and wish to regenerate lex\_yy.c and y\_tab.c
+you need to generate lex\_yy.c with FLEX and then comment out the `malloc' and `free'
+prototypes in lex\_yy.c. It will compile with lots of warnings. If you
+get an undefined \_PROIO\_YYWRAP symbol when you link, you need to remove
+USE\_DEFINE from the makefile and recompile. This is because the parser.y
+file has a choice of defining this symbol as a function or as a define,
+depending on what the version of FLEX expects. See the bottom of
+parser.y, and if necessary edit it to make it compile in the opposite
+way to the current compilation.
+
+To test out PROLOGIO, compile the test program (test.exe), find
+badcase.txt in the docs directory, and try loading it into the test
+program. Then save it to another file. If the second is identical to the
+first, PROLOGIO is in a working state.
+
+\chapter{Bugs and future developments}
+\setheader{{\it CHAPTER \thechapter}}{}{}{}{}{{\it CHAPTER \thechapter}}%
+\setfooter{\thepage}{}{}{}{}{\thepage}
+
+\section{Bugs}
+
+These are the known bugs:
+
+\begin{enumerate}
+\item Functors are permissable only in the main clause (object).
+Therefore nesting of structures must be done using lists, not predicates
+as in Prolog.
+\item There is a limit to the size of strings read in (about 5000 bytes).
+\end{enumerate}
+
+\section{Future developments}
+
+None envisaged as yet.
+
+\input tutorial.tex
+\input classes.tex
+%
+\addcontentsline{toc}{chapter}{Index}
+\printindex
+\end{document}

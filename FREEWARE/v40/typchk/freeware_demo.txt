@@ -1,0 +1,93 @@
+
+The MACRO-32 Type Checker applies type checking rules you can specify to MACRO-32
+code. It can be used on VAX and AXP MACRO-32 listing files. Below are some actual
+errors that were detected by the tool. Can you spot the defect in each case?
+
+The tool consists of several DCL command files, a text file containing the
+type checking rules and a postscript file containing a user guide.
+
+
+******************************
+
+                      000002C0     5608
+                      000002C0     5609         MOVW    G^SGN$GW_SMP_SANITY_CNT,-
+                      000002C0     5610                 CPU$L_SANITY_TIMER(R6)  ; INIT SANITY CYCLE COUNT
+WARN: CPU$L_SANITY_TIMER(R6) not WORD field ---------------------^
+                      000002C9     5611         MOVAL   CPU$L_SANITY_TIMER(R6),-
+                      000002C9     5612                 CPU$L_TPOINTER(R6)      ; INIT POINTER TO "NEIGHBOR'S" SANITY
+                      000002D0     5613                                         ;  TIMER TO POINT TO OURSELF.
+
+******************************
+
+                      00000CB9     9952 10$:    BBC     #IOC$V_TYPE,R10,20$     ; branch if not searching for dev type
+                      00000CBD     9953         CMPZV   #MSCP$V_MTYP_N,-
+                      00000CBD     9954                 #MSCP$V_MTYP_D1,-
+WARN: #MSCP$V_MTYP_D1 not SIZE field ------------------------^
+                      00000CBD     9955                 UCB$L_MEDIA_ID(R5),R3   ; is this the requested type?
+                      00000CC4     9956         BNEQ    70$                     ; branch if not
+                      00000CC6     9957 20$:    BISB    #IOC$M_EXISTS,R10       ; note eligible device seen
+
+******************************
+
+                      0000089B     4318                 PCB$L_PIXHIST(R4)
+                 ?01T 000008A3     4319         .IF     NDF,V52_DEBUG
+                 ?01T 000008A3     4320         BBC     #CPB$C_VECTOR,-
+WARN: #CPB$C_VECTOR not VIELD field ------------------------^
+                 ?01T 000008A3     4321                 PCB$L_CAPABILITY(R4),30$    ; Branch if process does not have vector
+capabil
+                 ?01T 000008A3     4321 ity
+                 ?01T 000008A9     4322         CMPB    PCB$B_PRI(R4),-
+
+******************************
+
+                      0000011D     2594         MOVL    IMAGE_FIL_INFO(R8),R18  ; and image file info we received
+                      00000121     2595         JSB     (R5)                    ; and transfer control to TRACE/DEBUG
+                      00000123     2596         MOVL    SS$_CONTINUE, R0        ; If DEBUG/TRACE returns, continue in
+WARN: SS$_CONTINUE not LONG,ADDR,PTR_L,INT_S,PTR_S field ---^
+WARN: SS$_CONTINUE not used in LITERAL addressing mode -----^
+                      0000012A     2597         RET                             ; user's code.
+                      0000012B     2598
+                      0000012B     2600
+
+******************************
+
+                      00000061     3094         DSBINT  #IPL$_ASTDEL            ;PREVENT SYSTEM WORKING SET GROWTH AST
+                      00000061     3095         MOVL    G^CTL$GL_PHD,R5         ; R5 = P1 PHD address
+                      00000068     3096         BBSSI   #PHD$M_NO_WS_CHNG,-     ; Prevent SWAPPER trimming
+WARN: #PHD$M_NO_WS_CHNG not VIELD field ----------------------^
+                      00000068     3097                 PHD$W_FLAGS(R5),25$     ; Must be atomic incase of reschedule
+                      00000072     3098 25$:    MOVZWL  #SS$_WASCLR,R0          ;INIT TO 'PAGES WERE UNLOCKED'
+                      00000075     3099         BBSS    #LCK_V_LCKPAG,R8,30$    ;SET LOCK FLAG
+
+******************************
+
+                      000000B3     3114 35$:    POPL    R0
+                      000000B6     3115 40$:    MOVL    G^CTL$GL_PHD,R5         ; R5 = P1 PHD address
+                      000000BD     3116         BBCCI   #PHD$M_NO_WS_CHNG,-     ; Allow SWAPPER trimming
+WARN: #PHD$M_NO_WS_CHNG not VIELD field ----------------------^
+                      000000BD     3117                 PHD$W_FLAGS(R5),41$     ; Must be atomic incase of reschedule
+                      000000CA     3125 41$:    ENBINT                          ;RESTORE CALLERS IPL
+                      000000CA     3126 45$:    RET
+
+******************************
+
+                      0000074F     5126
+                      0000074F     5127         EVAX_SRL        -               ; Fetch PFN
+                      0000074F     5128                 R10,PTE$V_PFN,R0
+WARN: PTE$V_PFN not used in LITERAL addressing mode ----------^
+                      00000757     5129         ACBW    #1,#-1,-                ; Remove a buffer object reference,
+                      00000757     5130                 @W^PFN$AW_SWPPAG[R0],20$; and branch if it is not the last one
+                      00000762     5131         BLSS    23$                     ; Bugcheck if ref cnt went negative
+
+******************************
+
+                      00000979     5287         BICL    #PFN$M_BUFOBJ,-         ; Clear flag
+                      00000979     5288                 @W^PFN$AL_PAGE_STATE[R0]
+                      00000983     5289         BITL    @PFN$M_MODIFY,-         ; Buffer object pages must go to
+WARN: @PFN$M_MODIFY not used in LITERAL addressing mode ----^
+                      00000983     5290                 @W^PFN$AL_PAGE_STATE[R0]; the modified page list
+                      0000098D     5291         BNEQ    50$
+                      000009A2     5292 20$:    BUG_CHECK ICONPFNDAT,FATAL
+******************************
+
+                  

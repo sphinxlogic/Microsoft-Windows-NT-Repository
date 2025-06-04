@@ -1,0 +1,238 @@
+# Makefile : Builds Tex2RTF for Windows 3.1
+# For Windows version invoke with no target, or with target 'all'
+# For DOS version, invoke makefile with NO_GUI=1
+# To optimize and remove debugging information, add FINAL=1 to
+# the command line.
+
+!ifndef NO_GUI
+# Change WXDIR to wherever wxWindows is found
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+WXINC = $(WXDIR)\include
+PRECOMP=/YuWX_PREC.H
+WXFLAGS = /G2sw /Dwx_msw $(PRECOMP) /Fp$(WXDIR)\src\msw\wx.pch
+TEX2RTFOBJ = tex2rtf.obj rtfutils.obj xlputils.obj htmlutil.obj readshg.obj table.obj
+WXHELPDIR = $(WXDIR)\utils\wxhelp
+LIBS=oldnames.lib $(WXLIB) libw llibcew commdlg ddeml shell
+INC=/I$(WXINC) /I$(WXDIR)\include\base /I$(WXDIR)\include\msw /I$(WXHELPDIR)\src
+TEX2RTFDIR = $(WXDIR)\utils\tex2rtf
+!else
+WXDIR = wxwin
+WXLIB =
+WXINC = $(WXDIR)
+WXFLAGS = /Dwx_dos /DNO_GUI
+SRCSUFF=cc
+OBJSUFF=obj
+TEX2RTFOBJ = tex2rtf.obj rtfutils.obj xlputils.obj htmlutil.obj table.obj readshg.obj \
+  wb_list.obj wb_hash.obj wb_utils.obj wb_obj.obj
+LIBS=oldnames.lib llibce
+INC = /I$(WXINC)
+TEX2RTFDIR = ..
+!endif
+
+DOCDIR = $(TEX2RTFDIR)\docs
+TEX2ANYLIB = $(TEX2RTFDIR)\lib\tex2any.lib
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+# Default is to output RTF for WinHelp
+!ifndef RTFSTYLE
+RTFSTYLE=-winhelp
+!endif
+
+# Set this to nothing if using MS C++ 7
+ZOPTION=/Z7
+
+!if "$(FINAL)" == "0"
+OPT=/Od
+CPPFLAGS= /AL /Gt4 /W4 /Zi $(OPT) $(WXFLAGS) $(INC) /DDEBUG=$(DEBUG) $(ZOPTION)
+LINKFLAGS=/NOD /CO /ONERROR:NOEXE /SEG:256
+!else
+OPT=/Os
+CPPFLAGS= /AL /Gt4 /W4 $(OPT) $(WXFLAGS) /DDEBUG=$(DEBUG) $(INC)
+LINKFLAGS=/NOD /ONERROR:NOEXE /SEG:256
+!endif
+
+all:    tex2rtf.exe
+
+compact:
+        -wrun clean
+
+!ifndef NO_GUI
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos FINAL=$(FINAL) OPT=$(OPT) PRECOMP=$(PRECOMP)
+        cd $(TEX2RTFDIR)\src
+!endif
+
+$(TEX2ANYLIB):      tex2any.obj texutils.obj
+        -erase $(TEX2ANYLIB)
+        lib /PAGESIZE:128 @<<
+$(TEX2ANYLIB)
+y
+tex2any.obj texutils.obj
+nul
+;
+<<
+
+tex2any.obj: tex2any.$(SRCSUFF) tex2any.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+texutils.obj: texutils.$(SRCSUFF) tex2any.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+tex2rtf.obj: tex2rtf.$(SRCSUFF) bmputils.h tex2rtf.h tex2any.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+rtfutils.obj: rtfutils.$(SRCSUFF) tex2rtf.h bmputils.h tex2any.h readshg.h table.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+table.obj: table.$(SRCSUFF) table.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+readshg.obj: readshg.$(SRCSUFF) readshg.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+xlputils.obj: xlputils.$(SRCSUFF) tex2rtf.h rtfutils.h tex2any.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+htmlutil.obj: htmlutil.$(SRCSUFF) tex2rtf.h tex2any.h table.h
+	cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+!ifdef NO_GUI
+wb_utils.obj:   wxwin\wb_utils.$(SRCSUFF) wxwin\wx_utils.h
+	cl @<<
+$(CPPFLAGS) /c /Tp wxwin\$*.$(SRCSUFF)
+<<
+
+wb_hash.obj:   wxwin\wb_hash.$(SRCSUFF) wxwin\wx_hash.h
+	cl @<<
+$(CPPFLAGS) /c /Tp wxwin\$*.$(SRCSUFF)
+<<
+
+wb_list.obj:   wxwin\wb_list.$(SRCSUFF) wxwin\wx_list.h
+	cl @<<
+$(CPPFLAGS) /c /Tp wxwin\$*.$(SRCSUFF)
+<<
+
+wb_obj.obj:   wxwin\wb_obj.$(SRCSUFF) wxwin\wx_obj.h
+	cl @<<
+$(CPPFLAGS) /c /Tp wxwin\$*.$(SRCSUFF)
+<<
+!endif
+
+tex2rtf.res :      tex2rtf.rc $(WXDIR)\include\msw\wx.rc
+    rc  /i$(WXDIR)\include\msw   /i$(WXDIR)\contrib\fafa -r tex2rtf
+
+!ifndef NO_GUI
+tex2rtf.exe:      $(WXDIR)\src\msw\dummy.obj $(TEX2RTFOBJ) tex2rtf.def tex2rtf.res $(TEX2ANYLIB)
+        link $(LINKFLAGS) @<<
+$(WXDIR)\src\msw\dummy.obj $(TEX2RTFOBJ)
+tex2rtf.exe,
+nul,
+$(LIBS) $(TEX2ANYLIB),
+tex2rtf.def
+<<
+        rc -K tex2rtf.res
+!else
+tex2rtf.exe:      $(TEX2RTFOBJ) $(TEX2ANYLIB)
+        link $(LINKFLAGS) @<<
+$(TEX2RTFOBJ)
+tex2rtf.exe,
+nul,
+$(LIBS) $(TEX2ANYLIB),
+dos.def
+<<
+!endif
+
+# No PostScript production on the PC: just check it goes through Latex
+docs:	dvi hlp xlp html
+dvi:	$(TEX2RTFDIR)/docs/tex2rtf.dvi
+hlp:	$(TEX2RTFDIR)/docs/tex2rtf.hlp
+hlp32:	$(TEX2RTFDIR)/docs/hlp32/tex2rtf.hlp
+rtf:	$(TEX2RTFDIR)/docs/tex2rtf.rtf
+xlp:    $(TEX2RTFDIR)/docs/tex2rtf.xlp
+html:    $(TEX2RTFDIR)/docs/tex2rtf.html
+ps:    $(TEX2RTFDIR)/docs/tex2rtf.ps
+
+$(DOCDIR)/tex2rtf.dvi:	$(DOCDIR)/tex2rtf.tex
+	cd $(DOCDIR)
+	latex tex2rtf
+	latex tex2rtf
+	makeindx tex2rtf
+	bibtex tex2rtf
+	latex tex2rtf
+
+$(DOCDIR)/tex2rtf.ps: $(DOCDIR)/tex2rtf.dvi
+        dvips tex2rtf.dvi
+
+$(DOCDIR)/tex2rtf.rtf: $(DOCDIR)/tex2rtf.tex
+        cd $(DOCDIR)
+        -start /w tex2rtf $(DOCDIR)\tex2rtf.tex $(DOCDIR)\tex2rtf.rtf -twice $(RTFSTYLE)
+        cd $(TEX2RTFDIR)/src
+
+# WinHelp 4 (32-bit Windows) help file format
+$(DOCDIR)/hlp32/tex2rtf.rtf:	$(DOCDIR)/tex2rtf.tex
+	cd $(DOCDIR)
+	-mkdir hlp32
+	-start /w tex2rtf $(DOCDIR)/tex2rtf.tex $(DOCDIR)/hlp32/tex2rtf.rtf -twice -winhelp -macros $(DOCDIR)/t2rtf32.ini
+	cd $(THISDIR)
+
+$(DOCDIR)/tex2rtf.xlp:         $(DOCDIR)/tex2rtf.tex
+        cd $(DOCDIR)
+        -start /w tex2rtf $(DOCDIR)\tex2rtf.tex $(DOCDIR)\tex2rtf.xlp -xlp -twice
+        cd $(TEX2RTFDIR)/src
+
+$(DOCDIR)/tex2rtf.html:         $(DOCDIR)/tex2rtf.tex
+        cd $(DOCDIR)
+        -start /w tex2rtf $(DOCDIR)\tex2rtf.tex $(DOCDIR)\tex2rtf.htm -html -twice
+        cd $(TEX2RTFDIR)/src
+
+$(DOCDIR)/tex2rtf.hlp:         $(DOCDIR)/tex2rtf.rtf
+        cd $(DOCDIR)
+        hc tex2rtf
+        cd $(TEX2RTFDIR)/src
+
+$(DOCDIR)/hlp32/tex2rtf.hlp:         $(DOCDIR)/hlp32/tex2rtf.rtf
+        cd $(DOCDIR)/hlp32
+        -start /w hcw /c /e tex2rtf.hpj
+        cd $(TEX2RTFDIR)/src
+
+test.rtf:   test.tex
+        -start /w $(TEX2RTFDIR)\src\tex2rtf $(TEX2RTFDIR)\src\test.tex $(TEX2RTFDIR)\src\test.rtf $(RTFSTYLE)
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.res
+        -erase $(TEX2ANYLIB)
+        -erase *.pdb
+        -erase *.sbr
+
+cleanrtf:
+        cd $(DOCDIR)
+        -erase *.rtf
+        cd  $(TEX2RTFDIR)/src
+
+cleanall:	clean

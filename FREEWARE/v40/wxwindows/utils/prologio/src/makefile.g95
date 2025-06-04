@@ -1,0 +1,108 @@
+#
+# File:		makefile.unx
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile for $(LIBPREFIX)prologio.$(LIBSUFF)
+
+WXDIR = ../../..
+
+# All common UNIX compiler flags and options are now in
+# this central makefile.
+include $(WXDIR)/src/makeg95.env
+
+DOCUTILSDIR = $(WXDIR)/utils/tex2rtf/src
+
+PROLOGDIR = $(WXDIR)/utils/prologio
+PROLOGINC = $(PROLOGDIR)/src
+PROLOGLIB = $(PROLOGDIR)/lib/$(LIBPREFIX)proio$(GUISUFFIX).$(LIBSUFF)
+
+OBJECTS = $(OBJDIR)/read.$(OBJSUFF) $(OBJDIR)/y_tab.$(OBJSUFF) # $(OBJDIR)/prorpc.$(OBJSUFF)
+
+TESTOBJECTS = $(OBJDIR)/test.$(OBJSUFF)
+TESTPROGRAM = test$(GUISUFFIX)
+
+EXTRAFLAGS=-L$(WXDIR)/contrib/xmgauge
+EXTRALIBS=-lgauge_motif
+
+# Remove -DLEX_SCANNER if using FLEX instead of LEX
+#CPPFLAGS = -DLEX_SCANNER $(XINCLUDE) $(INC) -I$(PROLOGINC) $(GUI) $(DEBUGFLAGS) -DDEBUG=$(DEBUG) $(WARN) $(OPTIONS) $(HARDY_OPTIONS) $(OPT)
+CPPFLAGS = $(XINCLUDE) $(INC) -I$(PROLOGINC) $(GUI) $(DEBUGFLAGS) -DDEBUG=$(DEBUG) $(WARN) $(OPTIONS) $(HARDY_OPTIONS) $(OPT)
+#CFLAGS = -DLEX_SCANNER
+CFLAGS = -I/d/gnuwin32/b18/h-i386-cygwin32/i386-cygwin32/include -I/d/gnuwin32/b18/include/g++
+LDFLAGS =  $(XLIB) -L$(WXDIR)/lib -L$(PROLOGDIR)/lib $(EXTRAFLAGS)
+
+all:	$(OBJDIR) $(PROLOGLIB)
+
+demo:	$(TESTPROGRAM)
+
+$(PROLOGLIB): $(OBJECTS)
+	rm -f $@
+	ar $(AROPTIONS) $@ $(OBJECTS)
+	$(RANLIB) $@
+
+.SUFFIXES:
+
+$(OBJECTS):	$(PROLOGINC)/read.h $(PROLOGINC)/expr.h $(PROLOGINC)/prorpc.h
+
+$(OBJDIR)/read.$(OBJSUFF):		read.$(SRCSUFF)
+	$(CCC) -c $(CPPFLAGS) -o $@ read.$(SRCSUFF)
+
+$(OBJDIR)/prorpc.$(OBJSUFF):	prorpc.$(SRCSUFF)
+	$(CC) -c $(CPPFLAGS) -o $@ prorpc.$(SRCSUFF)
+
+$(OBJDIR)/y_tab.$(OBJSUFF):	y_tab.c lex_yy.c
+	$(CCLEX) -c $(CPPFLAGS) -o $@ y_tab.c
+
+# Replace lex with flex if you run into compilation
+# problems with lex_yy.c. See also note about LEX_SCANNER
+# above.
+lex_yy.c:	lexer.l
+	flex -t -L lexer.l > lex_yy.c
+#	sed -e "s/BUFSIZ/5000/g" < lex.yy.c | \
+#	sed -e "s/yyoutput(c)/void yyoutput(c)/g" | \
+#       sed -e "s/YYLMAX 200/YYLMAX 5000/g" > lex_yy.c
+#	rm -f lex.yy.c
+
+# Replace yacc with bison if you run into compilation
+# problems with y_tab.c.
+y_tab.c:	parser.y
+	byacc parser.y
+	mv y.tab.c y_tab.c
+
+$(OBJDIR)/test.$(OBJSUFF):		test.$(SRCSUFF) read.$(SRCSUFF) read.h
+	$(CC) -c $(CPPFLAGS) -o $@ test.$(SRCSUFF)
+
+$(TESTPROGRAM): $(OBJDIR)/test.$(OBJSUFF) $(WXLIB) $(PROLOGLIB)
+	$(CC) $(LDFLAGS) -o test$(GUISUFFIX)$(EXESUFF) $(OBJDIR)/test.$(OBJSUFF) $(XVIEW_LINK) $(LDLIBS)
+
+HTMLDIR=/home/hardy/html/wx/manuals
+
+docs:	ps xlp
+ps:	$(PROLOGDIR)/docs/manual.ps
+xlp:	$(PROLOGDIR)/docs/prologio.xlp
+html:	$(HTMLDIR)/prologio/prologio_contents.html
+
+$(PROLOGDIR)/docs/prologio.xlp:	$(PROLOGDIR)/docs/classes.tex $(PROLOGDIR)/docs/manual.tex
+	cd ../docs; tex2rtf manual.tex tmp.xlp -twice -xlp
+	sed -e "s/WXHELPCONTENTS/PROLOGIO Manual/g" < $(PROLOGDIR)/docs/tmp.xlp > $(PROLOGDIR)/docs/prologio.xlp
+	rm -f $(PROLOGDIR)/docs/tmp.xlp
+
+$(HTMLDIR)/prologio/prologio_contents.html:	$(PROLOGDIR)/docs/manual.tex $(PROLOGDIR)/docs/classes.tex
+	cd ../docs; tex2rtf manual.tex $(HTMLDIR)/prologio/prologio.html -twice -html
+
+$(PROLOGDIR)/docs/manual.dvi:	$(PROLOGDIR)/docs/manual.tex $(PROLOGDIR)/docs/classes.tex $(PROLOGDIR)/docs/tutorial.tex
+	cd $(PROLOGDIR)/docs; latex manual; latex manual; makeindex manual; latex manual
+
+$(PROLOGDIR)/docs/manual.ps:	$(PROLOGDIR)/docs/manual.dvi
+	cd $(PROLOGDIR)/docs; dvips -f -r < manual.dvi > manual.ps
+
+clean:
+	rm -f $(OBJECTS) $(TESTOBJECTS) lex_yy.c y_tab.c test$(GUISUFFIX) $(PROLOGLIB) core
+
+$(OBJDIR):
+	mkdir $(OBJDIR)

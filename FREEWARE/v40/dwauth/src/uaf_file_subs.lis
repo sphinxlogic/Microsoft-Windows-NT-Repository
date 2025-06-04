@@ -1,0 +1,1590 @@
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 1
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (1)
+
+
+
+    1        	#module uaf_file_subs "X-2"
+    2        	
+    3        	
+    4        	/*
+    5        	**++
+    6        	**  FACILITY:	Authorization record maintenance utility
+    7        	**
+    8        	**  MODULE DESCRIPTION:
+    9        	**
+   10        	**		This module contains the routines necessary to manage the
+   11        	**		authorization file.
+   12        	**
+   13        	**  AUTHORS:	L. Mark Pilant		CREATION DATE:	18-Sep-1992
+   14        	**
+   15        	**  MODIFICATION HISTORY:
+   16        	**
+   17        	**	X-2	LMP		L. Mark Pilant,		26-FEB-1993  13:13
+   18        	**		Convert to C from BLISS sources.
+   19        	**
+   20        	**	X-1	LMP		L. Mark Pilant,		18-Sep-1992
+   21        	**		Original Version.
+   22        	**
+   23        	**--
+   24        	*/
+   25        	
+   26        	/*
+   27        	**
+   28        	**  INCLUDE FILES
+   29        	**
+   30        	*/
+   31        	
+   32        	#include	descrip
+  465        	#include	fab
+  785        	#include	nam
+ 1056        	#include	rab
+ 1293        	#include	rmsdef
+ 1899        	#include	string
+ 1945        	#include	xab
+ 3066        	
+ 3067        	#include	<decw$include:mrmappl>
+35126        	
+35127        	#include	"uaf_header"
+36547        	
+36548        	/*
+36549        	**
+36550        	**  FORWARD ROUTINES
+36551        	**
+36552        	*/
+36553        	
+36554        	#pragma noinline (AUTHORIZE$ADD_LIST_ENTRY)
+36555        	#pragma noinline (AUTHORIZE$BUILD_MASTER_LIST)
+36556        	#pragma noinline (AUTHORIZE$BUILD_USER_LIST)
+36557        	#pragma noinline (AUTHORIZE$CRE_USER_INFO)
+36558        	#pragma noinline (AUTHORIZE$DEL_LIST_ENTRY)
+36559        	#pragma noinline (AUTHORIZE$DEL_USER_INFO)
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 2
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (1)
+
+36560        	#pragma noinline (AUTHORIZE$FILE_PROCESS)
+36561        	#pragma noinline (AUTHORIZE$FIND_USER_ENTRY)
+36562        	#pragma noinline (AUTHORIZE$GET_USER_INFO)
+36563        	#pragma noinline (AUTHORIZE$OPEN_UAF)
+36564        	#pragma noinline (AUTHORIZE$RELEASE_UAF_RECORD)
+36565        	#pragma noinline (AUTHORIZE$SET_USER_INFO)
+36566        	#pragma noinline (AUTHORIZE$VALIDATE_USER_NAME)
+36567        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 3
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (2)
+
+             	
+36568        	/* RMS structure storage, used across several routines. */
+36569        	
+36570        	static char		sysuaf_esn[NAM$C_MAXRSS];	/* Expanded name storage */
+36571        	static struct FAB	sysuaf_fab;			/* Authorization file FAB */
+36572        	static struct XABKEY	sysuaf_key0;			/* Authorization file primary lookup key (username) */
+36573        	static struct XABKEY	sysuaf_key1;			/* Authorization file secondary lookup key (UIC) */
+36574        	static struct XABKEY	sysuaf_key2;			/* Authorization file unused lookup key (extended UIC) */
+36575        	static struct XABKEY	sysuaf_key3;			/* Authorization file unused lookup key (parent ID) */
+36576        	static struct NAM	sysuaf_nam;			/* Authorization file NAMe block */
+36577        	static struct RAB	sysuaf_rab;			/* Authorization file RAB */
+36578        	static struct UAFDEF	sysuaf_record;			/* Authorization file record storage */
+36579        	static char		sysuaf_rsn[NAM$C_MAXRSS];	/* Resultant name storage */
+36580        	static struct XABPRO	sysuaf_xabpro;			/* Authorization file protection XAB; no world access */
+36581        	
+36582        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 4
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (3)
+
+             	
+36583        	extern void AUTHORIZE$ADD_LIST_ENTRY (username, uic, list_head, entry)
+36584        	
+36585        	char			*username;
+36586        	int			uic;
+36587        	struct USRLSTDEF	*list_head;
+36588        	struct USRLSTDEF	**entry;
+36589        	{
+36590    1   	/*
+36591    1   	**++
+36592    1   	**  FUNCTIONAL DESCRIPTION:
+36593    1   	**
+36594    1   	**	This routine allocates a user list entry, fills it and adds it to the
+36595    1   	**	list whose list head is supplied.
+36596    1   	**
+36597    1   	**	NOTE:	The new list entry is added to the list in alphabetical order.
+36598    1   	**		(With an optimization to see if the supplied "list head" is already
+36599    1   	**		positioned to the correct place.)  This only affects the in memory
+36600    1   	**		list.  It DOES NOT affect the list in the main window.
+36601    1   	**
+36602    1   	**  FORMAL PARAMETERS:
+36603    1   	**
+36604    1   	**	USERNAME	- pointer to the username text
+36605    1   	**	UIC		- (binary) UIC for new entry
+36606    1   	**	LIST_HEAD	- list head for the list to which the entry will be added
+36607    1   	**	ENTRY		- pointer to the entry just added
+36608    1   	**
+36609    1   	**  RETURN VALUE:
+36610    1   	**
+36611    1   	**	None
+36612    1   	**
+36613    1   	**  SIDE EFFECTS:
+36614    1   	**
+36615    1   	**	None.
+36616    1   	**
+36617    1   	**--
+36618    1   	*/
+36619    1   	
+36620    1   	/* External routines. */
+36621    1   	
+36622    1   	extern unsigned int		AUTHORIZE$FIND_USER_ENTRY ();
+36623    1   	
+36624    1   	/* Global storage. */
+36625    1   	
+36626    1   	globalref struct USRLSTDEF	uaf_r_master_list;		/* Complete user list (from the file) */
+36627    1   	
+36628    1   	/* Local storage. */
+36629    1   	
+36630    1   	struct USRLSTDEF		*list_entry;			/* Current user list entry */
+36631    1   	struct USRLSTDEF		*new_entry;			/* Pointer to new (created) entry */
+36632    1   	struct USRLSTDEF		*next_entry;			/* Pointer to entry after queue head */
+36633    1   	int				simple_uic_desc[2];		/* Simple descriptor for octal UIC */
+36634    1   	int				simple_uic_id_desc[2];		/* Simple descriptor for identifier UIC */
+36635    1   	char				simple_uic_text[sizeof uaf_r_master_list.uaf$t_usrlst_uic];	/* Octal UIC (text) storage */
+36636    1   	char				simple_uic_id_text[sizeof uaf_r_master_list.uaf$t_usrlst_uic_id];	/* Identifer UIC storage */
+36637    1   	unsigned int			status;				/* Routine exit status */
+36638    1   	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 5
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (3)
+
+36639    1   	$DESCRIPTOR			(fao_uic, "!%U");		/* Format UIC with octal group and member */
+36640    1   	$DESCRIPTOR			(fao_uic_id, "!%I");		/* Format UIC with identifiers */
+36641    1   	
+36642    1   	/* Initialize needed storage. */
+36643    1   	
+36644    1   	simple_uic_desc[0] = sizeof simple_uic_text;
+36645    1   	simple_uic_desc[1] = &simple_uic_text;
+36646    1   	simple_uic_id_desc[0] = sizeof simple_uic_id_text;
+36647    1   	simple_uic_id_desc[1] = &simple_uic_id_text;
+36648    1   	
+36649    1   	/* Allocate and clear the storage for the list entry. */
+36650    1   	
+36651    1   	new_entry = calloc (1, uaf$c_usrlst_length);
+36652    1   	if (new_entry == 0) LIB$SIGNAL (UAF$_NOPROCMEM);
+36653    1   	
+36654    1   	/* Fill the newly allocated list entry. */
+36655    1   	
+36656    1   	memmove (&new_entry->uaf$t_usrlst_name, username, strlen (username));
+36657    1   	
+36658    1   	if (uic != 0)
+36659    1   	    {
+36660    2   	    new_entry->uaf$l_usrlst_own_id = uic;			/* Save binary UIC for later */
+36661    2   	
+36662    2   	/* Convert the binary UIC value in the authorization record to two strings.
+36663    2   	** The first is a straight numeric (to octal) conversion.  The second uses
+36664    2   	** any identifiers available.  These are needed for UIC based filtering. */
+36665    2   	
+36666    2   	    simple_uic_desc[0] = sizeof simple_uic_text;		/* Reset length */
+36667    2   	    memset (simple_uic_text, 0, sizeof simple_uic_text);	/* Reset contents */
+36668    2   	    simple_uic_id_desc[0] = sizeof simple_uic_id_text;		/* Reset length */
+36669    2   	    memset (simple_uic_id_text, 0, sizeof simple_uic_id_text);	/* Reset contents */
+36670    2   	
+36671    2   	    SYS$FAO (&fao_uic,
+36672    2   		     simple_uic_desc,
+36673    2   		     simple_uic_desc,
+36674    2   		     uic);
+36675    2   	    SYS$FAO (&fao_uic_id,
+36676    2   		     simple_uic_id_desc,
+36677    2   		     simple_uic_id_desc,
+36678    2   		     uic);
+36679    2   	
+36680    2   	    memmove (&new_entry->uaf$t_usrlst_uic, simple_uic_text, strlen (simple_uic_text));
+36681    2   	    memmove (&new_entry->uaf$t_usrlst_uic_id, simple_uic_id_text, strlen (simple_uic_id_text));
+36682    2   	    }
+36683    1   	
+36684    1   	/* Now add the new entry to the list.  As a performance optimization,
+36685    1   	** check to see if the "list head" is positioned such that the new entry
+36686    1   	** can be added immediately after it.  If this is not the case, chase
+36687    1   	** down the entire list to find the correct place to insert the new entry. */
+36688    1   	
+36689    1   	list_entry = &list_head->uaf$l_usrlst_flink;	/* Get pointer to current entry */
+36690    1   	next_entry = list_head->uaf$l_usrlst_flink;	/* Get pointer to next entry */
+36691    1   	
+36692    1   	if (((strlen (list_entry->uaf$t_usrlst_name) != 0) &&			/* List entry name length != 0 */
+36693    1   	     (strcmp (list_entry->uaf$t_usrlst_name, username) > 0)) ||		/* List entry name > new entry name */
+36694    1   	    ((strlen (next_entry->uaf$t_usrlst_name) != 0) &&			/* Next entry name length != 0 */
+36695    1   	     (strcmp (next_entry->uaf$t_usrlst_name, username) < 0)))		/* Next entry name < new entry name */
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 6
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (3)
+
+36696    1   	    {
+36697    2   	
+36698    2   	/* Search the list to find the appropriate spot for insertion. */
+36699    2   	
+36700    2   	    AUTHORIZE$FIND_USER_ENTRY (list_head,
+36701    2   				       username,
+36702    2   				       FIND_NAME_LESS,
+36703    2   				       0,
+36704    2   				       &list_entry);
+36705    2   	
+36706    2   	/* Now get the address of the next entry. */
+36707    2   	
+36708    2   	    next_entry = list_entry->uaf$l_usrlst_flink;
+36709    2   	    }
+36710    1   	
+36711    1   	/* Add the entry after the queue list entry.  This could have been done
+36712    1   	** with an INSQUE instruction, but I didn't want to add explicit architecture
+36713    1   	** dependencies. */
+36714    1   	
+36715    1   	list_entry->uaf$l_usrlst_flink = &new_entry->uaf$l_usrlst_flink;	/* Forward link in list entry points to new entry */
+36716    1   	next_entry->uaf$l_usrlst_blink = &new_entry->uaf$l_usrlst_flink;	/* Back link in next entry points to new entry */
+36717    1   	
+36718    1   	new_entry->uaf$l_usrlst_flink = &next_entry->uaf$l_usrlst_flink;	/* Forward link points to old next entry */
+36719    1   	new_entry->uaf$l_usrlst_blink = &list_entry->uaf$l_usrlst_flink;	/* Back link points to list entry */
+36720    1   	
+36721    1   	/* Return a pointer to the newly created list entry. */
+36722    1   	
+36723    1   	*entry = new_entry;
+36724    1   	}
+36725        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 7
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (4)
+
+             	
+36726        	extern unsigned int AUTHORIZE$BUILD_MASTER_LIST ()
+36727        	{
+36728    1   	/*
+36729    1   	**++
+36730    1   	**  FUNCTIONAL DESCRIPTION:
+36731    1   	**
+36732    1   	**	This routine reads the authorization file and builds the master user
+36733    1   	**	list.  This list is then used to build the user and group lists, using
+36734    1   	**	the appropriate wildcard criteria.  This means that it is not necessary
+36735    1   	**	to read every record in the file when the wildcard criteria is changed.
+36736    1   	**	However, it does mean the list can become stale.
+36737    1   	**
+36738    1   	**  FORMAL PARAMETERS:
+36739    1   	**
+36740    1   	**	None
+36741    1   	**
+36742    1   	**  RETURN VALUE:
+36743    1   	**
+36744    1   	**	SS$_NORMAL if successful, error code otherwise.
+36745    1   	**
+36746    1   	**  SIDE EFFECTS:
+36747    1   	**
+36748    1   	**	None.
+36749    1   	**
+36750    1   	**--
+36751    1   	*/
+36752    1   	
+36753    1   	/* External routines. */
+36754    1   	
+36755    1   	extern void			AUTHORIZE$ADD_LIST_ENTRY ();
+36756    1   	extern unsigned int		AUTHORIZE$VALIDATE_USER_NAME ();
+36757    1   	
+36758    1   	/* Global storage. */
+36759    1   	
+36760    1   	globalref struct USRLSTDEF	uaf_r_master_list;			/* Complete user list (from the file) */
+36761    1   	
+36762    1   	/* Local storage. */
+36763    1   	
+36764    1   	struct USRLSTDEF		*current_entry;				/* Current list entry */
+36765    1   	int				index;					/* General index */
+36766    1   	struct USRLSTDEF		*new_entry;				/* User list entry just added */
+36767    1   	struct USRLSTDEF		*next_entry;				/* Next list entry */
+36768    1   	struct USRLSTDEF		*prev_entry;				/* Previous list entry */
+36769    1   	unsigned int			status;					/* Routine exit status */
+36770    1   	char				username[MAX_USERNAME];			/* Username text storage */
+36771    1   	
+36772    1   	/* Since a new master list is being built, clear out any existing master
+36773    1   	** list entries. */
+36774    1   	
+36775    1   	while (uaf_r_master_list.uaf$l_usrlst_flink != &uaf_r_master_list.uaf$l_usrlst_flink)
+36776    1   	    {
+36777    2   	
+36778    2   	/* Remove the first entry.  This could have been done with a REMQUE instruction,
+36779    2   	** but I didn't want to add explicit architecture dependencies. */
+36780    2   	
+36781    2   	    current_entry = uaf_r_master_list.uaf$l_usrlst_flink;
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 8
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (4)
+
+36782    2   	    prev_entry = current_entry->uaf$l_usrlst_blink;
+36783    2   	    next_entry = current_entry->uaf$l_usrlst_flink;
+36784    2   	
+36785    2   	    prev_entry->uaf$l_usrlst_flink = &next_entry->uaf$l_usrlst_flink;
+36786    2   	    next_entry->uaf$l_usrlst_blink = &prev_entry->uaf$l_usrlst_flink;
+36787    2   	
+36788    2   	    free (current_entry);
+36789    2   	    }
+36790    1   	
+36791    1   	/* Position the currently opened authorization file back to the beginning. */
+36792    1   	
+36793    1   	CHECK_RETURN (SYS$REWIND (&sysuaf_rab));
+36794    1   	
+36795    1   	/* Read each record in the authorization file and build the master user
+36796    1   	** list.  The user list is simply an entry for each user record in the
+36797    1   	** authorization file. */
+36798    1   	
+36799    1   	sysuaf_rab.rab$l_ubf = &sysuaf_record;
+36800    1   	sysuaf_rab.rab$w_usz = sizeof sysuaf_record;
+36801    1   	sysuaf_rab.rab$b_rac = RAB$C_SEQ;
+36802    1   	
+36803    1   	do
+36804    1   	    {
+36805    2   	
+36806    2   	/* Check the status of the $GET.  Only upon success do we actually process
+36807    2   	** the record. */
+36808    2   	
+36809    2   	    if (TRUE (status = SYS$GET (&sysuaf_rab)))
+36810    2   		{
+36811    3   	
+36812    3   	/* Since the $GET succeeded, release the record so that it does not remain
+36813    3   	** locked. */
+36814    3   	
+36815    3   		SYS$RELEASE (&sysuaf_rab);
+36816    3   	
+36817    3   	/* Since C understands ASCIZ strings better than blank filled strings or
+36818    3   	** character descriptors, convert the blank filled username from the authorization
+36819    3   	** record to an ASCIZ string in a local variable. */
+36820    3   	
+36821    3   		memmove (username, &sysuaf_record.UAF$r_fill_0.UAF$T_USERNAME, sizeof username);	/* Copy the text */
+36822    3   		for (index = sizeof username - 1; index >= 0; --index)
+36823    3   		    if (username[index] != ' ') break;				/* Exit on first non-blank character */
+36824    3   		memset (&username[index + 1], 0, sizeof username - index - 1);	/* Zero fill remainder */
+36825    3   	
+36826    3   	/* Becuse there are "username" entries in the UAF which are not for real users
+36827    3   	** (notably the system password entry), validate the syntax of the entry.  If
+36828    3   	** the syntax is valid, add it to the appropriate lists.  Otherwise, simply
+36829    3   	** ignore it.  (This assumes the syntax of the name is checked prior to the
+36830    3   	** creation of the new UAF entry. */
+36831    3   	
+36832    3   		if (TRUE (AUTHORIZE$VALIDATE_USER_NAME (username,
+36833    3   							0)))
+36834    3   	
+36835    3   	/* Add the new entry to the master user list. */
+36836    3   	
+36837    3   		    AUTHORIZE$ADD_LIST_ENTRY (username,
+36838    3   					      sysuaf_record.UAF$r_fill_2.UAF$L_UIC,
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 9
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (4)
+
+36839    3   					      uaf_r_master_list.uaf$l_usrlst_blink,	/* To the end */
+36840    3   					      &new_entry);
+36841    3   		}
+36842    2   	
+36843    2   	/* If the $GET failed, check the failure status.  Certain errors can be
+36844    2   	** considered benign, and are ignored.  Others will terminate processing. */
+36845    2   	
+36846    2   	    if ((status == RMS$_RLK) ||		/* Record locked */
+36847    2   		(status == RMS$_RNF) ||		/* Record not found */
+36848    2   		(status == RMS$_RTB))		/* record too big for buffer */
+36849    2   		status = RMS$_NORMAL;
+36850    2   	    }
+36851    1   	while (TRUE (status));
+36852    1   	
+36853    1   	/* Return success. */
+36854    1   	
+36855    1   	return SS$_NORMAL;
+36856    1   	}
+36857        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 10
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (5)
+
+             	
+36858        	extern void AUTHORIZE$BUILD_USER_LIST ()
+36859        	{
+36860    1   	/*
+36861    1   	**++
+36862    1   	**  FUNCTIONAL DESCRIPTION:
+36863    1   	**
+36864    1   	**	This routine reads the authorization file and builds two lists of usernames.
+36865    1   	**	The first list is contains all the usernames in the authorization file.  The
+36866    1   	**	second list contains only those usernames representing groups (i.e., the
+36867    1   	**	member portion of the UIC is 177777 [octal]).  These lists are then used for
+36868    1   	**	processing.  This is to allow the use of $GETUAI and $SETUAI which do not
+36869    1   	**	currently understand how to perform wildcard operations.
+36870    1   	**
+36871    1   	**  FORMAL PARAMETERS:
+36872    1   	**
+36873    1   	**	None
+36874    1   	**
+36875    1   	**  RETURN VALUE:
+36876    1   	**
+36877    1   	**	None
+36878    1   	**
+36879    1   	**  SIDE EFFECTS:
+36880    1   	**
+36881    1   	**	None.
+36882    1   	**
+36883    1   	**--
+36884    1   	*/
+36885    1   	
+36886    1   	/* External routines. */
+36887    1   	
+36888    1   	extern void			AUTHORIZE$ADD_LIST_ENTRY ();
+36889    1   	extern unsigned int		AUTHORIZE$VALIDATE_USER_NAME ();
+36890    1   	extern unsigned int		AUTHORIZE$MATCH_NAME ();
+36891    1   	
+36892    1   	/* The following storage is defined first, to allow storage following to
+36893    1   	** be correctly sized. */
+36894    1   	
+36895    1   	globalref struct USRLSTDEF	uaf_r_group_list;			/* Group user name list head */
+36896    1   	globalref struct USRLSTDEF	uaf_r_master_list;			/* Complete user list (from the file) */
+36897    1   	globalref struct USRLSTDEF	uaf_r_user_list;			/* User name list head */
+36898    1   	
+36899    1   	/* Remaining global storage. */
+36900    1   	
+36901    1   	globalref unsigned int		uaf_l_current_group_max;		/* Count of entries in group list */
+36902    1   	globalref unsigned int		uaf_l_current_user_max;			/* Count of entries in user list */
+36903    1   	globalref Widget		uaf_r_widget_id_array[uaf$c_max_widget_code];	/* Array of Widget IDs in use */
+36904    1   	globalref char			*uaf_t_default_username;		/* Default account username */
+36905    1   	globalref char			uaf_t_username_filter[sizeof uaf_r_user_list.uaf$t_usrlst_name];    /* Current username filter string
+ */
+36906    1   	
+36907    1   	/* Local storage. */
+36908    1   	
+36909    1   	struct USRLSTDEF		*current_entry;				/* Current list entry */
+36910    1   	int				index;					/* General index */
+36911    1   	struct USRLSTDEF		*master_entry;				/* Master user list entry */
+36912    1   	XmString			master_entry_username;			/* Compound string for username from master list */
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 11
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (5)
+
+36913    1   	struct USRLSTDEF		*new_entry;				/* User list entry just added */
+36914    1   	struct USRLSTDEF		*next_entry;				/* Next list entry */
+36915    1   	struct USRLSTDEF		*prev_entry;				/* Previous list entry */
+36916    1   	unsigned int			status;					/* Routine exit status */
+36917    1   	char				username[MAX_USERNAME];			/* Username text storage */
+36918    1   	
+36919    1   	/* Since a new user list is being built, clear out any existing user list
+36920    1   	** entries; on both user lists. */
+36921    1   	
+36922    1   	while (uaf_r_user_list.uaf$l_usrlst_flink != &uaf_r_user_list.uaf$l_usrlst_flink)
+36923    1   	    {
+36924    2   	
+36925    2   	/* Remove the first entry.  This could have been done with a REMQUE instruction,
+36926    2   	** but I didn't want to add explicit architecture dependencies. */
+36927    2   	
+36928    2   	    current_entry = uaf_r_user_list.uaf$l_usrlst_flink;
+36929    2   	    prev_entry = current_entry->uaf$l_usrlst_blink;
+36930    2   	    next_entry = current_entry->uaf$l_usrlst_flink;
+36931    2   	
+36932    2   	    prev_entry->uaf$l_usrlst_flink = &next_entry->uaf$l_usrlst_flink;
+36933    2   	    next_entry->uaf$l_usrlst_blink = &prev_entry->uaf$l_usrlst_flink;
+36934    2   	
+36935    2   	    free (current_entry);
+36936    2   	    }
+36937    1   	
+36938    1   	while (uaf_r_group_list.uaf$l_usrlst_flink != &uaf_r_group_list.uaf$l_usrlst_flink)
+36939    1   	    {
+36940    2   	
+36941    2   	/* Remove the first entry.  This could have been done with a REMQUE instruction,
+36942    2   	** but I didn't want to add explicit architecture dependencies. */
+36943    2   	
+36944    2   	    current_entry = uaf_r_group_list.uaf$l_usrlst_flink;
+36945    2   	    prev_entry = current_entry->uaf$l_usrlst_blink;
+36946    2   	    next_entry = current_entry->uaf$l_usrlst_flink;
+36947    2   	
+36948    2   	    prev_entry->uaf$l_usrlst_flink = &next_entry->uaf$l_usrlst_flink;
+36949    2   	    next_entry->uaf$l_usrlst_blink = &prev_entry->uaf$l_usrlst_flink;
+36950    2   	
+36951    2   	    free (current_entry);
+36952    2   	    }
+36953    1   	
+36954    1   	/* Delete all the items from the username and group name list boxes. */
+36955    1   	
+36956    1   	XmListDeleteAllItems (uaf_r_widget_id_array[uaf$c_main_user_list]);
+36957    1   	XmListDeleteAllItems (uaf_r_widget_id_array[uaf$c_main_group_list]);
+36958    1   	
+36959    1   	/* Traverse the master user list looking for candidates for the user and
+36960    1   	** group lists. */
+36961    1   	
+36962    1   	master_entry = uaf_r_master_list.uaf$l_usrlst_flink;
+36963    1   	
+36964    1   	while (master_entry != &uaf_r_master_list.uaf$l_usrlst_flink)
+36965    1   	    {
+36966    2   	    master_entry_username = XmStringCreateSimple (master_entry->uaf$t_usrlst_name);
+36967    2   	
+36968    2   	/* Check each entry in the master user list and build the user and group
+36969    2   	** lists.  The user list is simply an entry for each user record in the
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 12
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (5)
+
+36970    2   	** authorization file.  The group list is an entry for each record in the
+36971    2   	** authorization file that has a member number of -1 (177777 octal).
+36972    2   	**
+36973    2   	** See if the entry matches the filter criteria.  Filtering is done in one
+36974    2   	** of two ways:
+36975    2   	**
+36976    2   	**  1)	If the first character of the filter string is not a square bracket
+36977    2   	**	or angle bracket, compare the supplied string with the username field.
+36978    2   	**
+36979    2   	**  2)	If the first character of the filter string is a suqare bracket or
+36980    2   	**	an angle bracket, compare the supplied string with the coverted UIC
+36981    2   	**	(octal form as well as the identifier form).
+36982    2   	**
+36983    2   	** Note this is only done for the username list.  The filter does not apply
+36984    2   	** for candidates for the group list */
+36985    2   	
+36986    2   	    if (
+36987    2   		(											/* First case */
+36988    2   		 ((uaf_t_username_filter[0] != '[') && (uaf_t_username_filter[0] != '<')) &&
+36989    2   		 (TRUE (AUTHORIZE$MATCH_NAME (strlen (master_entry->uaf$t_usrlst_name),
+36990    2   					      master_entry->uaf$t_usrlst_name,
+36991    2   					      strlen (uaf_t_username_filter),
+36992    2   					      uaf_t_username_filter)))
+36993    2   		) ||
+36994    2   		(											/* Second case */
+36995    2   		 ((uaf_t_username_filter[0] == '[') || (uaf_t_username_filter[0] == '<')) &&
+36996    2   		 (
+36997    2   		  ((TRUE (AUTHORIZE$MATCH_NAME (strlen (master_entry->uaf$t_usrlst_uic),
+36998    2   						master_entry->uaf$t_usrlst_uic,
+36999    2   						strlen (uaf_t_username_filter),
+37000    2   						uaf_t_username_filter))) ||
+37001    2   		   (TRUE (AUTHORIZE$MATCH_NAME (strlen (master_entry->uaf$t_usrlst_uic_id),
+37002    2   						master_entry->uaf$t_usrlst_uic_id,
+37003    2   						strlen (uaf_t_username_filter),
+37004    2   						uaf_t_username_filter)))
+37005    2   		  )
+37006    2   		 )
+37007    2   		)
+37008    2   	       )
+37009    2   		{
+37010    3   	
+37011    3   	/* Add the new entry to the username list. */
+37012    3   	
+37013    3   		AUTHORIZE$ADD_LIST_ENTRY (master_entry->uaf$t_usrlst_name,
+37014    3   					  0,
+37015    3   					  uaf_r_user_list.uaf$l_usrlst_blink,	/* To the end */
+37016    3   					  &new_entry);
+37017    3   	
+37018    3   	/* Add the entry to the user list box. */
+37019    3   	
+37020    3   		XmListAddItem (uaf_r_widget_id_array[uaf$c_main_user_list],
+37021    3   			       master_entry_username,
+37022    3   			       0);
+37023    3   		++uaf_l_current_user_max;
+37024    3   		}
+37025    2   	
+37026    2   	/* If this entry is a group entry, add it to the group name queue as well. */
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 13
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (5)
+
+37027    2   	
+37028    2   	    if (sysuaf_record.UAF$r_fill_2.UAF$r_fill_3.UAF$W_MEM == 0xffff)
+37029    2   		{
+37030    3   	
+37031    3   	/* Add the new entry to the group list. */
+37032    3   	
+37033    3   		AUTHORIZE$ADD_LIST_ENTRY (master_entry->uaf$t_usrlst_name,
+37034    3   					  0,
+37035    3   					  uaf_r_group_list.uaf$l_usrlst_blink,	/* To the end */
+37036    3   					  &new_entry);
+37037    3   	
+37038    3   	/* Add the entry to the group list box. */
+37039    3   	
+37040    3   		XmListAddItem (uaf_r_widget_id_array[uaf$c_main_group_list],
+37041    3   			       master_entry_username,
+37042    3   			       0);
+37043    3   		++uaf_l_current_group_max;
+37044    3   		}
+37045    2   	
+37046    2   	/* In this entry is the DEFAULT entry, add it to the group queue and set it
+37047    2   	** up as the default selected item. */
+37048    2   	
+37049    2   	    if (strcmp (uaf_t_default_username, master_entry->uaf$t_usrlst_name) == 0)
+37050    2   		{
+37051    3   	
+37052    3   	/* Add the new entry to the group list. */
+37053    3   	
+37054    3   		AUTHORIZE$ADD_LIST_ENTRY (master_entry->uaf$t_usrlst_name,
+37055    3   					  0,
+37056    3   					  uaf_r_group_list.uaf$l_usrlst_blink,	/* To the end */
+37057    3   					  &new_entry);
+37058    3   	
+37059    3   	/* Add the entry to the group list box. */
+37060    3   	
+37061    3   		XmListAddItem (uaf_r_widget_id_array[uaf$c_main_group_list],
+37062    3   			       master_entry_username,
+37063    3   			       0);
+37064    3   		++uaf_l_current_group_max;
+37065    3   	
+37066    3   	/* Select and highlight the DEFAULT item. */
+37067    3   	
+37068    3   		AUTHORIZE$SET_UP_GROUP (master_entry->uaf$t_usrlst_name,
+37069    3   					NULL);
+37070    3   		}
+37071    2   	    XtFree (master_entry_username);
+37072    2   	
+37073    2   	/* Set up for the next entry in the master user list. */
+37074    2   	
+37075    2   	    master_entry = master_entry->uaf$l_usrlst_flink;
+37076    2   	    }
+37077    1   	}
+37078        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 14
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (6)
+
+             	
+37079        	extern unsigned int AUTHORIZE$CRE_USER_INFO (username, itmlst)
+37080        	
+37081        	char			*username;
+37082        	struct ITMDEF		(*itmlst)[];
+37083        	{
+37084    1   	/*
+37085    1   	**++
+37086    1   	**  FUNCTIONAL DESCRIPTION:
+37087    1   	**
+37088    1   	**	This routine creates the user authorization entry for the specified
+37089    1   	**	user, using the information supplied.
+37090    1   	**
+37091    1   	**  FORMAL PARAMETERS:
+37092    1   	**
+37093    1   	**	USERNAME	- pointer to the username text
+37094    1   	**	ITMLST		- pointer to the dynamic item list
+37095    1   	**
+37096    1   	**  RETURN VALUE:
+37097    1   	**
+37098    1   	**	Status from $CREUAI
+37099    1   	**
+37100    1   	**  SIDE EFFECTS:
+37101    1   	**
+37102    1   	**	None.
+37103    1   	**
+37104    1   	**--
+37105    1   	*/
+37106    1   	
+37107    1   	/* Global storage. */
+37108    1   	
+37109    1   	globalref unsigned short int	uaf_w_uai_context[2];		/* $xxxUAI context cell */
+37110    1   	
+37111    1   	/* Local storage. */
+37112    1   	
+37113    1   	unsigned int			username_desc[2];		/* Simple username descriptor */
+37114    1   	
+37115    1   	/* Since $CREUAI wants the username as a descriptor, set it up. */
+37116    1   	
+37117    1   	username_desc[0] = strlen (username);
+37118    1   	username_desc[1] = username;
+37119    1   	
+37120    1   	/* Create the specified user authorization entry. */
+37121    1   	
+37122    1   	return SYS$CREUAI (NULL,
+37123    1   	#ifdef NONSHARED_UAI_CONTEXT
+37124    1   			   NULL,
+37125    1   	#else
+37126   X    			   uaf_w_uai_context,
+37127    1   	#endif /* NONSHARED_UAI_CONTEXT */
+37128    1   			   username_desc,
+37129    1   			   itmlst,
+37130    1   			   NULL,
+37131    1   			   NULL,
+37132    1   			   NULL);
+37133    1   	}
+37134        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 15
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (7)
+
+             	
+37135        	extern void AUTHORIZE$DEL_LIST_ENTRY (list_entry)
+37136        	
+37137        	struct USRLSTDEF	*list_entry;
+37138        	{
+37139    1   	/*
+37140    1   	**++
+37141    1   	**  FUNCTIONAL DESCRIPTION:
+37142    1   	**
+37143    1   	**	This routine removes user list entry and deallocates the
+37144    1   	**	associated memory.  This could have been done with a REMQUE
+37145    1   	**	instruction, but I didn't want to add explicit architecture
+37146    1   	**	dependencies.
+37147    1   	**
+37148    1   	**  FORMAL PARAMETERS:
+37149    1   	**
+37150    1   	**	LIST_ENTRY	- list entry to delete
+37151    1   	**
+37152    1   	**  RETURN VALUE:
+37153    1   	**
+37154    1   	**	None.
+37155    1   	**
+37156    1   	**  SIDE EFFECTS:
+37157    1   	**
+37158    1   	**	None.
+37159    1   	**
+37160    1   	**--
+37161    1   	*/
+37162    1   	
+37163    1   	/* Local storage. */
+37164    1   	
+37165    1   	struct USRLSTDEF	*next_entry;		/* Pointer to entry after queue head */
+37166    1   	struct USRLSTDEF	*prev_entry;		/* Pointer to entry before the queue head */
+37167    1   	
+37168    1   	/* Get pointers to the previous and next entries. */
+37169    1   	
+37170    1   	prev_entry = list_entry->uaf$l_usrlst_blink;	/* Get pointer to previous entry */
+37171    1   	next_entry = list_entry->uaf$l_usrlst_flink;	/* Get pointer to next entry */
+37172    1   	
+37173    1   	/* Adjust the link pointers to eliminate the list head entry. */
+37174    1   	
+37175    1   	prev_entry->uaf$l_usrlst_flink = &next_entry->uaf$l_usrlst_flink;	/* Forward link points to old next entry */
+37176    1   	next_entry->uaf$l_usrlst_blink = &prev_entry->uaf$l_usrlst_flink;	/* Back link points to old previous entry */
+37177    1   	
+37178    1   	/* Return the memory from the list head entry. */
+37179    1   	
+37180    1   	free (list_entry);
+37181    1   	}
+37182        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 16
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (8)
+
+             	
+37183        	extern unsigned int AUTHORIZE$DEL_USER_INFO (username)
+37184        	
+37185        	char			*username;
+37186        	{
+37187    1   	/*
+37188    1   	**++
+37189    1   	**  FUNCTIONAL DESCRIPTION:
+37190    1   	**
+37191    1   	**	This routine deletes the user authorization entry for the specified
+37192    1   	**	user.
+37193    1   	**
+37194    1   	**  FORMAL PARAMETERS:
+37195    1   	**
+37196    1   	**	USERNAME	- pointer to the username text
+37197    1   	**
+37198    1   	**  RETURN VALUE:
+37199    1   	**
+37200    1   	**	Status from $DELUAI
+37201    1   	**
+37202    1   	**  SIDE EFFECTS:
+37203    1   	**
+37204    1   	**	None.
+37205    1   	**
+37206    1   	**--
+37207    1   	*/
+37208    1   	
+37209    1   	/* Global storage. */
+37210    1   	
+37211    1   	globalref unsigned short int	uaf_w_uai_context[2];		/* $xxxUAI context cell */
+37212    1   	
+37213    1   	/* Local storage. */
+37214    1   	
+37215    1   	unsigned int			username_desc[2];		/* Simple username descriptor */
+37216    1   	
+37217    1   	/* Since $DELUAI wants the username as a descriptor, set it up. */
+37218    1   	
+37219    1   	username_desc[0] = strlen (username);
+37220    1   	username_desc[1] = username;
+37221    1   	
+37222    1   	/* Create the specified user authorization entry. */
+37223    1   	
+37224    1   	return SYS$DELUAI (NULL,
+37225    1   	#ifdef NONSHARED_UAI_CONTEXT
+37226    1   			   NULL,
+37227    1   	#else
+37228   X    			   uaf_w_uai_context,
+37229    1   	#endif /* NONSHARED_UAI_CONTEXT */
+37230    1   			   username_desc,
+37231    1   			   NULL,
+37232    1   			   NULL,
+37233    1   			   NULL,
+37234    1   			   NULL);
+37235    1   	}
+37236        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 17
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (9)
+
+             	
+37237        	extern void AUTHORIZE$FILE_PROCESS (widget_id, tag, reason)
+37238        	
+37239        	Widget				widget_id;
+37240        	int				*tag;
+37241        	XmAnyCallbackStruct		*reason;
+37242        	{
+37243    1   	/*
+37244    1   	**++
+37245    1   	**  FUNCTIONAL DESCRIPTION:
+37246    1   	**
+37247    1   	**	This routine process the various actions for the file selection
+37248    1   	**	box widget.
+37249    1   	**
+37250    1   	**  FORMAL PARAMETERS:
+37251    1   	**
+37252    1   	**	LIST_HEAD	- list head for the list to which the entry will be added
+37253    1   	**
+37254    1   	**  RETURN VALUE:
+37255    1   	**
+37256    1   	**	None
+37257    1   	**
+37258    1   	**  SIDE EFFECTS:
+37259    1   	**
+37260    1   	**	None.
+37261    1   	**
+37262    1   	**--
+37263    1   	*/
+37264    1   	
+37265    1   	/* External routines. */
+37266    1   	
+37267    1   	extern unsigned int	AUTHORIZE$BUILD_MASTER_LIST ();
+37268    1   	extern void		AUTHORIZE$BUILD_USER_LIST ();
+37269    1   	extern void		AUTHORIZE$DECW_ERROR ();
+37270    1   	extern unsigned int	AUTHORIZE$OPEN_UAF ();
+37271    1   	extern void		AUTHORIZE$SET_UP_USERNAME ();
+37272    1   	extern void		AUTHORIZE$WATCH_CURSOR_ON ();
+37273    1   	extern void		AUTHORIZE$WATCH_CURSOR_OFF ();
+37274    1   	
+37275    1   	/* Global references. */
+37276    1   	
+37277    1   	globalref Widget	uaf_r_file_window_widget;	/* File selection widget info */
+37278    1   	globalref Widget	uaf_r_main_top_level_widget;	/* Main window widget shell info */
+37279    1   	globalref Widget	uaf_r_main_window_widget;	/* Main window widget info */
+37280    1   	globalref Cursor	uaf_r_wait_cursor_main;		/* Main window wait cursor id */
+37281    1   	
+37282    1   	/* Local storage. */
+37283    1   	
+37284    1   	Widget			file_selection_box_text;	/* File selection box text widget id */
+37285    1   	unsigned int		status;				/* Routine exit status */
+37286    1   	char			*temp_string;			/* Temp string pointer */
+37287    1   	int			widget_number = *tag;
+37288    1   	
+37289    1   	/* Debug information. */
+37290    1   	
+37291    1   	#ifdef DEBUGGING
+37292   X    	printf ("file process\n");
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 18
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (9)
+
+37293    1   	#endif /* DEBUGGING */
+37294    1   	
+37295    1   	/* Call the appropriate routine, based upon the requested action. */
+37296    1   	
+37297    1   	switch (widget_number)
+37298    1   	    {
+37299    2   	    case uaf$c_file_open_file:
+37300    2   		{
+37301    3   	
+37302    3   	/* Get the name of the new file to open. */
+37303    3   	
+37304    3   		file_selection_box_text = XmFileSelectionBoxGetChild (uaf_r_file_window_widget,
+37305    3   								      XmDIALOG_TEXT);
+37306    3   		temp_string = XmTextGetString (file_selection_box_text);
+37307    3   	
+37308    3   	/* Open the new authorization file. */
+37309    3   	
+37310    3   		if (FALSE (AUTHORIZE$OPEN_UAF (temp_string)))
+37311    3   		    {
+37312    4   	
+37313    4   	/* If the open fails, note the error. */
+37314    4   	
+37315    4   		    AUTHORIZE$DECW_ERROR (UAF$_UAFOPENERR);
+37316    4   		    return;
+37317    4   		    }
+37318    3   	
+37319    3   	/* Dismiss the file selection box. */
+37320    3   	
+37321    3   		XtUnmanageChild (uaf_r_file_window_widget);
+37322    3   		XFlush (XtDisplay (uaf_r_file_window_widget));	/* Now */
+37323    3   	
+37324    3   	/* Since building the user list may take some time, set up the wait cursor. */
+37325    3   	
+37326    3   		AUTHORIZE$WATCH_CURSOR_ON (uaf_r_main_top_level_widget,
+37327    3   					   uaf_r_main_window_widget,
+37328    3   					   uaf_r_wait_cursor_main);
+37329    3   	
+37330    3   	/* Get a list of the user's and groups. */
+37331    3   	
+37332    3   		if (FALSE (AUTHORIZE$BUILD_MASTER_LIST ()))
+37333    3   		    {
+37334    4   	
+37335    4   	/* If the build fails, not the failure. */
+37336    4   	
+37337    4   		    AUTHORIZE$DECW_ERROR (UAF$_UAFREADERR);
+37338    4   		    return;
+37339    4   		    }
+37340    3   		AUTHORIZE$BUILD_USER_LIST ();
+37341    3   	
+37342    3   	/* If possible, set up for the first username in the list. */
+37343    3   	
+37344    3   		AUTHORIZE$SET_UP_USERNAME (0,
+37345    3   					   1);
+37346    3   	
+37347    3   	/* Reset the cursor. */
+37348    3   	
+37349    3   		AUTHORIZE$WATCH_CURSOR_OFF (uaf_r_main_top_level_widget,
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 19
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (9)
+
+37350    3   					    uaf_r_main_window_widget);
+37351    3   	
+37352    3   	/* Free up any storage allocated for the text string. */
+37353    3   	
+37354    3   		XtFree (temp_string);
+37355    3   		break;
+37356    3   		}
+37357    2   	
+37358    2   	    case uaf$c_file_cancel:
+37359    2   		{
+37360    3   		XtUnmanageChild (uaf_r_file_window_widget);
+37361    3   		break;
+37362    3   		}
+37363    2   	    }
+37364    1   	}
+37365        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 20
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (10)
+
+             	
+37366        	extern unsigned int AUTHORIZE$FIND_USER_ENTRY (list_head, username, match_type, position, list_entry)
+37367        	
+37368        	struct USRLSTDEF	*list_head;
+37369        	char			*username;
+37370        	int			match_type;
+37371        	int			**position;
+37372        	struct USRLSTDEF	**list_entry;
+37373        	{
+37374    1   	/*
+37375    1   	**++
+37376    1   	**  FUNCTIONAL DESCRIPTION:
+37377    1   	**
+37378    1   	**	This routine checks the specified list and locates an entry that
+37379    1   	**	meets the specified match criteria.
+37380    1   	**
+37381    1   	**	Note: There is an implicit assumption that the candidate entry
+37382    1   	**	      will not exist in the specified list.
+37383    1   	**
+37384    1   	**  FORMAL PARAMETERS:
+37385    1   	**
+37386    1   	**	LIST_HEAD	- list head for the list to search
+37387    1   	**	USERNAME	- pointer to the (candidate) username text
+37388    1   	**	MATCH_TYPE	- type code that determines name matching criteria
+37389    1   	**			  (less, equal, or greater)
+37390    1   	**	POSITION	- address of a cell to contain the list position
+37391    1   	**
+37392    1   	**  RETURN VALUE:
+37393    1   	**
+37394    1   	**	1 if found, 0 otherwise.
+37395    1   	**
+37396    1   	**  SIDE EFFECTS:
+37397    1   	**
+37398    1   	**	None.
+37399    1   	**
+37400    1   	**--
+37401    1   	*/
+37402    1   	
+37403    1   	/* Local storage. */
+37404    1   	
+37405    1   	struct USRLSTDEF	*entry;			/* Current user list entry */
+37406    1   	int			found_entry;		/* Flag to indicate entry found */
+37407    1   	int			list_position = 1;	/* Position in the list; NOTE 1 bias */
+37408    1   	
+37409    1   	/* Loop through each entry in the list looking for the specified username. */
+37410    1   	
+37411    1   	entry = list_head->uaf$l_usrlst_flink;		/* Get the first entry */
+37412    1   	
+37413    1   	while (entry != &list_head->uaf$l_usrlst_flink)
+37414    1   	    {
+37415    2   	    found_entry = 0;				/* Assume entry not found */
+37416    2   	
+37417    2   	/* Do the check based upon the type of match requested. */
+37418    2   	
+37419    2   	    switch (match_type)
+37420    2   		{
+37421    3   		case FIND_NAME_LESS:
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 21
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (10)
+
+37422    3   		    {
+37423    4   	
+37424    4   	/* Since we are looking for the target entry (just) less than the
+37425    4   	** candidate entry, it is necessary to find the first entry (just)
+37426    4   	** greater than the candidate entry, and position to the previous
+37427    4   	** entry.  So the logic is similar to the FIND_NAME_GREATER case;
+37428    4   	** but with a twist. */
+37429    4   	
+37430    4   		    if (entry->uaf$t_usrlst_name[0] >= username[0])				/* Check first character */
+37431    4   			{
+37432    5   			if (strcmp (&entry->uaf$t_usrlst_name, username) >= 0)			/* Then entire string */
+37433    5   			    {
+37434    6   			    found_entry = 1;							/* entry > username */
+37435    6   			    entry = entry->uaf$l_usrlst_blink;					/* Point to previous */
+37436    6   			    }
+37437    5   			}
+37438    4   		    break;
+37439    4   		    }
+37440    3   	
+37441    3   		case FIND_NAME_EQUAL:
+37442    3   		    {
+37443    4   	
+37444    4   	/* If a check for equality is being made, a performance boost can be made
+37445    4   	** by comparing the first byte of each string.  If they do not match, then
+37446    4   	** there is no point comparing the entire string.  If they do match, then
+37447    4   	** compare the entire strings. */
+37448    4   	
+37449    4   		    if (entry->uaf$t_usrlst_name[0] == username[0])				/* Check first character */
+37450    4   			{
+37451    5   			if (strcmp (&entry->uaf$t_usrlst_name, username) == 0)			/* Then entire string */
+37452    5   			    found_entry = 1;							/* username = entry*/
+37453    5   			}
+37454    4   		    break;
+37455    4   		    }
+37456    3   	
+37457    3   		case FIND_NAME_GREATER:
+37458    3   		    {
+37459    4   	
+37460    4   	/* Since we are looking for the target entry (just) greater than the
+37461    4   	** candidate entry, all target entries whose first byte is less than
+37462    4   	** the first byte of the candidate entry can be excluded from the full
+37463    4   	** comparison. */
+37464    4   	
+37465    4   		    if (entry->uaf$t_usrlst_name[0] >= username[0])				/* Check first character */
+37466    4   			{
+37467    5   			if (strcmp (&entry->uaf$t_usrlst_name, username) > 0)			/* Then entire string */
+37468    5   			    found_entry = 1;							/* entry > username */
+37469    5   			}
+37470    4   		    break;
+37471    4   		    }
+37472    3   		}
+37473    2   	
+37474    2   	/* If the entry was found, post any information requested and return. */
+37475    2   	
+37476    2   	    if (found_entry != 0)
+37477    2   		{
+37478    3   		if (position != 0) *position = list_position;
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 22
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (10)
+
+37479    3   		if (list_entry != 0) *list_entry = entry;
+37480    3   		return 1;
+37481    3   		}
+37482    2   	
+37483    2   	/* Otherwise try the next entry; and up the list position. */
+37484    2   	
+37485    2   	    entry = entry->uaf$l_usrlst_flink;
+37486    2   	    ++list_position;
+37487    2   	    }
+37488    1   	
+37489    1   	/* At this point, all the entries have been checked.  Since nothing was
+37490    1   	** found, the entry "found" is the list head, and the position is the
+37491    1   	** first position in the list. */
+37492    1   	
+37493    1   	if (position != 0) *position = 1;
+37494    1   	if (list_entry != 0) *list_entry = &list_head->uaf$l_usrlst_flink;
+37495    1   	
+37496    1   	/* Return a failure. */
+37497    1   	
+37498    1   	return 0;
+37499    1   	}
+37500        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 23
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (11)
+
+             	
+37501        	extern unsigned int AUTHORIZE$GET_USER_INFO (username, itmlst)
+37502        	
+37503        	char			*username;
+37504        	struct ITMDEF		(**itmlst)[];
+37505        	{
+37506    1   	/*
+37507    1   	**++
+37508    1   	**  FUNCTIONAL DESCRIPTION:
+37509    1   	**
+37510    1   	**	This routine obtains the user authorization information for the
+37511    1   	**	specified user.  The information is returned in the form of a
+37512    1   	**	dynamic item list.
+37513    1   	**
+37514    1   	**  FORMAL PARAMETERS:
+37515    1   	**
+37516    1   	**	USERNAME	- pointer to the username text
+37517    1   	**	ITMLST		- address of a cell to contain the pointer to the
+37518    1   	**			  dynamic item list
+37519    1   	**
+37520    1   	**  RETURN VALUE:
+37521    1   	**
+37522    1   	**	Status from $GETUAI
+37523    1   	**
+37524    1   	**  SIDE EFFECTS:
+37525    1   	**
+37526    1   	**	None.
+37527    1   	**
+37528    1   	**--
+37529    1   	*/
+37530    1   	
+37531    1   	/* External routines. */
+37532    1   	
+37533    1   	extern void			AUTHORIZE$ITMLST_COPY ();
+37534    1   	extern unsigned int		AUTHORIZE$RELEASE_UAF_RECORD ();
+37535    1   	
+37536    1   	/* Global storage. */
+37537    1   	
+37538    1   	globalref struct ITMDEF		uaf_r_user_auth_info[];	/* $xxxUAI item list */
+37539    1   	globalref unsigned short int	uaf_w_uai_context[2];	/* $xxxUAI context cell */
+37540    1   	
+37541    1   	/* Local storage. */
+37542    1   	
+37543    1   	unsigned int			status;			/* Routine exit status */
+37544    1   	unsigned int			username_desc[2];	/* Simple username descriptor */
+37545    1   	
+37546    1   	/* Since $GETUAI wants the username as a descriptor, set it up. */
+37547    1   	
+37548    1   	username_desc[0] = strlen (username);
+37549    1   	username_desc[1] = username;
+37550    1   	
+37551    1   	/* Get the information for the specified user.  If the NONSHARED_UAI_CONTEXT
+37552    1   	** symbol is defined, the UAF is not kept open across $xxxUAI calls.
+37553    1   	** This means when information is needed, the UAF must be opened and
+37554    1   	** closed for the request (internal to $GETUAI). */
+37555    1   	
+37556    1   	if (TRUE (status = SYS$GETUAI (NULL,
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 24
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (11)
+
+37557    1   	#ifdef NONSHARED_UAI_CONTEXT
+37558    1   				       NULL,
+37559    1   	#else
+37560   X    				       uaf_w_uai_context,
+37561    1   	#endif /* NONSHARED_UAI_CONTEXT */
+37562    1   				       username_desc,
+37563    1   				       uaf_r_user_auth_info,
+37564    1   				       NULL,
+37565    1   				       NULL,
+37566    1   				       NULL)))
+37567    1   	    {
+37568    2   	
+37569    2   	/* Release the RMS record lock. */
+37570    2   	
+37571    2   	    AUTHORIZE$RELEASE_UAF_RECORD ();
+37572    2   	
+37573    2   	/* If there is already a dynamic item list, delete it. */
+37574    2   	
+37575    2   	    if (*itmlst != 0) AUTHORIZE$ITMLST_DELETE (itmlst);
+37576    2   	
+37577    2   	/* Copy the information from the local item list to a dynamic item list. */
+37578    2   	
+37579    2   	    AUTHORIZE$ITMLST_COPY (uaf_r_user_auth_info,
+37580    2   				   itmlst,
+37581    2   				   0);
+37582    2   	    }
+37583    1   	
+37584    1   	/* Return with the $GETUAI status. */
+37585    1   	
+37586    1   	return status;
+37587    1   	}
+37588        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 25
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (12)
+
+             	
+37589        	extern unsigned int AUTHORIZE$OPEN_UAF (uaf_file)
+37590        	
+37591        	char			*uaf_file;
+37592        	{
+37593    1   	/*
+37594    1   	**++
+37595    1   	**  FUNCTIONAL DESCRIPTION:
+37596    1   	**
+37597    1   	**	This routine opens the existing user authorization file specified
+37598    1   	**	by the caller.  If an authorization file has been breviously opened,
+37599    1   	**	it is closed.
+37600    1   	**
+37601    1   	**  FORMAL PARAMETERS:
+37602    1   	**
+37603    1   	**	UAF_FILE	- Pointer to the authorization file specification
+37604    1   	**
+37605    1   	**  RETURN VALUE:
+37606    1   	**
+37607    1   	**	SS$_NORMAL if successful, error code otherwise.
+37608    1   	**
+37609    1   	**  SIDE EFFECTS:
+37610    1   	**
+37611    1   	**	None.
+37612    1   	**
+37613    1   	**--
+37614    1   	*/
+37615    1   	
+37616    1   	/* Global references. */
+37617    1   	
+37618    1   	globalref char			*default_sysuaf_file_name;	/* Authorization file default file name */
+37619    1   	globalref char			*default_sysuaf_file_type;	/* Authorization file default file type */
+37620    1   	globalref char			*default_sysuaf_file_spec;	/* Authorization filed default spec */
+37621    1   	globalref unsigned short int	uaf_w_uai_context[2];		/* $xxxUAI context cell */
+37622    1   	
+37623    1   	/* Local storage. */
+37624    1   	
+37625    1   	unsigned int			status;				/* Routine exit status */
+37626    1   	
+37627    1   	/* If there is an open authorization file, as indicated by the uaf_w_uai_context cell
+37628    1   	** being something other than -1, close it now. */
+37629    1   	
+37630    1   	if (uaf_w_uai_context[0] != 0xFFFF)
+37631    1   	    {
+37632    2   	
+37633    2   	/* Initialize the RMS data structures with the information needed to close
+37634    2   	** the open user authorization file. */
+37635    2   	
+37636    2   	    memset (&sysuaf_fab, 0, sizeof sysuaf_fab);
+37637    2   	    memset (&sysuaf_rab, 0, sizeof sysuaf_rab);
+37638    2   	
+37639    2   	    sysuaf_fab.fab$b_bid = FAB$C_BID;
+37640    2   	    sysuaf_fab.fab$b_bln = FAB$C_BLN;
+37641    2   	    sysuaf_fab.fab$w_ifi = uaf_w_uai_context[0];
+37642    2   	
+37643    2   	    sysuaf_rab.rab$b_bid = RAB$C_BID;
+37644    2   	    sysuaf_rab.rab$b_bln = RAB$C_BLN;
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 26
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (12)
+
+37645    2   	    sysuaf_rab.rab$w_isi = uaf_w_uai_context[1];
+37646    2   	
+37647    2   	    SYS$DISCONNECT (&sysuaf_rab);
+37648    2   	    SYS$CLOSE (&sysuaf_rab);
+37649    2   	    }
+37650    1   	
+37651    1   	/* Initialize the RMS data structures needed to open the user authorization file. */
+37652    1   	
+37653    1   	/* Unused lookup key - UAF$Q_PARENT_ID. */
+37654    1   	
+37655    1   	sysuaf_key3 = cc$rms_xabkey;			/* Prototype information */
+37656    1   	sysuaf_key3.xab$b_ref = 3;									/* Key of reference */
+37657    1   	sysuaf_key3.xab$w_pos0 = (int)(&sysuaf_record.UAF$Q_PARENT_ID) - (int)(&sysuaf_record);		/* Position in record */
+37658    1   	sysuaf_key3.xab$b_siz0 = sizeof sysuaf_record.UAF$Q_PARENT_ID;					/* Field size */
+37659    1   	sysuaf_key3.xab$b_dtp = XAB$C_BN8;								/* Data type */
+37660    1   	sysuaf_key3.xab$b_flg = XAB$M_CHG | XAB$M_DUP;							/* Key flags */
+37661    1   	
+37662    1   	/* Unused lookup key - UAF$L_UIC and UAF$L_SUB_ID (assumed to be adjacent
+37663    1   	** fields in the UAF record. */
+37664    1   	
+37665    1   	sysuaf_key2 = cc$rms_xabkey;			/* Prototype information */
+37666    1   	sysuaf_key2.xab$b_ref = 2;									/* Key of reference */
+37667    1   	sysuaf_key2.xab$w_pos0 = (int)(&sysuaf_record.UAF$r_fill_2.UAF$L_UIC) - (int)(&sysuaf_record);	/* Position in record *
+/
+37668    1   	sysuaf_key2.xab$b_siz0 = sizeof sysuaf_record.UAF$r_fill_2.UAF$L_UIC + sizeof sysuaf_record.UAF$L_SUB_ID;	/* Field siz
+e */
+37669    1   	sysuaf_key2.xab$b_dtp = XAB$C_BN8;								/* Data type */
+37670    1   	sysuaf_key2.xab$b_flg = XAB$M_CHG | XAB$M_DUP;							/* Key flags */
+37671    1   	sysuaf_key2.xab$l_nxt = &sysuaf_key3;								/* Next XAB */
+37672    1   		
+37673    1   	/* Secondary lookup key - UAF$L_UIC. */
+37674    1   	
+37675    1   	sysuaf_key1 = cc$rms_xabkey;			/* Prototype information */
+37676    1   	sysuaf_key1.xab$b_ref = 1;									/* Key of reference */
+37677    1   	sysuaf_key1.xab$w_pos0 = (int)(&sysuaf_record.UAF$r_fill_2.UAF$L_UIC) - (int)(&sysuaf_record);	/* Position in record *
+/
+37678    1   	sysuaf_key1.xab$b_siz0 = sizeof sysuaf_record.UAF$r_fill_2.UAF$L_UIC;				/* Field size */
+37679    1   	sysuaf_key1.xab$b_dtp = XAB$C_BN4;								/* Data type */
+37680    1   	sysuaf_key1.xab$b_flg = XAB$M_CHG | XAB$M_DUP;							/* Key flags */
+37681    1   	sysuaf_key1.xab$l_nxt = &sysuaf_key2;								/* Next XAB */
+37682    1   	
+37683    1   	/* Primary lookup key - UAF$T_USERNAME. */
+37684    1   	
+37685    1   	sysuaf_key0 = cc$rms_xabkey;			/* Prototype information */
+37686    1   	sysuaf_key0.xab$b_ref = 0;									/* Key of reference */
+37687    1   	sysuaf_key0.xab$w_pos0 = (int)(&sysuaf_record.UAF$r_fill_0.UAF$T_USERNAME) - (int)(&sysuaf_record);	/* Position in rec
+ord */
+37688    1   	sysuaf_key0.xab$b_siz0 = sizeof sysuaf_record.UAF$r_fill_0.UAF$T_USERNAME;				/* Field size */
+37689    1   	sysuaf_key0.xab$b_dtp = XAB$C_STG;								/* Data type */
+37690    1   	sysuaf_key0.xab$l_nxt = &sysuaf_key2;								/* Next XAB */
+37691    1   	
+37692    1   	/* Authorization file NAMe block.
+37693    1   	
+37694    1   	/* Since the prototyping doesn't work for the NAMe block, the block id and
+37695    1   	** block length fields have to be set in the usual way; after clearing out
+37696    1   	** the block. */
+37697    1   	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 27
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (12)
+
+37698    1   	/* sysuaf_nam = cc$rms_nam;			/* Prototype information */
+37699    1   	
+37700    1   	memset (&sysuaf_nam, 0, sizeof sysuaf_nam);
+37701    1   	sysuaf_nam.nam$b_bid = NAM$C_BID;
+37702    1   	sysuaf_nam.nam$b_bln = NAM$C_BLN;
+37703    1   	
+37704    1   	sysuaf_nam.nam$l_esa = sysuaf_esn;		/* Expanded name string storage */
+37705    1   	sysuaf_nam.nam$b_ess = sizeof sysuaf_esn;	/* Size of expanded name string storage */
+37706    1   	sysuaf_nam.nam$l_rsa = sysuaf_rsn;		/* Resultant name string storage */
+37707    1   	sysuaf_nam.nam$b_rss = sizeof sysuaf_rsn;	/* Size of resultant name string storage */
+37708    1   	
+37709    1   	/* Authorization File Access Block. */
+37710    1   	
+37711    1   	sysuaf_fab = cc$rms_fab;			/* Prototype information */
+37712    1   	sysuaf_fab.fab$l_fop = FAB$M_CBT;
+37713    1   	sysuaf_fab.fab$b_fac = FAB$M_GET | FAB$M_PUT | FAB$M_DEL | FAB$M_UPD;
+37714    1   	sysuaf_fab.fab$b_shr = FAB$M_GET | FAB$M_PUT | FAB$M_DEL | FAB$M_UPD;
+37715    1   	sysuaf_fab.fab$b_org = FAB$C_IDX;
+37716    1   	sysuaf_fab.fab$b_rfm = FAB$C_VAR;
+37717    1   	sysuaf_fab.fab$w_mrs = UAF$C_LENGTH;
+37718    1   	sysuaf_fab.fab$l_alq = 10;
+37719    1   	sysuaf_fab.fab$w_deq = 10;
+37720    1   	sysuaf_fab.fab$l_nam = &sysuaf_nam;
+37721    1   	sysuaf_fab.fab$l_xab = &sysuaf_key0;
+37722    1   	
+37723    1   	/* If a file name was supplied, use it.  Otherwise, use the default
+37724    1   	** file name string. */
+37725    1   	
+37726    1   	if (strlen (uaf_file) == 0)
+37727    1   	    {
+37728    2   	
+37729    2   	/* If the SYSUAF_LOGICAL symbol is defined, set up the FAB to allow
+37730    2   	** the authorization file to be accessed via the appropriate logical
+37731    2   	** name.  Otherwise, set up the FAB to allow the authorization file
+37732    2   	** to be accessed via a full file specification. */
+37733    2   	
+37734    2   	#ifdef	SYSUAF_LOGICAL
+37735    2   	    sysuaf_fab.fab$l_fna = default_sysuaf_file_name;		/* For the logical name */
+37736    2   	    sysuaf_fab.fab$b_fns = strlen (default_sysuaf_file_name);
+37737    2   	    sysuaf_fab.fab$l_dna = default_sysuaf_file_type;
+37738    2   	    sysuaf_fab.fab$b_dns = strlen (default_sysuaf_file_type);
+37739    2   	#else
+37740   X    	    sysuaf_fab.fab$l_fna = default_sysuaf_file_spec;		/* For a file spec */
+37741   X    	    sysuaf_fab.fab$b_fns = strlen (default_sysuaf_file_spec);
+37742    2   	#endif	/* SYSUAF_LOGICAL */
+37743    2   	    }
+37744    1   	else
+37745    1   	    {
+37746    2   	    sysuaf_fab.fab$l_fna = uaf_file;
+37747    2   	    sysuaf_fab.fab$b_fns = strlen (uaf_file);
+37748    2   	    }
+37749    1   	
+37750    1   	/* Authorization file Record Access Block. */
+37751    1   	
+37752    1   	sysuaf_rab = cc$rms_rab;			/* Prototype information */
+37753    1   	sysuaf_rab.rab$l_fab = &sysuaf_fab;
+37754    1   	sysuaf_rab.rab$b_krf = 0;
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 28
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (12)
+
+37755    1   	sysuaf_rab.rab$l_kbf = &sysuaf_record.UAF$r_fill_0.UAF$T_USERNAME;
+37756    1   	sysuaf_rab.rab$b_ksz = sizeof sysuaf_record.UAF$r_fill_0.UAF$T_USERNAME;
+37757    1   	sysuaf_rab.rab$w_usz = sizeof sysuaf_record;
+37758    1   	sysuaf_rab.rab$b_rac = RAB$C_KEY;
+37759    1   	
+37760    1   	/* Open the authorization file, and return any errors. */
+37761    1   	
+37762    1   	CHECK_RETURN (SYS$OPEN (&sysuaf_fab));
+37763    1   	
+37764    1   	/* Connect up a record stream to the authorization file. */
+37765    1   	
+37766    1   	CHECK_RETURN (SYS$CONNECT (&sysuaf_rab));
+37767    1   	
+37768    1   	/* Save the RMS IFI and ISI for later. */
+37769    1   	
+37770    1   	uaf_w_uai_context[0] = sysuaf_fab.fab$w_ifi;
+37771    1   	uaf_w_uai_context[1] = sysuaf_rab.rab$w_isi;
+37772    1   	
+37773    1   	return SS$_NORMAL;
+37774    1   	}
+37775        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 29
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (13)
+
+             	
+37776        	extern unsigned int AUTHORIZE$RELEASE_UAF_RECORD ()
+37777        	
+37778        	{
+37779    1   	/*
+37780    1   	**++
+37781    1   	**  FUNCTIONAL DESCRIPTION:
+37782    1   	**
+37783    1   	**	This routine is called to release the RMS locks associated with the
+37784    1   	**	authorization record read by $GETUAI or written by $SETUAI.
+37785    1   	**
+37786    1   	**  FORMAL PARAMETERS:
+37787    1   	**
+37788    1   	**	None.
+37789    1   	**
+37790    1   	**  RETURN VALUE:
+37791    1   	**
+37792    1   	**	SS$_NORMAL if successful, error code otherwise.
+37793    1   	**
+37794    1   	**  SIDE EFFECTS:
+37795    1   	**
+37796    1   	**	None.
+37797    1   	**
+37798    1   	**--
+37799    1   	*/
+37800    1   	
+37801    1   	/* Global storage. */
+37802    1   	
+37803    1   	globalref unsigned short int	uaf_w_uai_context[2];		/* $xxxUAI context cell */
+37804    1   	
+37805    1   	/* Initialize the RMS data structures with the information needed to close
+37806    1   	** the open user authorization file. */
+37807    1   	
+37808    1   	memset (&sysuaf_rab, 0, sizeof sysuaf_rab);
+37809    1   	
+37810    1   	sysuaf_rab.rab$b_bid = RAB$C_BID;
+37811    1   	sysuaf_rab.rab$b_bln = RAB$C_BLN;
+37812    1   	sysuaf_rab.rab$w_isi = uaf_w_uai_context[1];
+37813    1   	
+37814    1   	/* Release the record. */
+37815    1   	
+37816    1   	SYS$RELEASE (&sysuaf_rab);
+37817    1   	
+37818    1   	return SS$_NORMAL;
+37819    1   	}
+37820        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 30
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (14)
+
+             	
+37821        	extern unsigned int AUTHORIZE$SET_USER_INFO (username, itmlst)
+37822        	
+37823        	char			*username;
+37824        	struct ITMDEF		(*itmlst)[];
+37825        	{
+37826    1   	/*
+37827    1   	**++
+37828    1   	**  FUNCTIONAL DESCRIPTION:
+37829    1   	**
+37830    1   	**	This routine modifies the user authorization information for the
+37831    1   	**	specified user.
+37832    1   	**
+37833    1   	**  FORMAL PARAMETERS:
+37834    1   	**
+37835    1   	**	USERNAME	- pointer to the username text
+37836    1   	**	ITMLST		- pointer to the dynamic item list
+37837    1   	**
+37838    1   	**  RETURN VALUE:
+37839    1   	**
+37840    1   	**	Status from $SETUAI
+37841    1   	**
+37842    1   	**  SIDE EFFECTS:
+37843    1   	**
+37844    1   	**	None.
+37845    1   	**
+37846    1   	**--
+37847    1   	*/
+37848    1   	
+37849    1   	/* Global storage. */
+37850    1   	
+37851    1   	globalref unsigned short int	uaf_w_uai_context[2];		/* $xxxUAI context cell */
+37852    1   	
+37853    1   	/* Local storage. */
+37854    1   	
+37855    1   	unsigned int			status;				/* Routine exit status */
+37856    1   	unsigned int			username_desc[2];		/* Simple username descriptor */
+37857    1   	
+37858    1   	/* Since $SETUAI wants the username as a descriptor, set it up. */
+37859    1   	
+37860    1   	username_desc[0] = strlen (username);
+37861    1   	username_desc[1] = username;
+37862    1   	
+37863    1   	/* Create the specified user authorization entry.  If the NONSHARED_UAI_CONTEXT
+37864    1   	** symbol is defined, the UAF is not kept open across $xxxUAI calls.
+37865    1   	** This means when information is needed, the UAF must be opened and
+37866    1   	** closed for the request (internal to $GETUAI). */
+37867    1   	
+37868    1   	status = SYS$SETUAI (NULL,
+37869    1   	#ifdef NONSHARED_UAI_CONTEXT
+37870    1   			     NULL,
+37871    1   	#else
+37872   X    			     uaf_w_uai_context,
+37873    1   	#endif /* NONSHARED_UAI_CONTEXT */
+37874    1   			     username_desc,
+37875    1   			     itmlst,
+37876    1   			     NULL,
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 31
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (14)
+
+37877    1   			     NULL,
+37878    1   			     NULL);
+37879    1   	
+37880    1   	/* Release RMS record lock. */
+37881    1   	
+37882    1   	AUTHORIZE$RELEASE_UAF_RECORD ();
+37883    1   	
+37884    1   	/* Return with $SETUAI status. */
+37885    1   	
+37886    1   	return status;
+37887    1   	}
+37888        	
+
+UAF_FILE_SUBS                                                   22-NOV-1993 11:29:01    VAX C      V3.2-044                 Page 32
+X-2                                                              3-NOV-1993 09:58:58    UAF_FILE_SUBS.C;202 (15)
+
+             	
+37889        	extern unsigned int AUTHORIZE$VALIDATE_USER_NAME (username, wildcard)
+37890        	
+37891        	char			*username;
+37892        	int			wildcard;
+37893        	{
+37894    1   	/*
+37895    1   	**++
+37896    1   	**  FUNCTIONAL DESCRIPTION:
+37897    1   	**
+37898    1   	**	This routine checks the syntax of the specified username.
+37899    1   	**
+37900    1   	**  FORMAL PARAMETERS:
+37901    1   	**
+37902    1   	**	USERNAME	- pointer to the username text
+37903    1   	**	WILDCARD	- = 0 to disallow wildcard characters as legal
+37904    1   	**			  = 1 to allow wildcard characters
+37905    1   	**
+37906    1   	**  RETURN VALUE:
+37907    1   	**
+37908    1   	**	SS$_NORMAL if valid, 0 otherwise.
+37909    1   	**
+37910    1   	**  SIDE EFFECTS:
+37911    1   	**
+37912    1   	**	None.
+37913    1   	**
+37914    1   	**--
+37915    1   	*/
+37916    1   	
+37917    1   	/* Local storage. */
+37918    1   	
+37919    1   	char			*character_set;							/* Character set to use */
+37920    1   	char			*valid_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$_";	/* Valid non-wildcard characters */
+37921    1   	char			*valid_wc_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789$_*%";	/* Valid characters and wildcards */
+37922    1   	
+37923    1   	/* Set up the character set to use for the validation.  This is based upon whether
+37924    1   	** or not wildcard characters are allowed. */
+37925    1   	
+37926    1   	if (wildcard == 0) character_set = valid_chars;
+37927    1   	else character_set = valid_wc_chars;
+37928    1   	
+37929    1   	/* If all of the characters in the supplied username are in the character set,
+37930    1   	** return a generic success status. */
+37931    1   	
+37932    1   	if (strspn (username, character_set) == strlen (username)) return 1;
+37933    1   	
+37934    1   	/*  Otherwise return a generic failure status. */
+37935    1   	
+37936    1   	return 0;
+37937    1   	}
+
+ 
+ 
+Command Line
+------------
+ 
+CC/LIST=UAF_FILE_SUBS/OBJECT=UAF_FILE_SUBS UAF_FILE_SUBS
+

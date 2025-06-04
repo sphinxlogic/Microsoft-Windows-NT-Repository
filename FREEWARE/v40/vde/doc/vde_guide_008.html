@@ -1,0 +1,723 @@
+<!-- VDE_GUIDE_008.HTML continuation of VDED$:[VDE.VDEDOC.DOC]VDE_GUIDE.HTML -->
+<html>
+<head>
+<title>VDE</title>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">VDE<br>Guide to Using<br> VDE</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_007.html#bottom_007">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+
+<hr>
+
+<a name="cre_new_stream"><h1><font color=maroon>5.7 Creating New Streams</font></h1></a>
+
+<p>
+If you are the project leader for a stream, you must create new build 
+streams from time to time so you can build OpenVMS for your 
+release. You may also have to create the stream you are 
+project-leading. This section tells you how to perform these operations.
+<a name="index_x_255"></a>
+<a name="index_x_256"></a>
+
+<p>
+Streams are classified into <strong>build</strong> streams, and into 
+<strong>release</strong> streams. Build streams are used for builds and 
+establish the files involved with each build, and are usually of 
+interest only to those engineers directly involved with source code 
+builds. Release streams are of general interest to all VDE or 
+VSC users, as they are the streams used for managing source 
+code development.
+
+<a name="cre_bld_stream"><h2>5.7.1 Creating Build Streams</h2></a>
+
+<p>
+To create a build stream for the development stream that you project 
+lead, you must perform two operations: Create the build stream in the 
+VSC database and create a CMS class for that build stream. To 
+create the build stream in the VSC database, use the CREATE 
+STREAM command. If you are the project leader for stream BIRCH, for 
+example, you could use the following command to create a build stream:
+<a name="index_x_257"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ CREATE STREAM BIRCH_BUILD -
+_VSC„  /PARENT=BIRCH /CMS_CLASS -
+_VSC„  /REMARK="Build stream"
+</pre>
+</font>
+</table>
+
+This example creates build stream BIRCH_BUILD and specifies that its 
+parent is stream BIRCH. This means that stream BIRCH_BUILD will be 
+created with the same module generations as stream BIRCH currently has. 
+Once you have created the new stream, the two streams can diverge; the 
+next replacement into BIRCH, for example, will make it different from 
+stream BIRCH_BUILD.
+
+<p>
+The CREATE STREAM command does not create a CMS class for the stream, 
+but the /CMS_CLASS qualifier specifies that a CMS class for each 
+facility should be maintained for the new stream as that stream is 
+modified with future VSC commands (such as INSERT or DELETE 
+GENERATION). How you create the CMS class initially is discussed 
+shortly.
+<a name="index_x_258"></a>
+
+<p>
+Specification of a remark is required; if you omit the /REMARK 
+qualifier, VSC prompts you for a remark string.
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Note</strong></font></center><hr size=1 noshade>
+<font color=black>
+Specification of a remark for the new stream is required. Digital 
+strongly recommends the remark indicate that the stream is a build 
+stream. </font>
+    </td>
+  </tr>
+</table>
+</center>
+
+<p>
+For the OpenVMS VAX VDE library, the CREATE STREAM command 
+takes about 20 minutes. You should run this command after you have 
+performed all replacements that you want included in the build stream. 
+It is best to run this command at less-busy times as it locks parts of 
+the VSC database and can therefore prevent access by other 
+users for various operations.
+
+<p>
+To create and populate a CMS class in each facility for the new stream, 
+you must run the SYSBLDCOM$:POPULATE_LIBRARIES.COM command procedure. 
+This procedure submits a separate batch job for each OpenVMS 
+facility in order to populate the desired class as fast as possible. 
+The whole operation is still time-consuming; it takes about four hours 
+for the OpenVMS VAX library. To run this command procedure, enter the 
+following command at DCL level:
+<a name="index_x_259"></a>
+<a name="index_x_260"></a>
+<a name="index_x_261"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ @SYSBLDCOM$:POPULATE_LIBRARIES.COM BIRCH_BUILD BIRCH
+</pre>
+</font>
+</table>
+
+This command procedure should be run after normal working hours. While 
+it runs, you cannot modify stream BIRCH by replacing modules or 
+inserting generations into it. You must ensure that no PERFORM 
+REPLACEMENT commands run that can affect stream BIRCH, directly or 
+through change propagation. However, you can (and preferrably should) 
+run the CREATE STREAM command for the new build stream at the same 
+time. It is important that the VSC database is updated and 
+the CMS classes are created at the same time so that they are 
+consistent with each other.
+
+<p>
+If you already have an existing CMS class you want to reuse, you can 
+use the
+<a name="index_x_262"></a>
+SYSBLDCOM$:POP_REUSED_CLASS.COM command procedure instead. Its 
+invocation is similar to that of POPULATE_LIBRARIES; the comments in 
+the procedure give the details.
+<a name="index_x_263"></a>
+<a name="index_x_264"></a>
+
+<a name="cre_rel_stream"><h2>5.7.2 Creating Release Streams</h2></a>
+
+<p>
+To create a development stream for a new OpenVMS release (in 
+other words, a stream that most OpenVMS developers will use to 
+reserve and replace modules), you must make a number of decisions:
+
+<ul>
+  <li>decide what the parent stream will be. Preservation and continuity 
+  of the mainline is particularly important to modules on the mainline. 
+  Proper specification of stream parentage is of critical and central 
+  importance when the /FROM_CMS_LIBRARY qualifer is to be used on any 
+  subsequent CREATE FACILITY commands.
+<a name="index_x_265"></a>
+  <li>decide if the stream should become the latest stream on the 
+  mainline, or if it should be treated as a variant branch and be located 
+  somewhere off the mainline. Exactly <em>one</em> stream in the 
+  VSC database <em>is</em> the mainline stream, while there can 
+  be many streams feeding into the mainline stream---these other streams 
+  are sometimes confusingly refered to as being &quot;on the 
+  mainline&quot;.
+  <li>Create the stream in the VSC database, create the CMS 
+  class associated with it, and specify the stream's change propagation 
+  behavior.
+  <li>Decide if you want propogation of modules from the parent stream. 
+  By default, such propogation is enabled.
+  <li>You may also want to specify developers who should review 
+  replacements or be notified of replacements going into the new stream.
+</ul>
+
+<p>
+To create the stream, use the CREATE STREAM command, much the same as 
+explained in <a href="vde_guide_008.html#cre_bld_stream">Section 5.7.1</a> for build streams. To create a new 
+development stream MAPLE, for example, you might enter the following 
+command:
+<a name="index_x_266"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ CREATE STREAM MAPLE -
+_VSC„  /OWNER=SMITH -
+_VSC„  /PARENT=BIRCH /MAIN -
+_VSC„  /CMS_CLASS /REPLACEMENT=QUEUE -
+_VSC„  /REMARK="New-feature stream"
+</pre>
+</font>
+</table>
+
+This command specifies that the parent of the new mainline stream MAPLE 
+is the existing stream BIRCH. The newly created MAPLE mainline stream 
+initially inherits all current generations from the parent BIRCH stream.
+
+<p>
+The use of the /OWNER qualifier specifies the owner of the new stream; 
+this person is typically the stream's project leader. If you use this 
+qualifier, developers can later use the SHOW STREAM command to 
+determine the stream's owner.
+
+<p>
+The /MAIN qualifier causes the new stream to become the <em>last</em> 
+stream on the main line of descent, and it causes VSC to use 
+whole-number CMS generation expressions for the stream. /MAIN also 
+causes VSC to update all successor stream links to link to 
+this new mainline stream.
+
+<p>
+The /PARENT qualifier is informational in some cases, but can be 
+critical during certain VSC operations such as CMS facility 
+uploads. It should always be specified, and it should always specify 
+the correct parent stream.
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Note</strong></font></center><hr size=1 noshade>
+<font color=black>
+The /[NO]MAIN and /PARENT qualifiers are central and necessary to the 
+CMS generation number selection process used within VSC, and 
+Digital recommands that these qualifiers be specified with care. In 
+particular, the /MAIN qualifier can and should be used <em>only</em> on 
+mainline streams, while /NOMAIN should be specified for non-mainline 
+streams. Incorrect specification of /[NO]MAIN and/or /PARENT can and 
+will cause longer CMS generation numbers, and has been shown to cause 
+both confusion and consternation among developers accustomed to the 
+typical (cardinal) progression of CMS generations that occurs for 
+modules on the mainline. </font>
+    </td>
+  </tr>
+</table>
+</center>
+
+<p>
+Just as for build streams, the /CMS_CLASS qualifier specifies that a 
+CMS class in each facility should be maintained for the stream.
+<a name="index_x_267"></a>
+<a name="index_x_268"></a>
+
+<p>
+The /REPLACEMENT qualifier specifies that the new stream requires all 
+replacements into the stream to be queued (as opposed to immediate) 
+replacements. Queued replacements go through the VSC review 
+mechanism and give you control over when replacements are actually 
+performed. The /REMARK qualifier specifies a remark string for the 
+stream; if you omit this qualifier, VSC prompts you for a 
+remark string.
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Note</strong></font></center><hr size=1 noshade>
+<font color=black>
+Specification of a remark for the new stream is required. Digital 
+strongly recommends the remark indicate that the stream is a release or 
+new-feature stream. </font>
+    </td>
+  </tr>
+</table>
+</center>
+
+<p>
+As explained in <a href="vde_guide_008.html#cre_bld_stream">Section 5.7.1</a>, the CREATE STREAM command does not 
+create and populate the CMS class for the stream. Instead, you must 
+submit the
+<a name="index_x_269"></a>
+<a name="index_x_270"></a>
+<a name="index_x_271"></a>
+SYSBLDCOM$:POPULATE_LIBRARIES.COM or
+<a name="index_x_272"></a>
+<a name="index_x_273"></a>
+<a name="index_x_274"></a>
+SYSBLDCOM$:POP_REUSED_CLASS.COM command procedure at DCL level to 
+create and populate a CMS class for the stream in each facility. 
+<a href="vde_guide_008.html#cre_bld_stream">Section 5.7.1</a> describes how you use these procedures. One of these 
+procedures should be run at the same time as you run the CREATE STREAM 
+command, and you must ensure that no VSC commands that update 
+the parent stream run at that time.
+
+<p>
+When you create a new development stream, you often want to specify 
+that future replacements into some previously existing stream should be 
+propagated to the new stream. For example, if stream MAPLE is created 
+from stream BIRCH, you may want all future changes to BIRCH to be 
+propagated to MAPLE so that MAPLE will contain all features and bug 
+fixes that BIRCH contains. As a later stream, MAPLE will presumably 
+also receive new features that are omitted from BIRCH. To specify this 
+sort of stream successor relationship, you use the /SUCCESSOR qualifier 
+to the MODIFY STREAM command. This is an example:
+<a name="index_x_275"></a>
+<a name="index_x_276"></a>
+<a name="index_x_277"></a>
+<a name="index_x_278"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ MODIFY STREAM BIRCH /SUCCESSOR=MAPLE
+</pre>
+</font>
+</table>
+
+This command specifies that stream MAPLE is a successor to stream 
+BIRCH. As a result, all code changes replaced into BIRCH will 
+automatically be propagated to MAPLE if possible. If automatic change 
+propagation is not possible for a given module replacement, 
+VSC will create a fold record in its database.
+
+<p>
+You can specify multiple successors for a given stream if that is the 
+behavior you want. To do so, specify a parenthesized list of stream 
+names separated by commas with the /SUCCESSOR qualifier. Alternatively, 
+specify each successor stream with a separate MODIFY STREAM command. To 
+cancel successor relationships, use the /NOSUCCESSOR qualifier to the 
+MODIFY STREAM command. (The HELP text has the details.)
+<a name="index_x_279"></a>
+<a name="index_x_280"></a>
+<a name="index_x_281"></a>
+
+<p>
+To confirm that you have established the successor relationships 
+correctly, use the /SUCCESSOR qualifier to the SHOW STREAM command. 
+This example illustrates its output:
+<a name="index_x_282"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ SHOW STREAM/SUCCESSOR BIRCH, MAPLE
+Stream BIRCH
+   Successor chains:
+      BIRCH -&gt; MAPLE
+ 
+Stream MAPLE
+   Successor chains:
+      MAPLE (no successors)
+ 
+VSC„
+</pre>
+</font>
+</table>
+
+This output shows that stream MAPLE is a successor to stream BIRCH and 
+that stream MAPLE does not itself have any successors. Because this is 
+the desired successor relationship, VSC will perform change 
+propagation correctly for these streams.
+
+<p>
+When you create a new release stream, you should also determine whether 
+you want certain developers to review or be notified of all 
+replacements into the stream. In particular, you probably want to be 
+notified of all such replacements yourself. To specify the reviewers 
+and developers to notify, use the /REVIEWER and /NOTIFY qualifiers to 
+the CREATE STREAM or MODIFY STREAM command. <a href="vde_guide_007.html#review_notify">Section 5.6</a> describes 
+these qualifiers.
+
+<a name="cre_rel_stream_ex"><h2>5.7.3 Example Stream Creations</h2></a>
+
+<p>
+The following code example shows how an OpenVMS development 
+stream is created and populated. The example is typical of an 
+OpenVMS <em>mainline</em> development stream.
+
+<p>
+The steps outlined below create a new <em>mainline</em> stream int the 
+OpenVMS database, and a matching mainline stream in the 
+OpenVMS test database. It temporarily disables propogation from 
+the parent stream, as populating the stream can require some time. It 
+then populates the new mainline streams, disables propogation into the 
+new mainlines to prevent unintentional overwriting, and finally resets 
+the proper propogation attribute on the parent stream.
+
+<p>
+These operations should be performed only when the VSC 
+database is quiescent, as one typically wishes all modifications to the 
+parent database to be propogated into the new stream.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ VDE 
+Set Library VMS$ 
+Create Stream - 
+    /CMS_CLASS/NOINIT_CMS_CLASS - 
+    /noGENERATION - 
+    /DEFER - 
+    /MAIN -  ! warning: alters generation selection 
+    /Populate - 
+    /Frozen - 
+    /Conference=YELLOW$NOTES:DRAGON-YELLOW.NOTE - 
+    /PARENT=CORAL - 
+    /NoSuccessor - 
+    /REPLACEMENT=QUEUE - 
+    /REMARK="Post-CORAL release stream"- 
+    DRAGON 
+Modify Stream DRAGON - 
+    /Reviewer=(projectleader) - 
+    /NOTIFY=(projectleader,DRAGONbld) - 
+    DRAGON 
+Modify Stream CORAL/NoSuccessor 
+Populate Stream DRAGON/From_Stream=CORAL 
+Modify Stream DRAGON/NoPopulate 
+Modify Stream CORAL/Successor=DRAGON 
+Exit 
+$! 
+$ VDE 
+Set Library VMSTEST$ 
+Create Stream/CMS_CLASS/NOINIT_CMS_CLASS - 
+    /noGENERATION - 
+    /DEFER - 
+    /MAIN - ! warning: alters generation selection 
+    /Populate - 
+    /Frozen - 
+    /conference=YELLOW$NOTES:VMSTEST-YELLOW.NOTE - 
+    /PARENT=CORAL - 
+    /noSuccessor - 
+    /REPLACEMENT=QUEUE - 
+    /REMARK="Post-CORAL release stream"- 
+    DRAGON 
+$! 
+Modify Stream DRAGON - 
+    /reviewer=(projectleader,testleader) - 
+    /NOTIFY=(projectleader,testleader,DRAGONbld) 
+Modify Stream CORAL/NoSuccessor 
+Populate Stream DRAGON/From_Stream=CORAL 
+Modify Stream DRAGON/NoPopulate 
+Modify Stream CORAL/Successor=DRAGON 
+Exit 
+$ EXIT 
+</pre>
+</font>
+</table>
+
+<p>
+The above example creates a mainline stream, which effects
+
+<a name="pl_scripts"><h1><font color=maroon>5.8 Tailoring Processing With Scripts</font></h1></a>
+
+<p>
+As a project leader, you can tailor how VSC or VDE 
+responds to certain situations using script files. Script files allow a 
+number of common operations to be customized to site-specific 
+requirements.
+
+<p>
+<a href="vde_guide_008.html#pl_script_commands">Table 5-5</a> contains a list of the available script types, and a 
+brief description of each. Script creation uses the CREATE SCRIPT 
+command, and requires the CRESCRP privilege.
+<a name="index_x_283"></a>
+<a name="index_x_284"></a>
+<a name="index_x_285"></a>
+<p>
+<a name="index_x_286"></a>
+
+<table border=3>
+  <caption><a name="pl_script_commands"><strong>Table 5-5 Script Commands</strong></a></caption>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>BUILD</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The build script sets up optional build-job definitions. This script is 
+      executed at the start of each build-job process.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>COMPILE</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The compile script contains the command(s) used to compile a module. 
+      The compile script is called by a build job, and by a COMPILE command.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>COPY</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      copy command copies a module. The script is called as part of a build 
+      job, and is called by the COPY command.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>DELETE_GENERATION</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The delete-generation script performs optional processing for the 
+      DELETE GENERATION command.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>DIFFERENCES</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The differences script is used to determine the differences between two 
+      generations of a module. The script is called by the DIFFERENCES 
+      command.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>FETCH</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The fetch script performs optional processing for the FETCH command.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>INSERT_GENERATION</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The insert-generation script performs optional processing for the 
+      INSERT GENERATION command.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>LINK</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The link script links a module. This script is called by build jobs and 
+      by the LINK command.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>NEW_STREAM</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The new-stream script copies files for a particular facility from the 
+      parent stream into a new stream. This script is called when a new 
+      stream is created.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>NOKEEP</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The nokeep script performs optional processing for the REPLACE command. 
+      Specifically, the nokeep script is called when the REPLACE/NOKEEP 
+      command is specified.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>REPLACE</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The replace script performs optional processing for the REPLACE command.
+      <p>If stream-specific reference directories are required, this script 
+      can be used to update the reference directory on each replacement.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>RESERVE</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The reserve script performs optional processing when a RESERVE command 
+      is entered.
+      <p>Should notification of a reservation be required, a site-specific 
+      reserve script can be coded to send mail.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>SET_FACILITY</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The set-facility script performs optional processing for the SET 
+      FACILITY command.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>SET_STREAM</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The set-stream script performs optional processing for the SET STREAM 
+      command.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>STAGING</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The staging script copies a source file to a staging area for the 
+      REPLACE command when the replacement is queued.
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      <strong>UNRESERVE</strong>
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      The unreserve script performs optional processing for the UNRESERVE 
+      command.
+    </td>
+  </tr>
+</table>
+
+<a name="bottom_008"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_007.html#bottom_007">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vde_guide_009.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+</body>
+</html>

@@ -1,0 +1,1312 @@
+# Makefile for GNU Emacs on VMS.
+# Copyright (C) 1985, 1987, 1988, 1993, 1994 Free Software Foundation, Inc.
+
+# This file is part of GNU Emacs.
+
+# GNU Emacs is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 2, or (at your option)
+# any later version.
+
+# GNU Emacs is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+
+# You should have received a copy of the GNU General Public License
+# along with GNU Emacs; see the file COPYING.  If not, write to
+# the Free Software Foundation, 675 Mass Ave, Cambridge, MA 02139, USA.
+
+# Here are the things that we expect ../configure to edit.
+srcdir_dev=@srcdir_dev@
+srcdir_dir=@srcdir_dir@
+srcdir=@srcdir@
+VPATH=@srcdir@
+CC=@CC@
+CPP=@CPP@
+CFLAGS=@CFLAGS@
+LDFLAGS=@LDFLAGS@
+LN_S=@LN_S@
+sys_includes=@sys_includes@
+x_includes=@x_includes@
+# Substitute an assignment for the MAKE variable, because
+# BSD doesn't have it as a default.
+@SET_MAKE@
+
+# On Xenix and the IBM RS6000, double-dot gets screwed up.
+dot=.
+# With DEC C 5 and up, dot-star gets screwed up.
+star=*
+dotstar=$(dot)$(star)
+
+lispdir = $(srcdir_dev)[$(srcdir_dir).-.lisp]
+vmsdir=$(srcdir_dev)[$(srcdir_dir).-.vms]
+libsrc = [-.lib-src]
+etc = [-.etc]
+shortnamesdir = [-.shortnames]
+cppdir = [-.cpp]
+oldXMenudir = [-.oldXMenu]
+lwlibdir = [-.lwlib]
+
+# Configuration files for .o files to depend on.
+M_FILE = $(srcdir_dev)[$(srcdir_dir).@machfile_dir@]@machfile@
+S_FILE = $(srcdir_dev)[$(srcdir_dir).@opsysfile_dir@]@opsysfile@
+config_h = config.h $(M_FILE) $(S_FILE)
+
+# ========================== start of cpp stuff ======================= */
+/* From here on, comments must be done in C syntax.  */
+
+CPPFLAGS=
+LDFLAGS=
+C_SWITCH_SYSTEM=
+
+CC_COMPILE_SWITCH =
+
+#ifdef vms
+#undef vms /* let's depend on VMS, right? */
+#endif
+
+#ifdef VAXC
+#undef VAXC
+#endif
+
+#ifdef vaxc
+#undef vaxc
+#endif
+
+#define LINK_FILE(fn,en) set file/enter=en fn
+
+#define NO_SHORTNAMES
+#define THIS_IS_YMAKEFILE
+#define NOT_C_CODE
+#include "config.h"
+
+/* We won't really call alloca;
+   don't let the file name alloca.c get messed up.  */
+#ifdef alloca
+#undef alloca
+#endif
+
+/* Use HAVE_X11 as an alias for X11 in this file
+   to avoid problems with X11 as a subdirectory name
+   in -I and other such options which pass through this file. */
+
+#ifdef X11
+#define HAVE_X11
+#undef X11
+#endif
+
+/* vms (lower case) is totally unneeded, as VMS (upper case) exists.
+   and we use vms (lower) as directory spec, so... */
+
+#ifdef vms
+#undef vms
+#endif
+
+/* so is vaxc and VAXC. */
+
+#ifdef VAXC
+#undef VAXC
+#endif
+
+#ifdef vaxc
+#undef vaxc
+#endif
+
+/* On some machines #define register is done in config;
+   don't let it interfere with this file.  */
+#undef register
+
+/* On some systems we may not be able to use the system make command. */
+#ifdef MAKE_COMMAND
+MAKE = MAKE_COMMAND
+#endif
+
+#ifdef C_COMPILER
+CC = C_COMPILER
+#endif
+
+/* GNU libc requires ORDINARY_LINK so that its own crt0 is used.
+   Linux is an exception because it uses a funny variant of GNU libc.  */
+#ifdef __GNU_LIBRARY__
+#ifndef LINUX
+#define ORDINARY_LINK
+#endif
+#endif
+
+/* Some machines don't find the standard C libraries in the usual place.  */
+#ifndef ORDINARY_LINK
+#ifndef LIB_STANDARD
+#define LIB_STANDARD -lc
+#endif
+#else
+#ifndef LIB_STANDARD
+#define LIB_STANDARD
+#endif
+#endif
+
+/* Unless inhibited or changed, use -lg to link for debugging.  */
+#ifndef LIBS_DEBUG
+#define LIBS_DEBUG
+#endif
+
+/* Some s/*.h files define this to request special libraries.  */
+#ifndef LIBS_SYSTEM
+#define LIBS_SYSTEM
+#endif
+
+/* Some m/*.h files define this to request special libraries.  */
+#ifndef LIBS_MACHINE
+#define LIBS_MACHINE
+#endif
+
+#ifndef LIB_MATH
+# ifdef LISP_FLOAT_TYPE
+#  define LIB_MATH -lm
+# else /* ! defined (LISP_FLOAT_TYPE) */
+#  define LIB_MATH
+# endif /* ! defined (LISP_FLOAT_TYPE) */
+#endif /* LIB_MATH */
+
+/* Some s/*.h files define this to request special switches in ld.  */
+#ifndef LD_SWITCH_SYSTEM
+#if !defined (__GNUC__) && (defined(COFF_ENCAPSULATE) || (defined (BSD) && !defined (COFF)))
+#define LD_SWITCH_SYSTEM -X
+#else /* ! defined(COFF_ENCAPSULATE) || (defined (BSD) && !defined (COFF)) */
+#define LD_SWITCH_SYSTEM
+#endif /* ! defined(COFF_ENCAPSULATE) || (defined (BSD) && !defined (COFF)) */
+#endif /* LD_SWITCH_SYSTEM */
+
+/* Some m/*.h files define this to request special switches in ld.  */
+#ifndef LD_SWITCH_MACHINE
+#define LD_SWITCH_MACHINE
+#endif
+
+/* Some m/*.h files define this to request special switches in cc.  */
+#ifndef C_SWITCH_MACHINE
+#define C_SWITCH_MACHINE
+#endif
+
+/* Some s/*.h files define this to request special switches in cc.  */
+#ifndef C_SWITCH_SYSTEM
+#define C_SWITCH_SYSTEM
+#endif
+
+/* These macros are for switches specifically related to X Windows.  */
+#ifndef C_SWITCH_X_MACHINE
+#define C_SWITCH_X_MACHINE
+#endif
+
+#ifndef C_SWITCH_X_SYSTEM
+#define C_SWITCH_X_SYSTEM
+#endif
+
+#ifndef C_SWITCH_X_SITE
+#define C_SWITCH_X_SITE
+#endif
+
+#ifndef LD_SWITCH_X_SITE
+#define LD_SWITCH_X_SITE
+#endif
+
+#ifndef LD_SWITCH_X_DEFAULT
+#define LD_SWITCH_X_DEFAULT
+#endif
+
+/* These can be passed in from config.h to define special load and
+   compile switches needed by individual sites */
+#ifndef LD_SWITCH_SITE
+#define LD_SWITCH_SITE
+#endif
+
+#ifndef C_SWITCH_SITE
+#define C_SWITCH_SITE
+#endif
+
+#ifndef ORDINARY_LINK
+
+#ifndef CRT0_COMPILE
+#define CRT0_COMPILE $(CC) -c $(ALL_CFLAGS) C_SWITCH_ASM 
+#endif
+
+#ifndef START_FILES
+#ifdef NO_REMAP
+#ifdef COFF_ENCAPSULATE
+#define START_FILES pre-crt0.o /usr/local/lib/gcc-crt0.o
+#else /* ! defined (COFF_ENCAPSULATE) */
+#define START_FILES pre-crt0.o /lib/crt0.o
+#endif /* ! defined (COFF_ENCAPSULATE) */
+#else /* ! defined (NO_REMAP) */
+#define START_FILES crt0.o
+#endif /* ! defined (NO_REMAP) */
+#endif /* START_FILES */
+STARTFILES = START_FILES
+
+#else /* ORDINARY_LINK */
+
+/* config.h might want to force START_FILES anyway */
+#ifdef START_FILES
+STARTFILES = START_FILES
+#endif /* START_FILES */
+
+#endif /* not ORDINARY_LINK */
+
+
+/* cc switches needed to make `asm' keyword work.
+   Nothing special needed on most machines.  */
+#ifndef C_SWITCH_ASM
+#define C_SWITCH_ASM
+#endif
+
+/* Figure out whether the system cpp can handle long names.
+   Do it by testing it right now.
+   If it loses, arrange to use the GNU cpp.  */
+
+#define LONGNAMEBBBFOOX
+#ifdef LONGNAMEBBBARFOOX
+/* Installed cpp fails to distinguish those names!  */
+/* Arrange to compile the GNU cpp later on */
+#define NEED_CPP
+/* Cause cc to invoke the cpp that comes with Emacs,
+   which will be in a file named localcpp.  */
+MYCPPFLAG= -Blocal
+/* LOCALCPP is the local one or nothing.
+   CPP is the local one or the standardone.  */
+LOCALCPP= localcpp
+#endif /* ! defined (LONGNAMEBBBARFOOX) */
+
+#ifdef SHORTNAMES
+SHORT= shortnames
+#endif
+
+/* DO NOT use -R.  There is a special hack described in lastfile.c
+   which is used instead.  Some initialized data areas are modified
+   at initial startup, then labeled as part of the text area when
+   Emacs is dumped for the first time, and never changed again. */
+
+/* -Demacs is needed to make some files produce the correct version
+   for use in Emacs.
+
+   -DHAVE_CONFIG_H is needed for some other files to take advantage of
+   the information in `config.h'.  */
+#ifdef VMS
+/* local_includes: is defined in the .FIRST clause */
+ALL_CFLAGS = /define=("emacs",HAVE_CONFIG_H 'extra_defs')\
+/include=(local_includes:) \
+C_SWITCH_MACHINE C_SWITCH_X_MACHINE C_SWITCH_SYSTEM \
+C_SWITCH_X_SYSTEM C_SWITCH_SITE C_SWITCH_X_SITE $(CFLAGS) C_DEBUG_SWITCH
+#else
+
+/* C_SWITCH_X_SITE must come before C_SWITCH_X_MACHINE and C_SWITCH_X_SYSTEM
+   since it may have -I options that should override those two.  */
+ALL_CFLAGS=-Demacs -DHAVE_CONFIG_H $(MYCPPFLAG) -I. -I${srcdir} \
+C_SWITCH_MACHINE C_SWITCH_SYSTEM C_SWITCH_SITE C_SWITCH_X_SITE \
+C_SWITCH_X_MACHINE C_SWITCH_X_SYSTEM ${CFLAGS}
+#endif
+
+.c.obj :
+	! on error then sh process/quota
+	$(CC) $(CC_COMPILE_SWITCH) $(CPPFLAGS) $(ALL_CFLAGS) $< -
+		/obj = sys$disk:[]$*.obj !/list=sys$disk:[]$*.lis/show=all
+
+#ifndef LIBX10_MACHINE
+#define LIBX10_MACHINE
+#endif
+
+#ifndef LIBX11_MACHINE
+#define LIBX11_MACHINE
+#endif
+
+#ifndef LIBX10_SYSTEM
+#define LIBX10_SYSTEM
+#endif
+
+#ifndef LIBX11_SYSTEM
+#define LIBX11_SYSTEM
+#endif
+
+#ifndef LIB_X11_LIB
+#define LIB_X11_LIB -lX11
+#endif
+
+#ifdef HAVE_X_WINDOWS
+#ifdef HAVE_X_MENU
+
+/* Include xmenu.obj in the list of X object files.  */
+XOBJ= , xterm.obj, xfns.obj, xfaces.obj, xmenu.obj, xselect.obj, xrdb.obj
+
+/* The X Menu stuff is present in the X10 distribution, but missing
+   from X11.  If we have X10, just use the installed library;
+   otherwise, use our own copy.  */
+#ifdef HAVE_X11
+#ifdef USE_X_TOOLKIT
+OLDXMENU= $(lwlibdir)liblw.olb
+LIBXMENU= $(OLDXMENU)/lib
+#else /* not USE_X_TOOLKIT */
+OLDXMENU= $(oldXmenudir)libXMenu11.olb
+LIBXMENU= $(OLDXMENU)/lib
+#endif /* not USE_X_TOOLKIT */
+#else /* not HAVE_X11 */
+LIBXMENU= -lXMenu
+#endif /* not HAVE_X11 */
+
+#else /* not HAVE_X_MENU */
+
+/* Otherwise, omit xmenu.obj from the list of X object files, and
+   don't worry about the menu library at all.  */
+XOBJ= , xterm.obj, xfns.obj, xfaces.obj, xselect.obj, xrdb.obj
+LIBXMENU=
+#endif /* not HAVE_X_MENU */
+
+#ifdef USE_X_TOOLKIT
+#define @X_TOOLKIT_TYPE@
+#if defined (LUCID) || defined (ATHENA)
+/* LIBW= SYS$SHARE:Xaw3DLIBSHR.EXE/SHARE */
+LIBW= Xaw3DLIBSHR/SHARE
+#endif
+#ifdef MOTIF
+#ifdef LIB_MOTIF
+LIBW= LIB_MOTIF
+#else
+LIBW= SYS$SHARE:DECW$XmLIBSHR.EXE/SHARE
+#endif
+#endif
+#ifdef OPEN_LOOK
+LIBW= -lXol
+#endif
+
+#ifdef HAVE_X11XTR6
+LIBXTR6 = -lSM -lICE
+#else
+LIBXTR6 =
+#endif
+
+#ifdef HAVE_X11XTR5
+#if 0 /* We use the XmuLIBSHR that comes with Xaw3DLIBSHR */
+LIBXT= $(LIBW) SYS$SHARE:DECW$XmuLIBSHRR5.EXE/SHARE \
+SYS$SHARE:DECW$XtSHRR5.EXE/SHARE $(LIBXTR6) SYS$SHARE:DECW$XextLIBSHR.EXE/SHARE
+#else
+LIBXT= $(LIBW) XmuLIBSHR/SHARE \
+SYS$SHARE:DECW$XtLIBSHRR5.EXE/SHARE $(LIBXTR6) SYS$SHARE:DECW$XextLIBSHR.EXE/SHARE
+#endif
+#else
+#if 0 /* We use the XmuLIBSHR that comes with Xaw3DLIBSHR */
+LIBXT= $(LIBW) SYS$SHARE:DECW$XmuLIBSHR.EXE/SHARE \
+SYS$SHARE:DECW$XtSHR.EXE/SHARE $(LIBXTR6) SYS$SHARE:DECW$XextLIBSHR.EXE/SHARE
+#else
+LIBXT= $(LIBW) XmuLIBSHR/SHARE \
+SYS$SHARE:DECW$XtSHR.EXE/SHARE $(LIBXTR6) SYS$SHARE:DECW$XextLIBSHR.EXE/SHARE
+#endif
+#endif
+#else
+LIBXT=
+#endif
+
+#ifdef HAVE_X11
+/* LD_SWITCH_X_DEFAULT comes after everything else that specifies
+   options for where to find X libraries, but before those libraries.  */
+LIBX= $(LIBXMENU) LD_SWITCH_X_SITE LD_SWITCH_X_DEFAULT $(LIBXT) LIB_X11_LIB LIBX11_MACHINE LIBX11_SYSTEM
+#else /* not HAVE_X11 */
+LIBX= $(LIBXMENU) LD_SWITCH_X_SITE -lX10 LIBX10_MACHINE LIBX10_SYSTEM
+#endif /* not HAVE_X11 */
+#endif /* not HAVE_X_WINDOWS */
+
+#ifndef ORDINARY_LINK
+/* Fix linking if compiled with GCC.  */
+#ifdef __GNUC__
+
+#if __GNUC__ > 1
+
+#ifdef LINKER
+#define LINKER_WAS_SPECIFIED
+#endif
+
+/* Versions of GCC >= 2.0 put their library, libgcc.a, in obscure
+   places that are difficult to figure out at make time.  Fortunately,
+   these same versions allow you to pass arbitrary flags on to the
+   linker, so there's no reason not to use it as a linker.
+
+   Well, it's not quite perfect.  The `-nostdlib' keeps GCC from
+   searching for libraries in its internal directories, so we have to
+   ask GCC explicitly where to find libgcc.a.  */
+
+#ifndef LINKER
+#define LINKER $(CC) -nostdlib
+#endif
+
+#ifndef LIB_GCC
+/* Ask GCC where to find libgcc.a.  */
+#define LIB_GCC `$(CC) -print-libgcc-file-name`
+#endif /* not LIB_GCC */
+
+GNULIB_VAR = LIB_GCC
+
+#ifndef LINKER_WAS_SPECIFIED
+/* GCC passes any argument prefixed with -Xlinker directly to the
+   linker.  See prefix-args.c for an explanation of why we don't do
+   this with the shell's `for' construct.
+   Note that some people don't have '.'  in their paths, so we must
+   use ./prefix-args.  */
+#define YMF_PASS_LDFLAGS(flags) `./prefix-args -Xlinker flags`
+#else
+#define YMF_PASS_LDFLAGS(flags) flags
+#endif
+
+#else /* __GNUC__ < 2 */
+
+#ifndef LIB_GCC
+#define LIB_GCC /usr/local/lib/gcc-gnulib
+#endif /* not LIB_GCC */
+GNULIB_VAR = `if [ -f LIB_GCC ] ; then echo LIB_GCC; else echo; fi`
+#endif /* __GNUC__ < 2 */
+#else /* not __GNUC__ */
+GNULIB_VAR = 
+
+#endif /* not __GNUC__ */
+#endif /* not ORDINARY_LINK */
+
+#ifdef VMS
+VMSLIBFILE = SYS$DISK:[-.vms]vmslib.olb
+VMSLIB = $(VMSLIBFILE)/lib
+#endif
+
+/* Specify address for ld to start loading at,
+   if requested by configuration.  */
+#ifdef LD_TEXT_START_ADDR
+STARTFLAGS = -T LD_TEXT_START_ADDR -e __start
+#endif
+
+#ifdef ORDINARY_LINK
+LD = link
+#else
+#ifdef COFF_ENCAPSULATE
+LD=$(CC) -nostdlib
+#else /* not ORDINARY_LINK */
+#ifdef LINKER
+LD=LINKER
+#else /* not LINKER */
+LD=ld
+#endif /* not LINKER */
+#endif /* not COFF_ENCAPSULATE */
+#endif /* not ORDINARY_LINK */
+
+ALL_LDFLAGS = LD_SWITCH_SYSTEM LD_SWITCH_MACHINE LD_SWITCH_SITE $(LDFLAGS)
+
+/* A macro which other sections of ymakefile can redefine to munge the
+   flags before they're passed to LD.  This is helpful if you have
+   redefined LD to something odd, like "gcc".  */
+#ifndef YMF_PASS_LDFLAGS
+#define YMF_PASS_LDFLAGS(flags) flags
+#endif
+
+/* Allow config.h to specify a replacement file for unexec.c.  */
+#ifndef UNEXEC
+#define UNEXEC , unexec.o
+#endif
+#ifndef UNEXEC_SRC
+#define UNEXEC_SRC $(srcdir)unexec.c
+#endif
+#ifndef UNEXEC_HDRS
+#define UNEXEC_HDRS
+#endif
+
+#ifdef USE_TEXT_PROPERTIES
+#define INTERVAL_SRC $(srcdir)intervals.h
+#define INTERVAL_OBJ ,intervals.obj, textprop.obj
+#else
+#define INTERVAL_SRC
+#define INTERVAL_OBJ
+#endif
+
+#ifdef HAVE_GETLOADAVG
+#define GETLOADAVG_OBJ
+#else
+#define GETLOADAVG_OBJ ,getloadavg.obj
+#endif
+
+/* lastfile must follow all files
+   whose initialized data areas should be dumped as pure by dump-emacs. */
+obj1=    dispnew.obj, frame.obj, scroll.obj, xdisp.obj, window.obj, -
+	cm.obj, term.obj $(XOBJ)
+obj2=	emacs.obj, keyboard.obj, macros.obj, keymap.obj, sysdep.obj, -
+	buffer.obj, filelock.obj, insdel.obj, marker.obj INTERVAL_OBJ
+obj3=	minibuf.obj, fileio.obj, dired.obj, filemode.obj, -
+	cmds.obj, casetab.obj, casefiddle.obj, indent.obj, search.obj
+obj4=	regex.obj, undo.obj, alloc.obj, data.obj, doc.obj, editfns.obj, -
+	callint.obj, eval.obj, floatfns.obj, fns.obj, print.obj, lread.obj
+obj5=	abbrev.obj, syntax.obj UNEXEC, mocklisp.obj, bytecode.obj, -
+	process.obj, callproc.obj, doprnt.obj GETLOADAVG_OBJ
+obj6=	vmsfns.obj, vmsproc.obj, vmstime.obj
+obj=$(obj1), $(obj2), $(obj3), $(obj4), $(obj5), $(obj6)
+
+/* Object files used on some machine or other.
+   These go in the DOC file on all machines
+   in case they are needed there.  */
+SOME_MACHINE_OBJECTS = sunfns.o
+
+#ifdef TERMINFO
+/* Used to be -ltermcap here.  If your machine needs that,
+   define LIBS_TERMCAP in the m/*.h file.  */
+#ifndef LIBS_TERMCAP
+#define LIBS_TERMCAP -lcurses
+#endif /* LIBS_TERMCAP */
+termcapobj = terminfo.obj
+#else /* ! defined (TERMINFO) */
+#ifndef LIBS_TERMCAP
+#define LIBS_TERMCAP
+termcapobj = termcap.obj, tparam.obj
+#else /* LIBS_TERMCAP */
+termcapobj = tparam.obj
+#endif /* LIBS_TERMCAP */
+#endif /* ! defined (TERMINFO) */
+
+
+#ifndef SYSTEM_MALLOC
+
+#ifdef GNU_MALLOC  /* New GNU malloc */
+#ifdef REL_ALLOC
+mallocobj = ,vmsgmalloc.obj, ralloc.obj, vm-limit.obj
+#else /* ! defined (REL_ALLOC) */
+mallocobj = ,vmsgmalloc.obj, vm-limit.obj
+#endif /* ! defined (REL_ALLOC) */
+#else /* Old GNU malloc */
+mallocobj = ,malloc.obj
+#endif /* Old GNU malloc */
+
+#endif /* SYSTEM_MALLOC */
+
+
+#ifndef HAVE_ALLOCA
+allocaobj = ,alloca.obj
+#else
+allocaobj =
+#endif
+
+#ifdef USE_X_TOOLKIT
+widgetobj= ,widget.obj
+#else /* not USE_X_TOOLKIT */
+widgetobj=
+#endif /* not USE_X_TOOLKIT */
+
+
+/* define otherobj as list of object files that make-docfile
+   should not be told about.  */
+otherobj= $(termcapobj), lastfile.obj $(mallocobj) $(allocaobj) $(widgetobj)
+
+#ifdef LISP_FLOAT_TYPE
+#define FLOAT_SUPPORT $(lispdir)float-sup.elc
+#define EXT_FLOAT_SUPPORT float-sup.elc
+#else
+#define FLOAT_SUPPORT
+#define EXT_FLOAT_SUPPORT
+#endif
+
+#ifdef MULTI_FRAME
+#define FRAME_SUPPORT $(lispdir)frame.elc $(lispdir)menu-bar.elc \
+  $(lispdir)mouse.elc $(lispdir)select.elc $(lispdir)scroll-bar.elc \
+  $(lispdir)faces.elc
+#define EXT_FRAME_SUPPORT frame.elc menu-bar.elc mouse.elc select.elc \
+  scroll-bar.elc faces.elc
+#else
+#define FRAME_SUPPORT
+#define EXT_FRAME_SUPPORT
+#endif
+
+#ifdef HAVE_X_WINDOWS
+#define X_WINDOWS_SUPPORT
+#define EXT_X_WINDOWS_SUPPORT
+#else
+#define X_WINDOWS_SUPPORT
+#define EXT_X_WINDOWS_SUPPORT
+#endif
+
+#ifdef VMS
+#define VMS_SUPPORT $(lispdir)vmsproc.elc $(lispdir)vms-patch.elc \
+$(lispdir)vms-date.el
+#define EXT_VMS_SUPPORT vmsproc.elc vms-patch.elc vms-date.el
+#else
+#define VMS_SUPPORT
+#define EXT_VMS_SUPPORT
+#endif
+
+#ifdef MSDOS
+#define MSDOS_SUPPORT $(lispdir)ls-lisp.elc $(lispdir)disp-tab.elc $(lispdir)dos-fns.elc $(lispdir)mouse.elc
+#define EXT_MSDOS_SUPPORT $(lispdir)ls-lisp.elc $(lispdir)disp-tab.elc $(lispdir)dos-fns.elc $(lispdir)mouse.elc
+#else
+#define MSDOS_SUPPORT
+#define EXT_MSDOS_SUPPORT
+#endif
+
+/* List of Lisp files loaded into the dumped Emacs.  It's arranged
+   like this because it's easier to generate it semi-mechanically from
+   loadup.el this way.
+
+   Note that this list should not include lisp files which might not
+   be present, like site-load.el and site-init.el; this makefile
+   expects them all to be either present or buildable.  */
+lisp1= 	$(lispdir)abbrev.elc -
+	$(lispdir)buff-menu.elc -
+	$(lispdir)byte-run.elc -
+	$(lispdir)c-mode.elc
+extlisp1= 	abbrev.elc -
+		buff-menu.elc -
+		byte-run.elc -
+		c-mode.elc
+lisp2=	$(lispdir)files.elc -
+	$(lispdir)fill.elc
+extlisp2=	files.elc -
+		fill.elc
+lisp3=	FLOAT_SUPPORT
+extlisp3=	EXT_FLOAT_SUPPORT
+lisp4=	FRAME_SUPPORT
+extlisp4=	EXT_FRAME_SUPPORT
+lisp5=  X_WINDOWS_SUPPORT
+extlisp5=  EXT_X_WINDOWS_SUPPORT
+lisp6=	$(lispdir)help.elc -
+	$(lispdir)indent.elc -
+	$(lispdir)isearch.elc -
+	$(lispdir)lisp-mode.elc
+extlisp6=	help.elc -
+		indent.elc -
+		isearch.elc -
+		lisp-mode.elc
+lisp7=	$(lispdir)lisp.elc -
+	$(lispdir)loaddefs.el -
+	$(lispdir)map-ynp.elc -
+	$(lispdir)page.elc
+extlisp7=	lisp.elc -
+		loaddefs.el -
+		map-ynp.elc -
+		page.elc
+lisp8=	$(lispdir)paragraphs.elc -
+	$(lispdir)paths.el -
+	$(lispdir)register.elc -
+	$(lispdir)replace.elc
+extlisp8=	paragraphs.elc -
+		paths.el -
+		register.elc -
+		replace.elc
+lisp9=	$(lispdir)simple.elc -
+	$(lispdir)startup.elc -
+	$(lispdir)subr.elc
+extlisp9=	simple.elc -
+		startup.elc -
+		subr.elc
+lisp10=	$(lispdir)text-mode.elc -
+	$(lispdir)vc-hooks.elc
+extlisp10=	text-mode.elc -
+		vc-hooks.elc
+lisp11=	VMS_SUPPORT
+extlisp11=	EXT_VMS_SUPPORT
+lisp12=	MSDOS_SUPPORT
+extlisp12=	EXT_MSDOS_SUPPORT
+lisp13=	$(lispdir)window.elc -
+	$(lispdir)version.el
+extlisp13=	window.elc -
+		version.el
+lisp=$(lisp1) $(lisp2) $(lisp3) $(lisp4) $(lisp5) $(lisp6) $(lisp7) -
+  $(lisp8) $(lisp9) $(lisp10) $(lisp11) $(lisp12) $(lisp13)
+
+/* Construct full set of libraries to be linked.
+   Note that SunOS needs -lm to come before -lc; otherwise, you get
+   duplicated symbols.  If the standard libraries were compiled
+   with GCC, we might need gnulib again after them.  */
+LIBES1 = $(LIBX)
+LIBES2 = LIBS_SYSTEM
+LIBES3 = LIBS_MACHINE
+LIBES4 = LIBS_TERMCAP
+LIBES5 = LIBS_DEBUG
+LIBES6 = $(GNULIB_VAR)
+LIBES7 = LIB_MATH
+LIBES8 = LIB_STANDARD
+LIBES9 = $(GNULIB_VAR)
+LIBES10 = $(VMSLIB)
+LIBES = $(LIBES1) $(LIBES2) $(LIBES3) $(LIBES4) $(LIBES5) $(LIBES6) \
+  $(LIBES7) $(LIBES8) $(LIBES9) $(LIBES10)
+
+/* Enable recompilation of certain other files depending on system type.  */
+
+#ifndef OTHER_FILES
+#define OTHER_FILES
+#endif
+
+/* Enable inclusion of object files in temacs depending on system type.  */
+#ifndef OBJECTS_SYSTEM
+#define OBJECTS_SYSTEM
+#endif
+
+#ifndef OBJECTS_MACHINE
+#define OBJECTS_MACHINE
+#endif
+
+.FIRST :
+	if "$(sys_includes)" .nes. "" then -
+		define /nolog sys $(sys_includes),$(srcdir),sys$disk:[]
+	if "$(sys_includes)" .eqs. "" then -
+		define /nolog sys $(srcdir),sys$disk:[]
+	if "$(x_includes)" .nes. "" then -
+		define /nolog x11 $(x_includes)
+	define /nolog local_includes -
+		SYS$DISK:[],-
+		$(srcdir),-
+#ifdef USE_X_TOOLKIT
+		$(srcdir_dev)[$(srcdir_dir).-.lwlib],-
+#endif
+		$(srcdir_dev)[$(srcdir_dir).-.oldXmenu],-
+		$(srcdir_dev)[$(srcdir_dir).bitmaps],-
+		$(vmsdir)
+	define /nolog local_lisp $(lispdir)
+	define /nolog local_src $(srcdir)
+	extra_defs = ""
+	set noon
+	mcr sys$disk:[-.vms]check_verb $(MAKE) "__RESULT"
+	set on
+	__result = .not. __result
+	if __result then set command [-.vms]make-command.cld
+	- if __result then delete/symbol/global $(MAKE)
+	- if __result then delete/symbol/local $(MAKE)
+	delete/symbol/local __result
+
+all : $(OLDXMENU) [-.vms]temacs.dump OTHER_FILES
+	@ !
+
+all_debug : $(OLDXMENU) [-.vms]temacs_d.dump OTHER_FILES
+	@ !
+
+[-.vms]temacs.dump : [-.vms]temacs.exe
+[-.vms]temacs_d.dump : [-.vms]temacs_d.exe [-.vms]temacs_d.input
+[-.vms]temacs.dump [-.vms]temacs_d.dump : $(etc)DOC $(lisp)
+#ifdef CANNOT_DUMP
+	rm -f emacs
+	ln temacs emacs
+#else
+#ifdef HAVE_SHM
+	./temacs -nl -batch -l loadup dump
+#else /* ! defined (HAVE_SHM) */
+#ifdef VMS
+	set noon
+	home=f$environment("DEFAULT")
+	set default [-.vms]
+	temacs_name = f$parse("$@",,,"NAME")
+	a = f$trnlnm("DBG$DECW$DISPLAY")
+	define dbg$decw$display " "
+	set on
+	if "$@" - "_D" .nes. "$@" then -
+		def/user dbg$input [-.vms]temacs_d.input
+	mcr sys$disk:[-.vms]'temacs_name' -batch -l loadup dump
+	set default 'home'
+	if a .eqs. "" then deassign dbg$decw$display
+	if a .nes. "" then define dbg$decw$display "''a'"
+#else /* ! defined (VMS) */
+	./temacs -batch -l loadup dump
+#endif /* ! defined (VMS) */
+#endif /* ! defined (HAVE_SHM) */
+#endif /* ! defined (CANNOT_DUMP) */
+
+makedoc = mcr $(libsrc)make-docfile
+makedoc_first = $(makedoc) -o $(etc)DOC
+makedoc_obj = $(makedoc) -a $(etc)DOC -d local_src:
+makedoc_lisp = $(makedoc) -a $(etc)DOC -d local_lisp:
+
+$(etc)DOC : $(libsrc)make-docfile.exe $(obj) $(lisp) OBJECTS_SYSTEM OBJECTS_MACHINE
+!	@[-.vms]makedoc
+!	- purge $(etc)DOC*.*
+	$(makedoc_first)
+	! makedoc = orig_makedoc + " -a $(etc)DOC -d $(srcdir)"
+	$(makedoc_obj) $(obj1)
+	$(makedoc_obj) $(obj2)
+	$(makedoc_obj) $(obj3)
+	$(makedoc_obj) $(obj4)
+	$(makedoc_obj) $(obj5)
+	$(makedoc_obj) $(obj6)
+	$(makedoc_obj) OBJECTS_SYSTEM
+	$(makedoc_obj) OBJECTS_MACHINE
+	! makedoc = orig_makedoc + " -a $(etc)DOC -d local_lisp:"
+	$(makedoc_lisp) $(extlisp1)
+	$(makedoc_lisp) $(extlisp2)
+	$(makedoc_lisp) $(extlisp3)
+	$(makedoc_lisp) $(extlisp4)
+	$(makedoc_lisp) $(extlisp5)
+	$(makedoc_lisp) $(extlisp6)
+	$(makedoc_lisp) $(extlisp7)
+	$(makedoc_lisp) $(extlisp8)
+	$(makedoc_lisp) $(extlisp9)
+	$(makedoc_lisp) $(extlisp10)
+	$(makedoc_lisp) $(extlisp11)
+	$(makedoc_lisp) $(extlisp12)
+	$(makedoc_lisp) $(extlisp13)
+	- purge $(etc)DOC$(dot)
+
+$(libsrc)make-docfile.exe :
+	a = f$environment("DEFAULT")
+	set def $(libsrc)
+	$(MAKE) $(MMSQUALIFIERS) make-docfile.exe
+	set def 'a'
+
+/* Some systems define this to cause parallel Make-ing.  */
+#ifndef MAKE_PARALLEL
+#define MAKE_PARALLEL
+#endif
+
+#ifdef USE_DEBUG_HACK
+! This is a REALLY ugly thing, but it does things right...
+[-.vms]temacs.exe : [-.vms]hackdebug.exe
+#endif
+
+[-.vms]temacs.exe [-.vms]temacs_d.exe : -
+		MAKE_PARALLEL $(LOCALCPP) $(SHORT) $(STARTFILES) -
+		$(OLDXMENU) $(VMSLIBFILE) -
+		$(obj) $(otherobj) OBJECTS_SYSTEM OBJECTS_MACHINE -
+		[-.vms]temacs.opt
+#ifdef USE_DEBUG_HACK
+	debug_flag := /debug
+#else
+	debug_flag = "/notrace"
+	if "$@" - "_D" .nes. "$@" then debug_flag = "/debug/trace"
+#endif
+	$(LD) YMF_PASS_LDFLAGS ($(STARTFLAGS) $(ALL_LDFLAGS)) 'debug_flag'  -
+	/exec=$@/map=$*.map/full [-.vms]temacs.opt/opt
+#ifdef USE_DEBUG_HACK
+	if "$@" - "_D" .eqs. "$@" then mcr SYS$DISK:[-.vms]hackdebug $@
+#endif
+
+[-.vms]temacs_d.input :
+	open/write foo $@
+	write foo "go"
+#ifdef __ALPHA
+	write foo "go"
+#endif
+	close foo
+	
+![-.vms]temacs.opt : MAKE_PARALLEL $(LOCALCPP) $(SHORT) $(STARTFILES) $(OLDXMENU)-
+!		$(obj) $(otherobj) OBJECTS_SYSTEM OBJECTS_MACHINE prefix-args.exe
+[-.vms]temacs.opt : prefix-args.exe descrip.mms
+	open/write foo [-.vms]temacs.opt
+	write foo "name=""Emacs"""
+	write foo "identification=""version @version@"""
+	write foo "cluster=emacs,8192,,-"
+	if "$(STARTFILES)" .nes. "" then write foo "$(STARTFILES),-"
+	write foo "$(obj1),-"
+	write foo "$(obj2),-"
+	write foo "$(obj3),-"
+	write foo "$(obj4),-"
+	write foo "$(obj5),-"
+	write foo "$(obj6),-"
+	a := OBJECTS_SYSTEM
+	if a .nes. "" then write foo "''a',-"
+	a := OBJECTS_MACHINE
+	if a .nes. "" then write foo "''a',-"
+	write foo "$(otherobj)"
+	write foo "collect=saved_pure,EMACSPURE"
+	write foo "collect=saved_heap,HEAPBUFFER"
+	write foo "collect=non_saved_data,-"
+	write foo "stdin,-"
+	write foo "stdout,-"
+	write foo "stderr,-"
+	write foo "errno,-"
+	write foo "vaxc$errno,-"
+	write foo "sys_errlist,-"
+	write foo "sys_nerr,-"
+	write foo "environ,-"
+	write foo "emacs_widget_resources,emacsFrameClassRec,emacsFrameClass,-"
+	write foo "$char_string_constants"	! This way, the saveable
+						! data might start on a
+						! page boundary!
+	@$(vmsdir)loop_args lib "$(LIBES1)" " " "write foo lib" ";"
+	@$(vmsdir)loop_args lib "$(LIBES2)" " " "write foo lib" ";"
+	@$(vmsdir)loop_args lib "$(LIBES3)" " " "write foo lib" ";"
+	@$(vmsdir)loop_args lib "$(LIBES4)" " " "write foo lib" ";"
+	@$(vmsdir)loop_args lib "$(LIBES5)" " " "write foo lib" ";"
+	@$(vmsdir)loop_args lib "$(LIBES6)" " " "write foo lib" ";"
+	@$(vmsdir)loop_args lib "$(LIBES7)" " " "write foo lib" ";"
+	@$(vmsdir)loop_args lib "$(LIBES8)" " " "write foo lib" ";"
+	@$(vmsdir)loop_args lib "$(LIBES9)" " " "write foo lib" ";"
+	@$(vmsdir)loop_args lib "$(LIBES10)" " " "write foo lib" ";"
+	close foo
+	purge [-.vms]temacs.opt
+	- if f$search("[-.vms]temacs.opt_com.*") .nes. "" then delete [-.vms]temacs.opt_com$(dotstar)
+
+prefix-args.exe : $(srcdir)prefix-args.c $(config_h)
+	$(CC) $(ALL_CFLAGS) $(srcdir)prefix-args.c /obj=prefix-args
+	$(LD) /exe=prefix-args.exe prefix-args.obj,[-.vms]vmslink.opt/opt
+
+/* These are needed for C compilation, on the systems that need them */
+#ifdef NEED_CPP
+CPP = ./localcpp
+localcpp :
+	cd $(cppdir); $(MAKE) $(MMSQUALIFIERS) EMACS=-DEMACS
+	ln $(cppdir)cpp localcpp  /* Name where ALL_CFLAGS will refer to it */
+/* cc appears to be cretinous and require all of these to exist
+   if -B is specified -- we can't use one local pass and let the
+   others be the standard ones.  What a loser.
+   We can't even use ln, since they are probably
+   on different disks.  */
+	cp /lib/ccom localccom
+	-cp /lib/optim localoptim
+	-cp /lib/c2 localc2
+	cp /bin/as localas
+#else /* ! defined (NEED_CPP) */
+/* CPP = $(CC) -E /* On VMS, this is a pure bogosity */
+#endif /* ! defined (NEED_CPP) */
+
+#ifdef SHORTNAMES
+shortnames :
+	cd $(shortnamesdir); $(MAKE) $(MMSQUALIFIERS)
+#endif
+
+/* Don't lose if this was not defined.  */
+#ifndef OLDXMENU_OPTIONS
+#define OLDXMENU_OPTIONS
+#endif
+
+/* Don't lose if this was not defined.  */
+#ifndef LWLIB_OPTIONS
+#define LWLIB_OPTIONS
+#endif
+
+#ifdef HAVE_X_WINDOWS
+#ifdef HAVE_X11
+#define DID_OLDXMENU
+#ifdef USE_X_TOOLKIT
+really-oldXMenu really-lwlib :
+	a = f$environment("DEFAULT")
+	set def $(lwlibdir)
+	$(MAKE) $(MMSQUALIFIERS) LWLIB_OPTIONS -
+	/macro=(CC="$(CC)",CFLAGS="$(CFLAGS)",MAKE="$(MAKE)")
+	set def 'a'
+	! We know the description file in $(oldXMenudir) destroys the
+	! value of logical name "sys", so...
+	if "$(sys_includes)" .nes. "" then -
+		define /nolog sys $(sys_includes),$(srcdir),sys$disk:[]
+	if "$(sys_includes)" .eqs. "" then -
+		define /nolog sys $(srcdir),sys$disk:[]
+	if "$(x_includes)" .nes. "" then -
+		define /nolog x11 $(x_includes)
+	! @true  /* make -t should not create really-oldXMenu.  */
+	define /nolog local_includes -
+		SYS$DISK:[],-
+		$(srcdir),-
+		$(srcdir_dev)[$(srcdir_dir).-.lwlib],-
+		$(srcdir_dev)[$(srcdir_dir).-.oldXmenu],-
+		$(srcdir_dev)[$(srcdir_dir).bitmaps],-
+		$(vmsdir)
+	define /nolog local_lisp $(lispdir)
+	define /nolog local_src $(srcdir)
+#else /* not USE_X_TOOLKIT */
+#ifdef HAVE_X_MENU
+really-oldXMenu :
+	a = f$environment("DEFAULT")
+	set def $(oldXMenudir)
+	$(MAKE) $(MMSQUALIFIERS) OLDXMENU_OPTIONS -
+	/macro=(CC="$(CC)",CFLAGS="$(CFLAGS)",MAKE="$(MAKE)")
+	! $(MAKE) $(MMSQUALIFIERS) OLDXMENU_OPTIONS -
+	! /macro=(CC="$(CC)",CFLAGS="$(CFLAGS)",MAKE="$(MAKE)", -
+	! "C_SWITCH_X_SITE=$(C_SWITCH_X_SITE_1)", -
+	! "C_SWITCH_X_MACHINE=$(C_SWITCH_X_MACHINE_1)", -
+	! "C_SWITCH_X_SYSTEM=$(C_SWITCH_X_SYSTEM_1)", -
+	! "C_SWITCH_SITE=$(C_SWITCH_SITE_1)", -
+	! "C_SWITCH_MACHINE=$(C_SWITCH_MACHINE_1)", -
+	! "C_SWITCH_SYSTEM=$(C_SWITCH_SYSTEM_1)")
+	set def 'a'
+	! We know the description file in $(oldXMenudir) destroys the
+	! value of logical name "sys", so...
+	if "$(sys_includes)" .nes. "" then -
+		define /nolog sys $(sys_includes),$(srcdir),sys$disk:[]
+	if "$(sys_includes)" .eqs. "" then -
+		define /nolog sys $(srcdir),sys$disk:[]
+	if "$(x_includes)" .nes. "" then -
+		define /nolog x11 $(x_includes)
+	define /nolog local_includes -
+		SYS$DISK:[],-
+		$(srcdir),-
+		$(srcdir_dev)[$(srcdir_dir).-.oldXmenu],-
+		$(srcdir_dev)[$(srcdir_dir).bitmaps],-
+		$(vmsdir)
+	define /nolog local_lisp $(lispdir)
+	define /nolog local_src $(srcdir)
+	! @true  /* make -t should not create really-oldXMenu.  */
+#endif /* HAVE_X_MENU */
+#endif /* not USE_X_TOOLKIT */
+#endif /* HAVE_X11 */
+#endif /* HAVE_X_WINDOWS */
+
+#ifndef DID_OLDXMENU
+really-oldXMenu :
+	@ !
+#endif
+
+paths.h : $(srcdir)paths.h_in
+	@ write sys$output "The file paths.h needs to be set up from paths.h_in."
+	@ write sys$output "Consult the file `INSTALL' for instructions for building Emacs."
+	exit 4
+
+config.h : $(srcdir)config.h_in
+	@ write sys$output "The file config.h needs to be set up from config.h_in."
+	@ write sys$output "Consult the file `INSTALL' for instructions for building Emacs."
+	exit 4
+
+/* Some machines have alloca built-in.
+   They should define HAVE_ALLOCA, or may just let alloca.s
+   be used but generate no code.
+   Some have it written in assembler in alloca.s.
+   Some use the C version in alloca.c (these define C_ALLOCA in config.h).
+   */
+
+#ifdef C_ALLOCA
+/* We could put something in alloca.c to #define free and malloc
+   whenever emacs was #defined, but that's not appropriate for all
+   users of alloca in Emacs.  Check out ../lib-src/getopt.c.  */
+alloca.obj : $(srcdir)alloca.c $(srcdir)blockinput.h $(config_h)
+	extra_defs = ",""free""=""xfree"",""malloc""=""xmalloc"""
+	$(CC) $(CPPFLAGS) $(ALL_CFLAGS) $(srcdir)alloca.c !/list/show=all
+	extra_defs = ""
+#else
+#ifndef HAVE_ALLOCA
+alloca.obj : $(srcdir)alloca.s config.h
+/* $(CPP) is cc -E, which may get confused by filenames
+   that do not end in .c.  So copy file to a safe name.  */
+	-rm -f allocatem.c
+	cp $(srcdir)alloca.s allocatem.c
+/* Remove any ^L, blank lines, and preprocessor comments,
+   since some assemblers barf on them.  Use a different basename for the
+   output file, since some stupid compilers (Green Hill's) use that
+   name for the intermediate assembler file. */
+	$(CPP) $(CPPFLAGS) $(ALL_CFLAGS) allocatem.c | \
+	sed -e 's///' -e 's/^#.*//' | \
+	sed -n -e '/^..*$$/p' > allocax.s
+	-rm -f alloca.obj
+/* Xenix, in particular, needs to run assembler via cc.  */
+	$(CC) -c allocax.s
+	mv allocax.obj alloca.obj
+	-rm -f allocax.s allocatem.c
+#endif /* HAVE_ALLOCA */
+#endif /* ! defined (C_ALLOCA) */
+
+/* Nearly all the following files depend on lisp.h,
+   but it is not included as a dependency because
+   it is so often changed in ways that do not require any recompilation
+   and so rarely changed in ways that do require any.  */
+
+abbrev.obj : $(srcdir)abbrev.c $(srcdir)buffer.h $(srcdir)commands.h -
+   $(config_h) 
+buffer.obj : $(srcdir)buffer.c $(srcdir)buffer.h $(srcdir)commands.h -
+   $(srcdir)window.h INTERVAL_SRC $(srcdir)blockinput.h $(config_h) -
+   $(srcdir)syntax.h
+callint.obj : $(srcdir)callint.c $(srcdir)window.h $(srcdir)commands.h -
+   $(srcdir)buffer.h $(srcdir)mocklisp.h $(srcdir)keyboard.h $(config_h)
+callproc.obj : $(srcdir)callproc.c paths.h $(srcdir)buffer.h -
+   $(srcdir)commands.h $(config_h) $(srcdir)process.h $(srcdir)systty.h -
+   $(srcdir)syssignal.h
+casefiddle.obj : $(srcdir)casefiddle.c $(srcdir)syntax.h $(srcdir)commands.h -
+   $(srcdir)buffer.h $(config_h) 
+casetab.obj : $(srcdir)casetab.c $(srcdir)buffer.h $(config_h)
+cm.obj : $(srcdir)cm.c $(srcdir)cm.h $(srcdir)termhooks.h $(config_h)
+cmds.obj : $(srcdir)cmds.c $(srcdir)syntax.h $(srcdir)buffer.h -
+   $(srcdir)commands.h $(config_h) 
+pre-crt0.obj : $(srcdir)pre-crt0.c
+crt0.obj : $(srcdir)crt0.c $(config_h)
+	CRT0_COMPILE $(srcdir)crt0.c
+dired.obj : $(srcdir)dired.c $(srcdir)commands.h $(srcdir)buffer.h -
+   $(config_h) $(srcdir)regex.h
+#if !defined(__DECC) && !defined(__GNUC__)
+	$(CC) $(CC_COMPILE_SWITCH) $(CPPFLAGS) $(ALL_CFLAGS) $< -
+		/noopt -
+		/obj = sys$disk:[]$*.obj !/list=sys$disk:[]$*.lis/show=all
+#endif
+
+dispnew.obj : $(srcdir)dispnew.c $(srcdir)commands.h $(srcdir)frame.h -
+   $(srcdir)window.h $(srcdir)buffer.h $(srcdir)dispextern.h -
+   $(srcdir)termchar.h $(srcdir)termopts.h $(srcdir)termhooks.h -
+   $(srcdir)cm.h $(srcdir)disptab.h $(srcdir)systty.h $(srcdir)systime.h -
+   $(config_h)
+doc.obj : $(srcdir)doc.c $(config_h) paths.h $(srcdir)buffer.h -
+   $(srcdir)keyboard.h
+doprnt.obj : $(srcdir)doprnt.c $(config_h)
+editfns.obj : $(srcdir)editfns.c $(srcdir)window.h $(srcdir)buffer.h -
+   $(srcdir)systime.h INTERVAL_SRC $(config_h)
+emacs.obj : $(srcdir)emacs.c $(srcdir)commands.h $(srcdir)systty.h -
+   $(srcdir)syssignal.h $(srcdir)process.h INTERVAL_SRC $(config_h)
+fileio.obj : $(srcdir)fileio.c $(srcdir)window.h $(srcdir)buffer.h -
+   $(srcdir)systime.h INTERVAL_SRC $(config_h)
+filelock.obj : $(srcdir)filelock.c $(srcdir)buffer.h paths.h -
+   $(config_h)
+filemode.obj : $(srcdir)filemode.c $(config_h)
+getloadavg.obj : $(srcdir)getloadavg.c $(config_h)
+indent.obj : $(srcdir)indent.c $(srcdir)frame.h $(srcdir)window.h -
+   $(srcdir)indent.h $(srcdir)buffer.h $(config_h) $(srcdir)termchar.h -
+   $(srcdir)termopts.h $(srcdir)disptab.h
+insdel.obj : $(srcdir)insdel.c $(srcdir)window.h $(srcdir)buffer.h -
+   INTERVAL_SRC $(srcdir)blockinput.h $(config_h)
+keyboard.obj : $(srcdir)keyboard.c $(srcdir)termchar.h $(srcdir)termhooks.h -
+   $(srcdir)termopts.h $(srcdir)buffer.h $(srcdir)commands.h -
+   $(srcdir)frame.h $(srcdir)window.h $(srcdir)macros.h $(srcdir)disptab.h -
+   $(srcdir)keyboard.h $(srcdir)syssignal.h $(srcdir)systty.h -
+   $(srcdir)systime.h $(srcdir)dispextern.h $(srcdir)intervals.h -
+   $(srcdir)blockinput.h $(config_h) 
+keymap.obj : $(srcdir)keymap.c $(srcdir)buffer.h $(srcdir)commands.h -
+   $(srcdir)keyboard.h $(srcdir)termhooks.h $(srcdir)blockinput.h $(config_h) 
+lastfile.obj : $(srcdir)lastfile.c  $(config_h)
+macros.obj : $(srcdir)macros.c $(srcdir)window.h $(srcdir)buffer.h -
+   $(srcdir)commands.h $(srcdir)macros.h $(config_h)
+malloc.obj : $(srcdir)malloc.c $(config_h)
+gmalloc.obj : $(srcdir)gmalloc.c $(config_h)
+ralloc.obj : $(srcdir)ralloc.c $(config_h)
+vm-limit.obj : $(srcdir)vm-limit.c $(srcdir)mem-limits.h $(config_h) 
+marker.obj : $(srcdir)marker.c $(srcdir)buffer.h $(config_h) 
+minibuf.obj : $(srcdir)minibuf.c $(srcdir)syntax.h $(srcdir)dispextern.h -
+   $(srcdir)frame.h $(srcdir)window.h $(srcdir)buffer.h $(srcdir)commands.h -
+   $(config_h) 
+mocklisp.obj : $(srcdir)mocklisp.c $(srcdir)buffer.h $(config_h)
+process.obj : $(srcdir)process.c $(srcdir)process.h $(srcdir)buffer.h -
+   $(srcdir)window.h $(srcdir)termhooks.h $(srcdir)termopts.h -
+   $(srcdir)commands.h $(srcdir)syssignal.h $(srcdir)systime.h -
+   $(srcdir)systty.h $(srcdir)syswait.h $(srcdir)frame.h $(config_h) -
+   $(srcdir)vmsproc.h
+regex.obj : $(srcdir)regex.c $(srcdir)syntax.h $(srcdir)buffer.h $(config_h) -
+   $(srcdir)regex.h
+frame.obj : $(srcdir)frame.c $(srcdir)xterm.h $(srcdir)window.h -
+   $(srcdir)frame.h $(srcdir)termhooks.h $(srcdir)commands.h -
+   $(srcdir)keyboard.h $(srcdir)buffer.h $(config_h)
+scroll.obj : $(srcdir)scroll.c $(srcdir)termchar.h $(config_h) -
+   $(srcdir)dispextern.h $(srcdir)frame.h
+search.obj : $(srcdir)search.c $(srcdir)regex.h $(srcdir)commands.h -
+   $(srcdir)buffer.h $(srcdir)syntax.h $(srcdir)blockinput.h $(config_h) 
+syntax.obj : $(srcdir)syntax.c $(srcdir)syntax.h $(srcdir)buffer.h -
+   $(srcdir)commands.h $(config_h) 
+sysdep.obj : $(srcdir)sysdep.c $(config_h) $(srcdir)dispextern.h -
+   $(srcdir)termhooks.h $(srcdir)termchar.h $(srcdir)termopts.h -
+   $(srcdir)frame.h $(srcdir)syssignal.h $(srcdir)systty.h -
+   $(srcdir)systime.h $(srcdir)syswait.h $(srcdir)blockinput.h -
+   $(srcdir)window.h $(srcdir)vmsproc.h
+term.obj : $(srcdir)term.c $(srcdir)termchar.h $(srcdir)termhooks.h -
+   $(srcdir)termopts.h $(config_h) $(srcdir)cm.h $(srcdir)frame.h -
+   $(srcdir)disptab.h
+termcap.obj : $(srcdir)termcap.c paths.h $(config_h)
+terminfo.obj : $(srcdir)terminfo.c $(config_h)
+tparam.obj : $(srcdir)tparam.c $(config_h)
+undo.obj : $(srcdir)undo.c $(srcdir)buffer.h $(srcdir)commands.h $(config_h) 
+/* This hack is to discard any space that cpp might put at the beginning
+   of UNEXEC when substituting it in.  */
+UNEXEC_ALIAS=UNEXEC
+$(UNEXEC_ALIAS) : UNEXEC_SRC $(config_h)
+widget.obj : $(srcdir)widget.c $(srcdir)xterm.h $(srcdir)frame.h -
+   $(srcdir)dispextern.h $(srcdir)widgetprv.h $(config_h)
+window.obj : $(srcdir)window.c $(srcdir)indent.h $(srcdir)commands.h -
+   $(srcdir)frame.h $(srcdir)window.h $(srcdir)buffer.h $(srcdir)termchar.h -
+   $(srcdir)termhooks.h $(srcdir)disptab.h $(srcdir)keyboard.h $(config_h)
+xdisp.obj : $(srcdir)xdisp.c $(srcdir)macros.h $(srcdir)commands.h -
+   $(srcdir)indent.h $(srcdir)buffer.h $(srcdir)dispextern.h -
+   $(srcdir)termchar.h $(srcdir)frame.h $(srcdir)window.h $(srcdir)disptab.h -
+   $(srcdir)termhooks.h $(config_h) 
+xfaces.obj : $(srcdir)xfaces.c $(srcdir)dispextern.h $(srcdir)frame.h -
+   $(srcdir)xterm.h $(srcdir)buffer.h $(srcdir)blockinput.h -
+   $(srcdir)window.h $(config_h) 
+xfns.obj : $(srcdir)xfns.c $(srcdir)buffer.h $(srcdir)frame.h -
+   $(srcdir)window.h $(srcdir)keyboard.h $(srcdir)xterm.h -
+   $(srcdir)blockinput.h $(config_h)
+xmenu.obj : $(srcdir)xmenu.c $(srcdir)xterm.h $(srcdir)window.h -
+   $(srcdir)frame.h $(srcdir)keyboard.h $(srcdir)blockinput.h $(config_h)
+xterm.obj : $(srcdir)xterm.c $(srcdir)xterm.h $(srcdir)termhooks.h -
+   $(srcdir)termopts.h $(srcdir)termchar.h $(srcdir)window.h -
+   $(srcdir)dispextern.h $(srcdir)frame.h $(srcdir)disptab.h -
+   $(srcdir)blockinput.h $(srcdir)systime.h $(srcdir)syssignal.h -
+   $(srcdir)keyboard.h $(srcdir)gnu.h $(srcdir)sink.h $(srcdir)sinkmask.h -
+   $(config_h)
+xselect.obj : $(srcdir)xselect.c $(srcdir)dispextern.h $(srcdir)frame.h -
+   $(srcdir)xterm.h $(srcdir)blockinput.h $(config_h) 
+xrdb.obj : $(srcdir)xrdb.c $(config_h)
+hftctl.obj : $(srcdir)hftctl.c $(config_h)
+
+/* The files of Lisp proper */
+
+alloc.obj : $(srcdir)alloc.c $(srcdir)frame.h $(srcdir)window.h -
+   $(srcdir)buffer.h  $(srcdir)puresize.h $(srcdir)syssignal.h
+alloc.obj : $(srcdir)blockinput.h $(config_h) INTERVAL_SRC
+bytecode.obj : $(srcdir)bytecode.c $(srcdir)buffer.h $(config_h)
+data.obj : $(srcdir)data.c $(srcdir)buffer.h $(srcdir)puresize.h -
+   $(srcdir)syssignal.h $(config_h)
+eval.obj : $(srcdir)eval.c $(srcdir)commands.h $(srcdir)keyboard.h -
+   $(srcdir)blockinput.h $(config_h)
+floatfns.obj : $(srcdir)floatfns.c $(config_h)
+fns.obj : $(srcdir)fns.c $(srcdir)commands.h $(config_h) $(srcdir)frame.h -
+   $(srcdir)buffer.h $(srcdir)keyboard.h INTERVAL_SRC
+print.obj : $(srcdir)print.c $(srcdir)process.h $(srcdir)frame.h -
+   $(srcdir)window.h $(srcdir)buffer.h $(config_h)
+lread.obj : $(srcdir)lread.c $(srcdir)commands.h $(srcdir)keyboard.h -
+   $(srcdir)buffer.h paths.h $(config_h) $(srcdir)termhooks.h
+
+/* Text properties support */
+textprop.obj : $(srcdir)textprop.c $(srcdir)buffer.h $(srcdir)intervals.h -
+   $(config_h)
+intervals.obj : $(srcdir)intervals.c $(srcdir)buffer.h $(srcdir)intervals.h -
+   $(srcdir)puresize.h $(config_h)
+
+/* System-specific programs to be made.
+   OTHER_FILES, OBJECTS_SYSTEM and OBJECTS_MACHINE
+   select which of these should be compiled.  */
+
+sunfns.obj  : $(srcdir)sunfns.c $(srcdir)buffer.h $(config_h)
+
+#ifdef VMS
+vmsfns.obj : $(srcdir)vmsfns.c $(srcdir)lisp.h $(config_h)
+vmsgmalloc.obj : $(srcdir)vmsgmalloc.c $(config_h)
+	$(CC) $(CC_COMPILE_SWITCH) $(CPPFLAGS) $(ALL_CFLAGS) $< -
+		/noopt -
+		/obj = sys$disk:[]$*.obj !/list=sys$disk:[]$*.lis/show=all
+vmsmap.obj : $(srcdir)vmsmap.c $(srcdir)lisp.h $(srcdir)getpagesize.h -
+   $(config_h)
+vmsproc.obj : $(srcdir)vmsproc.c $(srcdir)lisp.h $(srcdir)buffer.h -
+   $(srcdir)commands.h $(srcdir)process.h $(srcdir)vmsproc.h -
+   $(srcdir)systty.h $(srcdir)systime.h $(srcdir)vms_netlib.h $(config_h)
+vmstime.obj : $(srcdir)vmstime.c $(srcdir)vmstime.h $(config_h)
+
+$(srcdir)systime.h : $(srcdir)vmstime.h $(vmsdir)utime.h
+	@ ! This was just too fool the system to think systime.h was remade.
+	@ ! This does the same as UNIX touch.
+	@ open/read/write foo $(srcdir)systime.h
+	@ close foo
+#endif
+
+$(libsrc)emacstool : $(libsrc)emacstool.c
+	cd $(libsrc); $(MAKE) $(MMSQUALIFIERS) emacstool
+mostlyclean :
+	- delete prefix-args.exe$(dotstar),[-.vms]temacs*.exe$(dotstar),.dump$(dotstar),.map$(dotstar)
+	- delete _$%*$$.$(dotstar),_$%*$(dotstar)$$$(dotstar),*.obj$(dotstar)
+	- delete $(oldXMenudir)libXMenu11.olb$(dotstar)
+	- delete $(lwlibdir)liblw.olb$(dotstar)
+	- delete [-.etc]DOC.$(dotstar)
+clean : mostlyclean
+	@ !
+/**/# This is used in making a distribution.
+/**/# Do not use it on development directories!
+distclean : clean
+	- @$(vmsdir)delete paths.h$(dotstar),config.h$(dotstar),descrip.mms$(dotstar),descrip.mms_in$(dotstar) FORCE
+	- delete [-.etc]DOC-*$(dotstar)$(dotstar)
+realclean : distclean
+	- delete TAGS.$(dotstar)
+versionclean :
+	- delete [-.vms]temacs.dump$(dotstar)
+	- delete [-.etc]DOC*$(dotstar)$(dotstar)
+extraclean : distclean
+	- delete  _$$*$$.$(dotstar), _$$*$(dotstar)$$$(dotstar)
+	- purge [],[.m],[.s]
+
+SOURCES = *.c,*.h,[.s]*$(dotstar), [.m]*$(dotstar), COPYING., ymakefile.vms, -
+	config.h_in, README., COPYING., ChangeLog., vms.pp-trans
+unlock :
+	set file/prot=(o:RWED) $(SOURCES)
+
+relock :
+	set file/prot=(o:RE,g:RE,w:RE) $(SOURCES)
+	set file/prot=(o:RWED,g:RWED,w:RWED) paths.h
+ctagsfiles = $(srcdir_dev)[$(srcdir_dir)]*.h $(srcdir_dev)[$(srcdir_dir)]*.c
+lisptagsfiles = $(srcdir_dev)[$(srcdir_dir).-.lisp]*.el $(srcdir_dev)[$(srcdir_dir).-.lisp.term]*.el
+TAGS : $(ctagsfiles)
+	mcr sys$disk:[-.lib-src]etags --include=$(srcdir_dev)[$(srcdir_dir).-.lisp]TAGS $(ctagsfiles)
+[-.lisp]TAGS : $(lisptagsfiles)
+	a = f$environment("DEFAULT")
+	set def [-.lisp]
+	$(MAKE)/descrip=$(srcdir_dev)[$(srcdir_dir).-.lisp] TAGS
+	set def 'a'
+xtags : TAGS [-.lisp]TAGS
+#.PHONY : tags

@@ -1,0 +1,945 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.7.0">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.HTD]HTD.SDML">
+<META NAME="date" CONTENT="Tue, 08 Sep 1998 10:04:13">
+<!--
+WASD (HFRD) VMS Hypertext Services, Copyright (c) 1996-1998 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Authentication and Authorization</TITLE>
+</HEAD>
+<BODY>
+<H1>WASD Hypertext Services - Technical Overview</H1>
+[<A HREF="HTD_1000.HTML" TARGET="_self">next</A>] [<A HREF="HTD_0800.HTML" TARGET="_self">previous</A>] [<A HREF="HTD_0001.HTML"TARGET="_top" >contents</A>] [<A HREF="HTD_0900.HTML"TARGET="_top" >full-page</A>]
+<HR>
+
+<A NAME="103">
+<H1>9 - Authentication and Authorization</H1>
+</A>
+
+<P>
+ <B>Authentication</B> is the verification of a user's identity,
+usually through a username/password combination.
+<B>Authorization</B> is allowing a certain action to be applied to a
+particular path based on authentication of the originator.
+
+<P>
+ Generally, authorization is a two step process. First authentication,
+using a username/password database. Second authorization, determining what
+the username is allowed to do for this transaction.
+
+<P>
+ Authentication environments can get complex very quickly, don't forget to
+&quot;keep it simple, stupid&quot;, see <A HREF="htd_0900.html#114" TARGET="_self">9.3.1 - KISS</A>.
+
+<A NAME="104">
+<H3>Overview</H3>
+</A>
+
+<P>
+ Server authorization is performed using a configuration file,
+authentication database and optional authorization grouping database, and is
+based on per-path directives. There is no user-configured authorization
+necessary, or possible! In the configuration file paths are associated with the
+authentication and authorization environments, and so become subject to the
+HTTPd authorization mechanism. Reiterating ... WASD HTTPd authorization
+administration involves those two aspects, setting authorization against paths
+and administering the authentication and authorization databases.
+
+<P>
+ <B>AUTHORIZATION IS ALWAYS APPLIED TO THE PATH SUPPLIED WITH THE
+REQUEST, not to the results of any rule mapping that may have occured!</B>
+This means authorization paths may be administered without ambiguity. With
+requests containing a script, authorization is performed on
+<B>both</B> script and path components. First script access is
+checked for any authorization, then the path component is independently
+authorized. Either may result in an authorization challenge/failure.
+
+<P>
+ For the WASD HTTPd user authentication can be done via the server system's
+<B>SYSUAF database</B>
+<FONT COLOR="#ff0000">
+(not recommended except when employing SSL or in the most secure of LAN
+environments)
+</FONT>,
+ 
+see <A HREF="htd_0900.html#120" TARGET="_self">9.6 - SYSUAF-Authenticated Users</A> for further information.
+
+<P>
+ The <B>authentication database</B> name can be refered to as the
+<I>realm</I>, and refers to a collection of username/passwords.  It can be
+the system's SYSUAF database.
+
+<P>
+ The <B>authorization database</B> can be refered to as the
+<I>group</I>, and refers to a collection of usernames and associated
+<I>permissions</I>.
+
+<P>
+ Separate databases are not always necessary, permission information can be
+stored in the same database as the password information. Paths are generally
+authorized on a per-group basis. Path access can be also be restricted on an
+internet host name/domain, internet address and/or authenticated username
+basis. If only a small number of usernames are to be associated with a path it
+is possible to list them all against the path and have permissions derived
+directly from the authentication database (realm).
+
+<A NAME="105">
+<H3>Authentication Policy</H3>
+</A>
+
+<P>
+ A <I>policy</I> regarding when authorization can be used may be
+established for the server. This can restrict authentication challenges to 
+&quot;https:&quot; (SSL) requests (see <A HREF="htd_1000.html#127" TARGET="_self">10 - Secure Sockets Layer</A>), thereby ensuring
+that the authorization environment is not compromised by use in non-encrypted
+transactions. Two HTTPd qualifiers provide this.
+<UL>
+<LI> <B>/AUTHORIZATION=SSL </B> restricts <B>all</B>
+authentication/authorization transactions to the SSL environment.
+<P>
+<LI> <B>/SYSUAF=SSL </B> restricts only SYSUAF authenticated
+transactions to the SSL environment.
+</UL>
+
+<P>
+ Note also that individual paths may be restricted to SSL requests using
+either the mapping conditional rule configuration or the authorization
+configuration files. See <A HREF="htd_0800.html#100" TARGET="_self">Conditionals</A> and
+<A HREF="htd_0900.html#112" TARGET="_self">Access Restriction List</A>.
+
+<P>
+ In addition two configuration parameters have a direct role in an
+established authorization policy.
+<UL>
+<LI> <B>[AuthFailureLimit] </B> sets the maximum unsuccessful attempts
+allowed before a username is then always refused authentication.  After this
+limit is reached the cache must be purged to re-allow the user access, see
+<A HREF="htd_0500.html#58" TARGET="_self">5.3.2.2 - Authentication</A>.
+<P>
+<LI> <B>[AuthRevalidateUserMinutes] </B> sets the number of minutes
+between successive authentication attempts before the user is forced to reenter
+the authentication data (via a browser dialog).  Zero disables this function.
+</UL>
+
+<A NAME="106">
+<H3>Authentication Failures</H3>
+</A>
+
+<P>
+ Details of authentication failures are logged to the HTTPd process log. 
+<UL>
+<LI> <B>%HTTPD-W-AUTHFAIL </B> indicates a failure to authenticate
+(incorrect username/password).  The number of failures, the realm name, the
+user name and the originating host are provided. Isolated instances of this are
+only of moderate interest.  Consecutive instances may indicate a user thrashing
+about for the correct password, but they usually give up before a dozen
+attempts.
+<P>
+<LI> <B>%HTTPD-I-AUTHFAILOK </B> advises that a previous failure to
+authenticate has now successfully done so.  This is essentially informational.
+<P>
+<LI> <B>%HTTPD-W-AUTHFAILIM </B> indicates the number of failures
+have exceeded the [AuthFailureLimit], after which automatic refusal begins. 
+This message should be of concern and the circumstances investigated,
+especially if the number of attempts becomes excessive.
+</UL>
+
+<A NAME="107">
+<H3>Authorization Scheme</H3>
+</A>
+
+<P>
+ The term <I>authorization scheme</I> refers to the HTTP method of
+authenticating the user.  The WASD HTTPd can employ one or other, or both
+of the &quot;Basic&quot; and &quot;Digest&quot; schemes.  Both schemes use a
+username/password mechanism, with Digest being preferable because the password
+is transmitted encrypted, and with Basic only encoded (and therefore easily
+readable).
+<BLOCKQUOTE><CENTER><B>- NOTE -</B></CENTER><BR>
+The Digest scheme has, to date, only been tested against NCSA X Mosaic 2.7-4b,
+which seems to behave a little <I>flakey</I> when reloading documents, and
+does not elegantly support stale nonces.
+</BLOCKQUOTE>
+
+<A NAME="108">
+<H2><BR><U>9.1 - Permissions, Path and User</U></H2>
+</A>
+
+<P>
+ <B>Both paths and usernames have permissions associated with
+them.</B> A path may be specified as read-only, read and write, or
+write-only (yes, I'm sure someone will want this!) A username may be
+specified as read capable, read and write capable, or only write capable.  For
+each transaction these two are combined to determine the maximum level of
+access allowed. The allowed action is the logical AND of the path and username
+permissions.
+
+<P>
+ The permissions may be described using the HTTP method names, or using the
+more concise abbreviations R, W, and R+W.
+<P>
+
+<BR><CENTER><TABLE CELLPADDING=2 BORDER=1>
+<TH><TH>DELETE<TH>GET<TH>HEAD<TH>POST<TH>PUT</TH>
+<TR></TR>
+<TR><TD>READ or R<TD>no<TD>yes<TD>yes<TD>no<TD>no</TR>
+<TR><TD>WRITE or W<TD>yes<TD>no<TD>no<TD>yes<TD>yes</TR>
+<TR><TD>R+W<TD>yes<TD>yes<TD>yes<TD>yes<TD>yes</TR>
+<TR></TR>
+<TR><TD>DELETE<TD>yes<TD>yes<TD>no<TD>no<TD>no</TR>
+<TR><TD>GET<TD>no<TD>yes<TD>no<TD>no<TD>no</TR>
+<TR><TD>HEAD<TD>no<TD>no<TD>yes<TD>no<TD>no</TR>
+<TR><TD>POST<TD>no<TD>no<TD>no<TD>yes<TD>no</TR>
+<TR><TD>PUT<TD>no<TD>yes<TD>no<TD>no<TD>yes</TR>
+</TABLE></CENTER><BR>
+
+
+<A NAME="109">
+<H2><BR><U>9.2 - Authorization Configuration File</U></H2>
+</A>
+
+<P>
+ Requiring a particular path to be authorized in the HTTP transaction is
+accomplished by applying authorization requirements against that path in a
+configuration file.  This is an activity distinct from setting up and
+maintaining any authentication/authorization databases required for the
+environment.
+
+<P>
+ By default, the system-table logical name HTTPD$AUTH locates a common
+authorization configuration file, unless an individual rule file is specified
+using a job-table logical name. Simple editing of the file changes the
+configuration. Comment lines may be included by prefixing them with the hash
+&quot;#&quot; character, and lines continued by placing the backslash character
+&quot;\&quot; as the last character on a line.
+
+<P>
+ Configuration directives begin either with a &quot;[realm]&quot; or
+&quot;[realm;group]&quot; specification, or with the forward-slash of a path
+specification.  Following the path specification are HTTP method keywords
+controlling group and world permissions to the path, and any
+<B>access-restricting</B> request scheme (&quot;https:&quot;) and/or
+host address(es) and/or username(s).
+<UL>
+<LI> <B>REALM - </B> Square brackets are used to enclose a
+[realm;group] specification, introducing a new authentication grouping. Within
+these brackets is specified the realm (and database) name, and then an optional
+group (and database) name separated by a semi-colon. All path specifications
+following this are authenticated against the specified realm database, and
+permissions obtained from the group database (or authentication database if
+group not specified), until the next [realm;group] specification.
+
+<P>
+ The following shows the format of an authentication database only (realm)
+directive.
+
+<PRE>  [authentication-database]
+</PRE>
+
+<P>
+ This the format of a directive using both authentication and authorization
+databases (both realm and group).
+
+<PRE>  [authentication-database ; authorization-database]
+</PRE>
+<P>
+<LI> <B>PATH - </B> Paths are usually specified terminated with an
+asterisk wildcard. This implies that any directory tree below this is included
+in the access control. Wildcards may be used to match any portion of the
+specified path, or not at all. Following the path specification are control
+keywords representing the HTTP methods or permissions that can be applied
+against the path, and optional access-restricting list of host address(es)
+and/or username(s), separated using commas. Access control is against either
+or both the group and the world. The group access is specified first followed
+by a semi-colon separated world specification. The following show the format
+of the path directive, see the examples below to further clarify the format.
+
+<PRE>  /root/path/  group-access-list,group-permissions ; \
+               world-access-list,world-permissions
+</PRE>
+</UL>
+
+<P>
+ <B>The same path cannot be specified against two different
+realms.</B> The reason lies in the HTTP authentication schema, which allows
+for only one realm in an authentication dialog. How would the server decide
+which realm to use in the authentication challenge? Of course, different parts
+of a given tree may have different authorizations, however any tree ending in
+an asterisk results in the entire sub-tree being controlled by the specified
+authorization environment, unless a separate specification exists for some
+inferior portion of the tree.
+
+<A NAME="110">
+<H3>Reserved Realms</H3>
+</A>
+
+<P>
+ The following realm names (authentication database names) are reserved and
+have special functionality.
+<OL>
+<LI> <B>EXTERNAL - </B> Any authentication and authorization will be
+done in some way by an external CGI script.  None is attempted by the server.
+<P>
+<LI> <B>WORLD - </B> This refers to any request and is not
+authenticated in any way, only the permissions associated with the path are
+applied to the request.  The reserved username &quot;WORLD&quot; becomes the 
+authenticated username.
+<P>
+<LI> <B>VMS - </B> Use the VMS system's SYSUAF database to
+authenticate the username. For &quot;http:&quot; requests the username/password
+pairs are transmitted encoded but not encrypted,
+<FONT COLOR="#ff0000">
+so this is not recommended
+</B></FONT>.
+ 
+For &quot;https:&quot; requests, using the implicit security offered by SSL (see
+<A HREF="htd_1000.html#127" TARGET="_self">10 - Secure Sockets Layer</A>) the use of SYSUAF authentication is considered
+viable.
+
+<P>
+ By default accounts with SYSPRV authorized are always rejected to
+discourage the use of potentially significant usernames (e.g. SYSTEM). Accounts
+that are disusered, have passwords that have expired or that are captive or
+restricted are also automatically rejected.
+
+<P>
+ See <A HREF="htd_0900.html#120" TARGET="_self">9.6 - SYSUAF-Authenticated Users</A> for further information.
+</OL>
+
+<A NAME="111">
+<H3>Reserved Username</H3>
+</A>
+
+<P>
+ The following username is reserved.
+<OL>
+<LI> <B>WORLD - </B> If a path is authorized using the WORLD realm
+the pseudo-authenticated username becomes &quot;WORLD&quot;.  Any log will reflect
+this  username and scripts will access a WWW_REMOTE_USER containing this value. 
+Although not forbidden, it is not recommended this string be used as a username
+in other realms.
+</OL>
+
+<A NAME="112">
+<H3>Access Restriction List</H3>
+</A>
+
+<P>
+ If a host name, protocol identifier or username is included in the path
+configuration directive it acts to <B>further</B> limit access to
+matching clients (path and username permissions still apply). If more than one
+are included a request must match each. If multiple host names and/or
+usernames are included the client must match at least one of each. Host and
+username strings may contains the asterisk wildcard, matching one or more
+consecutive characters. This is most useful when restricting access to all
+hosts within a given domain, etc.
+<UL>
+<LI> <B>Host Names - </B> may be specified as either alphabetic (if
+DNS name resolution is enabled, see [DNSlookup] configuration directive) or
+numeric addresses. When a host restriction occurs there is never an attempt to
+authenticate any associated username. Hence applying host restrictions very
+effectively prevents an attack from outside the allowed addresses. The
+reserved word <I>#localhost</I> refers to the host name the server is
+executing on.
+<P>
+<LI> <B>Request Scheme - </B> (protocol) either &quot;http:&quot; or
+secured via &quot;https:&quot; (SSL)
+<P>
+<LI> <B>User Names - </B> are indicated by a leading circumflex,
+the &quot;~&quot; character (similar or username URL syntax).
+</UL>
+ For example
+
+<PRE>  /web/secret/* *.three.stooges,~Moe,~Larry,~Curly,read
+</PRE>
+ restricts read access to Curly, Larry and Moe accessing from within the
+three.stooges network, while
+
+<PRE>  /web/secret/* https:,*.three.stooges,~Moe,~Larry,~Curly,read
+</PRE>
+ applies the further restriction of access via &quot;https:&quot; (SSL) only.
+
+<P>
+ Note that it more efficient to place <I>protocol</I> and
+<I>host</I> restrictions at the front of a list.
+
+<A NAME="113">
+<H2><BR><U>9.3 - Authorization Configuration Examples</U></H2>
+</A>
+<OL>
+<LI> In the following example the authentication realm is &quot;WASD&quot; and the
+permissions group &quot;SOCIALCLUB&quot;.  The directive allows those
+authenticated from the WASD realm and in the SOCIALCLUB group to read and
+write, and the world to read.
+
+<PRE>  [WASD;SOCIALCLUB]
+  /web/socialclub/* r+w ; read
+</PRE>
+<P>
+<LI> This example illustrates restricting access according internet address.
+Both the group and world restriction is identical, but the group address is
+being specified numerically, while the world access is being specified
+alphabetically (just for the purposes of illustration). This access check is
+done doing simple wildcard comparison, and makes numerical specifications
+potentially more efficient because they are usually shorter. The second line
+restricts that path's write access even further, to one username,
+&quot;BLOGGS&quot;.
+
+<PRE>  [WASD;SOCIALCLUB]
+  /web/socialclub/* 131.185.45.*,get,post; *.dsto.defence.gov.au,get
+  /web/socialclub/accounts/* 131.185.45.*,~BLOGGS,get,post; *.dsto.defence.gov.au,get
+</PRE>
+<P>
+<LI> In the following example the authentication realm and group are a single
+database, &quot;ADMIN&quot;. The first directive allows those in the ADMIN group
+to read and write, and the world to read (&quot;get,post;get&quot;). The second
+line restricts write and even read access to ADMIN group, no world access at
+all (&quot;get,post&quot;).
+
+<PRE>  [ADMIN]
+  /web/everyone/* get,post;get
+  /web/select/few/* get,post
+</PRE>
+<P>
+<LI> With this example usernames are used to control access to the specified
+paths. These usernames are authenticated from the COMPANY database.  The world
+has read access in both cases.
+
+<PRE>  [COMPANY]
+  /web/docs/* ~Howard,~George,~Fred,r+w ; r
+  /web/accounts/* ~George,r+w ; r
+</PRE>
+<P>
+<LI> The following example shows a path specifying the local system's SYSUAF
+being used to authenticate any usernames. Whenever using SYSUAF authentication
+it is <B>strongly recommended to limit the potential hosts</B> that
+can authenticate in this way by always using a host-limiting access
+restriction list. The world get read access.
+
+<PRE>  [VMS]
+  /web/local/area/* 131.185.250.*,r+w ; r
+</PRE>
+<P>
+<LI> To restrict server administration to browsers executing on the server
+system itself and the SYSUAF-authenticated username DANIEL use a restriction
+list similar to the following.
+
+<PRE>  [VMS]
+  /httpd/-/admin/*  #localhost,~daniel,r+w
+</PRE>
+<P>
+<LI> The following example illustrates providing a read and writable area (GET,
+POST and PUTable) to hosts in the local network <B>without username
+authentication</B> (careful!).
+
+<PRE>  [WORLD]
+  /web/scratch/*  *.local.hosts.only,r+w
+</PRE>
+</OL>
+
+<A NAME="114">
+<H3><BR><U>9.3.1 - KISS</U></H3>
+</A>
+
+<P>
+ WASD authorization allows for very simple authorization environments and
+provides the scope for quite complex ones.  The path authentication scheme
+allows for multiple, individually-maintained authentication and authorization
+databases that can then be administered by autonomous managers, applying to
+widely diverse paths, all under the ultimate control of the overall Web
+administrator.
+
+<P>
+ <B>Fortunately great complexity is not generally necessary.</B>
+
+<P>
+ Most sites would be expected to require only an elementary setup allowing a
+few selected Web information managers the ability to write to selected paths. 
+This can best be provided with the one authentication database containing read
+and write permissions against each user, with and access-restriction list
+against individual paths.
+
+<P>
+ For example.  Consider a site with five departments, each of
+which wishes to have two representatives capable of administering the
+departmental Web information.  There is one authentication database, named
+after the site:
+
+<PRE>  HYPOTHETICAL
+</PRE>
+ In that database are twelve names, the first two the overall Web
+administrators, capable of administering all authorized paths, another two
+from each department makes up another ten:
+
+<PRE>  WEB1       r+w
+  WEB2       r+w
+  JOHN       r+w
+  PAUL       r+w
+  GEORGE     r+w
+  RINGO      r+w
+  CURLY      r+w
+  LARRY      r+w
+  MOE        r+w
+  SHEMP      r+w
+  MAC        r+w
+  MYER       r+w
+</PRE>
+ The authorization configuration file then contains:
+
+<PRE>  [HYPOTHETICAL]
+  # allow web masters (!) to use the administration menu
+  #                       to revise web configuration files
+  # world has no access (read or write)
+  # access is only allowed from a browser on the same system as the HTTPd
+  /httpd/-/admin/*  #localhost,web1,web2,r+w
+  /ht_root/local/*  #localhost,web1,web2,r+w
+  # allows BOGUS_R_AND_D department representatives to maintain their web
+  # this may only be done from within the company subnet
+  # world has read access
+  /web/dept/bogus_R_and_D/*   150.15.30.*,John,Paul,web1,web2,r+w ; r
+  # and so on for the rest of the departments
+  /web/dept/real_R_and_D/*    150.15.30.*,George,Ringo,web1,web2,r+w ; r
+  # (the next uses line continuation just for illustration)
+  /web/dept/marketing/*       150.15.30.*,\
+                              Curly,Larry,web1,web2,r+w ;\
+                              read
+  /web/dept/production/*      150.15.30.*,Moe,Shemp,web1,web2,r+w ; r
+  /web/dept/inventory/*       150.15.30.*,Mac,Myer,web1,web2,r+w ; r
+  [WORLD]
+  # we need a spot for general POSTing (world has no read access)
+  # (just for the purposes of illustration :^)
+  /web/world/*  r+w 
+</PRE>
+
+<A NAME="115">
+<H2><BR><U>9.4 - Databases, Authentication and Group</U></H2>
+</A>
+
+<P>
+ At this point it should be stressed that the HTTPd-specific (HTA)
+authentication and group databases are identical in internal structure and
+administration, it is merely the role they assume that differentiates them.
+The role of the database is purely a function of where they are used in the
+configuration file realm directive, the first mentioned becomes the
+authentication database, any subsequent, second database assumes the role of
+group database (otherwise that role is also assumed by the authentication
+database).
+
+<A NAME="116">
+<H3>Authentication Database</H3>
+</A>
+
+<P>
+ An authentication, or realm database contains usernames and associated
+passwords.  Passwords are verified using this database. <B>Passwords
+are always stored in encrypted form.</B>
+
+<P>
+ When using an HTTPd-specific database it can also be used to contain
+per-user permissions, that control access to configured paths. In this role it
+acts as both realm (authentication) and group (authorization) database.
+
+<P>
+ It is also possible for the system's SYSUAF database to be used for
+authentication purposes. Of course HTTPd-specific permissions cannot be stored
+in this database, but if using SYSUAF-authenticated usernames a VMS security
+profile can be used to control access to served files, see
+<A HREF="htd_0900.html#120" TARGET="_self">9.6 - SYSUAF-Authenticated Users</A>.
+
+<P>
+ Warning ... when using Digest authentication, an authentication database
+cannot simply be renamed to represent a group-name change, as the database
+name is encrypted as part of the MD5 Digest!
+
+<A NAME="117">
+<H3>Authorization Database</H3>
+</A>
+
+<P>
+ An authorization, or group database, contains a collection of usernames
+and their associated permissions within the group. That is, can that user read
+and/or write paths configured against that group. A group database is never
+used for password verification (authentication).
+
+<P>
+ An authorization database is not always necessary.  If only a small number
+of users need to be authorized against a given path they can be specified
+individually using a &quot;~username&quot; format (see
+<A HREF="htd_0900.html#112" TARGET="_self">Access Restriction List</A>).
+
+<A NAME="118">
+<H3>Database Administration</H3>
+</A>
+
+<P>
+ The same server administration menu is used to administer
+authentication/authorization databases, see
+<A HREF="htd_0900.html#119" TARGET="_self">9.5 - Server Authorization Administration</A> and <A HREF="htd_1100.html#141" TARGET="_self">11.3 - HTTPd Server Revise</A>.
+
+<P>
+ There is a thirty-one character limit on database names, and a fifteen
+character limit on usernames and passwords.  All database and user names are
+case-insensitive.  <I>BASIC</I> authentication scheme passwords are case
+insensitive, however <I>DIGEST</I> authentication scheme passwords should
+all be either upper or lower case, mixed case will not work.
+
+<A NAME="119">
+<H2><BR><U>9.5 - Server Authorization Administration</U></H2>
+</A>
+
+<P>
+ The same server administration menu is used to maintain both the
+authentication and authorization databases, see
+<A HREF="htd_1100.html#141" TARGET="_self">11.3 - HTTPd Server Revise</A>.
+
+<P>
+ The server authorization databases can be initially set-up by
+<B>breaking-in to the server</B>, see <A HREF="htd_1100.html#138" TARGET="_self">11.1 - Breaking-in To The Server!</A>
+
+<P>
+ A server's currently loaded path authorization and user authentication
+information may be administered and interrogated on-line using the server
+administration facility.  See <A HREF="htd_1100.html#137" TARGET="_self">11 - Server Administration</A> for further
+detail.
+
+<A NAME="120">
+<H2><BR><U>9.6 - SYSUAF-Authenticated Users</U></H2>
+</A>
+
+<P>
+ The ability to authenticate using the system's SYSUAF is controlled by the
+server /SYSUAF qualifier. By default it is disabled.
+<FONT COLOR="#ff0000">
+<P> Further warning ... SYSUAF authentication is not recommended except in
+the most secure of LAN environments or when SSL is employed.
+</B></FONT>
+
+<A NAME="121">
+<H3>Authentication Identifiers</H3>
+</A>
+
+<P>
+ When SYSUAF authentication is enabled, by default all non-privileged,
+active accounts are capable of authentication.  Restriction of this to those
+actually requiring such a capability is provided using VMS rights identifiers. 
+When the /SYSUAF=ID qualifier is employed a VMS account must possess one of two
+specific identifiers before it is allowed to be used for server authentication. 
+Note that this mechanism can also allow privileged accounts to be so used
+... deploy with discretion!
+<OL>
+<LI> <B>WASD_VMS_R</B>
+
+<P>
+ This identifier provides at most read access.
+<P>
+<LI> <B>WASD_VMS_RW</B>
+
+<P>
+ This identifier provides read and write access (path protections still
+apply of course).
+</OL>
+
+<P>
+ Other identifiers provide further control for the way in which the
+authenticated account may be used.
+<OL>
+<LI> <B>WASD_VMS_HTTPS</B>
+
+<P>
+ Use of the authenticated account is restricted to &quot;https:&quot; (SSL)
+requests.
+<P>
+<LI> <B>WASD_VMS_PWD</B>
+
+<P>
+ The account is allowed to change it's SYSUAF password (!!).  It is
+recommended this facility only be employed with SSL in place. 
+
+<P>
+ Password modification is enabled by including a mapping rule to the
+internal change script.
+
+<PRE>  map /http/-/change/* /http/-/change/*
+</PRE>
+
+<P>
+ The authorization configuration file must provide authenticated access.
+
+<PRE>  [VMS]
+  /httpd/-/change/vms/* https:,r+w
+</PRE>
+
+<P>
+ Also see <A HREF="htd_0900.html#126" TARGET="_self">9.8 - User Password Modification</A>.
+<P>
+<LI> <B>WASD_VMS__&lt;group-name&gt;</B>
+
+<P>
+ This form allows a suitably named identifier to be created for
+use in providing group-membership via the SYSUAF.  Note the double-underscore
+separating the fixed from the locally specified portion.  Using these
+identifiers it is possible to limit paths to SYSUAF-authenticated accounts
+possessing the requisite identifier in manner similar to
+non-SYSUAF-authentication groups.  An account possessing the WASD_VMS__TESTING
+identifier is allowed write access to the path in the following example:
+
+<PRE>  [VMS;TESTING]
+  /web/project/testing/* r+w ; r
+</PRE>
+</OL>
+
+<PRE>
+
+</PRE>
+
+<P>
+ All four rights identifiers must exist for the /SYSUAF=ID facility to be
+used (even though none may be granted to any account).  The identifiers may be
+created using the AUTHORIZE utility with following commands:
+
+<PRE>  $ SET DEFAULT SYS$SYSTEM
+  $ MCR AUTHORIZE
+  UAF&gt; ADD /IDENTIFIER WASD_VMS_R
+  UAF&gt; ADD /IDENTIFIER WASD_VMS_RW
+  UAF&gt; ADD /IDENTIFIER WASD_VMS_HTTPS
+  UAF&gt; ADD /IDENTIFIER WASD_VMS_PWD
+</PRE>
+
+<P>
+ They can then be provided to desired accounts using commands similar to the
+following:
+
+<PRE>  UAF&gt; GRANT /IDENTIFIER WASD_VMS_RW &lt;account&gt;
+</PRE>
+
+<P>
+ and removed using:
+
+<PRE>  UAF&gt; REVOKE /IDENTIFIER WASD_VMS_RW &lt;account&gt;
+</PRE>
+
+<P>
+ Note that it is possible to create nil-access VMS accounts that may be used
+solely for WASD server authentication.  Create a standard VMS account
+in a group dedicated for this function, specifying /NOINTERACTIVE /NONETWORK
+/NOBATCH /FLAG=DISMAIL.
+
+<P>
+ Be aware that, as with all successful authentications, and due to the
+WASD internal authentication cache, changing database contents does not
+immediately affect access.  Any change in the RIGHTSLIST won't be reflected
+until the cache entry expires or it is explicitly flushed (see
+<A HREF="htd_1100.html#142" TARGET="_self">11.4 - HTTPd Server Action</A>).
+
+<A NAME="122">
+<H3>SYSUAF and SSL</H3>
+</A>
+
+<P>
+ When SSL is in use (see <A HREF="htd_1000.html#127" TARGET="_self">10 - Secure Sockets Layer</A>) the username/password
+authentication information is inherently secured via the encrypted
+communications of SSL. To enforce access to be via SSL add the following to the
+HTTPD$MAP configuration file:
+
+<PRE>  /whatever/path/you/like/*  "403 Access denied."  ![sc:https]
+</PRE>
+ or alternatively the following to the HTTPD$AUTH configuration file:
+
+<PRE>  [REALM]
+  /whatever/path/you/like/*  https:
+</PRE>
+
+<P>
+ Note that this mechanism is applied <B>after</B> any path and
+method assessment made by the server's authentication schema.
+
+<P>
+ The qualifier /SYSUAF=SSL provides a powerful mechanism for protecting
+SYSUAF authentication, restricting SYSUAF authenticated transactions to the SSL
+environment.  The combination /SYSUAF=(SSL,ID) is particularly effective.
+
+<P>
+ Also see <A HREF="htd_0900.html#105" TARGET="_self">Authentication Policy</A>.
+
+<A NAME="123">
+<H3>Security Profile</H3>
+</A>
+
+<P>
+ It is possible to control access to files and directories based on the VMS
+security profile of a SYSUAF-authenticated remote user. This functionality is
+implemented using VMS security system services involving SYSUAF and RIGHTSLIST
+information. The feature must be explicitly allowed using the server /PROFILE
+qualifier. By default it is disabled.
+
+<P>
+ When a SYSUAF-authenticated user (i.e. the VMS realm) is first
+authenticated a VMS security-profile is created and stored in the
+authentication cache. A cached profile is an efficient method of implementing
+this as it obviously removes the need of creating a user profile each time a
+resource is assessed. If this profile exists in the cache it is attached to
+each request authenticated for that user. As it is cached for a period, any
+change to a user's security profile in the SYSUAF or RIGHTSLIST won't
+be reflected in the cached profile until the cache entry expires or it is
+explicitly flushed (see <A HREF="htd_1100.html#142" TARGET="_self">11.4 - HTTPd Server Action</A>).
+
+<P>
+ When a request has this security profile all accesses to files and
+directories are assessed against it. When a file or directory access is
+requested the security-profile is employed by a VMS security system service to
+assess the access. If allowed, it is provided via the SYSTEM file protection
+field. Hence it is possible to be eligible for access via the OWNER field but
+not actually be able to access it because of SYSTEM field protections! If not
+allowed, a &quot;no privilege&quot; error is generated.
+
+<P>
+ Of course, this functionality only provides access for the server, IT DOES
+NOT PROPAGATE TO ANY SCRIPT ACCESS. If scripts must have a similar ability
+they should implement their own scheme (which is not too difficult,
+
+see <A TARGET="_top" HREF="/ht_root/src/misc/chkacc.c">HT_ROOT:[SRC.MISC]CHKACC.C</A>
+)
+based on the CGI variable WWW_AUTH_REALM which would be &quot;VMS&quot; indicating
+SYSUAF-authentication, and the authenticated name in WWW_REMOTE_USER.
+
+<A NAME="124">
+<H3>Performance Impact</H3>
+</A>
+
+<P>
+ If the /PROFILE qualifier has enabled SYSUAF-authenticated security
+profiles,  whenever a file or directory is assessed for access an explicit VMS
+security system service call is made.  This call builds a security profile of
+the object being assessed, compares the cached user security profile and
+returns an indication whether access is permitted or forbidden.  This is
+addition to any such assessments made by the file system as it is accessed.
+
+<P>
+ This extra security assessment is not done for non-SYSUAF-authenticated
+accesses within the same server.
+
+<P>
+ For file access this extra overhead is negligible but becomes more
+significant with directory listings (&quot;Index of&quot;) where each file in the
+directory is independently assessed for access.
+
+<A NAME="125">
+<H2><BR><U>9.7 - Controlling Server Write Access</U></H2>
+</A>
+
+<P>
+ Write access by the server into VMS directories (using the POST or PUT
+HTTP methods) is controlled using VMS ACLs. <B>This is in addition to
+the path authorization of the server itself of course!</B> The requirement
+to have an ACE on the directory prevents inadvertant mapping/authorization of
+a path resulting in the ability to write somewhere not intended.
+
+<P>
+ Two different ACEs implement two grades of access.
+<OL>
+<LI> If the ACE grants <B>CONTROL</B> access to the server account
+then only VMS-authenticated usernames with security profiles can potentially
+write to the directory. Only potentially, because a further check is made to
+assess whether that VMS account in particular has write access.
+
+<P>
+ This example shows a suitable ACE that applies only to the original
+directory:
+
+<PRE>  $ SET SECURITY directory.DIR -
+    /ACL=(IDENT=HTTP$SERVER,ACCESS=READ+WRITE+EXECUTE+DELETE+CONTROL)
+</PRE>
+ This example shows setting an ACE that will propagate to created files
+and importantly, subdirectories:
+
+<PRE>  $ SET SECURITY directory.DIR -
+    /ACL=((IDENT=HTTP$SERVER,OPTIONS=DEFAULT,ACCESS=READ+WRITE+EXECUTE+DELETE+CONTROL), -
+          (IDENT=HTTP$SERVER,ACCESS=READ+WRITE+EXECUTE+DELETE+CONTROL))
+</PRE>
+<LI> If the ACE grants <B>WRITE</B> access then the directory can be
+written into by any authenticated username for the authorized path.
+
+<P>
+ This example shows a suitable ACE that applies only to the original
+directory:
+
+<PRE>  $ SET SECURITY directory.DIR -
+    /ACL=(IDENT=HTTP$SERVER,ACCESS=READ+WRITE+EXECUTE+DELETE)
+</PRE>
+ This example shows setting an ACE that will propagate to created files
+and importantly, subdirectories:
+
+<PRE>  $ SET SECURITY directory.DIR -
+    /ACL=((IDENT=HTTP$SERVER,OPTIONS=DEFAULT,ACCESS=READ+WRITE+EXECUTE+DELETE), -
+          (IDENT=HTTP$SERVER,ACCESS=READ+WRITE+EXECUTE+DELETE))
+</PRE>
+</OL>
+
+<P>
+ To assist with the setting of the required ACEs an example,
+general-purpose DCL procedure is provided,
+
+<A TARGET="_top" HREF="/ht_root/example/authace.com">HT_ROOT:[EXAMPLE]AUTHACE.COM</A>.
+
+<A NAME="126">
+<H2><BR><U>9.8 - User Password Modification</U></H2>
+</A>
+
+<P>
+ The server provides for users to be able to change their own HTA passwords
+(and SYSUAF if required). This functionality, though desirable from the
+administrator's viewpoint, is not  mandatory if the administrator is content to
+field any password changes, forgotten passwords, etc.  Keep in mind that
+passwords, though not visible during entry, are passed to the server using
+clear-text form fields.
+
+<P>
+ Password modification is enabled by including a mapping rule to the
+internal change script.  For example:
+
+<PRE>  map /http/-/change/* /http/-/change/*
+</PRE>
+
+<P>
+ Any database to be enabled for password modification must have a writable
+authorization path associated with it.  For example:
+
+<PRE>  [GROUP]
+  /httpd/-/change/group/* r+w
+
+  [ANOTHER_GROUP]
+  /httpd/-/change/another_group/* r+w
+</PRE>
+
+<P>
+ Use some form of cautionary wrapper if providing this functionality:
+
+<PRE>
+  &lt;H2&gt;Change Your Authentication&lt;/H2&gt;
+
+  &lt;BLOCKQUOTE&gt;&lt;I&gt;
+  Change the password used to identify yourself to the REALM Web environment for
+  some actions.  Note that this &lt;U&gt;not&lt;/U&gt; an operating system password, nor has
+  it anything to do with it.  Due to the inherent weaknesses of using
+  non-encrypted password transmissions on networks &lt;FONT COLOR="#ff0000"&gt;&lt;U&gt;DO
+  NOT&lt;/U&gt; use a password you have in use anywhere else, especially an operating
+  system password!&lt;/FONT&gt; You need your current password to make the change.  If
+  you have forgotten what it is contact &lt;A HREF="/web/webadmin.html"&gt;WebAdmin&lt;/A&gt;,
+  preferably via email, for the change to be made on your behalf.
+  &lt;/I&gt;&lt;/BLOCKQUOTE&gt;
+
+  &lt;UL&gt;
+  &lt;LI&gt;&lt;A HREF="/httpd/-/change/REALM/"&gt;REALM&lt;/A&gt; realm.
+  &lt;/UL&gt;
+</PRE>
+
+<P>
+<HR>
+[<A HREF="HTD_1000.HTML" TARGET="_self">next</A>] [<A HREF="HTD_0800.HTML" TARGET="_self">previous</A>] [<A HREF="HTD_0001.HTML"TARGET="_top" >contents</A>] [<A HREF="HTD_0900.HTML"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

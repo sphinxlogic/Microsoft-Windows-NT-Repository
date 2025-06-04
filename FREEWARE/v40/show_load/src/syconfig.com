@@ -1,0 +1,8 @@
+$! Include these lines in SYS$COMMON:[SYSMGR]SYCONFIG.COM
+$ if f$getdvi("LAV0:","EXISTS") .eqs. "FALSE"
+$   then
+$ 	MCR SYSGEN
+	LOAD LAVDRIVER
+	CONNECT LAV0 /NOADAPTER /DRIVER=LAVDRIVER
+	EXIT
+$ endif

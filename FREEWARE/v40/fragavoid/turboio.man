@@ -1,0 +1,135 @@
+Released by Acorn and GCE for the freeware CD or other general consumption.
+
+
+
+
+	The Fragmentation Inhibitor
+
+This utility for Vax or Alpha came out of the Safety product available
+from General Cybernetic Engineering. It is presented in source as a
+"calling card"; we hope that you will look over the SPDs for the
+Safety components DPS and EACF in this area. They provide a user
+undelete which does NOT rely on "picking up the pieces", but turns
+deletion into a "move to wastebasket" paradigm on VMS (these are in
+DPS, with many more options), and a vastly enhanced security system
+for VMS which allows things like file hiding, soft links, file passwords,
+virus or Trojan protection, control of what privs may be used to open
+a file, general control of privileged users' file system access, ability
+to run downloaded applets safely (e.g. Java), and in general a very
+finegrained ability to specify who can do what to your most sensitive
+data. Together they make up the Safety system, which runs on VMS, Vax
+or Alpha, and provides hands-off operation, disk space management, frag
+inhibition (so customers don't need to load multiple drivers), and much
+more. Contact sales@gce.com for ordering information.
+
+Now to the frag inhibitor.
+
+The frag inhibitor will largely prevent disks from becoming fragmented
+and will speed up disk access. In a nutshell, FI causes file extends to
+be a fraction of the initial file size (with some safeguards so the
+disk isn't filled etc.) so that VMS will not need to extend it as often.
+This results in files less fragmented than they otherwise would be,
+and writing doesn't need to "go to the well" as often. Some tests of
+random loads have shown up to a 30% speedup. (Enjoy!!) It also by this
+means, and by doing extends Contig Best Try, reduces the amount of
+"chaff" space in the extent cache, so your files tend to be placed with
+a "first fit" algorithm. The reduced fragmentation speeds read access.
+It will not interfere with normal operation or even disk defragmenters,
+but if you are nervous it can be turned off or on when you want. Normally
+it is expected to be set up in your systartup_vms script however.
+
+FI has been in use at several sites for a few years now. 
+
+VMS disks in ordinary operation become fragmented rather quickly
+once defragmented. This leads to files which require many index file
+reads to locate and to lots of unnecessary disk head motion. On
+optical disks, this is an even worse problem, since seek times are much
+longer than magnetic disks.
+
+There are several reasons for this rapid refragmentation which
+deserve exploration. First is the way VMS uses its "extent cache".
+Whenever disk space is released, pointers to it are kept in memory
+awhile, so that space can be quickly allocated. The problem is that
+whenever files are closed, they are generally truncated to return
+extra allocated space to the system. The returned space is usually
+in small pieces, and thus new space requests wind up being satisfied
+from the last bunch of these little pieces of disk, rather than from
+larger areas. When files are deleted, they leave these pieces around
+which only get cut up still more with time. The result is fragmentation.
+
+Also, it is often the case that files are left open for fairly long
+times, and grow a few blocks at a time, typically allocating the
+volume default allocation, but sometimes allocating a small fixed
+number of blocks. Many of these files may grab 5-block extents
+thousands of times over their lives; this inevitably produces badly
+fragmented files which are hard to defragment because they're open.
+It also wastes a lot of time calling the file system for every few
+blocks.
+
+The Fragmentation Inhibiter is a system for automatically addressing
+these problems, and incidentally solving a few others.
+
+The Fragmentation Inhibiter arranges for file extension to be done
+"Contiguous Best Try" when this is possible. This causes VMS to
+flush (i.e., forget about) its extent cache and attempt to find
+a space big enough to hold the whole requested area before using
+badly fragmented store. The program can do this for every extension
+(the default and recommended behavior) or every Nth extension,
+if you feel the need to have the extent cache used, but cleared
+periodically. 
+
+Fragmentation Inhibiter also controls the amount of space requested
+when a program extends a file (i.e., makes it longer). It can
+set a minimum extent request, so even explicit requests for one
+block at a time can be increased, and is able to request that a
+file be extended by 1/N of its current size, subject to free space
+constraints on the volume and a maximum extend amount. It will
+always request at least as much space as the program wanted, but
+will attempt to extend by 1/N of the file size, 1/8 of the available
+free space on the disk, or the maximum extent request, whichever
+is least.
+
+File extension is an expensive operation; by arranging it to be less
+often needed, F.I. can permit file writing to enjoy up to a 30%
+speed gain, in addition to permitting faster access to files written with
+it. This is the gain from not having to do the extend operation
+as often.
+
+SUMMARY:
+
+Fragmentation Inhibiter permits disk fragmentation to be controlled
+by altering somewhat the VMS file extend operation in a way
+that greatly slows the refragmentation of disk space. The package
+can be installed on any disks where this is desired and its
+parameters can be set on a per-disk basis. Disks where the 
+Fragmentation Inhibiter is not installed are unaffected.
+
+
+Installation:
+
+From SYSTEM (or some other fully privileged account) type
+the appropriate mms command to build FI and put the .CLD and
+executable files in sys$system.
+
+Then put finhibit.cld in sys$system also.
+
+Copy zmenu.cld to sys$system.
+
+Copy either zmenu*.exe or zmenu*.exe_a to sys$system:zmenu*.exe
+(use .exe for vax, .exe_a for alpha.)
+
+Copy fi_setup.com to sys$manager.
+
+Then set def to sys$manager and run fi_setup.com which will generate
+a script fi_startup.com.
+
+Run fi_startup.com from systartup_vms (or systartup_v5 for vax vms v5.x).
+
+
+(There is a kitinstal.com if you have vax vms 6.2 or alpha vms 7.1. Otherwise
+reassemble or relink. Objects and executables, as well as source, are
+present.)
+
+
+(And don't forget to read the SPDs!!!)
+

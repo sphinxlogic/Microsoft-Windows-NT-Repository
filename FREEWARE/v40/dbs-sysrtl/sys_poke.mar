@@ -1,0 +1,113 @@
+	.title	sys_poke
+	.ident	/X1-002/
+
+;+
+; Version:	X1-002
+;
+; Facility:	General system routines.
+;
+; Abstract:	Modifies the contents of a virtual memory location.
+;
+; Environment:	Kernel mode.  This routine creates an environment where both
+;		the current and previous modes are kernel.  A probe
+;		instruction is used on the address but it is still possible
+;		to cause bugchecks and other nasties.
+;
+; History:
+;
+;	28-Sep-1990, DBS, Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS, Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	Deposits the specified value into the specified location.
+;
+; Calling Sequence:
+;	status = sys_poke (%val(location), %val(new_value)) ! from fortran
+;		-or-
+;	pushl	new_value
+;	pushl	address
+;	calls	#2, g^sys_poke
+;	blbc	r0, error
+;
+; Formal Argument(s):
+;	address.rl.v	Virtual address of the location to be written.
+;	value.wl.v	Value to be written.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_accvio	Caller did not have write access to the address
+;	ss$_insfarg	Insufficient arguments specified in the call.
+;	ss$_normal	Successful completion.
+;	ss$_ovrmaxarg	Too many arguments specified in the call.
+;
+; Side Effects:
+;	It is possible to cause BUGCHECKS or system hangs if this routine
+;	is not used carefully.
+;--
+
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	$ssdef
+
+arg_count=2				; to see if we have two arguments
+p1=4					; offset to location address
+p2=8					; offset to value address
+
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_code
+
+        .entry -
+sys_poke, ^m<>
+	$cmkrnl_s -
+		routin=sys___poke_1, -
+		arglst=(ap)
+	ret
+
+	.entry -
+sys___poke_1, ^m<>
+	$cmkrnl_s -
+		routin=sys___poke_2, -
+		arglst=(ap)
+	ret
+
+	.entry -
+sys___poke_2, ^m<r2,r3>
+	cmpw	(ap), #arg_count	; do we have two arguments ?
+	bgtr	10$			; too many, bail out
+	bneq	20$			; nope, not enough, bail out
+	movl	p1(ap), r2		; get the address to poke
+	probew	#0, #4, (r2)		; check write access
+	beql	30$			; no access, get out
+	movl	p2(ap), r3		; that's the value to poke
+	movl	r3, (r2)		; poke it and hope we don't crash
+	movl	#ss$_normal, r0
+	brb	40$
+10$:	movl	#ss$_ovrmaxarg, r0
+	brb	40$
+20$:	movl	#ss$_insfarg, r0
+	brb	40$
+30$:	movl	#ss$_accvio, r0
+40$:	ret
+
+sys_poke_end:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.end

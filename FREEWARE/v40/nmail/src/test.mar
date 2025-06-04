@@ -1,0 +1,237 @@
+.title test
+
+$opcdef
+
+.transfer nm$extension
+
+nm$extension:: .long 7
+	       .long 1@16+2
+	       .address s  
+	       .address a 
+	       .address f
+	       .address s1
+	       .address t
+	       .address f1
+
+xhdr:	.byte	opc$_rq_rqst
+	.byte	opc$m_nm_centrl
+	.word	0
+	.long	0
+xxxx:	.blkb	80
+buff:	.blkl	2
+
+csi = 155
+
+strt:	.ascid	<csi>/33m start time=!%D from=!AS/<csi>/m/
+fin:	.ascid	<csi>/33m finish sts=!XL len=!SL naddr=!SL/<csi>/m/
+msg:	.ascid	<csi>/33m addr node=!AF addr=!AF/<csi>/m/
+prm:	.ascid	<csi>/33m ok? /<csi>/m/
+emsg:	.ascid	<csi>/31m error !XL/<csi>/m/
+
+stats:	.ascid	\node=!AS links=!SL tx=!SL/!SL rx=!SL/!SL\
+strt1:	.ascid	\start time=!%D from=!AS natt=!SL\
+fin1:	.ascid	\finish sts=!SL\
+
+dummy:	.ascid	/Dummy/
+
+error:	pushl	r0
+
+	movl	#80,buff
+	movab	xxxx,buff+4
+
+	pushl	r0
+	pushab	buff
+	pushab	buff
+	pushab	emsg
+	calls 	#4,g^sys$fao
+	blbc  	r0,10$
+	calls	#1,g^lib$put_output
+
+10$:	popl	r0
+	ret
+
+
+
+	.entry	s,0
+
+;  4(ap) = queued-time
+;  8(ap) = sender
+
+	movl	#80,buff
+	movab	xxxx,buff+4
+
+	pushl	8(ap)
+	pushl	4(ap)
+	pushab	buff
+	pushab	buff
+	pushab	strt
+	calls 	#5,g^sys$fao
+	blbc  	r0,error
+
+	pushab	buff
+	calls	#1,g^lib$put_output
+	blbc  	r0,error
+	ret
+
+; 4(ap)  = submit status
+; 8(ap)  = text length
+; 12(ap) = address count
+
+	.entry f,0
+
+	movl	#80,buff
+	movab	xxxx,buff+4
+
+ 	pushl	12(ap)
+	pushl	8(ap)
+	pushl	4(ap)
+	pushab	buff
+	pushab	buff
+	pushab	fin
+	calls 	#6,g^sys$fao
+	blbc  	r0,error0
+
+	pushab	buff
+	calls	#1,g^lib$put_output
+	blbc  	r0,error0
+	ret
+
+error0:	brw	error
+
+
+
+; 4(ap)  = node
+; 8(ap)  = address
+; 12(ap) = output string
+
+	.entry a,0
+
+	movl	#80,buff
+	movab	xxxx,buff+4
+
+	movq  	@8(ap),-(sp)
+	movq  	@4(ap),-(sp)
+	pushab	buff
+	pushab	buff
+	pushab	msg
+	calls 	#7,g^sys$fao
+	blbc  	r0,error1
+	pushab 	buff
+	calls 	#1,g^lib$put_output
+	blbc  	r0,error1
+	ret 	;******
+
+	pushab	dummy
+	pushl	12(ap)
+	calls	#2,g^str$copy_dx
+
+	movw 	#80,buff
+       	pushab 	buff
+	pushab 	prm
+	pushab 	buff
+	clrb   	@buff+4
+	calls 	#3,g^lib$get_input
+	blbc 	r0,error1
+	cmpb    @buff+4,#^A/y/
+	beql	exit
+	cmpb    @buff+4,#^A/Y/
+	beql	exit
+	movl  	#572,r0 ; "drive unsafe" ??!?	
+exit:	ret
+
+error1:	brw	error
+
+
+;  4(ap) = time queued
+;  8(ap) = from string
+; 12(ap) = attempts
+
+	.entry	s1,0
+
+	movl	#80,buff
+	movab	xxxx,buff+4
+
+	pushl	12(ap)
+	pushl	8(ap)
+	pushl	4(ap)
+	pushab	buff
+	pushab	buff
+	pushab	strt1
+	calls 	#6,g^sys$fao
+	blbc  	r0,error3
+
+	subl	#8,buff+4
+	addl	#8,buff
+	pushl	#0
+	pushab 	buff
+	calls 	#2,g^sys$sndopr
+	blbc  	r0,error3
+        ret
+
+error3:	pushl	r0
+	calls	#1,g^lib$signal
+	ret
+
+;  4(ap) = done status
+
+	.entry	f1,0
+
+	movl	#80,buff
+	movab	xxxx,buff+4
+
+	pushl	4(ap)
+	pushab	buff
+	pushab	buff
+	pushab	fin1
+	calls 	#4,g^sys$fao
+	blbc  	r0,error3
+
+	subl	#8,buff+4
+	addl	#8,buff
+	pushl	#0
+	pushab 	buff
+	calls 	#2,g^sys$sndopr
+	blbc  	r0,error3
+        ret
+
+
+; 4(ap) = current node
+; 8(ap) = stats block:  
+;		+00 : link count (0 or 1 in current impl)
+;		+04 : msgs tx
+;		+08 : bytes tx
+;		+12 : msgs rx
+;		+16 : bytes rx
+
+
+	.entry t,0
+
+	movl	#80,buff
+	movab	xxxx,buff+4
+
+	movl	8(ap),r1
+	pushl	16(r1)
+	pushl	12(r1)
+	pushl	8(r1)
+	pushl	4(r1)
+	pushl	(r1)
+	pushl	4(ap)
+	pushab	buff
+	pushab	buff
+	pushab	stats
+	calls 	#9,g^sys$fao
+	blbc  	r0,error2
+
+	subl	#8,buff+4
+	addl	#8,buff
+	pushl	#0
+	pushab 	buff
+	calls 	#2,g^sys$sndopr
+	blbc  	r0,error2
+        ret
+
+error2:	pushl	r0
+	calls	#1,g^lib$signal
+	ret
+
+	.end

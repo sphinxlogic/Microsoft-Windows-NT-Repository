@@ -1,0 +1,148 @@
+# Makefile for UNIX Tex2RTF.
+# Valid targets: xview, motif or nogui. These should produce
+# the executables tex2rtf_ol, tex2rtf_motif and tex2rtf_nogui respectively.
+
+WXDIR = ../../..
+
+# All common UNIX compiler flags and options are now in
+# this central makefile.
+MAKEINCDIR = $(WXDIR)/src
+include $(MAKEINCDIR)/make.env
+
+TEX2RTFDIR = ..
+DOCUTILSDIR = .
+WXHELPDIR = $(WXDIR)/utils/wxhelp
+
+TEX2RTFOBJ = $(OBJDIR)/tex2rtf.$(OBJSUFF) $(OBJDIR)/rtfutils.$(OBJSUFF) $(OBJDIR)/xlputils.$(OBJSUFF) $(OBJDIR)/htmlutil.$(OBJSUFF) \
+ $(OBJDIR)/readshg.$(OBJSUFF) $(OBJDIR)/table.$(OBJSUFF)
+
+WXOBJ = objects_nogui/wb_utils.$(OBJSUFF) objects_nogui/wb_list.$(OBJSUFF) objects_nogui/wb_hash.$(OBJSUFF) objects_nogui/wb_obj.$(OBJSUFF)
+
+TEX2ANYLIB = $(TEX2RTFDIR)/lib/libtex2any$(GUISUFFIX).a
+
+INC = -I$(WXDIR)/include/base -I$(WXDIR)/include/x -I$(WXHELPDIR)/src $(COMPPATHS)
+
+LDFLAGS = $(XLIB) -L$(WXDIR)/lib -L$(TEX2RTFDIR)/lib
+
+# Make the utilities for converting Latex to other formats
+utils:	$(OBJDIR) $(TEX2ANYLIB) tex2rtf$(GUISUFFIX)
+
+.SUFFIXES:
+
+nogui:
+	$(MAKE) -f makefile.unx WXDIR=.. MAKEINCDIR=. NO_GUI=1 objects_nogui tex2rtf_nogui GUI='-Dwx_nogui -Dwx_x -DNO_GUI'\
+ GUISUFFIX='_nogui' OPT='$(OPT)' LDLIBS='-lm $(COMPLIBS)'\
+ LDFLAGS='-L$(TEX2RTFDIR)/lib' INC='-I./wxwin'  XVIEW_LINK='' XINCLUDE='' EXTRAOBJ='$(WXOBJ)'
+
+motif:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx motif OPT='$(OPT)'
+	$(MAKE) -f makefile.unx utils GUI=-Dwx_motif GUISUFFIX=_motif OPT='$(OPT)' DEBUG='$(DEBUG)' LDLIBS='$(MOTIFLDLIBS)' XVIEW_LINK=
+
+xview:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx xview OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx utils GUI=-Dwx_xview OPT='$(OPT)'
+
+hp:
+	$(MAKE) -f makefile.unx GUI=-Dwx_motif GUISUFFIX=_hp CC=CC DEBUGFLAGS='$(DEBUGFLAGS)' DEBUG='$(DEBUG)' WARN='-w' \
+           XINCLUDE='$(HPXINCLUDE)' XLIB='$(HPXLIB)' XVIEW_LINK='' \
+           LDLIBS='$(HPLDLIBS)'
+
+$(OBJDIR):
+	mkdir $(OBJDIR)
+
+# The LaTeX parsing library
+$(OBJDIR)/tex2any:	$(TEX2ANYLIB)
+
+$(TEX2ANYLIB):	$(OBJDIR)/tex2any.$(OBJSUFF) $(OBJDIR)/texutils.$(OBJSUFF)
+	rm -f $@
+	ar $(AROPTIONS) $@ $(OBJDIR)/tex2any.$(OBJSUFF) $(OBJDIR)/texutils.$(OBJSUFF)
+	$(RANLIB) $@
+
+$(OBJDIR)/tex2any.$(OBJSUFF):	tex2any.$(SRCSUFF) tex2any.h
+	$(CC) -c $(CPPFLAGS) -o $@ tex2any.$(SRCSUFF)
+
+$(OBJDIR)/texutils.$(OBJSUFF):	texutils.$(SRCSUFF) tex2any.h
+	$(CC) -c $(CPPFLAGS) -o $@ texutils.$(SRCSUFF)
+
+$(OBJDIR)/table.$(OBJSUFF):	table.$(SRCSUFF) table.h
+	$(CC) -c $(CPPFLAGS) -o $@ table.$(SRCSUFF)
+
+# wxWindows compatibility: in case you don't want the GUI.
+$(OBJDIR)/wb_utils.$(OBJSUFF):	wxwin/wb_utils.$(SRCSUFF) wxwin/wx_utils.h
+	$(CC) -c $(CPPFLAGS) -o $@ wxwin/wb_utils.$(SRCSUFF)
+
+$(OBJDIR)/wb_list.$(OBJSUFF):	wxwin/wb_list.$(SRCSUFF) wxwin/wx_list.h
+	$(CC) -c $(CPPFLAGS) -o $@ wxwin/wb_list.$(SRCSUFF)
+
+$(OBJDIR)/wb_hash.$(OBJSUFF):	wxwin/wb_hash.$(SRCSUFF) wxwin/wx_hash.h
+	$(CC) -c $(CPPFLAGS) -o $@ wxwin/wb_hash.$(SRCSUFF)
+
+$(OBJDIR)/wb_obj.$(OBJSUFF):	wxwin/wb_obj.$(SRCSUFF) wxwin/wx_obj.h
+	$(CC) -c $(CPPFLAGS) -o $@ wxwin/wb_obj.$(SRCSUFF)
+
+# Reads Latex manual and converts to RTF/Windows Help/HTML/wxHelp form
+$(OBJDIR)/tex2rtf.$(OBJSUFF):     tex2rtf.$(SRCSUFF) rtfutils.h tex2rtf.h rtfutils.h
+	$(CC) -c $(CPPFLAGS) -o $@ tex2rtf.$(SRCSUFF)
+
+tex2rtf$(GUISUFFIX):	$(TEX2RTFOBJ) $(TEX2ANYLIB) $(EXTRAOBJ)
+	$(CC) $(LDFLAGS) -o tex2rtf$(GUISUFFIX) $(XVIEW_LINK) $(EXTRAOBJ) $(TEX2RTFOBJ) $(TEX2ANYLIB) $(LDLIBS)
+
+#tex2rtf_nogui:	$(TEX2RTFOBJ) $(WXOBJ) $(TEX2ANYLIB)
+#	$(CC) $(LDFLAGS) -o tex2rtf_nogui $(TEX2RTFOBJ) $(WXOBJ) $(TEX2ANYLIB) $(LDLIBS)
+
+$(OBJDIR)/rtfutils.$(OBJSUFF):     rtfutils.$(SRCSUFF) tex2rtf.h rtfutils.h table.h
+	$(CC) -c $(CPPFLAGS) -o $@ rtfutils.$(SRCSUFF)
+
+$(OBJDIR)/htmlutil.$(OBJSUFF):     htmlutil.$(SRCSUFF) tex2rtf.h rtfutils.h table.h
+	$(CC) -c $(CPPFLAGS) -o $@ htmlutil.$(SRCSUFF)
+
+$(OBJDIR)/readshg.$(OBJSUFF):     readshg.$(SRCSUFF) readshg.h
+	$(CC) -c $(CPPFLAGS) -o $@ readshg.$(SRCSUFF)
+
+$(OBJDIR)/xlputils.$(OBJSUFF):     xlputils.$(SRCSUFF) tex2rtf.h rtfutils.h
+	$(CC) -c $(CPPFLAGS) -o $@ xlputils.$(SRCSUFF)
+
+HTMLDIR=/home/hardy/html/wx/manuals
+
+wx:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx
+
+docs:	ps xlp txt
+ps:	$(TEX2RTFDIR)/docs/tex2rtf.ps
+txt:	$(TEX2RTFDIR)/docs/tex2rtf.txt
+xlp:	$(TEX2RTFDIR)/docs/tex2rtf.xlp
+html:	$(HTMLDIR)/tex2rtf/tex2rtf_contents.html
+
+$(TEX2RTFDIR)/docs/tex2rtf.xlp:	$(TEX2RTFDIR)/docs/tex2rtf.tex
+	tex2rtf ../docs/tex2rtf.tex $(TEX2RTFDIR)/docs/tmp.xlp -twice -xlp
+	sed -e "s/WXHELPCONTENTS/Tex2RTF Manual/g" < $(TEX2RTFDIR)/docs/tmp.xlp > $(TEX2RTFDIR)/docs/tex2rtf.xlp
+	/bin/rm -f $(TEX2RTFDIR)/docs/tmp.xlp
+
+$(TEX2RTFDIR)/docs/tex2rtf.dvi:	$(TEX2RTFDIR)/docs/tex2rtf.tex
+	cd $(TEX2RTFDIR)/docs; latex tex2rtf; latex tex2rtf; makeindex tex2rtf; bibtex tex2rtf; latex tex2rtf
+
+$(TEX2RTFDIR)/docs/tex2rtf.ps:	$(TEX2RTFDIR)/docs/tex2rtf.dvi
+	cd $(TEX2RTFDIR)/docs; dvips -f -r < tex2rtf.dvi > tex2rtf.ps
+
+$(TEX2RTFDIR)/docs/tex2rtf.txt:	$(TEX2RTFDIR)/docs/tex2rtf.dvi
+	cd $(TEX2RTFDIR)/docs; dvi2tty tex2rtf.dvi > tex2rtf.txt
+
+$(HTMLDIR)/tex2rtf/tex2rtf_contents.html:	$(TEX2RTFDIR)/docs/tex2rtf.tex
+	cd ../docs; tex2rtf tex2rtf.tex $(HTMLDIR)/tex2rtf/tex2rtf.html -twice -html
+
+cleaneach:
+	rm -f $(OBJDIR)/*.$(OBJSUFF) test$(GUISUFFIX) tex2rtf$(GUISUFFIX) tex2rtf$(GUISUFFIX) $(TEX2ANYLIB) core
+
+clean_motif:
+	$(MAKE) -f makefile.unx GUISUFFIX=_motif cleaneach 
+
+clean_ol:
+	$(MAKE) -f makefile.unx GUISUFFIX=_ol cleaneach 
+
+clean_hp:
+	$(MAKE) -f makefile.unx GUISUFFIX=_hp cleaneach 
+
+clean_nogui:
+	$(MAKE) -f makefile.unx GUISUFFIX=_nogui cleaneach
+
+

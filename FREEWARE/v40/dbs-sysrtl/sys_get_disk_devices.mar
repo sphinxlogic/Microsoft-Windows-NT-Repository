@@ -1,0 +1,146 @@
+	.title	sys_get_disk_devices
+	.ident	"X1-004"
+
+;+
+; Version:	X1-004
+;
+; Facility:	General system routines.
+;
+; Abstract:	Defines a number of logicals in a consistent format to
+;		enable easy processing of all disks on the system.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	19-Oct-1990, DBS; Version X1-001
+; 001 -	Original version.  (Taken from get_tape_devices.)
+;	10-Dec-1990, DBS; Version X1-002
+; 002 -	Modified to use lib$set_logical to define the logicals without the
+;	need for privileges.  Also use lib$delete_logical.  Other stuff
+;	commented out for now.
+;	05-Apr-1991, DBS; Version X1-003
+; 003 -	Made into a callable routine and the 002 stuff deleted.
+;	19-Jan-1996, DBS; Version X1-004
+; 004 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+; 	This routine uses the device scan system service to find all disk
+;	class devices on the system and then create logical names that can
+;	be used to reference them.  An attempt is made to delete any existing
+;	logical names that match the format used by this routine.
+;
+; Calling Sequence:
+;	call sys_get_disk_devices ()
+;		-or-
+;	calls	#0, g^sys_get_disk_devices
+;
+; Formal Argument(s):
+;	None
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	Logical names are in the format DISK_DEVICE_n where n is a number
+;	from 1 to the number of disk devices found.  These are defined in
+;	the process logical name table.
+;
+; Routine Value:
+;	None
+;
+; Side Effects:
+;	None
+;--
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	.external lib$delete_logical
+	.external lib$set_logical
+
+	$dcdef
+	$dvsdef
+	$stsdef
+	$gblini GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+logical_table:	.ascid	/LNM$PROCESS_TABLE/
+logical_format:	.ascid	/DISK_DEVICE_!UL/
+
+dvs_device_class:	.long	dc$_disk ; we only want disk class devices
+dvs_search_name:	.ascid	"*"	; search for ALL disk devices
+
+	alloc_string	logical_name, 32
+	alloc_string	dvs_device_name, 64
+
+device_count:	.long	0
+dvs_context:	.quad	0
+
+dvs_item_list:	.word	4
+		.word	dvs$_devclass
+		.address dvs_device_class
+		.long	0
+		.long	0		; to end the list
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+sys_get_disk_devices, ^m<>
+
+	clrl	device_count		; init to clear any old names
+100$:	incl	device_count
+	$fao_s	ctrstr=logical_format, - ; generate a logical name
+		outbuf=logical_name_ds, -
+		outlen=logical_name, -
+		p1=device_count
+	pushaq	logical_table
+	pushaq	logical_name
+	calls	#2, g^lib$delete_logical
+	blbs	r0, 100$		; keep going until no more
+
+	clrl	device_count		; re-init to generate new names
+
+200$:	$device_scan_s -		; look for the requested devices
+		return_devnam=dvs_device_name_ds, -
+		retlen=dvs_device_name, -
+		search_devnam=dvs_search_name, -
+		itmlst=dvs_item_list, -
+		contxt=dvs_context
+	blbc	r0, 210$		; go away if an error of some kind 
+	jsb	define_logical
+	brb	200$			; and back for more devices
+210$:	bisl	#sts$m_inhib_msg, r0	; inhibit message, retain $status
+	ret
+
+define_logical: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+	incl	device_count		; to generate a new logical name
+	$fao_s	ctrstr=logical_format, - ; generate the logical name
+		outbuf=logical_name_ds, -
+		outlen=logical_name, -
+		p1=device_count
+	pushaq	logical_table
+	pushaq	dvs_device_name
+	pushaq	logical_name
+	calls	#3, g^lib$set_logical
+	rsb
+
+	.end

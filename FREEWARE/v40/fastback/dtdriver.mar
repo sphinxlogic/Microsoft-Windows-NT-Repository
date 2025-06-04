@@ -1,0 +1,1778 @@
+	.TITLE	DTDRIVER - VAX/VMS VIRT DISK DRIVER
+	.IDENT	'V02-003Cb'
+; Copyright (C) 1994 Glenn C. Everhart. All Rights Reserved
+; define clslop to close a possible abort shutdown timing window
+;clslop=1
+vms$v5=1	;define for vms v5.x
+; Version with VMS V5 syncrhonization code updated
+; Added code to allow host program to re-increment driver ref count once it gets
+; disk "mounted". This is for use with things like cryptodisk that will run
+; normally in a subprocess. A detached process, where the disk might be dismounted
+; and remounted by other processes, should NOT use this. (Mount may refuse to mount
+; the disk if it finds a ref count nonzero. INIT certainly won't work with nonzero
+; ref count. However, for a cryptodisk in a subprocess, it's best to have the ref
+; count correct so a subprocess deletion will not leave the DT: unit unusable.)
+;
+; DEsigned and made to work in VMS V4 by Glenn Everhart
+;	(Everhart%Arisia.decnet@crd.ge.com)
+; Fix to get it working correctly in VMS V5 by Chris Ho
+;	(Chris%skat.usc.edu@oberon.usc.edu)
+; THANKS!, Chris!	- gce
+; Edit 4/14/89 to ensure IRP$L_MEDIA field of IRP gets saved/restored
+; before passing it to IOC$REQCOM from here. (Avoids some problems where
+; ACP cache params are waaaay too low.)
+;$$xdt=1
+; Call to sch$postef seems to get thru with success indicator, but
+; host process is messed up. Therefore drop back and use a documented
+; system call!!!
+;   As it turns out, the sch$postef call was not a problem. The code
+; has been left in the driver but commented out. If it is used, then
+; DTDRIVER sets event flag 10 for its host process to signal that there
+; is work for it. As is, the new call appears more useful.
+;  The driver will use exe$wrtmailbox to write a message to a
+; mailbox which must be created first by the host. The message
+; will be the buffer header (so some extra reads on the driver can
+; be avoided.)
+;  It is assumed that VMS will allow the host to continue to communicate
+; with this driver even during times while it is allocated to another
+; process since the host process will have a channel open to this
+; driver (though the channel count is buggered herein to not show this).
+;  Should this fail, we may have to make ALL I/O take place between some
+; mailboxes and the driver. (ecch.)
+; Note: define symbol VMS$V5 to assemble in VMS V5.x or later. Default
+; assembly without this definition produces a VMS V4.x driver.
+; Glenn C. Everhart, 3/23/1989
+;USAPADDR=0
+;
+; FACILITY:
+; 
+; 	VAX/VMS VIRTUAL DISK DRIVER USING PROCESS SLAVE
+; 
+; AUTHOR:
+; 
+; G. EVERHART
+;
+; 
+; ABSTRACT:
+; 
+; 	THIS MODULE CONTAINS THE TABLES AND ROUTINES NECESSARY TO
+; 	PERFORM ALL DEVICE-DEPENDENT PROCESSING OF AN I/O REQUEST
+;	FOR VMS VIRTUAL DISKS VIA PROCESSES.
+;
+; Note:
+; DT: stands for "File Disk". It is developed from the VMS VD: driver
+; which uses contiguous files, but adds some new wrinkles.
+;  The idea here is that DT: would look "just" like a real device, but
+; instead of managing some piece of hardware to handle its' I/O it will
+; use an internal buffer (just assembled into the device, and with
+; the device maximum transfer set small enough to fit in the buffer) and
+; communicate with a VMS process to fill or empty the buffer of data.
+;   The driver will "look" normal, but:
+;	* Its startio entry will move data between the user buffer
+;		and the internal buffer (using logic we can get from
+;		a memory disk). Once it has done this (and the maxtransfer
+;		size will guarantee VMS will never ask for too much at
+;		one go), it will set an event flag for  whatever
+;		process is doing real I/O for the DT: unit.
+;		If no process has set itself up as the unit's "host"
+;		we return an error.
+;( N.B. - Thanks to John Osudar whose MDDRIVER contributed the data move
+;	logic here. I pulled only the simplest case in, but saved considerable
+;	work by using John's excellent and already-debugged code.)
+;		A special QIO is established which will let the "host"
+;		process grab data from the driver or send it to the
+;		driver. The data will include block number, I/O direction,
+;		length, etc. ahead of the actual data.
+;		The process can then handle the request ANY WAY	IT WANTS.
+;	* ONE FDT routine will be reserved. It will have several functions
+;		governed by the first word of the argument. Only one is used
+;		to allow the rest of the I/O functions to be left alone.
+;	* One will just mark the unit
+;		online, to be used to have the control process tell DT:
+;		that it's ready to roll. Optionally it will be able to tell
+;		DT: it's to go offline. One does this by returning a
+;		zero size etc. It is ASSUMED that the "host" process
+;		has an exit AST set up so that before it exits (even if
+;		exit is by force-exit) it will tell DTDRV that the host
+;		process no longer exists. It should also complete I/O
+;		on any outstanding requests if possible.
+;	* The second FDT routine will do I/O completion. It will cause
+;		DT:, which should still be busy, to grab the current IRP
+;		and go to fork IPL. At this point it can complete the
+;		I/O normally in DT: context, subsequently returning at
+;		the prior IPL to get back to the attached process Ok too.
+;		This routine is the only real "magic" here. It must save
+;		and restore R3 and ucb$l_irp so that it can first finish
+;		I/O on the user process' packet and then later
+;		complete the host process' I/O. The context in an FDT
+;		routine would normally not assume the host's IRP is
+;		queued to the driver yet, so this should be OK. Also we
+;		do all this at high IPL so we don't really lose the process
+;		context.
+;	* Another pair will copy data between the driver's per-unit data
+;		buffer and the "host" process. Since FDTs execute in process
+;		context, this is a very easy way to move the data. We can't
+;		use it to connect to the processes doing I/O to the virtual
+;		disk because the start-io entry lacks process context. We
+;		do things the "hard" way there. By setting up ucb$l_maxbcnt
+;		to the size of our internal buffer, we guarantee that the
+;		code for doing virtual I/O will never issue a single QIO$
+;		call to the start-io routine with a bigger buffer.
+;
+; The usefulness of such a beast over VD: is manifold:
+;	1. There's a full process there! Compressing/decompressing
+;	data on the fly is simple if that's wanted. Indexing it is
+;	less so, but that's supposedly what ISAM files are good for.
+;	Encrypting data is simple also.
+;	2. By having a process that talks over a net to another process
+;	on another machine, logical I/O on DT: can be turned magically
+;	into logical I/O somewhere else. Imagine having one of these
+;	on LITTLEVAX:: and an DT: talking to it on BIGVAX::. Now you
+;	can mount DT: on BIGVAX as a read/only device and run
+;	BACKUP from DT: to tape. This solves the problem of backup
+;	across networks. Since the protocol is block number, Backup
+;	(or restore) could be used (/physical I suppose in some cases)
+;	to non-VMS file structures, if a network connection exists.
+;	Note that the internal buffer size in DTDRIVER limits the maximum
+;	logical transfer size. This may mean that it also limits the
+;	blocksize for a BACKUP saveset created from the "disk".
+;	If one had no money, and preferred patching sys$grant_license
+;	to put 1 in r0 and ret, one might just use a LAVC for this
+;	remote function. This solution, though, allows remote backup
+;	without paying DEC anything more, is clean, and will work over
+;	a wider area than a LAVC. (Won't get you fired, either.)
+;	It could even be used for physical image backups of foreign file
+;	structures. (LAVC can't even THINK about that one!) It's not as
+;	clean as a remoteable ACP or XQP (let me think about that one 
+;	for a while) for file moving, but has many uses.
+;	3. If the process just opens a big but non-contiguous file,
+;	it can do ITS' I/O to the file. Thus ANY big file can be a
+;	virtual disk, contiguous or not. Of course, the system throughput
+;	you eat may be your own...
+;		It's assumed up to the attaching process how the physical
+;	disk layout is set.
+;
+;	Notice that a still lower level of disk emulator can be devised.
+;	Such a thing must capture COMPLETE QIO$ information, starting
+;	from the FDT level, and ship the entire QIO$, along with all
+;	process parameters, across the net to be done on another machine.
+;	Such a thing is usable for magtape, to make tape mounted anywhere
+;	on a DECnet look local. More usefully, though, if it's done at the
+;	QIO$ level prior to XQP material, the process on another computer
+;	can act as a file manager as well as a disk manager. This means that
+;	the remote computer maintains information on ALL file operations
+;	on the remote disk, so that the remote disk can actually be mounted
+;	for both read and write on another machine. This is akin to VAXclusters,
+;	but is both more and less general: more general since the disks
+;	being made virtually local in this way can be ANYWHERE on a wide
+;	area DECnet, not merely local, and less general in that all file
+;	operations are performed on one site, which then must absorb the
+;	entire load of the remote as well as its' local file ACP/XQP
+;	operations. It is possible, but much more difficult, to use
+;	something along these lines to remote a foreign file structure also,
+;	dynamically translating I/O requests.
+;
+;	The approach here is to provide first a remote-able virtual disk,
+;	remoting only block I/O to a process (and hence possibly another
+;	machine). Then remoting tape will be tackled. This would allow
+;	a large machine to make a tape drive available for a satellite
+;	and let the satellite absorb the CPU cycles Backup soaks up. (The
+;	remoted disk approach would allow the larger machine to back up
+;	the remote's disks, but it would then have to execute Backup on
+;	its' own.) Once these can be made to work it will be possible to
+;	further extend the remote interface to ACP calls. This will be
+;	a little weird, but logical I/O will look as it does for the
+;	remoted device (so directories would work). File calls would
+;	be captured and done on behalf of the driver remotely. I am not
+;	CERTAIN this should be bothered with (normal DECnet file access
+;	has a lot in common with it), but it should, if done right, be
+;	faster than a lot of FAL operations.
+;
+;	For simplicity in testing, the first server task for the disk
+;	driver will just have a large memory array which it will use for
+;	storage. Thus it will be a lower-performance memory disk driver
+;	with that host. One driver process per unit of disk will be
+;	assumed. The driver notifies the "host" process there is something
+;	to do by setting event flag 10. The host process then can go
+;	  [now sends message to a mailbox; event flag code commented.]
+;	  [uncomment if you want this to go back.]
+;	ahead and use its' special QIOs to get or send data. If the
+;	I/O request is a write to the device, the DT: driver will fill
+;	in its' buffer as the request indicated. The "host"
+;	process should read the buffer (header and data) ALL in and
+;	then use the part of the data indicated in the header as valid,
+;	ignoring the rest. By the time the host process runs, the data
+;	is already in the driver's buffer, copied there by start_io.
+;	If the request is a read, the host process is expected to fill
+;	in the data in the driver's buffer AND the header (it should not
+;	mess with direction or block number data but should fill in data
+;	and the I/O status block info, which is used verbatim.) It then
+;	issues a "finish-IO" QIO$ (one of its' special ones) to complete
+;	that I/O. The event flag 10 should be cleared by the host process
+;	after the initial setting and before this finish-io qio$, since
+;	the finish-io qio$ COULD result in another setting of the flag.
+;
+;	To minimize work, the host process may issue a read on the driver
+;	buffer to get just the header, then decide whether to read all
+;	the data if it's handling a write request. The buffer header
+;	first longword will be zero in the event of a read seen by DT:
+;	(indicates the process must do I/O, then fill the buffer) and
+;	will contain 1 if the I/O is a write seen by DT:, in which case
+;	the buffer contains data. Given that the byte count is already
+;	in the header, the host process can decide how much data to read
+;	in that case, and need not read the entire buffer size.
+;
+; &&&&&&&&&&&&&&&&&&&&&&&%%%%%%%%%%%%%%%%%%%%%%%
+;--
+	.PAGE
+	.SBTTL	EXTERNAL AND LOCAL DEFINITIONS
+
+; 
+; EXTERNAL SYMBOLS
+; 
+	.library /SYS$SHARE:LIB/
+
+	$ACBDEF		; Define AST Control Block offsets.
+;	$ADPDEF				;DEFINE ADAPTER CONTROL BLOCK
+	$CRBDEF				;DEFINE CHANNEL REQUEST BLOCK
+	$DYNDEF ;define dynamic data types
+	$DCDEF				;DEFINE DEVICE CLASS
+	$DDBDEF				;DEFINE DEVICE DATA BLOCK
+	$DEVDEF				;DEFINE DEVICE CHARACTERISTICS
+	$DPTDEF				;DEFINE DRIVER PROLOGUE TABLE
+	$EMBDEF				;DEFINE ERROR MESSAGE BUFFER
+	$IDBDEF				;DEFINE INTERRUPT DATA BLOCK
+	$IODEF				;DEFINE I/O FUNCTION CODES
+	$DDTDEF				; DEFINE DISPATCH TBL...
+	$ptedef
+	$vadef
+	$IRPDEF				;DEFINE I/O REQUEST PACKET
+	$irpedef
+	$ipldef
+	$PRDEF				;DEFINE PROCESSOR REGISTERS
+	$SSDEF				;DEFINE SYSTEM STATUS CODES
+	$UCBDEF				;DEFINE UNIT CONTROL BLOCK
+	$VECDEF				;DEFINE INTERRUPT VECTOR BLOCK
+	$pcbdef
+	$jibdef
+
+	.IF	DF,VMS$V5	;VMS V5 + LATER ONLY
+	$cpudef		;thanks to Chris Ho for V5 fix
+	$SPLCODDEF
+	.ENDC
+; 
+; UCB OFFSETS WHICH FOLLOW THE STANDARD UCB FIELDS
+; 
+	$DEFINI	UCB			;START OF UCB DEFINITIONS
+
+;.=UCB$W_BCR+2				;BEGIN DEFINITIONS AT END OF UCB
+.=UCB$K_LCL_DISK_LENGTH	;v4 def end of ucb
+; USE THESE FIELDS TO HOLD OUR LOCAL DATA FOR VIRT DISK.
+; Add our stuff at the end to ensure we don't mess some fields up that some
+; areas of VMS may want.
+;The following must match the same-named data in the ACB extension
+	.blkl	2	;safety
+$DEF	UCB_L_UCB	.BLKL	1	;Save UCB address here
+$DEF	UCB_L_MEMBUF	.BLKL	1	;Address of buffer for this transfer
+$DEF	UCB_L_NSPTS	.BLKL	1	;Number of SPTs required for buffer
+$DEF	UCB_L_SVPN	.BLKL	1	;Starting system page number
+$DEF	UCB_L_ADRSPT	.BLKL	1	;Address of first SPT used
+$DEF	UCB_L_SVABUF	.BLKL	1	;System virtual address of user buffer
+;
+$DEF	UCB$HPID	.BLKL	1	;ADDRESS OF HOST UCB
+$DEF	UCB$HLBN	.BLKL	1	;LBN OF HOST FILE
+$DEF	UCB$HFSZ	.BLKL	1	;SIZE OF HOST FILE, BLKS
+$DEF	UCB$PPID	.BLKL	1	;PID OF ORIGINAL PROCESS FROM IRP BLK
+$def	ucb$irps	.BLKL	1	;IRP save area during host proc action
+$def	ucb$smbx	.BLKL	1	;mailbox UCB for work notices
+; Define save areas for UCB fields needed for I/O copies and used in
+; driver to process copies here.
+$def	ucb$lsvapte	.blkl 1    ;saves ucb$l_svapte
+$def	ucb$lsts	.blkl 1     ;saves ucb$l_sts
+$def	ucb$lsvpn	.blkl 1  ; similar
+$def	ucb$wboff	.blkl 1  ; similar
+$def	ucb$lmedia	.blkl	1
+$def	ucb$irplmedia	.blkl	1	;irp$l_media save
+$def	ucb$wdirseq	.blkl	1
+$def	ucb$lbcr	.blkl	1
+; NOTE: It is important to ENSURE that we never clobber IRP$L_PID twice!
+; therefore, adopt convention that UCB$PPID is cleared whenever we put
+; back the old PID value in the IRP. Only clobber the PID where
+; UCB$PPID is zero!!!
+$DEF	UCB$L_MEMBUF	.BLKL	1	; MEMORY AREA
+$DEF	UCB$L_MEMBF	.BLKL	1	; MEMORY BUFFER FOR CONTROL PROCESS
+$DEF	UCB$stats	.BLKL	1	;STATUS CODE SAVE AREA
+$def	ucb$jiggery	.blkl	1	;adjust to refcnt to fix up
+; Since I/O postprocessing on virtual or paging I/O makes lots of
+; assumptions about location of window blocks, etc., which are
+; not true here (wrong UCB mainly), we'll bash the function status
+; we send to the host driver to look like physical I/O is being
+; done and save the real function code here. Later when DT: does
+; I/O completion processing, we'll replace the original function
+; from here back in the IRP. This will be saved/restored along with
+; ucb$ppid (irp$l_pid field) and so synchronization will be detected
+; with ucb$ppid usage.
+;
+$def    ucb$l_blk	.blkl	1	;block i/o if nonzero
+$DEF	UCB$K_DT_LEN	.BLKL	1	;LENGTH OF UCB
+;UCB$K_DT_LEN=.				;LENGTH OF UCB
+
+	$DEFEND	UCB			;END OF UCB DEFINITONS
+;
+ 
+	.SBTTL	STANDARD TABLES
+
+; 
+; DRIVER PROLOGUE TABLE
+; 
+; 	THE DPT DESCRIBES DRIVER PARAMETERS AND I/O DATABASE FIELDS
+; 	THAT ARE TO BE INITIALIZED DURING DRIVER LOADING AND RELOADING
+; 
+	.PSECT	$$$105_PROLOGUE
+; Since driver has to use 8K more or less of nonpaged pool for every
+; unit, only allow 4 units by default.
+DT_UNITS=4
+; NOTE MAX TRANSFER FOR UCB NEEDS TO BE SET TO DT_BUFSIZ!!!
+; UCB$L_MAXBCNT FIELD!!!
+DT_BUFSIZ=8192.
+DT_BFH=20
+	.if	df,adrhak
+;optional hack: store buffer header address in last longword of the buffer.
+;This will generally need to be cleared before i/o termination!
+DT_BFH=24
+	.endc	
+; BUFFER HEADER FORMAT: (all longwords)
+;	Transfer direction (0=read, 1=write) as seen from DT:, that is,
+;			read means DT: is reading data from control proc.
+;	Block number
+;	Byte Count in data area
+;	IOSB longword 1
+;	IOSB longword 2
+;
+; followed immediately by data area (so we can pass ONE address to the
+;	control process.)
+DT_tdir=0	;transfer direction
+DT_blkn=4	;block number
+DT_bcnt=8	;bytecount
+DT_isb1=12	;IOSB longword 1
+DT_isb2=16	;IOSB longword 2
+DT_BFSZ=DT_BUFSIZ+DT_BFH		; BUFFER, PLUS EXTRA HDR INFORMATION
+DT$DPT::
+.iif ndf,dpt$m_xpamod,dpt$m_xpamod=0
+	DPTAB	-			;DPT CREATION MACRO
+		END=DT_END,-		;END OF DRIVER LABEL
+		ADAPTER=NULL,-		;ADAPTER TYPE = NONE (VIRTUAL)
+		DEFUNITS=2,-		;UNITS 0 THRU 1
+		UCBSIZE=UCB$K_DT_LEN,-	;LENGTH OF UCB
+		flags=<dpt$m_svp!dpt$m_xpamod!dpt$m_smpmod>,- ; allocate a perm. page for safety
+		MAXUNITS=DT_UNITS,-	;FOR SANITY...CAN CHANGE
+		NAME=DTDRIVER		;DRIVER NAME
+; Note that perm. page is allocated because IOC$movtouser and ioc$movfruser
+; need it.
+
+	DPT_STORE INIT			;START CONTROL BLOCK INIT VALUES
+	DPT_STORE DDB,DDB$L_ACPD,L,<^A\F11\>  ;DEFAULT ACP NAME
+	DPT_STORE DDB,DDB$L_ACPD+3,B,DDB$K_PACK	;ACP CLASS
+	.IF	NDF,VMS$V5
+	DPT_STORE UCB,UCB$B_FIPL,B,8	;FORK IPL (VMS V4.X)
+	.IFF	;DEFINE FOR VMS V5.X & LATER
+	DPT_STORE UCB,UCB$B_FLCK,B,SPL$C_IOLOCK8  ;FORK IPL (VMS V5.X + LATER)
+	.ENDC
+; NOTE THESE CHARACTERISTICS HAVE TO LOOK LIKE THE "REAL" DISK.
+	DPT_STORE UCB,UCB$L_DEVCHAR,L,-	;DEVICE CHARACTERISTICS
+		<DEV$M_FOD-		; FILES ORIENTED
+		!DEV$M_DIR-		; DIRECTORY STRUCTURED
+		!DEV$M_AVL-		; AVAILABLE
+		!DEV$M_SHR-		; SHAREABLE
+		!DEV$M_IDV-		; INPUT DEVICE
+		!DEV$M_ODV-		; OUTPUT DEVICE
+		!DEV$M_RND>		; RANDOM ACCESS
+	DPT_STORE UCB,UCB$L_DEVCHAR2,L,- ;DEVICE CHARACTERISTICS
+		<DEV$M_NNM>		; Prefix name with "node$" (like rp06)
+	DPT_STORE UCB,UCB$B_DEVCLASS,B,DC$_DISK  ;DEVICE CLASS
+	DPT_STORE UCB,UCB$W_DEVBUFSIZ,W,512  ;DEFAULT BUFFER SIZE
+; FOLLOWING DEFINES OUR DEVICE "PHYSICAL LAYOUT". It's faked here and
+; this structure (64 sectors/trk, 1 trk/cyl, nn cylinders) forces
+; DT: units to be in multiples of 64 blocks. It can be modified as
+; appropriate. However, recall that one has 1 byte for sectors/trk
+; and 16 bits for cylinder number and 1 byte for tracks/cylinder.
+; The current structure allows DT: units as large as 65535*64 blocks
+; (about 4 million blocks, or 2 gigabytes), which is probably big enough
+; for most purposes. The actual size is set up in ASNDT which finds the
+; number of cylinders to "fit" in the container file. For emulating other
+; ODS-2 volumes, the appropriate physical structure should be emulated also.
+; NO logic in this driver depends on this stuff. It just has to be there
+; to keep INIT and friends happy.
+	DPT_STORE UCB,UCB$B_TRACKS,B,1	; 1 TRK/CYL
+	DPT_STORE UCB,UCB$B_SECTORS,B,64  ;NUMBER OF SECTORS PER TRACK
+	DPT_STORE UCB,UCB$L_MAXBCNT,L,DT_BUFSIZ ; MAX TRANSFER SIZE
+	DPT_STORE UCB,UCB$W_CYLINDERS,W,16  ;NUMBER OF CYLINDERS
+; FAKE GEOMETRY TO MAKE TRANSLATION EASIER. HAVE PRIV'D IMAGE LATER
+; RESET THE UCB$W_CYLINDERS TO WHATEVER'S DESIRED. JUST MAKE SURE IT'S
+; A MULTIPLE OF 64 BLOCKS IN SIZE, WHICH OUGHT TO BE GOOD ENOUGH.
+	DPT_STORE UCB,UCB$B_DIPL,B,21	;DEVICE IPL
+	DPT_STORE UCB,UCB$B_ERTMAX,B,10	;MAX ERROR RETRY COUNT
+	DPT_STORE UCB,UCB$W_DEVSTS,W,-	;INHIBIT LOG TO PHYS CONVERSION IN FDT
+		<UCB$M_NOCNVRT>		;...
+;
+; don't mess with LBN; leave alone so it's easier to hack on...
+;
+	DPT_STORE REINIT		;START CONTROL BLOCK RE-INIT VALUES
+;	DPT_STORE CRB,CRB$L_INTD+VEC$L_ISR,D,DT_INT  ;INTERRUPT SERVICE ROUTINE ADDRESS
+	DPT_STORE CRB,CRB$L_INTD+VEC$L_INITIAL,-  ;CONTROLLER INIT ADDRESS
+		      D,DT_ctrl_INIT		  ;...
+	DPT_STORE CRB,CRB$L_INTD+VEC$L_UNITINIT,- ;UNIT INIT ADDRESS
+		      D,DT_unit_INIT		  ;...
+	DPT_STORE DDB,DDB$L_DDT,D,DT$DDT	  ;DDT ADDRESS
+
+	DPT_STORE END			;END OF INITIALIZATION TABLE
+
+; 
+; DRIVER DISPATCH TABLE
+; 
+; 	THE DDT LISTS ENTRY POINTS FOR DRIVER SUBROUTINES WHICH ARE
+; 	CALLED BY THE OPERATING SYSTEM.
+; 
+;DT$DDT:
+	DDTAB	-			;DDT CREATION MACRO
+		DEVNAM=DT,-		;NAME OF DEVICE
+		START=DT_STARTIO,-	;START I/O ROUTINE
+		FUNCTB=DT_FUNCTABLE,-	;FUNCTION DECISION TABLE
+;		CANCEL=0,-		;CANCEL=NO-OP FOR FILES DEVICE
+;		REGDMP=0,-	;REGISTER DUMP ROUTINE
+;		DIAGBF=0,-  ;BYTES IN DIAG BUFFER
+		ERLGBF=0	;BYTES IN
+				;ERRLOG BUFFER
+; 
+; FUNCTION DECISION TABLE
+; 
+; 	THE FDT LISTS VALID FUNCTION CODES, SPECIFIES WHICH
+; 	CODES ARE BUFFERED, AND DESIGNATES SUBROUTINES TO
+; 	PERFORM PREPROCESSING FOR PARTICULAR FUNCTIONS.
+; 
+
+DT_FUNCTABLE:
+	FUNCTAB	,-			;LIST LEGAL FUNCTIONS
+		<NOP,-			; NO-OP
+		FORMAT,-		; We use format to point to file, etc.
+		UNLOAD,-		; UNLOAD
+		PACKACK,-		; PACK ACKNOWLEDGE
+		AVAILABLE,-		; AVAILABLE
+		SENSECHAR,-		; SENSE CHARACTERISTICS
+		SETCHAR,-		; Set Characteristics
+		SENSEMODE,-		; SENSE MODE
+		SETMODE,-		; SET MODE
+		READLBLK,-		; READ LOGICAL BLOCK
+		WRITELBLK,-		; WRITE LOGICAL BLOCK
+;		READPBLK,-		; READ PHYSICAL BLOCK 
+;		WRITEPBLK,-		; WRITE PHYSICAL BLOCK
+		READVBLK,-		; READ VIRTUAL BLOCK
+		WRITEVBLK,-		; WRITE VIRTUAL BLOCK
+		ACCESS,-		; ACCESS FILE / FIND DIRECTORY ENTRY
+		ACPCONTROL,-		; ACP CONTROL FUNCTION
+		CREATE,-		; CREATE FILE AND/OR DIRECTORY ENTRY
+		DEACCESS,-		; DEACCESS FILE
+		DELETE,-		; DELETE FILE AND/OR DIRECTORY ENTRY
+		MODIFY,-		; MODIFY FILE ATTRIBUTES
+		MOUNT>			; MOUNT VOLUME
+	FUNCTAB	,-			;BUFFERED FUNCTIONS
+		<NOP,-
+;		FORMAT,-		; FORMAT
+		UNLOAD,-		; UNLOAD
+		PACKACK,-		; PACK ACKNOWLEDGE
+		AVAILABLE,-		; AVAILABLE
+		SENSECHAR,-		; SENSE CHARACTERISTICS
+		SETCHAR,-		; SET CHARACTERISTICS
+		SENSEMODE,-		; SENSE MODE
+		SETMODE,-		; SET MODE
+		ACCESS,-		; ACCESS FILE / FIND DIRECTORY ENTRY
+		ACPCONTROL,-		; ACP CONTROL FUNCTION
+		CREATE,-		; CREATE FILE AND/OR DIRECTORY ENTRY
+		DEACCESS,-		; DEACCESS FILE
+		DELETE,-		; DELETE FILE AND/OR DIRECTORY ENTRY
+		MODIFY,-		; MODIFY FILE ATTRIBUTES
+		MOUNT>			; MOUNT VOLUME
+	FUNCTAB	DT_ALIGN,-		;TEST ALIGNMENT FUNCTIONS
+		<READLBLK,-		; READ LOGICAL BLOCK
+		READVBLK,-		; READ VIRTUAL BLOCK
+;		READPBLK,-
+;		WRITEPBLK,-
+		WRITELBLK,-		; WRITE LOGICAL BLOCK
+		WRITEVBLK-		; WRITE VIRTUAL BLOCK
+		>
+	FUNCTAB	DT_ALIGN2,-		;TEST ALIGNMENT FUNCTIONS
+		<READLBLK,-		; READ LOGICAL BLOCK
+;		READPBLK,-
+;		WRITEPBLK,-
+		WRITELBLK,-		; WRITE LOGICAL BLOCK
+		>
+	functab DT_format,-		;point to host disk
+		<format>
+;
+; LEAVE NORMAL ACP CALLS IN SO FILE STRUCTURED STUFF ON OUR DT: UNIT
+; WILL WORK OK.
+;
+	FUNCTAB	+ACP$READBLK,-		;READ FUNCTIONS
+		<READLBLK,-		; READ LOGICAL BLOCK
+		READPBLK,-
+		READVBLK-		; READ VIRTUAL BLOCK
+		>
+	FUNCTAB	+ACP$WRITEBLK,-		;WRITE FUNCTIONS
+		<WRITELBLK,-		; WRITE LOGICAL BLOCK
+		WRITEPBLK,-
+		WRITEVBLK-		; WRITE VIRTUAL BLOCK
+		>
+	FUNCTAB	+ACP$ACCESS,-		;ACCESS FUNCTIONS
+		<ACCESS,-		; ACCEESS FILE / FIND DIRECTORY ENTRY
+		CREATE-			; CREATE FILE AND/OR DIRECTORY ENTRY
+		>
+	FUNCTAB	+ACP$DEACCESS,-		;DEACCESS FUNCTION
+		<DEACCESS-		; DEACCESS FILE
+		>
+	FUNCTAB	+ACP$MODIFY,-		;MODIFY FUNCTIONS
+		<ACPCONTROL,-		; ACP CONTROL FUNCTION
+		DELETE,-		; DELETE FILE AND/OR DIRECTORY ENTRY
+		MODIFY-			; MODIFY FILE ATTRIBUTES
+		>
+	FUNCTAB	+ACP$MOUNT,-		;MOUNT FUNCTION
+		<MOUNT>			; MOUNT VOLUME
+        FUNCTAB +EXE$LCLDSKVALID,-      ;LOCAL DISK VALID FUNCTIONS
+                <UNLOAD,-               ;UNLOAD VOLUME
+                 AVAILABLE,-            ;UNIT AVAILABLE
+                 PACKACK>               ;PACK ACKNOWLEDGE
+	FUNCTAB	+EXE$ZEROPARM,-		;ZERO PARAMETER FUNCTIONS
+		<UNLOAD,-		; UNLOAD
+		PACKACK,-		; PACK ACKNOWLEDGE
+		AVAILABLE>		; AVAILABLE
+	FUNCTAB	+EXE$ONEPARM,-		;ONE PARAMETER FUNCTION
+		<FORMAT-		; FORMAT
+		>
+	FUNCTAB	+EXE$SENSEMODE,-	;SENSE FUNCTIONS
+		<SENSECHAR,-		; SENSE CHARACTERISTICS
+		SENSEMODE-		; SENSE MODE
+		>
+	FUNCTAB	+EXE$SETCHAR,-		;SET FUNCTIONS
+		<SETCHAR,-		; SET CHARACTERISTICS
+		SETMODE-		; SET MODE
+		>
+	.PAGE
+	.SBTTL FDT Routines
+	.PSECT	$$$115_DRIVER
+;++
+;
+; DT_format - point to proper location on the host disk, finish I/O,
+;		and other random control functions.
+;
+; With no function modifiers, this routine takes as arguments a buffer
+; containing information on the desired function. This allows one
+; QIO$ function to be usurped for use in communicating with a "host"
+; process, rather than several. The FDT routines of the driver are
+; used since they conveniently have access both to the driver's
+; internal buffers AND to the "host" process' address space.
+;
+; This routine does virtually no checking, so the parameters must be
+; correct.
+;
+; Inputs:
+;	r3 - IRP address
+;	p1 - pointer to buffer. The buffer has the following format:
+;		Longword 0 - index of function to handle. 0 = declare
+;				process (set up for a process to handle
+;				driver's actual work). 1= finish I/O.
+;				2=copy data to driver buffer from control
+;				process. 3=copy data to control process
+;				from driver buffer for this unit.
+;  Add code so that if longword 0 is 10 we increment the ref count again.
+;	If longword 0 is 0, the rest of the buffer has the following
+;			meanings:
+;	     longword 1 - PID of current process, as flag we're turning on
+;			  or zero to disable the disk
+;	     longword 2 - Max number blocks for this disk
+;	     longword 3 - UCB address of mailbox to be sent messages
+;		longwords 4,5,6=number tracks,sectors,cylinders if conditional
+;			is not set no$phy$geo
+;
+;	p2 - size of the above buffer
+;--
+p1=0	; first QIO param
+p2=4	; second QIO param
+DT_format:
+	bicw3	#io$m_fcode,irp$w_func(r3),r0	;mask off function code
+	bneq	20$			;branch if modifiers, special
+	rsb				;regular processing
+; clean up stack from writechkr, then return error to our caller.
+10$:
+	movl	(sp)+,r5		; restore regs
+	movl	(sp)+,r3
+; r0 already is error status
+;	movzwl	#SS$_BADPARAM,r0	;illegal parameter
+	clrl	r1
+	jmp	g^exe$abortio
+20$:
+	movl	p1(ap),r0		;buffer address
+	movl	p2(ap),r1		;length of buffer
+	pushl	r3
+	pushl	r5
+	jsb	g^exe$writechkr		;read access? doesn't return on error
+	blbs	r0,21$			;if ok, branch
+	brb	10$			; if bad, clean stack & abort i/o
+21$:
+	movl	(sp)+,r5		;get regs back
+	movl	(sp)+,r3
+;	clrl	irp$l_bcnt(r3)		;paranoia, don't need to do this...
+	movl	p1(ap),r0		;get buffer address
+	tstl	(r0)			; this a setup access?
+	beql	82$
+	jmp	finio
+82$:
+;	bneq	finio			; if not, go finish I/O
+; If this is declare-io, the hlbn field is meaningless...never used.
+;	movl	(r0)+,-			;move starting lbn
+;		ucb$hlbn(r5)
+;	blss	40$
+	tstl	(r0)+			;pass the initial word
+	clrl	ucb$l_blk(r5)		;clear blocking field
+	movl	(r0)+,-			;host pid (flag)
+		ucb$HPID(r5)
+;	bleq	10$			; ok to zero this really
+	movl	(r0),ucb$l_maxblock(r5)	; size of disk
+	movl	(r0),r1			; get size
+; Note this is the only place DTDRIVER cares about physical drive
+; layout, assuming 64 sectors/track and 1 track/cylinder
+; To remove this dependency define the conditional
+	ashl	#-6,r1,r1		; divide by blocks/cyl to get cyls
+	; (have to use a genuine divide for blk/cyl not a power of 2!)
+	movw	R1,ucb$w_cylinders(R5)	; Store cylinders in volume also
+; N.B. - must change this if you change physical form factor!!!
+	movl	(r0)+,ucb$hfsz(r5)	; store twice
+	beql	40$		; zero is not valid
+	movl	(r0)+,ucb$smbx(r5)	; store UCB address of mailbox unit
+	beql	40$			; zero is NOT valid.
+	.if	ndf,no$phy$geo	;if defined, means no physical geometry
+				;handled within DTDRIVER
+; Get physical geometry from caller's buffer.
+	tstb	(r0)			; look like geometry stuff is here?
+	beql	41$			; no, use defaults here already
+	tstb	4(r0)			;make sure we have all
+	beql	41$			;if no sectors/trk, scram
+	tstw	8(r0)			;got cylinders?
+	beql	41$			;zero cylinders also illegal
+; Can now comment out tests below since we already know they're nonzero.
+	movb	(r0),ucb$b_tracks(r5)	;save no. tracks
+;	beql	40$			;0 illegal but go ahead & use default
+	tstl	(r0)+			;pass track #
+	movb	(r0),ucb$b_sectors(r5)	;save no. sectors/track
+;	beql	40$			; 0 illegal
+	tstl	(r0)+
+	movw	(r0),ucb$w_cylinders(R5) ; Store cylinders in volume also
+;	beql	40$
+	.endc
+; Note that setting zero size means we go offline. Host process
+; should do this before exiting!!!
+41$:
+	clrl	ucb$ppid(r5)		; mark driver free of old pids
+	bisw	#ucb$m_valid,ucb$w_sts(r5)	;set volume valid
+	bisw	#ucb$m_online,ucb$w_sts(r5)	;set unit online
+; Must decrement the ref count to allow the host process to SHARE
+; this device with services like init, mount, etc., which check
+; this. 
+	decw	ucb$w_refc(r5)			;decrement ref count
+	movl	#1,ucb$jiggery(r5)		;add 1 to fix
+	bgeq	38$				;if non negative, ok
+	clrl	ucb$jiggery(r5)			;or add 0 if we went neg
+	clrw	ucb$w_refc(r5)			;if we went neg, clear it to 0
+38$:
+	movzwl	#ss$_normal,r0			;success
+	jmp	g^exe$finishioc			;wrap things up.
+40$:
+	bicw	#ucb$m_valid,ucb$w_sts(r5)	;set volume invalid
+	bicw	#ucb$m_online,ucb$w_sts(r5)	;set unit offline
+	addw2	ucb$jiggery(r5),ucb$w_refc(r5)	;re-increment ref count
+	clrl	ucb$jiggery(r5)
+;	incw	ucb$w_refc(r5)			;re-increment ref count
+;undoes the decrement just above, so that the deassign service can
+; totally free this device as needed.
+	movzwl	#ss$_normal,r0			;success
+	jmp	g^exe$finishioc			;wrap things up.
+;
+; Finio
+;  Complete current I/O
+; Call buffer like DT_format
+;	Buffer:
+;		Flag 0=setup, 1= finish I/O
+;		Function (0=read, 1=write)
+;		Block #	(1 longword)
+;		Bytes in buffer
+;		I/O status (normally 1 but can vary)
+;		2 longwords
+; (Assumes the process has already moved the data to the driver's
+;  buffer...needs cmkrnl)
+bumpctj:	jmp	bumprefc	;re-increment ref count
+hdcopyj:	jmp	hdcopy
+dhcopyj:	jmp	dhcopy
+hdcopyk:	jmp	hdcopyd
+dhcopyk:	jmp	dhcopyd
+finio:
+	cmpl	(r0),#1			; This a finish-IO call?
+	beql	10$			; if eql yes
+; Insert additional chains of logic here...
+; For example we may want to use this "I/O" as a way to get data
+; copied to/from the control task. Since it's entered in the context
+; of the control task, it's a VERY convenient way to get data between
+; the control task and driver. We must however roll our own data moving
+; (to a degree anyway) between user task and driver (user task=the one
+; that thinks this is a disk and is accessing it that way!).
+	cmpl	(r0),#2		; copy data from process to driver?
+	beql	hdcopyj		; yes, go do it.
+	cmpl	(r0),#3		; copy data from driver to process?
+	beql	dhcopyj		; yes, go do it.
+	cmpl	(r0),#4		; copy data from process to driver?
+	beql	hdcopyk		; yes, go do it.
+	cmpl	(r0),#5		; copy data from driver to process?
+	beql	dhcopyk		; yes, go do it.
+	cmpl	(r0),#10	; 10 to re-increment ucb$w_refc
+	beql	bumpctj		; if that's function, go do it.
+; not legal... signal error.
+8$:	movzwl	#SS$_BADPARAM,r0	;illegal parameter
+	clrl	r1
+	jmp	g^exe$abortio
+10$:
+; Now actually finish up the I/O...
+	tstl	ucb$irps(r5)	; make sure there IS an IRP in the works
+	beql	8$		; if not then exit here before any damage
+; Save the host proc status
+	pushl	r6
+	movl	ucb$l_membf(r5),r6	; get memory header again
+	addl	#DT_isb1,r6		; point at IOSB first longword data
+	tstw	16(r0)		;any user i/o status there?
+	beql	6501$		;if eql no
+	movw	16(r0),(r6)	;else return status
+6501$:
+	popl	r6
+; First complete the local I/O (for host) since we are still in that
+; context.
+	clrl	-(sp)
+; use irp byte count to avoid trouble. ucb count is client's
+; last transfer.
+	movw	irp$w_bcnt(r3),2(sp)
+	movw	#ss$_normal,(sp)	;success
+	movl	(sp)+,r0	;set up as tho' all data transferred
+	clrl	r1
+; Because finishioc will do a RET eventually, we can't just JSB to it
+; so instead duplicate the logic here:
+	movq	r0,irp$l_media(r3)	;store final i/o status
+	.if	ndf,VMS$V5	;fix due to Chris Ho
+	movab	g^ioc$gl_psfl,r0	;get address of list hdr
+	.if	ndf,ad$tal
+	insque	(r3),(r0)		;insert packet in i/o postproc queue
+	.iff		;suggested by Chris Ho
+	insque	(r3),4(r0)		;insert packet in tail of postproc queue
+	.endc
+	.iff
+; Following fix by Chris Ho allows this to work OK in VMS V5!!!
+	FORKLOCK preserve=no
+	FIND_CPU_DATA r0	;get local CPU database
+	INSQUE (r3),@CPU$L_PSBL(R0)	;Where I/O postprocessing queue tail is
+	FORKUNLOCK preserve=no
+	.endc
+	softint	#ipl$_iopost		;request pri4 int. to handle it
+; don't bother with IPL reset...do that later
+; We return at IPL 0, which allows I/O completion to occur
+; before we go any further. This will ensure that the first I/O
+; reqcom interrupt is done.
+; Now fork to get to the correct stack and IPL for further
+; I/O completion.
+;	Original pri0 thread returns, since stack is clean.
+;
+; This completes the client's I/O and hopefully does no double forking.
+;fake up stack so that we fork BUT return after the fork to get back to
+; the qio return code below.
+;
+	movab	nonfk,r0	;go here on return from exe$fork
+	pushl	r0		;fake up stack to fork
+	movab	frkprc,r0	;returning fork at frkprc, nonfork at nonfk
+	pushl	r0	;go to frkprc from interrupt at fork IPL
+	jmp	g^exe$fork	; fork, use UCB as forkblk
+nonfk:
+	movl	#ss$_Normal,r0		;success code
+	jmp	g^exe$qioreturn		;return all's well
+;
+; IN THIS FORK, WE SHOULD BE NOW AT FORK IPL AND HOLDING ANY NEEDED
+; FORK LOCKS.
+; NOTE THAT WE MUST *NOT* CALL IOC$REQCOM AT HIGHER THAN FORK IPL
+frkprc:
+; Now forked to get to fork IPL and onto the interrupt stack, and then
+; complete the client's I/O whose address was saved earlier.
+;
+	movl	r3,-(sp)
+	movl	ucb$irps(r5),r3	; get IRP from I/O that start-io was doing
+	bneq	48$
+	jmp	dunfrk
+48$:
+;	beql	dunfrk
+	clrl	ucb$irps(r5)	; zero to avoid going thru twice!
+	movl	r3,ucb$l_irp(r5)	; save in UCB for now also
+; now the UCB is set for finishing off this IRP
+; Ghod knows what registers are needed, so save a whole bunch of them.
+	movl  ucb$lsvapte(r5),ucb$l_svapte(r5) ;restore other ucb fields
+	movl  ucb$lsts(r5),ucb$l_sts(r5)
+	movl  ucb$lsvpn(r5),ucb$l_svpn(r5)
+	movw  ucb$wboff(r5),ucb$w_boff(r5)
+	movw	ucb$wdirseq(r5),ucb$w_dirseq(r5)
+	movl	ucb$lmedia(r5),ucb$l_media(r5)
+	movl	ucb$lbcr(r5),ucb$l_bcr(r5)	;restore fields
+	pushr	#^m<r2,r3,r4,r5,r6>
+; Now all registers are free for our messups
+; First, if data needs to be moved to user process, go move it!!
+	movl	ucb$l_membf(r5),r6	; buffer header
+	tstl	(r6)+			; if zero, a read was posted
+; on a read, we need to get the data moved. On a write we did it in startio.
+	bneq	13$			; if not eql, branch; it was a write
+	tstl	(r6)+		; pass block number
+	movl	(r6)+,r1	; bytes to move
+	movl	ucb$l_membuf(r5),r2	; disk buffer memory address
+; protect regs from movtouser
+	pushr	#^m<r3,r4,r5>
+	tstl	ucb$l_svapte(r5)	;ensure this exists
+	beql	11$			;if it doesn't, scram out NOW
+				; and don't generate crash.
+;
+	jsb	movtouser	; go move the data to user memory (client)
+;
+11$:
+	popr	#^m<r3,r4,r5>
+13$:	movl	ucb$l_membf(r5),r6	; get memory header again
+	addl	#DT_isb1,r6		; point at IOSB first longword data
+; Before return to our caller, fill buffer start with a flag word
+; This allows the host process to check for possible race conditions.
+; Once we start I/O, this will contain 0 or 1.
+	movl	ucb$l_membf(r5),r2	;get memory buffer address
+	movzbl	#255,(r2)		; set it to 255 as flag nothing's there
+;
+;	TSTL	UCB$PPID(R5)	; ENSURE PID IS NONZERO AS SAVED
+;	BEQL	15$		; SKIP BASH IF NOT
+;	MOVL	UCB$PPID(R5),IRP$L_PID(R3)	;RESTORE THE OLD PID
+; since we may now have later parts of virtual, paging, or swapping I/O
+; to do, restore saved byte counts and function codes.
+;	movw	ucb$stats(r5),irp$w_sts(r3)	;restore orig function code
+15$:	CLRL	UCB$PPID(R5)	; ZERO SAVED PID FIELD FOR CLEANLINESS
+; GRAB R0 AND R1 AS REQCOM IN HOST DRIVER LEFT THEM...
+; Get back IOSB data. We get it out of the buffer header area where we
+; PRESUME the host process left it. It should reflect the actual
+; I/O completion status, which we are simply passing along to the
+; process that things (snigger) that DT: is a disk!
+; Driver initializes this to success, so a normal write from client to
+; DT: to host will not have to have host write to DT: to set I/O status
+; unless something goes wrong.
+	movl	(r6)+,r0		; r0
+	.if	df,clslop
+	cmpw	r0,#ss$_accvio
+	bneq	115$			;if not a fatal err in host proc, cont
+	incl	ucb$l_blk(r5)		;if error seen, set the blocking flag
+115$:
+	.endc
+	movl	(r6),r1			; and r1
+;		- GCE
+; Now restore IRP$L_MEDIA as saved at start of I/O here.
+	movl	ucb$irplmedia(r5),irp$l_media(r3)
+; (This avoids some potential problems during error paths in ioc$reqcom)
+;
+; Now go REALLY complete the I/O (possibly causing more I/O and certainly
+; ensuring the DT: I/O queue is emptied and DT: unbusied after all is done.)
+; Do the request COMPLETION on the packet, but via JSB so we can get back
+; and restore IPL and synchronization to where we started it.
+;
+	JSB	@#IOC$REQCOM	; GO COMPLETE THE I/O REQUEST IN DT: CONTEXT
+;
+; (OR DO I/O SPLIT NEXT PART IN DT: CONTEXT!)
+; ALSO, RETURN **HERE**, SO WE CAN WRAP UP ALL ELSE.
+; Now get back our registers and the "host" process' IRP and finish that
+; I/O up also like a good FDT routine!
+;
+	popr	#^m<r2,r3,r4,r5,r6>
+; now back to normal prio and out...
+; Fork dispatcher will handle IPL etc. for us.
+dunfrk:
+	movl	(sp)+,r3	;restore bashed r3
+	rsb
+hdcopy:
+; Copy data from process to driver's buffer.
+; 1st param is buffer addr
+; 2nd param is length of data to move. We assume this is the whole
+;   data buffer INCLUDING the header.
+	tstl	(r0)+		; pass function header
+	movl	(r0)+,r1	; grab address in program
+	movl	(r0)+,r0	; grab number of bytes to move
+	cmpl	r0,#<DT_bufsiz+DT_bfh>	;ensure length is OK
+	blequ	1$		; if ok, go ahead and copy
+3$:	movzwl	#SS$_BADPARAM,r0	;illegal parameter
+	clrl	r1
+	jmp	g^exe$abortio
+1$:
+	tstl	r0		; no zero length either
+	beql	3$		; to avoid other ills
+; We're at ASTDEL here, so can fault if we need to.
+; Therefore use Movc3 to do the move.
+	pushl	r5
+	pushl	r4	;preserve some regs
+	pushl	r3
+	pushl	r2
+	movl	ucb$l_membf(r5),r2	;get memory buffer address
+	movc3	r0,(r1),(r2)		;do the copy
+	popl	r2
+	popl	r3
+	popl	r4
+	popl	r5			;get regs back
+	movzwl	#ss$_normal,r0			;success
+	jmp	g^exe$finishioc			;wrap things up.
+dhcopy:
+; Copy data from driver's buffer to process
+; 1st param is buffer addr in process
+; 2nd param is length of data to move. We assume this is the whole
+;   data buffer INCLUDING the header.
+	tstl	(r0)+		; pass function header
+	movl	(r0)+,r1	; grab address in program
+	movl	(r0)+,r0	; grab number of bytes to move
+	cmpl	r0,#<DT_bufsiz+DT_bfh>	;ensure length is OK
+	blequ	61$		; if ok, go ahead and copy
+63$:	movzwl	#SS$_BADPARAM,r0	;illegal parameter
+	clrl	r1
+	jmp	g^exe$abortio
+61$:
+	tstl	r0		; no zero length either
+	beql	63$		; to avoid other ills
+; We're at ASTDEL here, so can fault if we need to.
+; Therefore use Movc3 to do the move.
+	pushl	r5
+	pushl	r4	;preserve some regs
+	pushl	r3
+	pushl	r2
+	movl	ucb$l_membf(r5),r2	;get memory buffer address
+	movc3	r0,(r2),(r1)		;do the copy
+	popl	r2
+	popl	r3
+	popl	r4
+	popl	r5			;get regs back
+	movzwl	#ss$_normal,r0			;success
+	jmp	g^exe$finishioc			;wrap things up.
+; Data copy routines... exactly like full copy but they skip the
+; DT_bfh byte header. This can be used to avoid extra data copies in the
+; host process.
+hdcopyd:
+; Copy data from process to driver's buffer.
+; 1st param is buffer addr
+; 2nd param is length of data to move. We assume this is the whole
+;   data buffer INCLUDING the header.
+	tstl	(r0)+		; pass function header
+	movl	(r0)+,r1	; grab address in program
+	movl	(r0)+,r0	; grab number of bytes to move
+	cmpl	r0,#<DT_bufsiz>	;ensure length is OK
+	blequ	1$		; if ok, go ahead and copy
+3$:	movzwl	#SS$_BADPARAM,r0	;illegal parameter
+	clrl	r1
+	jmp	g^exe$abortio
+1$:
+	tstl	r0		; no zero length either
+	beql	3$		; to avoid other ills
+; We're at ASTDEL here, so can fault if we need to.
+; Therefore use Movc3 to do the move.
+	pushl	r5
+	pushl	r4	;preserve some regs
+	pushl	r3
+	pushl	r2
+	movl	ucb$l_membuf(r5),r2	;get memory buffer address
+	movc3	r0,(r1),(r2)		;do the copy
+	popl	r2
+	popl	r3
+	popl	r4
+	popl	r5			;get regs back
+	movzwl	#ss$_normal,r0			;success
+	jmp	g^exe$finishioc			;wrap things up.
+dhcopyd:
+; Copy data from driver's buffer to process
+; 1st param is buffer addr in process
+; 2nd param is length of data to move. We assume this is the whole
+;   data buffer INCLUDING the header.
+	tstl	(r0)+		; pass function header
+	movl	(r0)+,r1	; grab address in program
+	movl	(r0)+,r0	; grab number of bytes to move
+	cmpl	r0,#<DT_bufsiz>	;ensure length is OK
+	blequ	61$		; if ok, go ahead and copy
+63$:	movzwl	#SS$_BADPARAM,r0	;illegal parameter
+	clrl	r1
+	jmp	g^exe$abortio
+61$:
+	tstl	r0		; no zero length either
+	beql	63$		; to avoid other ills
+; We're at ASTDEL here, so can fault if we need to.
+; Therefore use Movc3 to do the move.
+	pushl	r5
+	pushl	r4	;preserve some regs
+	pushl	r3
+	pushl	r2
+	movl	ucb$l_membuf(r5),r2	;get memory buffer address
+	movc3	r0,(r2),(r1)		;do the copy
+	popl	r2
+	popl	r3
+	popl	r4
+	popl	r5			;get regs back
+brfcd:	movzwl	#ss$_normal,r0			;success
+	jmp	g^exe$finishioc			;wrap things up.
+bumprefc:
+	addw2	ucb$jiggery(r5),ucb$w_refc(r5)
+	clrl	ucb$jiggery(r5)
+;	incw	ucb$w_refc(r5)		;re-increment reference count
+	brb	brfcd			; then return success
+
+	.SBTTL	CONTROLLER INITIALIZATION ROUTINE
+; ++
+; 
+; DT_ctrl_INIT - CONTROLLER INITIALIZATION ROUTINE
+; 
+; FUNCTIONAL DESCRIPTION:
+; noop
+; INPUTS:
+; R4 - CSR ADDRESS
+; R5 - IDB ADDRESS
+; R6 - DDB ADDRESS
+; R8 - CRB ADDRESS
+; 
+; 	THE OPERATING SYSTEM CALLS THIS ROUTINE:
+; 		- AT SYSTEM STARTUP
+; 		- DURING DRIVER LOADING
+; 		- DURING RECOVERY FROM POWER FAILURE
+; 	THE DRIVER CALLS THIS ROUTINE TO INIT AFTER AN NXM ERROR.
+;--
+	.if	df,$$xdt
+DT_xdt:	.long	0
+	.endc
+DT_ctrl_INIT:				;DT CONTROLLER INITIALIZATION
+	CLRL	CRB$L_AUXSTRUC(R8)	; SAY NO AUX MEM
+	.if df,$$xdt
+	clrl	DT_xdt
+	.endc
+	RSB				;RETURN
+	.PAGE
+	.SBTTL	INTERNAL CONTROLLER RE-INITIALIZATION
+;
+; INPUTS:
+;	R4 => controller CSR (dummy)
+;	R5 => UCB
+;
+ctrl_REINIT:
+	RSB		; RETURN TO CALLER
+	.PAGE
+	.SBTTL	UNIT INITIALIZATION ROUTINE
+;++
+; 
+; DT_unit_INIT - UNIT INITIALIZATION ROUTINE
+; 
+; FUNCTIONAL DESCRIPTION:
+; 
+; 	THIS ROUTINE SETS THE DT: ONLINE.
+; 
+; 	THE OPERATING SYSTEM CALLS THIS ROUTINE:
+; 		- AT SYSTEM STARTUP
+; 		- DURING DRIVER LOADING
+; 		- DURING RECOVERY FROM POWER FAILURE
+; 
+; INPUTS:
+; 
+; 	R4	- CSR ADDRESS (CONTROLLER STATUS REGISTER)
+; 	R5	- UCB ADDRESS (UNIT CONTROL BLOCK)
+;	R8	- CRB ADDRESS
+; 
+; OUTPUTS:
+; 
+; 	THE UNIT IS SET ONLINE.
+; 	ALL GENERAL REGISTERS (R0-R15) ARE PRESERVED.
+; 
+;--
+
+DT_unit_INIT:				;DT UNIT INITIALIZATION
+; Don't set unit online here. Priv'd task that assigns DT unit
+; to a file does this to ensure only assigned DTn: get used.
+;	BISW	#UCB$M_ONLINE,UCB$W_STS(R5)  ;SET UCB STATUS ONLINE
+	MOVL	#DT_BUFSIZ,UCB$L_MAXBCNT(R5) ;SET MAX TRANSFER SIZE
+	MOVB	#DC$_DISK,UCB$B_DEVCLASS(R5) ;SET DISK DEVICE CLASS
+; NOTE: we may want to set this as something other than an RX class
+; disk if MSCP is to use it. MSCP explicitly will NOT serve an
+; RX type device. For now leave it in, but others can alter.
+; (There's no GOOD reason to disable MSCP, but care!!!)
+	movl	#^X310c4080,ucb$l_media_id(r5)	; set media id as DT (get it
+						;	right; alter const!)
+; (note the id might be wrong but is attempt to get it.) (used only for
+; MSCP serving.)
+	MOVB	#DT$_FD1,UCB$B_DEVTYPE(R5)  ;Make it foreign drive
+; MSCP may still refuse to do a foreign drive too; jiggery-pokery later
+; to test if there's occasion to do so.
+	clrl	ucb$jiggery(r5)	;no ref count adjustment yet
+;
+; SET UP BUFFER ADDRESS
+	PUSHL	R0
+	PUSHL	R1
+	MOVZWL	UCB$W_UNIT(R5),R0	; GET UNIT NUMBER
+	MULL2	#DT_BFSZ,R0		; MULTIPLY BY SIZE OF BUFFERS
+	MOVAB	DT_BUFPOOL,R1		; GET ADDRESS OF BUFFER POOL
+	ADDL2	R1,R0			; POINT R0 AT THIS UNIT'S BUFFER
+	MOVL	R0,UCB$L_MEMBF(R5)	; STORE TOTAL BUFFER START
+	ADDL2	#DT_BFH,R0		; PASS HEADER
+	MOVL	R0,UCB$L_MEMBUF(R5)	; POINT TO DATA AREA
+	POPL	R1
+	POPL	R0
+	movl	r5,ucb_l_ucb(r5)		;initially pointer our ucb
+	clrl	ucb$l_blk(r5)		;clr blocking stuff
+	RSB				;RETURN 
+	.PAGE
+	.SBTTL	FDT ROUTINES 
+;++
+; 
+; DT_ALIGN - FDT ROUTINE TO TEST XFER BYTE COUNT
+; 
+; FUNCTIONAL DESCRIPTION:
+; 
+; 	THIS ROUTINE IS CALLED FROM THE FUNCTION DECISION TABLE DISPATCHER
+; 	TO CHECK THE BYTE COUNT PARAMETER SPECIFIED BY THE USER PROCESS
+; 	FOR AN EVEN NUMBER OF BYTES (WORD BOUNDARY).
+; 
+; INPUTS:
+; 
+; 	R3	- IRP ADDRESS (I/O REQUEST PACKET)
+; 	R4	- PCB ADDRESS (PROCESS CONTROL BLOCK)
+; 	R5	- UCB ADDRESS (UNIT CONTROL BLOCK)
+; 	R6	- CCB ADDRESS (CHANNEL CONTROL BLOCK)
+; 	R7	- BIT NUMBER OF THE I/O FUNCTION CODE
+; 	R8	- ADDRESS OF FDT TABLE ENTRY FOR THIS ROUTINE
+; 	4(AP)	- ADDRESS OF FIRST FUNCTION DEPENDENT QIO PARAMETER
+; 
+; OUTPUTS:
+; 
+; 	IF THE QIO BYTE COUNT PARAMETER IS ODD, THE I/O OPERATION IS
+; 	TERMINATED WITH AN ERROR. IF IT IS EVEN, CONTROL IS RETURNED
+; 	TO THE FDT DISPATCHER.
+; 
+;--
+nolchk=0
+DT_ALIGN:				;CHECK BYTE COUNT AT P1(AP)
+	.if	ndf,nolchk
+; note: not fully tested but a MINOR mod... therefore conditioned.
+	tstw	6(ap)			;test high order half of
+					; byte count specified
+	bneq	10$			; if bigger than 65k call error
+	.endc
+;	BLBS	4(AP),10$		;IF LBS - ODD BYTE COUNT
+	RSB				;EVEN - RETURN TO CALLER
+	.if	ndf,nolchk
+10$:	MOVZWL	#SS$_IVBUFLEN,R0	;SET BUFFER ALIGNMENT STATUS
+	JMP	G^EXE$ABORTIO		;ABORT I/O
+	.endc
+DT_ALIGN2:				;CHECK BYTE COUNT AT P1(AP)
+; Extra check for logical I/O that it is within max block size the
+; driver can handle. Note that movc5 instruction is restricted to
+; 65536 bytes anyway so DT_bufsiz can never profitably be larger than
+; this...the code would break.
+	.if	ndf,nolchk
+	cmpw	4(ap),#DT_bufsiz	; logical or phys i/o too big?
+	bgtru	10$			; if so, return error now.
+	.endc
+	RSB				;EVEN - RETURN TO CALLER
+	.if	ndf,nolchk
+10$:	MOVZWL	#SS$_IVBUFLEN,R0	;SET BUFFER ALIGNMENT STATUS
+	JMP	G^EXE$ABORTIO		;ABORT I/O
+	.endc
+	.PAGE
+	.SBTTL	START I/O ROUTINE
+
+;++
+; 
+; DT_STARTIO - START I/O ROUTINE
+; 
+; FUNCTIONAL DESCRIPTION:
+; 
+; 	THIS FORK PROCESS IS ENTERED FROM THE EXECUTIVE AFTER AN I/O REQUEST
+; 	PACKET HAS BEEN DEQUEUED.
+; 
+; INPUTS:
+; 
+; 	R3		- IRP ADDRESS (I/O REQUEST PACKET)
+; 	R5		- UCB ADDRESS (UNIT CONTROL BLOCK)
+; 	IRP$L_MEDIA	- PARAMETER LONGWORD (LOGICAL BLOCK NUMBER)
+; 
+; OUTPUTS:
+; 
+; 	R0	- FIRST I/O STATUS LONGWORD: STATUS CODE & BYTES XFERED
+; 	R1	- SECOND I/O STATUS LONGWORD: 0 FOR DISKS
+; 
+; 	THE I/O FUNCTION IS EXECUTED.
+; 
+; 	ALL REGISTERS EXCEPT R0-R4 ARE PRESERVED.
+; 
+;--
+REQUEUE:
+	.if	df,$$xdt
+	jsb	g^ini$brk
+	movl	r3,r3		;flag to debugging person things are weird
+	.endc
+	JMP	EXE$INSIOQc		; REQUEUE packet to ourselves (no need to get lock)
+; return to our caller direct from insioq.
+; (note this also sets busy, so it will NOT loop forever.)
+DT_STARTIO:				;START I/O OPERATION
+; 
+; 	BRANCH TO FUNCTION EXECUTION
+	bbs	#ucb$v_online,-	; if online set software valid
+		ucb$w_sts(r5),210$
+216$:	movzwl	#ss$_volinv,r0	; else set volume invalid
+	brw	resetxfr	; reset byte count & exit
+210$:
+	tstl	ucb$HPID(r5)	; do we have any host control process yet?
+	beql	216$		; if eql no, flag invalid volume.
+			; THIS IS SAFETY FROM CONFIGURING FROM OUTSIDE
+; BEFORE GOING ON, WE WANT TO ENSURE THE UCB IS FREE.
+; (N.B. - As far as I can tell, this code is NEVER used. However, keep
+;  it in case some future VMS devices or add-ons might try some custom
+;  jiggery-pokery thinking they know about this device!!)
+; Check that the process pointed to by ucb$hpid(r5) is really in
+; the system. This wil guard against writing to a mailbox which may
+; have just been deleted...
+	.if	df,clslop
+	tstl	ucb$l_blk(r5)	;blocked i/o
+	bneq	216$		;if so junk it here
+; closes possible timing loop when host process hits fatal error
+	.endc
+	.if ndf,x$hpid
+	pushr  #^m<r6,r7,r8>
+	.if	df,$$xdt
+	jsb	g^ini$brk
+	.endc
+	movzwl	g^sch$gl_maxpix,r7	;max process index in VMS
+; note we have the synch lock at this point already so don't bother
+; to lock again...
+211$:
+	movl	g^sch$gl_pcbvec,r6	;get pcb vector address
+	movl	(r6)[r7],r8		;get a PCB address
+;	movl	@L^sch$gl_pcbvec[r7],r8	;get a PCB address
+	tstl	r8		;system address should be < 0
+	bgeq	213$			;if it seems not to be a pcb forget it
+	cmpl	ucb$hpid(r5),pcb$l_pid(r8)	;this our process?
+	beql	212$			;if so, jump out of loop
+213$:	sobgtr	r7,211$			;if not, look at next
+	clrl	ucb$hpid(r5)		;if cannot find process, zero our flag
+212$:
+	popr   #^m<r6,r7,r8>
+	.endc ;x$hpid
+; retest the ucb$hpid field in case we found it bogus and zeroed it.
+	tstl	ucb$HPID(r5)	; do we have any host control process yet?
+	beql	216$		; if eql no, flag invalid volume.
+	TSTL	UCB$PPID(R5)		; MAKE SURE we haven't got
+					; a packet in process
+	BNEQ	REQUEUE			; IF a packet's in process, requeue
+					; back to this driver; do NOT process
+					; immediately!
+	bisw	#ucb$m_online,ucb$w_sts(r5)	; set online
+	bisw	#ucb$m_valid,ucb$w_sts(r5)	;set valid
+; set ourselves as owners of channel for DT:
+	movl	ucb$l_crb(r5),r0
+	movl	crb$l_intd+vec$l_idb(r0),r0	;get idb address
+;	cmpl	r5,idb$l_owner(r0)		;are we owners?
+;	beql	214$			; if eql yes, all's well
+;	REQPCHAN	; gain access to controller in "standard" way
+214$:
+;
+10$:;	BBS	#IRP$V_PHYSIO,-		;IF SET - PHYSICAL I/O FUNCTION
+;		IRP$W_STS(R3),20$	;...
+	BBS	#UCB$V_VALID,-		;IF SET - VOLUME SOFTWARE VALID
+		UCB$W_STS(R5),20$	;...
+	MOVZWL	#SS$_VOLINV,R0		;SET VOLUME INVALID STATUS
+	BRW	RESETXFR		;RESET BYTE COUNT AND EXIT
+20$:
+; IF WE GET A SEGMENT TRANSFER HERE (LOGICAL I/O)
+; IT MUST BE UPDATED FOR HOST AND SHIPPED OUT.
+; OUR UCB HAS BLOCK NUMBER INFO...
+; FIND OUT IF THIS IS LOGICAL OR PHYSICAL I/O FIRST. THEN IF IT IS BUGGER
+; THE I/O PACKET USING UCB INFO AND SEND TO THE REAL DRIVER...
+; ALSO ENSURE WE ARE UNBUSIED...
+;
+	EXTZV	#IRP$V_FCODE,#IRP$S_FCODE,IRP$W_FUNC(R3),R1	; GET FCN CODE
+	case	r1,<-			; Dispatch to function handling routine
+		unload,-		; Unload
+		nop,-			; Seek
+		NOP,-			; Recalibrate(unsupported)
+		nop,-			; Drive clear
+		NOP,-			; Release port(unsupported)
+		NOP,-			; Offset heads(unsupported)
+		NOP,-			; Return to center
+		nop,-			; Pack acknowledge
+		NOP,-			; Search(unsupported)
+		NOP,-			; Write check(unsupported)
+		WRITEDATA,-		; Write data
+		READDATA,-		; Read data
+		NOP,-			; Write header(unsupported)
+		NOP,-			; Read header(unsupported)
+		NOP,-			; Place holder
+		NOP,-			; Place holder
+		available,-		; Available (17)
+		NOP,NOP,NOP,-		; 18-20
+		NOP,NOP,NOP,NOP,nop,nop,nop,NOP,NOP,nop,- ;21-30
+		NOP,NOP,NOP,NOP,nop,NOP,nop,nop,nop,NOP,- ;31-40
+		NOP,NOP,NOP,NOP,NOP,NOP,NOP,NOP,NOP,nop,- ;41-50
+		NOP,NOP,NOP,NOP,nop,NOP,NOP,NOP,NOP,NOP,- ;51-60
+		nop,-					  ;61
+		>,LIMIT=#1
+
+nop:				;unimplemented function
+	brw	fexl
+
+writedata:
+; On write data, before we do anything else, we must copy the data from
+; the calling process into driver space so it'll be where the control
+; process (which the driver talks to) can find it. Do that here.
+	pushr	#^m<r0,r2>
+	movl	ucb$l_membuf(r5),r2	;mem address
+	movl	irp$l_bcnt(r3),r1	;number bytes to move
+	cmpl	r1,#DT_bufsiz		;double check all well
+	blequ	x50$		; if lequ all's ok
+	movl	#DT_bufsiz,r1
+	movl	r1,irp$l_bcnt(r3)	;just scale the request down if
+					;byte count too big...just as FDT
+					;should have done (if MSCP server
+	brb	x50$			;hadn't been f**ked up)
+x51$:	popr	#^m<r0,r2>
+	brw	fatalerr
+x50$:	pushl	r3	; save r3
+; note that MOVFRUSER must execute at fork IPL. We're at fork here though.
+	jsb	MOVFRUSER	; go move the data from user process to here
+	movl	(sp)+,r3	; get back IRP addr
+	movl	#1,r2	;set write direction
+	brw	RW_COMN
+readdata:
+	pushr	#^m<r0,r2>
+; On read-data, we move data from driver area to user at END of I/O,
+; hence nothing special here.
+; check too-large reads also
+	cmpl	irp$l_bcnt(r3),#DT_bufsiz
+;	bgtr	x51$	;if byte count too big, return error NOW
+;			;don't allow it to corrupt transfer later.
+	bleq	4321$
+	movl	#DT_bufsiz,irp$l_bcnt(r3)	;reset to what
+				; we can handle if requested byte
+				; count was too big. This compensates
+				; for brain damage in MSCP server
+				; operation in this area.
+4321$:
+	clrl	r2	;set read direction
+;
+RW_COMN:
+; Save some UCB fields we might need at completion time
+; Store irp$l_media field. (Actually, WE never double bash this
+; in DTDRIVER, but it's a good idea to save it anyhow...)
+	movl	irp$l_media(r3),ucb$irplmedia(r5)
+	movl  ucb$l_svapte(r5),ucb$lsvapte(r5) ;store in our local fields
+	movl  ucb$l_sts(r5),ucb$lsts(r5)
+	movl  ucb$l_svpn(r5),ucb$lsvpn(r5)
+	movw  ucb$w_boff(r5),ucb$wboff(r5)  ;these are needed during i/o data copy
+	movw	ucb$w_dirseq(r5),ucb$wdirseq(r5)
+	movl	ucb$l_media(r5),ucb$lmedia(r5)
+	movl	ucb$l_bcr(r5),ucb$lbcr(r5)
+; Store transfer information where the host process can get it easily
+	movl	ucb$l_membf(r5),r0	; get buffer header address
+	movl	r2,(r0)+		; set transfer direction
+	movl	irp$l_media(r3),(r0)+	; save block number
+	cmpl	(r0),#DT_bufsiz		; ensure legal byte count for buffer
+	bgtru	x51$			; if too large, return error
+	movl	irp$l_bcnt(r3),(r0)+	; byte count
+        movw   #ss$_Normal,(r0)+        ; initially set up success on I/O
+	movw	ucb$w_bcnt(r5),(r0)+	;preset to say we transferred everything
+	clrl	(r0)+			;(set status 2 to 0)
+			; too (needed for i/o completion)
+	popr	#^m<r0,r2>
+; ss$_normal = 1
+; debug using sda to peek
+; NOW VALIDATED I/O FCN... MODIFY AND SEND OFF
+	movl	r3,ucb$irps(r5)		; Save this IRP address for cleanup.
+	CMPL	IRP$L_MEDIA(R3),UCB$HFSZ(R5)	;BE SURE LBN OK
+	blequ	65$
+	brw	Fatalerr
+65$:
+;	BGTRU	FATLJ		;IF NOT OK JUST DISMISS I/O
+; HAVE TO BE CAREFUL WHAT WE SHIP TO READ DRIVER
+	; Prepare to enter another context.
+;
+	TSTL	UCB$PPID(R5)		; GUARD AGAINST DOUBLE BASH
+	BNEQ	12$
+	MOVL	IRP$L_PID(R3),UCB$PPID(R5)	; SAVE PROCESS ID IN DT: UCB
+; make it look to host as physical i/o
+	movzwl	irp$w_sts(r3),ucb$stats(r5)	;save original fcn code
+;	bicw	#<irp$m_pagio!irp$m_swapio!irp$m_virtual>,-
+;		irp$w_sts(r3) ;say not page/swp, not virtual
+;	bisw	#irp$m_physio,irp$w_sts(r3)	;say it IS physical i/o
+12$:
+	pushl	r6
+	PUSHL	R5 ; save our UCB just in case...
+; Note VMS' definition of corrupt stack is SP > FP I think..
+; Should be ok here.
+	PUSHL	R4		; SAVE R4 AND R3 ALSO SINCE THEY'RE FORK
+	PUSHL	R3		; CONTEXT.
+	PUSHL	R2
+	PUSHL	R1
+	PUSHL	R0
+;
+	.if	df,adrhak
+;optional hack: store buffer header address in last longword of the buffer.
+; The buffer header is made an extra longword long so the completion
+; area is unaltered.
+	pushl	r4
+	movl	ucb$l_membf(r5),r4	; get buffer header address
+	movl	r4,20(r4)		; store in last header word
+	popl	r4
+; This would be used where it was desired to have the host use 
+; change mode to kernel to copy data between driver buffer and 
+; host space; this might be shorter than the QIO route. By passing
+; the kernel address to the host, this is facilitated. Not defining
+; the conditional allows the present host, which has the header
+; size of 20 bytes hardcoded in places, to function. Since this
+; is an extra header word, no changes to other functions are needed.
+	.endc	
+; Set up for posting event flag #10 (local) to our control process
+; This code was commented out during development but should be OK if
+;  you want it.
+;	movl	ucb$hpid(r5),r1	; Host process PID
+;	clrl	r2		; no priority increment
+;	movl	#10,r3		; Set event flag 10 as flag to tell "host"
+;				; process there's work...
+;	jsb	@#SCH$POSTEF	; go post the event flag
+;
+; Actually use write to mailbox instead of setting event flag...cleaner.
+; To reenable posting ef 10 instead of mailbox comment out block of
+; code:
+;  from here:
+	movl	ucb$l_membf(r5),r4	; get buffer header address
+	movl	#DT_bfh,r3	; buffer header size in bytes
+	movl	ucb$smbx(r5),r5	; ucb of mailbox
+	beql	46$		; if zero forget the write attempt
+;ensure mailbox is not deleted
+; At process deletion, the host process may be blown away before the
+; device is dismounted. Since the host process has the only known
+; channel to that mailbox, cleaning that channel can mean the
+; ucb is no longer valid. Do some extra checks here to make certain
+; this cannot happen. Also, if we see the mailbox unref'd or
+; not online, clear OUR ref to it so we won't be fooled by
+; later reuse of the memory.
+	.if	df,$$xdt
+	jsb	g^ini$brk
+	.endc
+	bitw	#ucb$m_online,ucb$w_sts(r5)	;ucb marked online?
+	beql	46$		;if not marked online don't try a write
+	tstw	ucb$w_refc(r5)	;is the UCB referenced by someone?
+			;host process should have a channel open to the
+			;mailbox before we get to it. If it does not,`
+			;then we must NOT use it.
+	bleq	46$		;no refs means it might be deleted so
+				;don't write to it. This is mainly a
+				;problem during process deletion.
+				; also disallow any stray negative counts
+				; in case somethign messed up.
+	tstl	ucb$l_orb(r5)	;finally ensure nonzero orb addr
+	bgeq	46$		;if zero, can't use either.
+; in fact if the address is not in system space it looks invalid. Since
+; all system addresses are negative, we can test for lots of bogus addresses
+; all at once.
+;	pushr	#^m<r0,r1,r2,r3>
+;;check readability of orb
+;	movab	ucb$l_orb(r5),r0	;address to check
+;	movl	(r0),r0
+;	movab	#10,r1			;check a few bytes
+;; (actually the prober instruction will wind up checking a whole page
+;;  so we don't depend strongly on the length here. Unfortunately the
+;;  Vax architecture manual doesn't describe the PROBER instruction directly
+;;  so I use the darn subroutine instead.)
+;	clrl	r3			;psl access is ok
+;	jsb	G^exe$prober
+;	blbc	r0,146$			;if fail, can't read orb
+;	popr	#^m<r0,r1,r2,r3>	;get back our registers
+	jsb	G^exe$wrtmailbox	;emit the message
+;to here
+	blbs	r0,43$		; if success, go complete
+	brb	46$
+;146$:
+;part of ORB was unreadable. Fail the I/O and give up.
+;	popr	#^m<r0,r1,r2,r3>
+;gets regs back and then give up.
+;
+46$:
+; oh heck...
+; host is gone... somehow we couldn't write the mailbox.
+; (The mailbox should ALWAYS be world writeable)
+; finish the I/O and abort it...then take ourselves offline to
+; prevent further mischief.
+	POPL	R0
+	POPL	R1
+	POPL	R2
+	POPL	R3			;GET BACK FORK CONTEXT
+	POPL	R4			; (R3, R4) IN CASE OUR CALLER NEEDS IT
+	POPL	R5
+	popl	r6
+	clrl	ucb$hpid(r5)	; zero our magic indicator
+	bicw	#<ucb$m_online!ucb$m_valid>,ucb$w_sts(r5)	;offline
+	addw2	ucb$jiggery(r5),ucb$w_refc(r5)
+	clrl	ucb$jiggery(r5)	;re increment ref count if not done already
+;	incw	ucb$w_refc(r5)			;re-increment ref count
+;undoes the decrement done at assign time, so that the deassign service can
+; totally free this device as needed.
+;	bicw	#ucb$m_valid,ucb$w_sts(r5)	;invalid too
+; This will hopefully fix up things so the rest of any I/O queue will just
+; be flushed quickly.
+; (Unfortunately we can't easily test how many refs there should be...
+; one hopes that the sys services just decremented the ref count when the
+; process got blown away; this will allow the client to decrement back
+; to zero...)
+	jmp	fatalerr		; finish the I/O with fatal driver err
+43$:
+;
+; Here get the data into buffer or pull it out and genrate AST to control
+; process.
+	POPL	R0
+	POPL	R1
+	POPL	R2
+	POPL	R3			;GET BACK FORK CONTEXT
+	POPL	R4			; (R3, R4) IN CASE OUR CALLER NEEDS IT
+	POPL	R5
+	popl	r6
+; NOW HAVE OUR OWN UCB ADDRESS BACK
+; WE Now have queued the work to the real driver. Since the
+; I/O may have splits, just await done return and let the
+; DT_fixsplit processing get done our cleanup. Because we need
+; to await this, just return with DT: unit STILL BUSY to ensure
+; that we don't get thru here until we're GOOD AND READY!
+; just go return at low prio
+; Now all we can do is done...
+; Just return to system and await completion of process' I/O by our
+; control process (host process) so we can complete action on the
+; whole thing!
+	RSB		; return...don't drop prio here
+; (dispatcher oughta deal with that...)
+;
+;	UNLOAD and AVAILABLE Functions
+;	Clear UCB$V_VALID in UCB$W_STS
+;
+UNLOAD:
+AVAILABLE:
+;	BICW	#UCB$M_VALID, -		;Clear sofware volume valid bit.
+;		UCB$W_STS(R5)
+;	BRB	NORMAL			;Then complete the operation.
+; 
+; 	OPERATON COMPLETION
+; 
+FEXL:	; dummy entry ... should never get here
+NORMAL:					;SUCCESSFUL OPERATION COMPLETE
+	MOVZWL	#SS$_NORMAL,R0		;ASSUME NORMAL COMPLETION STATUS
+	BRB	FUNCXT			;FUNCTION EXIT
+
+FATALERR:				;UNRECOVERABLE ERROR
+	MOVZWL	#SS$_DRVERR,R0		;ASSUME DRIVE ERROR STATUS
+
+RESETXFR:	; dummy entry ... should never really get here
+	MOVL	UCB$L_IRP(R5),R3	;GET I/O PKT
+	MNEGW	IRP$W_BCNT(R3),UCB$W_BCR(R5) ; RESET BYTECOUNT
+;	BRW	FUNCXT
+FUNCXT:					;FUNCTION EXIT
+	CLRL	R1			;CLEAR 2ND LONGWORD OF IOSB
+	REQCOM				; COMPLETE REQUEST
+	.PAGE
+; 
+PWRFAIL:				;POWER FAILURE
+	BICW	#UCB$M_POWER,UCB$W_STS(R5)  ;CLEAR POWER FAILURE BIT
+	MOVL	UCB$L_IRP(R5),R3	;GET ADDRESS OF I/O PACKET
+	MOVQ	IRP$L_SVAPTE(R3),-	;RESTORE TRANSFER PARAMETERS
+		UCB$L_SVAPTE(R5)	;...
+	BRW	DT_STARTIO		;START REQUEST OVER
+DT_INT::
+DT_UNSOLNT::
+;	POPR	#^M<R0,R1,R2,R3,R4,R5>
+	REI	;DUMMY RETURN FROM ANY INTERRUPT
+	;;
+; FIX SPLITS...
+; RETURN IRP TO OUR UCB ADDRESS
+; THEN REQCOM
+;
+; TRICK IS TO GET OUR UCB ADDRESS BACK WHEN WE REGAIN CONTROL. DO SO VIA
+; JIGGERY-POKERY WITH THE ADDRESS WE CALL. STORE UCB ADDRESSES IN A TABLE
+; INTERNALLY AND USE THE CALL ADDRESS TO GET WHERE WE ARE BACK AGAIN.
+;
+;
+; NOTE FOLLOWING CODE ASSUMES DT_UNITS IS 2 OR MORE.
+V_UNIT=0
+V_UNM=1
+;
+; Memory move logic
+;
+;
+;	This code replaces the system routines IOC$MOVFRUSER and IOC$MOVTOUSER.
+;	It also duplicates the effect of the code in IOC$INITBUFWIND and 
+;	IOC$FILSPT.  Note that the register conventions are different, though!
+;
+;	Calling conventions:
+;
+;	R1 = byte count
+;	R2 = memory disk buffer address
+;	R5 = UCB address
+;		UCB contains UCB$L_SVAPTE, UCB$W_BOFF, UCB$L_SVPN, UCB$L_STS
+;
+;	Destroys R0,R4; changes UCB$L_SVAPTE, UCB$L_STS; RETURNS at end
+;
+;	Move from system memory to user buffer
+;
+MOVTOUSER:
+	pushl	r0
+	pushl	r4
+;	pushl	ucb$l_svapte(r5)
+	pushl	ucb$l_sts(r5)
+	PUSHL	R3
+	BBCC	#UCB$V_SVPN_END,UCB$L_STS(R5),1$
+1$:	ASHL	#2,UCB$L_SVPN(R5),R0
+	MOVL	@UCB$L_SVAPTE(R5),R3
+	BLSS	2$
+	JSB	G^IOC$PTETOPFN
+2$:	MOVL	G^MMG$GL_SPTBASE,R4
+	INSV	R3,#0,#21,(R4)[R0]
+	MOVZWL	UCB$W_BOFF(R5),R4
+	ASHL	#7,R0,R0
+	BBSS	#31,R0,3$
+3$:	MTPR	R0,#PR$_TBIS
+	BISW	R4,R0
+	SUBL3	R4,#512,R4
+	CMPL	R4,R1
+	BLEQ	4$
+	MOVL	R1,R4
+4$:	PUSHL	R5
+	PUSHL	R4
+	PUSHL	R2
+	PUSHL	R1
+	MOVC3	R4,(R2),(R0)
+	POPR	#^M<R1,R2,R4,R5>
+	ADDL2	R4,R2
+	SUBL2	R4,R1
+	BLEQ	10$
+5$:	ADDL2	#4,UCB$L_SVAPTE(R5)
+6$:	ASHL	#2,UCB$L_SVPN(R5),R0
+	MOVL	@UCB$L_SVAPTE(R5),R3
+	BLSS	7$
+	JSB	G^IOC$PTETOPFN
+7$:	MOVL	G^MMG$GL_SPTBASE,R4
+	INSV	R3,#0,#21,(R4)[R0]
+	MOVL	#512,R4
+	ASHL	#7,R0,R0
+	BBSS	#31,R0,8$
+8$:	MTPR	R0,#PR$_TBIS
+	CMPL	R4,R1
+	BLEQ	9$
+	MOVL	R1,R4
+9$:	PUSHL	R5
+	PUSHL	R4
+	PUSHL	R2
+	PUSHL	R1
+	MOVC3	R4,(R2),(R0)
+	POPR	#^M<R1,R2,R4,R5>
+	ADDL2	R4,R2
+	SUBL2	R4,R1
+	BGTR	5$
+10$:	POPR	#^M<R3>
+	popl	ucb$l_sts(r5)
+;	popl	ucb$l_svapte(r5)
+	popl	r4
+	popl	r0	;preserve these across call
+	RSB
+;
+;	Move from user buffer to system memory
+;
+MOVFRUSER:
+	pushl	r0
+	pushl	r4
+;	pushl	ucb$l_svapte(r5)
+	pushl	ucb$l_sts(r5)
+	PUSHL	R3
+	BBCC	#UCB$V_SVPN_END,UCB$L_STS(R5),1$
+1$:	ASHL	#2,UCB$L_SVPN(R5),R0
+	MOVL	@UCB$L_SVAPTE(R5),R3
+	BLSS	2$
+	JSB	G^IOC$PTETOPFN
+2$:	MOVL	G^MMG$GL_SPTBASE,R4
+	INSV	R3,#0,#21,(R4)[R0]
+	MOVZWL	UCB$W_BOFF(R5),R4
+	ASHL	#7,R0,R0
+	BBSS	#31,R0,3$
+3$:	MTPR	R0,#PR$_TBIS
+	BISW	R4,R0
+	SUBL3	R4,#512,R4
+	CMPL	R4,R1
+	BLEQ	4$
+	MOVL	R1,R4
+4$:	PUSHL	R5
+	PUSHL	R4
+	PUSHL	R2
+	PUSHL	R1
+	MOVC3	R4,(R0),(R2)
+	POPR	#^M<R1,R2,R4,R5>
+	ADDL2	R4,R2
+	SUBL2	R4,R1
+	BLEQ	10$
+5$:	ADDL2	#4,UCB$L_SVAPTE(R5)
+6$:	ASHL	#2,UCB$L_SVPN(R5),R0
+	MOVL	@UCB$L_SVAPTE(R5),R3
+	BLSS	7$
+	JSB	G^IOC$PTETOPFN
+7$:	MOVL	G^MMG$GL_SPTBASE,R4
+	INSV	R3,#0,#21,(R4)[R0]
+	MOVL	#512,R4
+	ASHL	#7,R0,R0
+	BBSS	#31,R0,8$
+8$:	MTPR	R0,#PR$_TBIS
+	CMPL	R4,R1
+	BLEQ	9$
+	MOVL	R1,R4
+9$:	PUSHL	R5
+	PUSHL	R4
+	PUSHL	R2
+	PUSHL	R1
+	MOVC3	R4,(R0),(R2)
+	POPR	#^M<R1,R2,R4,R5>
+	ADDL2	R4,R2
+	SUBL2	R4,R1
+	BGTR	5$                                                
+10$:	POPR	#^M<R3>
+	popl	ucb$l_sts(r5)
+;	popl	ucb$l_svapte(r5)
+	popl	r4
+	popl	r0	;preserve these across call
+	RSB
+;
+; DT: Buffer Pool
+; Stores data for communication with host process
+; BUFFER HEADER FORMAT: (all longwords)
+;	Transfer direction (0=read, 1=write) as seen from DT:, that is,
+;			read means DT: is reading data from control proc.
+;	Block number
+;	Byte Count in data area
+;	IOSB longword 1
+;	IOSB longword 2
+;
+; followed immediately by data area (so we can pass ONE address to the
+;	control process.)
+DT_BUFPOOL::
+	.REPT	DT_UNITS
+; header area
+	.rept	DT_bfh
+	.byte	0
+	.endr
+; data area. Init to 0 to ensure it gets loaded!
+DT_bf16=DT_bufsiz/16
+	.rept	DT_bf16
+	.long	0,0,0,0
+	.endr
+;	.BLKB	DT_BUFSIZ	;DATA AREA
+	.ENDR
+;
+;
+	.LONG 0,0	;SAFETY
+	.LONG 0,0	;SAFETY
+DT_END:					;ADDRESS OF LAST LOCATION IN DRIVER
+	.END

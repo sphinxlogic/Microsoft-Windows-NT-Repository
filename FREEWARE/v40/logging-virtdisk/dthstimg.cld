@@ -1,0 +1,49 @@
+Define verb DTHOST
+  Image sys$system:DTHSTIMG.EXE
+  Parameter p1,prompt="DTn:",value(required,type=$device),label=UNIT
+  parameter p2,label=FNAM,prompt="tape:",value(type=$infile)
+  Qualifier TYPE,value(required,type=$file)
+! IMAGE mode is for non-vms-backup disk dumps, just N disk blocks
+! per tape block, no labels or other info there.
+  qualifier IMAGE
+! skip just skips files before starting. We rewind the tape and
+! skip these because we must know where we are.
+  qualifier SKIP,value(required,type=$number)
+  qualifier TRK,value(required,type=$number)
+  qualifier CYL,value(required,type=$number)
+  qualifier SEC,value(required,type=$number)
+  qualifier TCACHE,value(required,type=$number)
+  qualifier CACHE,value(required,type=$number)
+! Add /norewind switch to be used with /skip:0 (and force skip:0)
+! to assume the current tape location is the start of the disk
+! image. If you have something weird like a TAR dump of a disk
+! image of a virtual disk, and skip the header block somehow, this
+! might prove useful. Rare, but it's easy...let's have it in there
+! for the oddball who really must have it...
+  qualifier NOREWIND
+  qualifier IGNCRC
+  qualifier FRCCRC
+  qualifier IGNXOR
+  qualifier CRC
+  qualifier FILE
+! file unused	;unused
+  qualifier CLEAR
+! Specify cache in pages (cache) or in tape blocks (tcache)
+! not both. Better to make the user make up his mind rather
+! than rely on some programmatic default.
+ disallow CACHE and TCACHE
+! Image mode means not vms backup. Disallow image mode and switches
+! that have meaning for backup only, just to make this easier NOT
+! to get messed up with. Won't help user who confuses this much,
+! but /image mode is not a default. We need to help the user not
+! play too meaninglessly.
+ disallow IMAGE and CRC
+ disallow IMAGE and IGNCRC
+ disallow IMAGE and FRCCRC
+ disallow IMAGE and IGNXOR
+! Note: CLEAR switch is for FDHOST.MAR only. It just zeroes the
+! reference count of the FD: unit in case aborting control tasks
+! left this nonzero.
+! Uses FDHSTIMG to create a read-only virtual disk out of a
+! back/physical (or hsc backup) saveset or a disk dump to tape
+! using dtdriver.

@@ -1,0 +1,838 @@
+.; $Id: d2.rno,v 1.3 1995/10/27 13:24:05 tom Exp $
+.req	"d0.req"
+.;	FLIST Commands
+.;
+This chapter presents a description of the principal
+(file and display-list management) commands of FLIST.
+
+.hl	APPEND (AP), COPY (CO)
+.x File management>COPY
+.x COPY
+Use COPY to create an output file which is the concatenation
+of one or more input files.
+.x File management>APPEND
+.x APPEND
+APPEND is similar to COPY, but specifies that a given output file is
+to be augmented by this concatenation.
+.;
+.tp5.b2;Format:
+.b
+Both commands accept the standard set of VMS APPEND and COPY options.
+FLIST permits the current-entry to be either the source operand
+.x Examples>COPY
+.b;########COPY / newfile
+.b;or the destination (implicitly creating a new version)
+.b;########COPY newfile
+.b;or neither
+.b;########/O COPY oldfile newfile
+.b
+The source operand list may include files not presently in the display-list.
+.x Display list>appending via COPY
+The destination (a new or modified file) is appended to the display-list.
+.;
+.;
+.tp5.b2;Notes:
+.b
+.x Spawned subprocesses>APPEND
+.x Spawned subprocesses>COPY
+FLIST uses the VMS commands APPEND and COPY to implement these functions.
+However, FLIST does not permit a wildcard in the output list, to simplify
+display-list updates.
+
+.hl	CREATE (CR)
+.x File management>CREATE
+.X CREATE
+The CREATE command is simpler than the VMS command CREATE.
+It allows you to create a file or a directory.
+FLIST examines the argument to see which it is.
+
+.hl	DELETE (DEL)
+.x File management>DELETE
+.x DELETE
+The DELETE command is unlike the VMS command DELETE.
+There are several differences:
+.lm+8
+.b.i-4
+.x Display list>deleting files
+o	The files to be deleted must reside in the display-list.
+FLIST deletes only files which it can see.
+.b.i-4
+o	If you attempt to delete a directory (a file whose type is
+".DIR"), FLIST first tests to see if there are any files in the directory.
+If any are found, FLIST will not delete the directory.
+.b.i-4
+o	FLIST tests the file type further.
+If it is that of any temporary file (e.g., ".JOU" or ".LIS"), FLIST
+will delete it.
+.b.i-4
+o	If the file type is not a directory or temporary file, FLIST
+assumes this is a permanent file.
+If the specified file is the last version,
+FLIST prompts you to ensure that you really wish to delete it.
+.x Prompting (DELETE)
+The responses to a prompt are:
+.lm+8
+.b.i-4
+Q	Quit the deletion.
+.b.i-4
+Y	Yes, perform the deletion.
+.b.i-4
+N	No, don't delete this file.
+.b.i-4
+G	Go: delete this file, and don't ask again, if further files
+are found in this command.
+.lm-8
+.b.lm-8
+In short, the differences provide a greater degree of reliability
+than the unadorned VMS file-deletion command.
+.;
+.;
+.tp5.b2;Format:
+.b
+The current entry may be deleted
+.x Examples>DELETE
+.b;########DELETE
+.b;or any other set of files
+.b;########/O DELETE filespec
+.b;If a wildcard is given, FLIST will scroll to the location of
+each permanent file if a prompt is needed before deleting it.
+On completion, FLIST reports the number of files which were deleted.
+.;
+.;
+.tp5.b2;Notes:
+.b
+.x Wildcard searches>DELETE
+The file-deletion command is implemented internally and does not
+recognize any of the VMS file-deletion options.
+Wildcards may be used, but only one field (e.g., "_*.FOR" rather than
+"_*.FOR,_*.LIS") may be given.
+.b
+Like VMS DELETE, no attempt is made to override the protection codes
+before deletion.
+Protection violations are reported in status messages.
+
+.hl	EDIT (E), VIEW (V)
+.x File management>EDIT
+.x EDIT
+.x File management>VIEW
+.x VIEW
+.x Display level
+.x Display level>EDIT, VIEW
+.x Display list>EDIT
+The EDIT and VIEW commands effect changes in the display-level.
+They
+.lm+8
+.b.i-4
+o	open a file for editing (in read-only mode, if VIEW), or
+.b.i-4
+o	enter a new display-list if
+.lm+8
+.b.i-4
+-	the file is the current entry and a directory, or
+.b.i-4
+-	a list of files is given or
+.b.i-4
+-	the file specification includes a wildcard.
+.b.lm-8
+In entering a new display-list level, the EDIT and VIEW commands
+are equivalent.
+.b.lm-8
+.x Browsing>VIEW
+VIEW is entirely equivalent to EDIT, save that it appends a "/READONLY"
+option to file-editing.
+The EDIT command is used to expand a directory to a new display level
+because this is a natural view of the process.
+.;
+.;
+.tp5.b2;Format:
+.b
+The EDIT accepts an input argument, which may be a single argument,
+or a list of files.
+It may be used on the current file
+.x Examples>EDIT
+.b;########EDIT
+.b;on another file
+.b;########/O EDIT filespec
+.b;or on both
+.b;########EDIT /,filespec
+.b;(causing FLIST to enter a new display level).
+.x Defaults>Read-list (EDIT)
+The default specification for the input argument always includes
+a wildcard:
+.b;########_*._*;
+.br;########_*._*_;_*
+.b;depending on the setting of the "/VERSION" option when FLIST is invoked.
+Also, null file specification items inherit from the preceding item.
+Therefore, when specifying the name of a file other than the current
+entry, you must be careful to use the ";" (current version indicator)
+properly.
+For example, suppose that you wish to create a new file "X.FOR".
+If you type the command
+.b;########/O EDIT X.FOR
+.b;FLIST will interpret that as
+.b;########EDIT X.FOR;_*
+.b;and attempt to open a new display-list
+(failing if there is no file of any version named "X.FOR").
+To avoid this, type
+.b;########/O EDIT X.FOR;
+.b
+If you have no write-access on the directory within which a file
+is contained, or if higher versions of the file exist, FLIST coerces
+the EDIT command to VIEW (read-only), since the editor could not successfully
+update the file.
+If, on the other hand, the file is modifiable, FLIST looks for a new
+version of the file on exit from the editor to update the display:
+.lm+8
+.b.i-4
+.x Display list>appending via EDIT
+o	If the edited file is the current entry, FLIST replaces this
+entry by the new version, and puts the display-entry for the old version
+in the first free slot in the display-list.
+.b.i-4
+o	If the edited (or new) file is not the current entry, FLIST
+creates a new display entry for this file in the first free slot in
+the display-list.
+.b.lm-8
+Thus you may enter and exit the editor returning to the same
+position in the display list.
+Older versions of the edited file are pushed off to the side, but
+still accessible.
+.;
+.;
+.tp5.b2;Notes:
+.b
+.x Spawned subprocesses>EDIT
+.x Spawned subprocesses>VIEW
+FLIST uses the VMS editor program to perform file-editing.
+It assumes that this is the EDT editor:
+.lm+8
+.b.i-4
+o	The "/READONLY" option sets the editor to read-only mode
+(i.e., no updates are permitted; the editor is used only for browsing).
+.b.i-4
+o	The "/COMMAND" option directs the editor to read a set of
+initialization commands from the specified file.
+.x Files>EDTINI.EDT
+In particular, FLIST looks in your home directory for the file
+"EDTINI.EDT".
+If found, FLIST appends a "/COMMAND" option to your EDIT and VIEW
+commands.
+.b.i-4
+o	Other options are permitted in file-edit, but are not
+interpreted by FLIST.
+They are passed to the VMS editor.
+.b.lm-8
+EDIT commands which result in a new display list do not permit options.
+FLIST's options (other than those implemented as display-commands)
+are fixed after entry.
+
+.hl	FIND (F)
+.x Searching>FIND
+.x FIND
+The FIND command searches for file entries in the display-list by name.
+Together with the NEXT command (CTRL/N or PF3), the name-search
+.x Key assignments>CTRL/N, NEXT
+.x CTRL/N, NEXT
+.x Key assignments>PF3>NEXT
+.x PF3>NEXT
+helps you quickly find all occurrences of a given file specification.
+The cursor is positioned at the next entry, in the prevailing
+search/scroll direction.
+.;
+.;
+.tp5.b2;Format:
+.b
+FIND does not explicitly use the current entry.
+It requires a file specification, which may contain a wildcard.
+.x Examples>FIND
+Examples of the FIND command include:
+.lm+8
+.b;FIND _*.FOR
+.br;FIND /N
+.b.lm-8
+FIND will inform you if there are no occurrences of the specified file,
+or if the current entry is the only occurrence.
+.;
+.;
+.tp5.b2;Notes:
+.b
+.x Wildcard searches>FIND
+The FLIST file-search operation (used for all wildcard searches, such
+as in DELETE and PURGE) searches the display-list in the order in which
+it is displayed.
+To accomplish this, FLIST performs its own wildcard matching:
+.lm+8
+.b.i-4
+o	FLIST recognizes the predominant VMS wildcards "_*" and "_%",
+and processes them identically to VMS.
+.b.i-4
+o	A wildcard version number is permitted, as is a relative
+(e.g., ";-1") version number.
+Relative version numbers, however, run more slowly since they must be
+interpreted.
+.b.i-4
+o	The "..." (wildcard in directory name) is interpreted by
+FLIST as a wildcard "_*", which may appear anywhere in the directory string.
+Thus, "[NAME...]" would be matched by "[NAMEX]" as well as "[NAME.X]".
+.b.i-4
+o	If no pathname is specified in the search specification,
+FLIST translates this to a wild-device "_*:".
+.b.lm-8
+.x Wildcard searches>differences from VMS
+Thus, FLIST interprets wildcard very much like VMS,
+except that it simplifies the handling of wildcards in
+directory and pathnames.
+This is done both to simplify (and speed up) the search,
+and well as to simplify the VMS directory structure.
+.b
+Presently, the search utility processes only a single-entry
+file specification (e.g., "_*.FOR", rather than "_*.FOR,_*.LIS").
+
+.hl	HELP (H)
+.x HELP, show command summary
+The HELP command runs the ^&BROWSE\& program to display a file which
+summarizes all of the FLIST commands.
+(This summary is reproduced as Appendix#B.)
+.;
+.tp5.b2;Format:
+.b
+HELP requires no arguments.
+Alternate forms of HELP include:
+.b;########/HELP (/H)
+.x /HELP, show command summary
+.br;########?HELP (?)
+.x ?HELP, show command summary
+.;
+.tp5.b2;Notes:
+.b
+The FLIST help-file must reside in the same directory as the FLIST
+program.
+
+.hl	INSPECT (I)
+.x Display commands>INSPECT
+.x INSPECT
+The INSPECT command inspects one or more files to see if they are
+binary or ASCII.
+INSPECT is an aid to browsing directories; it finds those files
+which probably are human-readable.
+.;
+.;
+.tp5.b2;Format:
+.b
+.x Wildcard searches>INSPECT
+INSPECT permits a single file specification (with wildcard).
+If no file specification is given, INSPECT examines the current entry.
+Only files which appear in the display-list are examined.
+.;
+.;
+.tp5.b2;Notes:
+.b
+INSPECT reads the first 512 characters of each file which is specified.
+It tests each character which is read.
+If any has the parity bit set, or is a control character other
+than the standard carriage controls
+(RETURN, TAB, LINE-FEED, FORM-FEED or BACKSPACE),
+the file is flagged as non-ASCII.
+.b
+The display flag is presented at the beginning of the FORMAT display-column.
+ASCII files are flagged with an "_*".
+This flag is reset whenever the display-list entries are reread
+(e.g., in the READ command).
+
+.hl	BROWSE (M)
+.x Browsing>BROWSE
+.x BROWSE
+The BROWSE command evokes the ^&BROWSE\& browsing program,
+which is described in full in another document.
+BROWSE is a versatile display program,
+which supports a variety of display modes,
+search commands, and scrolling up/down and left/right.
+.;
+.;
+.tp5.b2;Format:
+.b
+The BROWSE command accepts all options of the BROWSE program except those
+which would alter the terminal characteristics (i.e., "/BG").
+It accepts a single file specification (no wildcards).
+If none is given, the current entry is assumed.
+.;
+.;
+.tp5.b2;Notes:
+.b
+The BROWSE program is integrated into FLIST.
+Thus it is is both versatile and fast.
+
+.hl	NEXT (N)
+.x Searching>NEXT
+.x NEXT
+The NEXT command continues the last search begun with FIND or NFIND.
+If no search pattern was given previously, an error is reported.
+.;
+.;
+.tp5.b2;Format:
+NEXT uses no arguments; it uses the search pattern given by the last
+FIND or NFIND command.
+.b
+.x Key assignments>CTRL/N, NEXT
+.x CTRL/N, NEXT
+.x Key assignments>PF3>NEXT
+.x PF3>NEXT
+NEXT may be invoked with a CTRL/N or PF3 (like EDT).
+.;
+.;
+.tp5.b2;Notes:
+NEXT uses the common FLIST search function.
+See FIND for a full description.
+
+.hl	NFIND (NF)
+.x Searching>NFIND
+.x NFIND
+NFIND is the logical complement of the FIND command.
+It searches for the first file ^&not\& matching the file specification.
+This enables you, for example, to skip over a series of files
+which have the same file type.
+.b
+.x NEXT
+Like FIND, NFIND may be followed by the NEXT command.
+In the NEXT command, FLIST will search for either the file matching
+or not matching the search pattern, depending on whether FIND or NFIND
+initiated the search.
+.;
+.;
+.tp5.b2;Format:
+.b
+.x Wildcard searches>NFIND
+NFIND requires a single file specification.
+Wildcards may be used.
+.;
+.;
+.tp5.b2;Notes:
+.b
+NFIND uses the common FLIST search function.
+There is one instance in which its operation is not immediately obvious.
+If command substitution is used, e.g.,
+.x Examples>Command substitution
+.b;########NFIND _*./T
+.b;FLIST will skip past all files having the same file type as the
+current entry on invocation.
+FLIST loads the search pattern once only, when the search is initiated.
+A single NFIND command cannot be used to set a pattern which will
+be reevaluated each time NEXT is invoked.
+To successively skip to the next file type, a combination of command
+retrieval and reexecution is required.
+
+.hl	PRINT (PR)
+.x File management>PRINT
+.x PRINT
+The PRINT command prints files using the VMS PRINT utility.
+.;
+.;
+.tp5.b2;Format:
+.b
+PRINT accepts an input list (including the current entry) and any
+legal combination of options for the VMS PRINT command.
+To print only the current file, give no file specification:
+.x Examples>PRINT
+.b;########PRINT
+.b;or, to print the current file with others:
+.b;########PRINT /,otherspecs
+.b;or, to print an arbitrary list of files:
+.b;########/O PRINT filelist
+.;
+.;
+.tp5.b2;Notes:
+.b
+.x VMS messages
+FLIST uses the VMS PRINT command to perform the print operation.
+.x Spawned subprocesses>PRINT
+The "/NOIDENTIFY" option is used to suppress the normal job-enqueued
+message returned by PRINT, to keep FLIST's display neat.
+(This cannot be overridden since it is supplied after all user options.)
+.b
+Because FLIST uses the VMS PRINT utility,
+the files to be printed need not appear in the display list.
+However, FLIST does verify the existence of these files.
+
+.hl	PROTECT (PRO)
+.x File management>PROTECT
+.x PROTECT, change protection
+.x Protection edit
+The FLIST PROTECT command allows you to issue a "SET#PROTECTION" command,
+or to enter a protection-editing mode (which is much simpler than the
+baroque VMS protection command).
+.;
+.;
+.tp5.b2;Format:
+.b
+The PROTECT command accepts a set of protection codes, in VMS format.
+There are four protection levels:
+.b;########SYSTEM, OWNER, GROUP, WORLD
+.b;Each may be set to any combination of
+.b;########READ, WRITE, EXECUTE, DELETE
+.b;For example, to set a file's protection so that anyone in the same
+accounting ^&group\& has read and execute access, type
+.x Examples>PROTECT
+.b;########PROTECT=G:RE
+.b;If more than one level is specified, parentheses must be used
+to group the codes:
+.b;########PROTECT=(G:RE,W:E)
+.b;Rights may be denied entirely by not specifying rights after the
+level name:
+.b;########PROTECT=G
+.b;If no codes are given, FLIST enters a special protection-editing mode.
+FLIST moves the cursor to the protection-MASK display field.
+By single keystroke commands, you may modify the protection codes:
+.lm+8
+.b.i-4
+.x Key assignments>Left-arrow, move cursor left
+.x Left-arrow, move cursor left
+.x Key assignments>CTRL/D, move cursor left
+.x CTRL/D, move cursor left
+.x Key assignments>Right-arrow, move cursor right
+.x Right-arrow, move cursor right
+.x Key assignments>CTRL/F>move cursor right
+.x CTRL/F>move cursor right
+o	The LEFT-ARROW and RIGHT-ARROW keys (or CTRL/D and CTRL/F)
+move the cursor left or right,
+respectively, through the 16-bit protection display.
+The cursor wraps-around when it reaches the end of the display field.
+A secondary display field is maintained in the command field,
+showing the name of the protection level within which the cursor lies:
+.b.lm+8
+.br;SYS - SYSTEM
+.br;OWN - OWNER
+.br;GRP - GROUP
+.br;WLD - WORLD
+.lm-8
+.b.i-4
+.x Key assignments>",", move to next protection-level
+.x ",", move to next protection-level
+o	The "," key moves the cursor to the next protection level, moving
+rightwards, with wraparound.
+This is useful for rapid, precise cursor movement.
+.b.i-4
+.x Key assignments>Up-arrow>enable protection
+.x Up-arrow>enable protection
+.x Key assignments>Down-arrow>disable protection
+.x Down-arrow>disable protection
+o	The UP-ARROW and DOWN-ARROW keys enable and disable the flag
+at the cursor position.
+The cursor is moved rightwards by one flag-bit.
+.x Highlighting>protection changes
+Flags which are altered during the editing process are both highlighted
+and translated to make changes visible:
+.lm+8
+.b.i-4
+-	Flags which have been enabled are uppercased.
+.b.i-4
+-	Flags which have been disabled are shown as "_.", rather than
+the ordinary "-".
+.lm-8
+.b.i-4
+.x Key assignments>"Y", copy protection-level code
+.x "Y", copy protection-level code
+.x Key assignments>"N", don't copy protection code
+.x "N", don't copy protection code
+o	The "Y" and "N" keys (case-independent) respectively select
+and deselect entire protection levels.
+If no changes have been made to a level, the "Y"-selection will still
+force FLIST to put the corresponding text of the protection-code into
+the command history, for later retrieval.
+This facilitates copying the protection codes from one file to another.
+.b.i-4
+.x Key assignments>CTRL/U, abort command
+.x CTRL/U, abort command
+.x Key assignments>CTRL/X, abort command
+.x CTRL/X, abort command
+o	CTRL/U or CTRL/X aborts the editing process.
+.b.i-4
+.x Key assignments>ENTER key>enter command
+.x ENTER key>enter command
+.x Key assignments>Return key>enter command
+.x Return key>enter command
+o	RETURN or ENTER issues the command.
+If no changes have been made, FLIST will not actually change
+the file (thus avoiding unnecessary modifications to the file).
+.b.lm-8
+.b
+.x Key assignments>CTRL/P, protection edit
+.x CTRL/P, protection edit
+The PROTECT command may also be invoked by typing CTRL/P.
+If the latter is used, no command text is saved for the command history.
+Normally, the completed text of the PROTECT command replaces the
+partial (i.e., without codes) text in the command history.
+.x Examples>PROTECT
+For example, you might type
+.b;########PRO
+.b;and follow it with four UP-ARROW keystrokes and RETURN.
+If the file's protection did not already specify "O:RWED",
+FLIST would replace the "PRO" by
+.b;########PROTECT=(O:RWED)
+.;
+.;
+.tp5.b2;Notes:
+.b
+The only syntactic difference between the FLIST PROTECT command and
+the corresponding VMS SET operation is that FLIST does not use the
+SET keyword.
+FLIST does not modify the default protection which it inherits from
+your environment on invocation; hence there is no need for a
+separate SHOW#PROTECTION command.
+.b
+If FLIST is run from the system console,
+the CTRL/P protection-edit should not be attempted.
+It stops the VAX computer!
+.b
+The PROTECT command affects only the current file entry.
+
+.hl	PURGE (PUR)
+.x File management>PURGE
+.x PURGE
+Like the VMS PURGE command, the FLIST PURGE command deletes obsolete
+versions of a file.
+Unlike VMS, FLIST allows you to be more selective about the
+files which are not deleted.
+.;
+.;
+.tp5.b2;Format:
+.b
+PURGE accepts a single file specification (with wildcards).
+If no file specification is given, PURGE assumes the current entry.
+PURGE deletes all unprotected files which have lower versions than
+those which match the file specification.
+.x Examples>PURGE
+For example, there may be three files,
+.b;########X.FOR;5 X.FOR;4 X.FOR;3
+.b;If you position the cursor at the "X.FOR;4" entry and types
+"PUR", then the lowest version only will be deleted (i.e., "X.FOR;3").
+.x Examples>Command substitution
+If you then type
+.b;########/O PUR /N./T;
+.b
+then the current entry would be deleted, since it is not the highest
+version.
+.;
+.;
+.tp5.b2;Notes:
+.b
+.x Wildcard searches>PURGE
+PURGE uses the common FLIST search utility.
+It recognizes no options.
+Like DELETE, PURGE reports the number of files which are deleted,
+as well as the version numbers of those which it could not delete.
+.b
+.x Display list>deleting files
+PURGE affects only those files which appear in the display-list.
+
+.hl	QUIT (Q)
+.x QUIT
+The QUIT command exits from one or more display levels,
+restoring FLIST's status before entering the level.
+.;
+.;
+.tp5.b2;Format:
+.b
+QUIT permits a single argument, to specify the number of levels
+to be exited:
+.lm+8
+.b.i-4
+.x Examples>QUIT
+o	a positive integer, or
+.b.i-4
+o	the flag "_*" (directing FLIST to quit all levels).
+.b.lm-8
+If no argument is given, FLIST quits one level only.
+If no more levels remain to quit, FLIST terminates.
+.b
+.x Key assignments>CTRL/Z, quit
+.x CTRL/Z, quit
+CTRL/Z (VMS end-of-input) is treated by FLIST as a single-level QUIT.
+.;
+.;
+.tp5.b2;Notes:
+.b
+Quitting multiple levels with a single command is faster than
+quitting them one by one, because no display refresh is required.
+
+.hl	READ (R)
+.x Read-list>READ
+.x READ
+The READ command rereads old directory entries, or appends new ones to
+the display list.
+.;
+.;
+.tp5.b2;Format:
+.b
+READ accepts an input list (zero or more file specifications separated
+by comma).
+If no specification is given, READ rereads the directory
+of each file specification using the ^&read-list\&.
+If a specification is given, READ reads the directory entries 
+which match the specification.
+FLIST also appends to the ^&read-list\& each (expanded) specification
+from the input list which did not previously appear in the ^&read-list\&.
+In this way, you may either refresh your directory display
+(to account for commands executed via spawned subprocesses),
+or augment the display by adding new display entries.
+.b
+.x Key assignments>CTRL/R, reread line
+.x CTRL/R, reread line
+A CTRL/R performs a reread for the current file only.
+.;
+.;
+.tp5.b2;Notes:
+.b
+.x Display list>appending via READ
+FLIST appends new file specifications to the ^&read-list\& if they
+differ from all previous members.
+It can not determine if one specification's range overlaps another's.
+For example, the specification list
+.b;########_*._*,_*.FOR
+.b;need result in only one item, since the "_*.FOR" is easily determined
+to be a proper subset of the "_*._*".
+However,
+.b;########_*.F_*,_*._*R
+.b;will result in two items for the ^&read-list\&,
+even though the only files satisfying this would be "_*.FOR".
+If several grossly-overlapping specifications are entered
+into FLIST's ^&read-list\&, performance of the READ command will
+deteriorate markedly.
+
+.hl	RENAME (REN)
+.x File management>RENAME
+.x RENAME
+The RENAME command renames a single file.
+VMS permits any combination of the directory-path, name, type or version
+to be altered.
+(A file may be renamed into another directory if both reside on the
+same device).
+.;
+.;
+.tp5.b2;Format:
+.b
+RENAME requires two arguments, a source and destination file specification.
+.;
+.;
+.tp5.b2;Notes:
+.b
+FLIST does not permit wildcard renames,
+nor does it recognize any of the options supported by the VMS RENAME
+facility.
+.b
+Files which are not in the display-list may be renamed.
+.x Display list>appending via RENAME
+The resultant file is appended to the display-list.
+
+.hl	SPAWN (SP)
+.x Spawned subprocesses>SPAWN
+.x SPAWN
+The SPAWN command uses the VMS subprocess-spawn facility to
+create a subprocess in which you can enter normal VMS commands.
+.;
+.;
+.tp5.b2;Format:
+.b
+The SPAWN command uses no arguments.
+To exit from the subprocess, type LOGOFF.
+.;
+.;
+.tp5.b2;Notes:
+.b
+The subprocess inherits all of the parent process's symbols,
+but not all of its rights.
+For example, print jobs enqueued by the parent process cannot
+be deleted from a subprocess.
+Nor can batch jobs be removed.
+However, most files can be modified, and additional batch jobs
+and print jobs enqueued.
+Thus, a spawned subprocess is a nearly-transparent copy of
+the original parent process from which FLIST is run.
+.b
+Spawning a subprocess can be slow.
+It has as much overhead as logging on.
+The major difference is that you need not specify a password
+to enter the subprocess.
+Exiting from the subprocess is fast, however, and FLIST will
+immediately refresh the display.
+.b
+Spawning a subprocess uses up one of the subprocesses in your
+subprocess limit.
+Because FLIST employs no subprocesses, it is possible to enter
+FLIST more than once if your subprocess limit is at least two.
+.b
+FLIST does not catch CTRL/C.
+If you interrupt any task in the subprocess with a CTRL/C,
+then on exit from the subprocess FLIST will be terminated.
+
+.hl	SUBMIT (SU)
+.x Spawned subprocesses>SUBMIT
+.x SUBMIT
+The SUBMIT command enables you to submit batch jobs from FLIST.
+.;
+.;
+.tp5.b2;Format:
+.b
+SUBMIT follows the same format as in the VMS command.
+It expects an input list.
+This FLIST command is particularly well-suited for symbol substitution.
+Commonly used batch jobs should be equated to symbols, e.g.,
+.x Command substitution>User-defined symbols
+.x Examples>SUBMIT
+.b;########FTN_*COMPILE :== SUBMIT/QUEUE=SYS_$BATCH FTNCOM.COM PARA=
+.b
+Then, the symbol FTNCOMPILE could be used as a FLIST command accepting
+the current file entry as an argument:
+.x Examples>Command substitution
+.b;########FTN
+.br;########FTN (/,proc-options)
+.br;########FTN / submit-options
+.;
+.;
+.tp5.b2;Notes:
+.b
+.x VMS messages
+FLIST uses the VMS SUBMIT command to implement its SUBMIT.
+It sets the "/NOIDENTIFY" option to make the display neater,
+as in PRINT.
+
+.hl	VERIFY (VE)
+.x Display list>VERIFY
+.x VERIFY
+The VERIFY command supplements the READ command.
+Rather than augmenting the display-list, it removes items.
+.;
+.;
+.tp5.b2;Format:
+.b
+Like READ, VERIFY accepts a file specification list.
+It performs one of two closely related trimming functions,
+depending on whether an argument list is given:
+.lm+8
+.b.i-4
+.x Read-list>VERIFY
+.x Display list>removal via VERIFY
+o	If no list is given, VERIFY trims from the display-list
+all entries which do not appear in a rescan of the read-list.
+All files which were deleted by programs unknown to FLIST will
+be removed from the display-list, as well as those which do
+not match any specification in the read-list (e.g., those which
+were renamed).
+.x Key assignments>CTRL/V, verify
+.x CTRL/V, verify
+This global scan may be invoked with a CTRL/V.
+.b.i-4
+o	If an argument list is given, VERIFY rescans all
+files in the display-list which match any specification in the
+argument list.
+Any files found to have been deleted are removed from the display list.
+.lm-8
+.;
+.;
+.tp5.b2;Notes:
+.b
+.x Wildcard searches>VERIFY
+VERIFY uses the common FLIST search utility to implement the wildcard
+matching of display-list entries against its argument list.
+All entries are matched before performing the directory scan.
+Like READ, VERIFY's performance will degrade if the read-list
+contains much overlap.

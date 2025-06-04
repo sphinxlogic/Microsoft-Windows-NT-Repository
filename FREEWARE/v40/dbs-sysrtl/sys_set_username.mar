@@ -1,0 +1,127 @@
+	.title	sys_set_username
+	.ident	/X1-003/
+
+;+
+; Version:	X1-003
+;
+; Facility:	General system routines.
+;
+; Abstract:	Change the username associated with the current process.
+;
+; Environment:	Kernel mode.
+;
+; History:
+;
+;	28-Sep-1990, DBS, Version X1-001
+; 001 -	Original version.
+;	06-Jun-1995, DBS; Version X1-002
+; 002 -	Move parameter checks out of the kernel mode routine... and drop
+;	the jib lock...
+;	04-Sep-1995, DBS; Version X1-003
+; 003 -	Added conditional stuff for alpha.
+;-
+
+;++
+; Functional Description:
+;	Changes the username of the current process to that specified.
+;
+; Calling Sequence:
+;	status = sys_set_username (new_name)
+;		-or-
+;	pushaq	new_name
+;	calls	#1, g^sys_set_username
+;	blbc	r0, error
+;
+; Formal Argument(s):
+;	new_name.rt.ds	Address of a fixed length string descriptor which
+;			points to the new process username.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_ivbuflen	The length of the dtring was not 12 characters.
+;	ss$_insfarg	Insufficient arguments specified in the call.
+;	ss$_normal	Successful completion.
+;	ss$_ovrmaxarg	Too many arguments specified in the call.
+;
+; Side Effects:
+;	It is possible to cause BUGCHECKS or system hangs if this routine
+;	is not used carefully.
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	.ntype ...on_alpha...,R31
+	.iif equal,<...on_alpha...@-4&^XF>-5,alpha=0
+	.iif defined,alpha, .disable flagging
+;jsb_name:: .iif defined,alpha,.jsb_entry input=<R0>,output=<R0>
+
+	$jibdef
+	$pcbdef
+	$ssdef
+
+	.external ctl$gl_pcb
+	.external ctl$t_username
+
+arg_count=1				; to see if we have one argument
+p1=4					; offset first argument
+p1_len=12				; to check the length of the name
+address=4				; offset to the string address
+space=32
+
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_code
+
+        .entry -
+sys_set_username, ^m<>
+	cmpw	(ap), #arg_count	; do we have one argument ?
+	bgtr	10$			; too many, bail out
+	bneq	20$			; nope, not enough, bail out
+	tstl	p1(ap)			; check address of descriptor
+	beql	20$			; not a real argument
+	cmpw	@p1(ap), #p1_len	; check the length of the string
+	bneq	30$			; bail out if not 12 characters
+	movl	p1(ap), r1		; grab the descriptor address
+	movl	address(r1), r1		; now get the string address
+	tstl	(r1)+			; now read each of the longwords
+	tstl	(r1)+			;  to hopefully fault them before
+	tstl	(r1)+			;  we get to kernel mode...
+	$cmkrnl_s -
+		routin=sys___set_username, -
+		arglst=(ap)
+	movl	#ss$_normal, r0
+	brb	40$
+10$:	movl	#ss$_ovrmaxarg, r0
+	brb	40$
+20$:	movl	#ss$_insfarg, r0
+	brb	40$
+30$:	movl	#ss$_ivbuflen, r0
+40$:	ret
+
+	.entry -
+sys___set_username, ^m<r2,r3,r4,r5,r6,r7>
+	movl	p1(ap), r7		; grab the descriptor address
+	movl	address(r7), r7		; now get the string address
+	movc5	#p1_len, (r7), #space, - ; update the pcb copy of the
+		#p1_len, ctl$t_username	;  username
+	movl	ctl$gl_pcb, r1		; grab the pcb pointer
+	movl	pcb$l_jib(r1), r6	; now the pointer to the jib
+;;;	lock	lockname=jib		; lock the jib before we fiddle it
+	movc5	#p1_len, (r7), #space, - ; update the jib copy of the
+		#p1_len, jib$t_username(r6) ; username
+;;;	unlock	lockname=jib		; unlock the jib, we're finished
+	ret
+
+sys_set_username_end::
+	.iif defined,alpha,.jsb_entry input=<R0>,output=<R0>
+
+	.end

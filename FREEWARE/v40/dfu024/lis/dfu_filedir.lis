@@ -1,0 +1,3091 @@
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 1
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (1)
+
+
+
+    1        	/*
+    2        	     DFU V2.4
+    3        	
+    4        	     DFU_FILEDIR.C
+    5        	
+    6        	     This file contains the file and directory scanning routines.
+    7        	
+    8        	     Called by SET , DELETE, DEFRAG and DIRECTORY
+    9        	
+   10        	*/
+   11        	
+   12        	#ifndef VAXC
+   13        	#pragma message disable(ALIGNEXT)
+   14        	#pragma message disable(GLOBALEXT)
+   15        	#pragma message disable(INCOMPARRY)
+   16        	#pragma message disable(PTRMISMATCH)
+   17        	#endif
+   18        	
+   19        	#include ssdef
+ 1510        	#include atrdef
+ 1706        	#include libdef
+ 2081        	#include stdio
+ 2757        	#include descrip
+ 3733        	#include climsgdef
+ 4079        	#include syidef
+ 4591        	#include rms
+ 8696        	#include fibdef
+ 9174        	#include "file_hdr"
+ 9612        	#include iodef
+10587        	#include sor$routines
+10740        	#include smgdef
+11579        	#include trmdef
+11753        	#ifndef IO$M_MOVEFILE
+11754   X    	#define IO$M_MOVEFILE 4096
+11755   X    	#endif
+11756        	
+11757        	typedef unsigned long Boolean;
+11758        	
+11759        	typedef struct _d_e {
+11760        	  unsigned short size, versionlim;
+11761        	  unsigned char flags, count, name[]; 
+11762        	};
+11763        	typedef struct _f_e {
+11764        	  unsigned short version, fid_num, fid_seq;
+11765        	  unsigned char fid_rvn, fid_nmx; 
+11766        	};
+11767        	
+11768        	/* Structure for work list */
+11769        	typedef struct work { 
+11770        	  unsigned short fid_num, fid_seq;
+11771        	  unsigned char fid_rvn, fid_nmx;
+11772        	  unsigned short did_num, did_seq;
+11773        	  unsigned char did_rvn, did_nmx; 
+11774        	  char name[86]; 
+11775        	  char function;
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 2
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (1)
+
+11776        	  short rvn; 
+11777        	  struct work *next; 
+11778        	};
+11779        	
+11780        	extern struct work *list, *first;
+11781        	extern unsigned int ctrlc, paste_id, keyb_id, disp1_id;
+11782        	extern Boolean trigger, smg$enable;
+11783        	extern char outbuf[255];
+11784        	
+11785        	/* Share memory space */
+11786        	extern _align(PAGE) struct _hdr {
+11787        	  char block[512];
+11788        	} 
+11789        	header[1001];
+11790        	
+11791        	static unsigned int status, version, alloc, ratio, truncsize, lbn;
+11792        	static Boolean matalias, matcheck, matversion, matdump, matformat,
+11793        	mattruncate, mattest, matempty, matrepair, matlbn, matkeep;
+11794        	static FILE *fp;
+11795        	static struct {
+11796        	  unsigned short iosb_1; 
+11797        	  unsigned int length; 
+11798        	  short spec; 
+11799        	} 
+11800        	iostat;
+11801        	
+11802        	static char f_string[255];
+11803        	$DESCRIPTOR(ctrstr1, f_string);
+11804        	
+11805        	/* Keep list for directory tree */
+11806        	struct keep { 
+11807        	  unsigned short f_id[3],d_id[3];
+11808        	  char filename[255];
+11809        	  struct keep *next; 
+11810        	} 
+11811        	*k_first, *k_list;
+11812        	
+11813        	globalvalue DFU_ASSIGN, DFU_NOPRIV;
+11814        	
+11815        	int display_stat();
+11816        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 3
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (2)
+
+             	
+11817        	int set_command(mask)
+11818        	/* 
+11819        	   Set any file attribute you like!
+11820        	*/
+11821        	
+11822        	{ 
+11823        	  struct FAB fab;
+11824        	  struct NAM nam;
+11825        	  struct XAB *xab;
+11826        	  static struct fibdef fib;
+11827        	  struct {
+11828        	    int fiblen; 
+11829        	    struct fibdef *fibadr;
+11830        	  } 
+11831        	  fibdescr;
+11832        	  static struct _quad {
+11833        	    unsigned int date[2];
+11834        	  } 
+11835        	  bakdate, expdate, credate, 
+11836        	  revdate, r_bakdate, r_expdate, r_credate, r_revdate;
+11837        	  static struct _four {
+11838        	    unsigned short date[4];
+11839        	  } 
+11840        	  ascdates;
+11841        	  static char res_str[255], exp_str[255], devnam[15], 
+11842        	  new_name[86], old_name[86],
+11843        	  fname[255], lname[255], xname[255], dummy[80], ans[4], ident[30];
+11844        	  unsigned int func, x, bad, dir, lock, log, cont, rvcount, uic, i, 
+11845        	  bucksize, vfcsize, maxrec, eblock, ebyte, hiblk, modifiers;
+11846        	  unsigned short chan, rtype,fileorg, recsize;
+11847        	  static unsigned long uchar , old_uic ;
+11848        	  static struct {
+11849        	    unsigned char rtype, rattrib;
+11850        	    unsigned short rsize;
+11851        	    unsigned int hiblk, efblk;
+11852        	    unsigned short ffbyte;
+11853        	    unsigned char bktsize, vfcsize;
+11854        	    unsigned short maxrec, defext, gbc, fill[4], versions; 
+11855        	  } 
+11856        	  attrib;
+11857        	  Boolean matfile, matbadacl, matdir, matupdate, matlock, matcont, matbakdate,
+11858        	  matexpdate, matcredate, matrevdate, matlog, matrvcount, matrecsize,
+11859        	  matfortran,matimplied,matprint,matnospan, matnone, matbucksize,
+11860        	  matvfcsize, matmaxrec, matfixed, matvar, matvfc, matundef, matstream,
+11861        	  matstreamlf, matstreamcr, matdirect, matindex, matrelat, matseq,
+11862        	  matebyte, mateblock, matconfirm, matuic, matname;
+11863        	  static struct { 
+11864        	    unsigned short atr_size, atr_type;
+11865        	    int atr_address; 
+11866        	  } 
+11867        	  acb[10] =  { 
+11868        	    {
+11869        	      32, ATR$C_RECATTR, (int) &attrib     }
+11870        	    , 
+11871        	    { 
+11872        	      8, ATR$C_ASCDATES, (int) &ascdates     }
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 4
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (2)
+
+11873        	    ,
+11874        	    { 
+11875        	      8, ATR$C_CREDATE, (int) &credate     } 
+11876        	    , 
+11877        	    { 
+11878        	      8, ATR$C_REVDATE, (int) &revdate     } 
+11879        	    , 
+11880        	    { 
+11881        	      8, ATR$C_BAKDATE, (int) &bakdate     } 
+11882        	    , 
+11883        	    { 
+11884        	      8, ATR$C_EXPDATE, (int) &expdate     } 
+11885        	    , 
+11886        	    { 
+11887        	      86, ATR$C_ASCNAME, (int) &old_name     } 
+11888        	    , 
+11889        	    { 
+11890        	      4, ATR$C_UIC, (int) &old_uic     } 
+11891        	    ,
+11892        	    { 
+11893        	      4, ATR$C_UCHAR, (int) &uchar     } 
+11894        	    , { 
+11895        	      0, 0, 0     } 
+11896        	  };
+11897        	  FILE *ip;
+11898        	  $DESCRIPTOR(devnam_descr , devnam);
+11899        	  $DESCRIPTOR(xname_descr , xname);
+11900        	  $DESCRIPTOR(lname_descr , lname);
+11901        	  $DESCRIPTOR(dummy_descr , dummy);
+11902        	  $DESCRIPTOR(answer , ans);
+11903        	  $DESCRIPTOR(new_name_descr, new_name);
+11904        	  $DESCRIPTOR(id_descr, ident);
+11905        	  $DESCRIPTOR(prompt,outbuf);
+11906        	
+11907        	  status = 1;
+11908        	  modifiers = SMG$M_NORECALL | SMG$M_NOKEEP;
+11909        	  /* Check file name */
+11910        	  status = parse_item("p1", &xname_descr, 0 , &matfile, 0);
+11911        	  if (matfile == FALSE) 
+11912        	  { 
+11913        	    sprintf(outbuf,"%%DFU-E-NOFILSPEC, No file specified on command line");
+11914        	    put_disp(); 
+11915        	    return(SS$_NOSUCHFILE);
+11916        	  }
+11917        	
+11918        	/* Get all the attributes */
+11919        	  status = parse_item("new_name", &new_name_descr, 0, &matname, 0);
+11920        	  status = parse_item("confirm", &dummy_descr, 0 , &matconfirm, 2);
+11921        	  status = parse_item("update", &dummy_descr, 0 , &matupdate, 2);
+11922        	  status = parse_item("contiguous_best_try", &dummy_descr, &cont, &matcont, 7);
+11923        	  status = parse_item("locked", &dummy_descr, &lock, &matlock, 7);
+11924        	  status = parse_item("badacl", &dummy_descr, &bad, &matbadacl, 7);
+11925        	  status = parse_item("directory", &dummy_descr, &dir, &matdir, 7);
+11926        	  log = 0;
+11927        	  status = parse_item("log", &dummy_descr, &log, &matlog, 7);
+11928        	  status = parse_item("backup_date", &dummy_descr, 
+11929        	  &r_bakdate, &matbakdate, 4);
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 5
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (2)
+
+11930        	  status = parse_item("creation_date", &dummy_descr, 
+11931        	  &r_credate, &matcredate, 4);
+11932        	  status = parse_item("expiration_date", &dummy_descr, 
+11933        	  &r_expdate, &matexpdate, 4);
+11934        	  status = parse_item("revision_date", &dummy_descr, 
+11935        	  &r_revdate, &matrevdate, 4);
+11936        	  ebyte = eblock = 0;
+11937        	  status = parse_item("ebyte", &dummy_descr, &ebyte, &matebyte, 1);
+11938        	  status = parse_item("eblock", &dummy_descr, &eblock, &mateblock, 1);
+11939        	  status = parse_item("rvcount", &dummy_descr, &rvcount, &matrvcount, 1);
+11940        	  status = parse_item("recsize", &dummy_descr, &recsize, &matrecsize, 1);
+11941        	  status = parse_item("bucketsize", &dummy_descr, &bucksize, &matbucksize, 1);
+11942        	  status = parse_item("vfcsize", &dummy_descr, &vfcsize, &matvfcsize, 1);
+11943        	  status = parse_item("maxrec", &dummy_descr, &maxrec, &matmaxrec, 1);
+11944        	  status = parse_item("fortran", &dummy_descr, 0 , &matfortran, 2);
+11945        	  status = parse_item("implied", &dummy_descr, 0 , &matimplied, 2);
+11946        	  status = parse_item("print", &dummy_descr, 0 , &matprint, 2);
+11947        	  status = parse_item("none", &dummy_descr, 0 , &matnone, 2);
+11948        	  status = parse_item("nospan", &dummy_descr, 0 , &matnospan, 2);
+11949        	  status = parse_item("fixed", &dummy_descr, 0 , &matfixed, 2);
+11950        	  status = parse_item("variable", &dummy_descr, 0 , &matvar, 2);
+11951        	  status = parse_item("vfc", &dummy_descr, 0 , &matvfc, 2);
+11952        	  status = parse_item("undefined", &dummy_descr, 0 , &matundef, 2);
+11953        	  status = parse_item("stream", &dummy_descr, 0 , &matstream, 2);
+11954        	  status = parse_item("streamlf", &dummy_descr, 0 , &matstreamlf, 2);
+11955        	  status = parse_item("streamcr", &dummy_descr, 0 , &matstreamcr, 2);
+11956        	  status = parse_item("direct", &dummy_descr, 0 , &matdirect, 2);
+11957        	  status = parse_item("indexed", &dummy_descr, 0 , &matindex, 2);
+11958        	  status = parse_item("relative", &dummy_descr, 0 , &matrelat, 2);
+11959        	  status = parse_item("sequential", &dummy_descr, 0 , &matseq, 2);
+11960        	  /* Ident or UIC */
+11961        	  status = parse_item("ident", &dummy_descr, &uic, &matuic, 6);
+11962        	  if (matuic == FALSE) 
+11963        	    status = parse_item("uic", &dummy_descr, &uic, &matuic, 6);
+11964        	  if ((status &1 ) != 1)
+11965        	  { 
+11966        	    sprintf(outbuf,"%%DFU-E-INVID, Wrong uic or identifier,");
+11967        	    put_disp(); 
+11968        	    singlemsg(0,status);
+11969        	    return(status); 
+11970        	  }
+11971        	  id_descr.dsc$w_length = 30;
+11972        	
+11973        	  ip = 0;
+11974        	  while((matfile) && (ctrlc ==0))/* Loop through the file list */
+11975        	  { 
+11976        	    x = strindex(&xname," ",255); 
+11977        	    xname[x] = '\0';
+11978        	    if (xname[0] == '@')
+11979        	    { 
+11980        	      if (ip == 0) 
+11981        	      { 
+11982        	        ip = fopen(&xname[1],"r");
+11983        	        if (ip == 0)
+11984        	        { 
+11985        	          sprintf(outbuf,"%%DFU-E-OPENERR, Error opening file %s",&xname[1]);
+11986        	          put_disp(); 
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 6
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (2)
+
+11987        	          goto next_name;
+11988        	        }
+11989        	      }
+11990        	      status = (int) fgets(fname,255,ip);
+11991        	      if (status !=0)
+11992        	      { 
+11993        	        x = strindex(&fname," ",255); 
+11994        	        fname[x] = '\0';
+11995        	      }
+11996        	      else
+11997        	      { 
+11998        	        fclose(ip); 
+11999        	        ip = 0; 
+12000        	        goto next_name;
+12001        	      }
+12002        	    }
+12003        	    else strcpy(fname,xname);
+12004        	
+12005        	    fibdescr.fiblen = sizeof(fib);
+12006        	    fibdescr.fibadr = &fib;
+12007        	
+12008        	    /* fill in FAB and NAM blocks */
+12009        	
+12010        	    fab = cc$rms_fab;
+12011        	    fab.fab$l_fna = (char *) &fname;
+12012        	    fab.fab$b_fns = strlen(fname);
+12013        	    fab.fab$l_nam = &nam;
+12014        	
+12015        	    nam = cc$rms_nam;
+12016        	    nam.nam$b_rss = NAM$C_MAXRSS;
+12017        	    nam.nam$l_rsa = (char *) &res_str;
+12018        	    nam.nam$b_ess = NAM$C_MAXRSS;
+12019        	    nam.nam$l_esa = (char *) &exp_str;
+12020        	
+12021        	    /* get the rest of the fab fields */
+12022        	
+12023        	    status = SYS$PARSE(&fab , 0 , 0);
+12024        	    if ((status & 1 ) != 1) 
+12025        	    { 
+12026        	      sprintf(outbuf,"%%DFU-E-PARSEERR, Error parsing filename from %s,"
+12027        	        , fname); 
+12028        	      put_disp();
+12029        	      singlemsg(0,status); 
+12030        	      status = RMS$_NMF; 
+12031        	      goto next_set;
+12032        	    }
+12033        	
+12034        	    /* now search for the file */
+12035        	
+12036        	    status = SYS$SEARCH(&fab , 0 , 0);
+12037        	    while (status != RMS$_NMF)
+12038        	    { 
+12039        	      res_str[nam.nam$b_rsl] = '\0';
+12040        	      if ((status & 1 ) != 1) 
+12041        	      { 
+12042        	        sprintf(outbuf,"%%DFU-E-SEARCHERR, Error searching file %s,"
+12043        	          , res_str); 
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 7
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (2)
+
+12044        	        put_disp();
+12045        	        singlemsg(0,status); 
+12046        	        status = RMS$_NMF; 
+12047        	        goto next_set;
+12048        	      }
+12049        	      res_str[nam.nam$b_rsl] = '\0';
+12050        	
+12051        	      /* Open a channel to the device */
+12052        	      devnam_descr.dsc$w_length = nam.nam$t_dvi[0];
+12053        	      strcpy(devnam,&nam.nam$t_dvi[1]);
+12054        	      status = SYS$ASSIGN(&devnam_descr, &chan, 0 , 0);
+12055        	      if ((status & 1 ) != 1) 
+12056        	      { 
+12057        	        singlemsg(DFU_ASSIGN,status); 
+12058        	        return(status);
+12059        	      }
+12060        	
+12061        	      /* Now fill in File id and function code for the ACP call */
+12062        	      fib.fib$w_fid[0] = nam.nam$w_fid_num;
+12063        	      fib.fib$w_fid[1] = nam.nam$w_fid_seq;
+12064        	      fib.fib$w_fid[2] = nam.nam$w_fid_rvn;
+12065        	      if (matupdate)
+12066        	        fib.fib$l_acctl = 
+12067        	          FIB$M_WRITE | FIB$M_WRITETHRU | FIB$M_NOWRITE | FIB$M_NOREAD;
+12068        	      else
+12069        	        fib.fib$l_acctl = 
+12070        	          FIB$M_WRITE | FIB$M_WRITETHRU | FIB$M_NOWRITE | FIB$M_NOREAD |
+12071        	          FIB$M_NORECORD; 
+12072        	      if (matuic) fib.fib$l_acctl |= FIB$M_NOLOCK;
+12073        	      func = IO$_ACCESS | IO$M_ACCESS;
+12074        	      status = SYS$QIOW(0, chan, func, &iostat, 0,0,
+12075        	      &fibdescr, 0 ,0 ,0 , acb, 0);
+12076        	      if ((status & 1) == 1) status = iostat.iosb_1;
+12077        	      if ((status & 1) != 1) 
+12078        	      { 
+12079        	        sprintf(outbuf,"%%DFU-E-OPENERR, Error accesing file %s,", res_str);
+12080        	        put_disp(); 
+12081        	        singlemsg(0,status); 
+12082        	        status = 1; 
+12083        	        goto next_set;
+12084        	      }
+12085        	
+12086        	      /* Confirm this file ? */
+12087        	      ans[0] = 'y';
+12088        	      if(matconfirm)
+12089        	      { 
+12090        	        sprintf(outbuf,"Modify %s ? : ",res_str);
+12091        	        ans[0] = 'n'; 
+12092        	        x = 4;
+12093        	        prompt.dsc$w_length = strlen(outbuf);
+12094        	        if (smg$enable) 
+12095        	          status = SMG$READ_COMPOSED_LINE(&keyb_id, 0, &answer,
+12096        	          &prompt , &x, &disp1_id, &modifiers, 0,0,0,0,0);
+12097        	        else
+12098        	          status = SMG$READ_COMPOSED_LINE(&keyb_id, 0, &answer,
+12099        	          &prompt , &x, 0 , &modifiers, 0,0,0,0,0);
+12100        	        if ((ans[0] == 'a') || (ans[0] == 'A'))
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 8
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (2)
+
+12101        	        { 
+12102        	          matconfirm = FALSE; 
+12103        	          ans[0] = 'y'; 
+12104        	        }
+12105        	        if ((ans[0] == 'y') || (ans[0] == 'Y') || (ans[0] == '1')
+12106        	          || (ans[0] == 't') || (ans[0] == 'T'))
+12107        	          ans[0] = 'y';
+12108        	        else ans[0] = 'n';
+12109        	      }
+12110        	
+12111        	/* Now modify all the required attributes */
+12112        	      if (ans[0] == 'y')
+12113        	      { 
+12114        	        rtype = attrib.rtype % 16;
+12115        	        fileorg = attrib.rtype - rtype;
+12116        	        fileorg = fileorg / 16 ;
+12117        	        if (matbadacl) 
+12118        	          if (bad == 0) uchar = uchar | FH2$M_BADACL; /* Set the bit */
+12119        	          else uchar = uchar & ~FH2$M_BADACL; /* Clear the bit */
+12120        	        if (matdir) 
+12121        	          if (dir == 0) uchar = uchar | FH2$M_DIRECTORY; /* Set the bit */
+12122        	          else uchar = uchar & ~FH2$M_DIRECTORY; /* Clear the bit */
+12123        	        if (matlock) 
+12124        	          if (lock == 0) uchar = uchar | FH2$M_LOCKED; /* Set the bit */
+12125        	          else uchar = uchar & ~FH2$M_LOCKED; /* Clear the bit */
+12126        	        if (matcont) 
+12127        	          if (cont == 0) uchar = uchar | FH2$M_CONTIGB; /* Set the bit */
+12128        	          else 
+12129        	            uchar = uchar & ~FH2$M_CONTIGB; /* Clear the bit */
+12130        	        if (matname)
+12131        	        { 
+12132        	          for (i = 0; i < 86; i++) old_name[i] = ' ';
+12133        	          memcpy(&old_name, &new_name, new_name_descr.dsc$w_length);
+12134        	        }
+12135        	        if (matbakdate) memcpy(&bakdate, &r_bakdate, 8);
+12136        	        if (matrevdate) memcpy(&revdate, &r_revdate, 8);
+12137        	        if (matexpdate) memcpy(&expdate, &r_expdate, 8);
+12138        	        if (matcredate) memcpy(&credate, &r_credate, 8);
+12139        	        if (matebyte) attrib.ffbyte = ebyte;
+12140        	        if (mateblock)
+12141        	        { 
+12142        	          if (!matebyte) attrib.ffbyte = 0; /* Clear eof if it was not specified */
+12143        	          hiblk = attrib.hiblk; /* Save highest block */
+12144        	          if (eblock == 0) 
+12145        	            eblock = (hiblk / 65536 ) + ((hiblk %65536) << 16);
+12146        	          if (ebyte == 0) eblock++;
+12147        	          hiblk = (eblock % 65536) << 16;
+12148        	          hiblk += (eblock / 65536);
+12149        	          attrib.efblk = hiblk;
+12150        	        }
+12151        	        if (matuic) old_uic = uic;
+12152        	        if (matrvcount) ascdates.date[0] = rvcount;
+12153        	        if (matrecsize) attrib.rsize = recsize;
+12154        	        if (matbucksize) attrib.bktsize = (unsigned char) bucksize;
+12155        	        if (matvfcsize) attrib.vfcsize = (unsigned char) vfcsize;
+12156        	        if (matmaxrec) attrib.maxrec = maxrec;
+12157        	        if (matnone) attrib.rattrib = 0;
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 9
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (2)
+
+12158        	        if (matfortran) attrib.rattrib = FAT$M_FORTRANCC;
+12159        	        if (matimplied) attrib.rattrib = FAT$M_IMPLIEDCC;
+12160        	        if (matprint) attrib.rattrib = FAT$M_PRINTCC;
+12161        	        if (matnospan) attrib.rattrib = attrib.rattrib | FAT$M_NOSPAN;
+12162        	        if (matfixed) rtype = FAT$C_FIXED;
+12163        	        if (matvar) rtype = FAT$C_VARIABLE;
+12164        	        if (matvfc) rtype = FAT$C_VFC;
+12165        	        if (matundef) rtype = FAT$C_UNDEFINED;
+12166        	        if (matstream) rtype = FAT$C_STREAM;
+12167        	        if (matstreamlf) rtype = FAT$C_STREAMLF;
+12168        	        if (matstreamcr) rtype = FAT$C_STREAMCR;
+12169        	        if (matindex) fileorg = FAT$C_INDEXED;
+12170        	        if (matdirect) fileorg = FAT$C_DIRECT;
+12171        	        if (matrelat) fileorg = FAT$C_RELATIVE;
+12172        	        if (matseq) fileorg = FAT$C_SEQUENTIAL;
+12173        	        attrib.rtype = (unsigned char) (fileorg * 16) + 
+12174        	          (unsigned char) rtype;
+12175        	        /* Now rewrite the file header */
+12176        	        status = SYS$QIOW(0, chan, IO$_MODIFY, &iostat, 0,0,
+12177        	        &fibdescr, 0, 0, 0, acb, 0);
+12178        	        if ((status & 1) == 1) status = iostat.iosb_1;
+12179        	        if ((status & 1) != 1) 
+12180        	        { 
+12181        	          sprintf(outbuf,"%%DFU-E-SETERR, Error modifying file %s,", res_str);
+12182        	          put_disp(); 
+12183        	          singlemsg(0,status); 
+12184        	        }
+12185        	        else
+12186        	          if (log == 0) 
+12187        	          { 
+12188        	            sprintf(outbuf,"%%DFU-S-MODIFIED, File %s modified ",res_str);
+12189        	            put_disp();
+12190        	          }
+12191        	      }
+12192        	      status = SYS$QIOW(0, chan, IO$_DEACCESS, &iostat ,0,0,
+12193        	      &fibdescr,0,0,0,0,0);
+12194        	      status = 1;
+12195        	
+12196        	next_set:
+12197        	      if ((status & 1) == 1) status = SYS$SEARCH(&fab , 0 , 0);
+12198        	      else status = RMS$_NMF;
+12199        	      SYS$DASSGN(chan);
+12200        	      if (ctrlc == 1) 
+12201        	      { 
+12202        	        do_abort();
+12203        	        status = RMS$_NMF;
+12204        	      }
+12205        	    }
+12206        	next_name:
+12207        	    if (ip == 0)
+12208        	    { 
+12209        	      xname_descr.dsc$w_length = 255;
+12210        	      status = parse_item("p1", &xname_descr, 0 , &matfile, 0);
+12211        	      if ((status & 1) != 1) matfile = FALSE;
+12212        	    }
+12213        	  }
+12214        	  if (ip != 0) fclose(ip);
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 10
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (2)
+
+12215        	  sprintf(outbuf,"\n%%DFU-I-READY, SET command ready");
+12216        	  put_disp();
+12217        	  return(1);
+12218        	}
+12219        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 11
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (3)
+
+             	
+12220        	int delete_file(unsigned short id[3], unsigned short dchan, 
+12221        	Boolean noremove, Boolean deldir, Boolean nolog,
+12222        	Boolean rem_file)
+12223        	/* 
+12224        	   Performs the actual file delete
+12225        	   Assumes channel already opened
+12226        	*/
+12227        	
+12228        	{ 
+12229        	  static char file[86];
+12230        	  static struct fibdef dfib; 
+12231        	  static unsigned short back[3];
+12232        	  static unsigned int uchar;
+12233        	  unsigned int tmp, status2;
+12234        	  static struct { 
+12235        	    unsigned short atr_size, atr_type;
+12236        	    int atr_address; 
+12237        	  } 
+12238        	  d_acb[4] =  { 
+12239        	    {
+12240        	      86, ATR$C_ASCNAME, (int) &file[0]    }
+12241        	    , 
+12242        	    {
+12243        	      6, ATR$C_BACKLINK, (int) &back[0]    }
+12244        	    ,
+12245        	    { 
+12246        	      4, ATR$C_UCHAR, (int) &uchar    } 
+12247        	    , {
+12248        	      0, 0, 0    } 
+12249        	  };
+12250        	  struct {
+12251        	    int fiblen; 
+12252        	    struct fibdef *fibadr;
+12253        	  } 
+12254        	  dfib_descr;
+12255        	  unsigned int func;
+12256        	
+12257        	  /* Setup d_fib */
+12258        	  dfib_descr.fiblen = sizeof(dfib);
+12259        	  dfib_descr.fibadr = &dfib;
+12260        	  func = IO$_ACCESS | IO$M_ACCESS; 
+12261        	  dfib.fib$w_fid[0] = id[0];
+12262        	  dfib.fib$w_fid[1] = id[1];
+12263        	  dfib.fib$w_fid[2] = id[2];
+12264        	  dfib.fib$w_did[0] = 0; 
+12265        	  dfib.fib$w_did[1] = 0;
+12266        	  dfib.fib$w_did[2] = 0;
+12267        	  dfib.fib$l_acctl = FIB$M_WRITE | FIB$M_WRITETHRU; 
+12268        	  if (!noremove) dfib.fib$w_nmctl = FIB$M_FINDFID;
+12269        	  else dfib.fib$w_nmctl = 0;
+12270        	
+12271        	  file[0]= ' ';
+12272        	  if (!deldir) /* No need to access this file first when deleting directories*/
+12273        	  { 
+12274        	    status = SYS$QIOW(0, dchan, func, &iostat, 0,0,
+12275        	    &dfib_descr, 0 ,0 ,0 , &d_acb, 0);
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 12
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (3)
+
+12276        	    if ((status & 1 ) == 1) status = iostat.iosb_1;
+12277        	    if ((status & 1) !=1)
+12278        	    { 
+12279        	      status2 = 1;
+12280        	      if (status != SS$_NOSUCHFILE)
+12281        	        /* Now do a IO$_ACCESS without IO$M_ACCESS because we need the file name.
+12282        	           A little bit clumsy but I know no other way to solve this */
+12283        	      { 
+12284        	        status2 = SYS$QIOW(0, dchan, IO$_ACCESS, &iostat, 0,0,
+12285        	        &dfib_descr, 0 ,0 ,0 , &d_acb, 0);
+12286        	        if ((status2 & 1) ==1) status2 = iostat.iosb_1;
+12287        	      }
+12288        	      if ((status2 & 1) !=1)
+12289        	      { 
+12290        	        sprintf(outbuf,"%%DFU-E-NOACCESS, Error accessing file for delete");
+12291        	        put_disp(); 
+12292        	        singlemsg(0,status2); 
+12293        	      }
+12294        	      else
+12295        	      { 
+12296        	        tmp = strindex(&file," ",86); 
+12297        	        file[tmp] = '\0';
+12298        	        sprintf(outbuf,"%%DFU-E-NOTDEL, Error deleting file %s,",file);
+12299        	        put_disp(); 
+12300        	        singlemsg(0,status); 
+12301        	      }
+12302        	      goto end_del;
+12303        	    }
+12304        	
+12305        	    if ((uchar & 32768) == 32768) noremove = TRUE;  /* Marked bit */
+12306        	    /* Now copy the backlink to the directory id */
+12307        	    if (!noremove)
+12308        	    { 
+12309        	      dfib.fib$w_did[0] = back[0]; 
+12310        	      dfib.fib$w_did[1] = back[1];
+12311        	      dfib.fib$w_did[2] = back[2];
+12312        	    }
+12313        	    else
+12314        	    { 
+12315        	      dfib.fib$w_did[0] = 0; 
+12316        	      dfib.fib$w_did[1] = 0;
+12317        	      dfib.fib$w_did[2] = 0;
+12318        	    }
+12319        	  }
+12320        	  /* And delete the file */  
+12321        	  tmp = strindex(&file," ",86); 
+12322        	  file[tmp] = '\0';
+12323        	  if (rem_file) func = IO$_DELETE;
+12324        	  else func = IO$_DELETE | IO$M_DELETE;
+12325        	  status = SYS$QIOW(0, dchan, func, &iostat, 0,0,
+12326        	  &dfib_descr, 0 ,0 ,0 , 0 , 0);
+12327        	  if ((status & 1 ) == 1) status = iostat.iosb_1;
+12328        	  if ((status & 1) !=1)
+12329        	  { 
+12330        	    sprintf(outbuf,"%%DFU-E-NOTDEL, Error deleting file %s ,",file);
+12331        	    put_disp(); 
+12332        	    singlemsg(0,status); 
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 13
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (3)
+
+12333        	    if (!deldir) SYS$QIOW(0, dchan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+12334        	    goto end_del;
+12335        	  }
+12336        	  if (!deldir)
+12337        	  { 
+12338        	    if (!nolog) 
+12339        	    { 
+12340        	      sprintf(outbuf,"%%DFU-S-DELETED, File %s deleted ", file);
+12341        	      put_disp();
+12342        	    }
+12343        	    status = SYS$QIOW(0, dchan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+12344        	  }
+12345        	  status = 1;
+12346        	end_del:
+12347        	  return(status);
+12348        	}
+12349        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 14
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (4)
+
+             	
+12350        	int enter_file(unsigned short echan, struct fibdef * fibadr,
+12351        	  struct dsc$descriptor * namedescr)
+12352        	/* Enter a file on this channel.
+12353        	   If the file already exists  create one with a higher version 
+12354        	*/
+12355        	{ 
+12356        	  struct {
+12357        	    int fiblen; 
+12358        	    struct fibdef *e_fib;
+12359        	  }  dfib_descr;
+12360        	
+12361        	  short len;
+12362        	  unsigned int status2, tmp;
+12363        	
+12364        	  static struct { 
+12365        	    short lendir;
+12366        	    char dirnam[198]; 
+12367        	  }   dirrec;
+12368        	
+12369        	  static struct { 
+12370        	    unsigned short atr_size, atr_type;
+12371        	    int atr_address; 
+12372        	  } e_acb[2] =  
+12373        	   { 
+12374        	     { 200, ATR$C_FILE_SPEC, (int) &dirrec }
+12375        	    , { 0, 0, 0    } 
+12376        	   };
+12377        	
+12378        	  dfib_descr.fiblen = sizeof(struct fibdef);
+12379        	  dfib_descr.e_fib = fibadr;
+12380        	
+12381        	  status = SYS$QIOW(0, echan, IO$_CREATE, &iostat,
+12382        	    0,0, &dfib_descr, namedescr , 0, 0, 0, 0);
+12383        	  if (iostat.iosb_1 == SS$_DUPFILENAME) 
+12384        	  { /* Retry if this file already exists with a higher version */
+12385        	    fibadr->fib$w_nmctl = FIB$M_NEWVER;
+12386        	    status = SYS$QIOW(0, echan, IO$_CREATE, &iostat,
+12387        	      0,0, &dfib_descr, namedescr , &len, namedescr, 0, 0);
+12388        	    namedescr->dsc$w_length = len;
+12389        	    fibadr->fib$w_nmctl = 0;
+12390        	  }
+12391        	  if ((status & 1 ) != 1) status = iostat.iosb_1;
+12392        	  if ((status & 1) == 1) /* Get the full file name */
+12393        	  { fibadr->fib$w_did[0] = 0;
+12394        	    fibadr->fib$w_did[1] = 0;
+12395        	    fibadr->fib$w_did[2] = 0;
+12396        	    status2 = SYS$QIOW(0, echan, IO$_ACCESS, &iostat, 0,0,
+12397        	      &dfib_descr, 0 ,0 ,0 , &e_acb, 0);
+12398        	    if ((status2 & 1) ==1)
+12399        	    { 
+12400        	      tmp = strindex(dirrec.dirnam,"]",198);
+12401        	      if (tmp == -1) 
+12402        	        tmp = 198;
+12403        	       else tmp++;
+12404        	      dirrec.dirnam[tmp] = '\0';
+12405        	      sprintf(outbuf,"%%DFU-S-ENTERED, File %.*s entered in %s",
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 15
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (4)
+
+12406        	       namedescr->dsc$w_length, namedescr->dsc$a_pointer,dirrec.dirnam);
+12407        	      put_disp();
+12408        	    } 
+12409        	  }
+12410        	  return(status);
+12411        	}
+12412        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 16
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (5)
+
+             	
+12413        	int remove_file(unsigned short id[3], unsigned short did[3],
+12414        	unsigned short dchan)
+12415        	/* 
+12416        		Remove a file entry for a non-existent file
+12417        		Assumes channel is open
+12418        	*/
+12419        	
+12420        	{ 
+12421        	  static struct fibdef dfib; 
+12422        	  unsigned int tmp, status2;
+12423        	  struct {
+12424        	    int fiblen; 
+12425        	    struct fibdef *fibadr;
+12426        	  } 
+12427        	  dfib_descr;
+12428        	  unsigned int func;
+12429        	
+12430        	  /* Setup d_fib */
+12431        	  dfib_descr.fiblen = sizeof(dfib);
+12432        	  dfib_descr.fibadr = &dfib;
+12433        	  dfib.fib$w_fid[0] = id[0];
+12434        	  dfib.fib$w_fid[1] = id[1];
+12435        	  dfib.fib$w_fid[2] = id[2];
+12436        	  dfib.fib$w_did[0] = did[0]; 
+12437        	  dfib.fib$w_did[1] = did[1];
+12438        	  dfib.fib$w_did[2] = did[2];
+12439        	  dfib.fib$l_acctl = FIB$M_WRITE;
+12440        	  dfib.fib$w_nmctl = FIB$M_FINDFID;
+12441        	
+12442        	  /* And remove the file */  
+12443        	  func = IO$_DELETE;
+12444        	  status = SYS$QIOW(0, dchan, func, &iostat, 0,0,
+12445        	  &dfib_descr, 0 ,0 ,0 , 0 , 0);
+12446        	  if ((status & 1 ) == 1) status = iostat.iosb_1;
+12447        	  return(status);
+12448        	}
+12449        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 17
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (6)
+
+             	
+12450        	int delete_directory(unsigned int dchan, unsigned short f_id[3], 
+12451        	char *r_str, Boolean nolog)
+12452        	/* 
+12453        	   Subroutine to open the directory, get all file-id's
+12454        	   and delete those files.
+12455        	*/
+12456        	
+12457        	{ 
+12458        	  unsigned int func;
+12459        	  int i, j, k, n, nr, vbn, x, e_blk, h_blk, 
+12460        	  progress, num_files, lastsize;
+12461        	  static unsigned int uchar;
+12462        	  static short attrib[16];
+12463        	  static struct fibdef fib; 
+12464        	  static struct { 
+12465        	    unsigned short atr_size, atr_type;
+12466        	    int atr_address; 
+12467        	  } 
+12468        	  acb[3] =  { 
+12469        	    { 
+12470        	      4, ATR$C_UCHAR, (int) &uchar    } 
+12471        	    , 
+12472        	    { 
+12473        	      32, ATR$C_RECATTR, (int) &attrib    }
+12474        	    , 
+12475        	    {
+12476        	      0, 0, 0    } 
+12477        	  };
+12478        	  struct {
+12479        	    int fiblen; 
+12480        	    struct fibdef *fibadr;
+12481        	  } 
+12482        	  fib_descr;
+12483        	  struct _d_e *dir_entry;
+12484        	  struct _f_e *fid_entry;
+12485        	  struct _quad {
+12486        	    unsigned int address[2];
+12487        	  } 
+12488        	  retadr;
+12489        	  struct _sh {
+12490        	    char block[512];
+12491        	  } 
+12492        	  empty, *i_dir; /* Pointer to shared memory */
+12493        	  Boolean found;
+12494        	
+12495        	  /* Set up some fib fields */
+12496        	  empty.block[0] = -1; 
+12497        	  empty.block[1] = -1;
+12498        	  fib_descr.fiblen = sizeof(fib);
+12499        	  fib_descr.fibadr = &fib;
+12500        	  func = IO$_ACCESS | IO$M_ACCESS;
+12501        	  num_files = 0;
+12502        	  /* Now fill in File id and function code for the ACP call */
+12503        	  fib.fib$w_fid[0] = f_id[0];
+12504        	  fib.fib$w_fid[1] = f_id[1];
+12505        	  fib.fib$w_fid[2] = f_id[2];
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 18
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (6)
+
+12506        	  fib.fib$l_acctl = FIB$M_WRITE | FIB$M_NOWRITE; 
+12507        	
+12508        	  /* Open the directory */
+12509        	  status = SYS$QIOW(0, dchan, func, &iostat,0,0,&fib_descr, 0,0,0, &acb,0);
+12510        	  if ((status & 1 ) == 1) status = iostat.iosb_1;
+12511        	  if ((status & 1) !=1)
+12512        	  { 
+12513        	    sprintf(outbuf,"%%DFU-E-OPENERR, Error opening directory %s,",r_str);
+12514        	    put_disp();
+12515        	    singlemsg(0,status); 
+12516        	    return(status);
+12517        	  }
+12518        	  /* Get the directory size */
+12519        	  e_blk = (attrib[4] << 16) + attrib[5];
+12520        	  h_blk = (attrib[2] << 16) + attrib[3];
+12521        	
+12522        	  /* Check if directory is valid */
+12523        	  if ( ((attrib[0] & 2048 ) != 2048) /*NOSPAN attribute */
+12524        	    || ((uchar & 8192) != 8192) /* Directory bit */
+12525        	    || ((uchar & 128) != 128) ) /* Contiguous bit */
+12526        	  { 
+12527        	    sprintf(outbuf,"%%DFU-W-INVDIR, %s is not a valid directory",r_str);
+12528        	    put_disp();
+12529        	    status = SYS$QIOW(0, dchan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+12530        	    return(1);
+12531        	  }
+12532        	  if ( strstr(r_str,".DIR;1") == 0) 
+12533        	  { 
+12534        	    sprintf(outbuf,"%%DFU-W-INVDIR, %s is not a valid directory",r_str);
+12535        	    put_disp();
+12536        	    status = SYS$QIOW(0, dchan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+12537        	    return(1);
+12538        	  }
+12539        	  lastsize = 0;
+12540        	  if (e_blk > 1000) 
+12541        	  { /* Allocate dynamic space to read the directory file */
+12542        	    status = SYS$EXPREG(e_blk, &retadr.address[0], 0, 0);
+12543        	    if ((status & 1) != 1)
+12544        	    { 
+12545        	      sprintf(outbuf,"%%DFU-E-INSFMEM, Error allocating %d pages memory for %s",
+12546        	      e_blk, r_str);
+12547        	      put_disp();
+12548        	      singlemsg(0,status); 
+12549        	      lastsize = 0;
+12550        	      status = SYS$QIOW(0, dchan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+12551        	      return(1);
+12552        	    }
+12553        	    else lastsize = e_blk;
+12554        	  }    
+12555        	
+12556        	  /* Now read the directory with 1 I/O */
+12557        	  vbn = e_blk - 1;
+12558        	  /* Pointer to space for directory blocks (1000 max) */
+12559        	  if (e_blk <= 1000)
+12560        	    i_dir = (struct _sh *) &header[0].block[0];
+12561        	  else
+12562        	    i_dir = (struct _sh *) retadr.address[0];
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 19
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (6)
+
+12563        	  status = SYS$QIOW(0, dchan, IO$_READVBLK, &iostat, 0,0,
+12564        	  i_dir, (vbn*512), 1, 0,0,0);
+12565        	  if ((status & 1 ) == 1) status = iostat.iosb_1;
+12566        	  if ((status & 1) !=1)
+12567        	  { 
+12568        	    sprintf(outbuf,"%%DFU-E-READERR, Error reading directory %s,",r_str);
+12569        	    put_disp(); 
+12570        	    singlemsg(0,status);  
+12571        	    status = SYS$QIOW(0, dchan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+12572        	    goto next_del;
+12573        	  }
+12574        	  /* Check for corrupted directory */
+12575        	  if (i_dir->block[0] == 0)
+12576        	  { 
+12577        	    sprintf(outbuf,"%%DFU-E-JUNKDIR, Corrupted directory (byte offset 0) %s",
+12578        	    r_str);
+12579        	    put_disp();
+12580        	    status = SYS$QIOW(0, dchan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+12581        	    goto next_del;
+12582        	  }
+12583        	
+12584        	  /* Now processs the directory blocks */
+12585        	  k = 1; 
+12586        	  n = 0;
+12587        	  while (k < e_blk)
+12588        	  { 
+12589        	    progress = 100 * (k-1) / e_blk;
+12590        	    sprintf(outbuf,
+12591        	    "     Progress : %3d%%     Status : Deleting directory (%d files done)",
+12592        	    progress, num_files);
+12593        	    put_status(1);
+12594        	    i = 1; 
+12595        	    found = FALSE;   
+12596        	    while (!found)
+12597        	    { 
+12598        	      if ((i > 512) || i_dir->block[i-1] == -1) found = TRUE; /* End of block */
+12599        	      else /* parse this entry */
+12600        	        /* Pointer to directory record */
+12601        	      { 
+12602        	        dir_entry = (struct _d_e *) &i_dir->block[i-1]; 
+12603        	        nr = (dir_entry->size - 4 - dir_entry->count) / 8; /* # of files entries */
+12604        	
+12605        	        n += nr;
+12606        	        j = i + dir_entry->size + 2; /* End address of this entry */
+12607        	        /* Align count field */
+12608        	        if ((dir_entry->count &1) ==1) dir_entry->count +=1;
+12609        	        fid_entry = (struct _f_e *) &i_dir->block[i + 5 + dir_entry->count];
+12610        	        while (nr >= 1)
+12611        	        { /* Now delete this entry */
+12612        	          if (matkeep) 
+12613        	            /* Take care not to delete a .DIR file. We assume any file called
+12614        	               .DIR and version 1 as being a directory file */
+12615        	          { 
+12616        	            status = 1;
+12617        	            if ((fid_entry->version == 1) &&
+12618        	              (strstr(dir_entry->name,".DIR") != 0)) status = 2; 
+12619        	          }
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 20
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (6)
+
+12620        	          if (status !=2) 
+12621        	            status = delete_file(&fid_entry->fid_num, dchan, 
+12622        	            TRUE, TRUE, TRUE, FALSE);
+12623        	          if ((status & 1 ) == 1)
+12624        	          { 
+12625        	            num_files++;
+12626        	            if (!nolog) 
+12627        	            { 
+12628        	              sprintf(outbuf,"%%DFU-S-DELETED, File %.*s;%d deleted ",
+12629        	              dir_entry->count, dir_entry->name, fid_entry->version); 
+12630        	              put_disp();
+12631        	            }
+12632        	          }
+12633        	          if (ctrlc == 1) return(1);
+12634        	          nr--; 
+12635        	          fid_entry++;
+12636        	        }
+12637        	        i = j; /* Pointer to next entry */
+12638        	      } /* endif*/
+12639        	    }
+12640        	    k += 1; 
+12641        	    i_dir += 1; /* Next block */
+12642        	  } /* end while */
+12643        	  sprintf(outbuf,"     Progress : 100%%     Status : READY");
+12644        	  put_status(1);
+12645        	  sprintf(outbuf,"%%DFU-S-TOTAL, %d file(s) deleted", num_files);
+12646        	  put_disp();
+12647        	  /* Now fake the directory as an empty directory and delete it */
+12648        	  e_blk = 2;
+12649        	  attrib[4] = 0;
+12650        	  attrib[5] = 2;
+12651        	  vbn = 1;
+12652        	  status = SYS$QIOW(0, dchan, IO$_WRITEVBLK, &iostat,0,0,
+12653        	  &empty.block[0], 2 , 1, 0,0,0);
+12654        	  if ((status & 1 ) == 1) status = iostat.iosb_1;
+12655        	  if ((status & 1) !=1)
+12656        	    status = SYS$QIOW(0, dchan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+12657        	  else 
+12658        	    /* Write the new attributes back , truncate and close the file */
+12659        	  { 
+12660        	    fib.fib$l_exsz = 0;
+12661        	    fib.fib$w_exctl = FIB$M_TRUNC;
+12662        	    fib.fib$l_exvbn = e_blk;
+12663        	    status = SYS$QIOW(0, dchan, IO$_DEACCESS, &iostat, 0,0,
+12664        	    &fib_descr, 0,0,0, &acb,0);
+12665        	  }
+12666        	  if (!matkeep) status = delete_file(f_id, dchan, FALSE, FALSE, nolog, FALSE); 
+12667        	next_del:
+12668        	  if (lastsize !=0)
+12669        	    SYS$DELTVA(&retadr.address[0], 0 , 0);
+12670        	  return(1);
+12671        	}
+12672        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 21
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (7)
+
+             	
+12673        	int parse_tree(short int dchan, char *r_str, Boolean nolog)
+12674        	/* 
+12675        	   Subroutine to parse for all subdirectories.
+12676        	   All directories found are sorted such that
+12677        	   delete_directory can be called in proper order
+12678        	   V2.4 : build up a keeplist in case we want to save
+12679        	    the directory tree. 
+12680        	*/
+12681        	
+12682        	{ 
+12683        	  struct FAB xfab;
+12684        	  struct NAM xnam;
+12685        	  char ex_str[255];
+12686        	  static struct _srt { 
+12687        	    char rx_str[255]; 
+12688        	    unsigned short f_id[3]; 
+12689        	  } 
+12690        	  sort_rec;
+12691        	  int x, y, reclen;
+12692        	  short keybuf[5] = {
+12693        	    1, DSC$K_DTYPE_T, 0, 0, 255  };
+12694        	  struct dsc$descriptor sort_descr = 
+12695        	    {
+12696        	    sizeof(sort_rec), DSC$K_DTYPE_T, DSC$K_CLASS_S, (char *) &sort_rec  };
+12697        	
+12698        	  k_first = k_list = NULL;
+12699        	
+12700        	  /* Rearrange this directory into a wildcard */
+12701        	  y = strindex(r_str,"]",255);
+12702        	  x = y + strindex(&r_str[y],".",255);
+12703        	  r_str[x] = '\0';
+12704        	  r_str[y] = '.';
+12705        	  strcat(r_str,"...]*.DIR;1");
+12706        	
+12707        	  /* Now parse the result */
+12708        	  xfab = cc$rms_fab;
+12709        	  xfab.fab$l_fna = r_str;
+12710        	  xfab.fab$b_fns = strlen(r_str);
+12711        	  xfab.fab$l_nam = &xnam;
+12712        	
+12713        	  xnam = cc$rms_nam;
+12714        	  xnam.nam$b_rss = NAM$C_MAXRSS;
+12715        	  xnam.nam$l_rsa = (char *) &sort_rec.rx_str;
+12716        	  xnam.nam$b_ess = NAM$C_MAXRSS;
+12717        	  xnam.nam$l_esa = (char *) &ex_str;
+12718        	
+12719        	  /* get the rest of the fab fields */
+12720        	
+12721        	  status = SYS$PARSE(&xfab , 0 , 0);
+12722        	  if ((status & 1 ) != 1) 
+12723        	  { 
+12724        	    sprintf(outbuf,"%%DFU-E-PARSEERR, Error parsing filename from %s,", r_str);
+12725        	    put_disp(); 
+12726        	    singlemsg(0,status); 
+12727        	    return(status);
+12728        	  }
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 22
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (7)
+
+12729        	  sprintf(outbuf,"%%DFU-I-PARSEDIR, Parsing directory tree...");
+12730        	  put_disp();
+12731        	  reclen = sizeof(sort_rec);
+12732        	  status = sor$begin_sort(&keybuf, &reclen, 0,0,0,0,0,0,0,0);
+12733        	  status = SYS$SEARCH(&xfab , 0 , 0);
+12734        	  while (status != RMS$_NMF)
+12735        	  { 
+12736        	    if ((status & 1 ) != 1) 
+12737        	    { 
+12738        	      sort_rec.rx_str[xnam.nam$b_rsl] = '\0';
+12739        	      sprintf(outbuf,"%%DFU-W-NOSUBDIR, no subdirectories found in this tree");
+12740        	      put_disp();
+12741        	      sor$end_sort(); 
+12742        	      return(1);
+12743        	    }
+12744        	    else 
+12745        	      for (x = xnam.nam$b_rsl; x <=254; x++) sort_rec.rx_str[x] = ' ';
+12746        	    copy_fid(&sort_rec.f_id[0], &xnam.nam$w_fid_num, FALSE);
+12747        	    sor$release_rec(&sort_descr);
+12748        	    /* Create keeplist */
+12749        	    if (matkeep)
+12750        	    { 
+12751        	      if (k_first == NULL)
+12752        	      { 
+12753        	        k_list = (struct keep *) malloc(sizeof(struct keep));
+12754        	        k_first = k_list;
+12755        	      }
+12756        	      else
+12757        	      { 
+12758        	        k_list->next = (struct keep *) malloc(sizeof(struct keep));
+12759        	        k_list = k_list->next;
+12760        	      }
+12761        	      copy_fid(&k_list->f_id[0], &xnam.nam$w_fid_num, FALSE);
+12762        	      copy_fid(&k_list->d_id[0], &xnam.nam$w_did_num, FALSE);
+12763        	      strncpy(&k_list->filename, &sort_rec.rx_str[0], 255);
+12764        	      k_list->next = NULL; 
+12765        	    }
+12766        	    status = SYS$SEARCH(&xfab , 0 , 0);
+12767        	  }
+12768        	  /* Now sort the results */
+12769        	  status = sor$sort_merge();
+12770        	  if ((status & 1) !=1)
+12771        	  { 
+12772        	    sor$end_sort(); 
+12773        	    return(status);
+12774        	  }
+12775        	  status = sor$return_rec(&sort_descr);
+12776        	  while (status != SS$_ENDOFFILE)
+12777        	  { 
+12778        	    x = strindex (sort_rec.rx_str," ",255); 
+12779        	    sort_rec.rx_str[x] = '\0';
+12780        	    if (ctrlc != 1)
+12781        	    { 
+12782        	      sprintf(outbuf,"\n%%DFU-I-CLEANUP, Deleting %s...", sort_rec.rx_str);
+12783        	      put_disp();
+12784        	      status = delete_directory(dchan, &sort_rec.f_id[0], 
+12785        	      (char *) &sort_rec.rx_str, nolog);
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 23
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (7)
+
+12786        	      status = sor$return_rec(&sort_descr);
+12787        	    }
+12788        	    else status = SS$_ENDOFFILE; /* Stop at CTRL/C */
+12789        	  }
+12790        	  sor$end_sort();
+12791        	  return(1);
+12792        	}
+12793        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 24
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (8)
+
+             	
+12794        	int parse_single(short int dchan, char *r_str)
+12795        	/* 
+12796        	   Subroutine to parse for subdirectories we want to keep.
+12797        	   This routine is needed for building up the keep list.
+12798        	   The actual delete is done in the main routine 
+12799        	*/
+12800        	
+12801        	{ 
+12802        	  struct FAB xfab;
+12803        	  struct NAM xnam;
+12804        	  char ex_str[255];
+12805        	  static char rx_str[255]; 
+12806        	  int x, y, reclen;
+12807        	
+12808        	  k_first = k_list = NULL;
+12809        	
+12810        	  /* Rearrange this directory into a wildcard */
+12811        	  y = strindex(r_str,"]",255);
+12812        	  x = y + strindex(&r_str[y],".",255);
+12813        	  r_str[x] = '\0';
+12814        	  r_str[y] = '.';
+12815        	  strcat(r_str,"]*.DIR;1");
+12816        	
+12817        	  /* Now parse the result */
+12818        	  xfab = cc$rms_fab;
+12819        	  xfab.fab$l_fna = r_str;
+12820        	  xfab.fab$b_fns = strlen(r_str);
+12821        	  xfab.fab$l_nam = &xnam;
+12822        	
+12823        	  xnam = cc$rms_nam;
+12824        	  xnam.nam$b_rss = NAM$C_MAXRSS;
+12825        	  xnam.nam$l_rsa = (char *) &rx_str;
+12826        	  xnam.nam$b_ess = NAM$C_MAXRSS;
+12827        	  xnam.nam$l_esa = (char *) &ex_str;
+12828        	
+12829        	  /* get the rest of the fab fields */
+12830        	
+12831        	  status = SYS$PARSE(&xfab , 0 , 0);
+12832        	  if ((status & 1 ) != 1) 
+12833        	  { 
+12834        	    sprintf(outbuf,"%%DFU-E-PARSEERR, Error parsing filename from %s,", r_str);
+12835        	    put_disp(); 
+12836        	    singlemsg(0,status); 
+12837        	    return(status);
+12838        	  }
+12839        	  sprintf(outbuf,"%%DFU-I-PARSEDIR, Parsing directory ...");
+12840        	  put_disp();
+12841        	  status = SYS$SEARCH(&xfab , 0 , 0);
+12842        	  while (status != RMS$_NMF)
+12843        	  { 
+12844        	    if ((status & 1 ) != 1) 
+12845        	      return(1);
+12846        	    else 
+12847        	      for (x = xnam.nam$b_rsl; x <=254; x++) rx_str[x] = ' ';
+12848        	    /* Create keeplist */
+12849        	    if (matkeep)
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 25
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (8)
+
+12850        	    { 
+12851        	      if (k_first == NULL)
+12852        	      { 
+12853        	        k_list = (struct keep *) malloc(sizeof(struct keep));
+12854        	        k_first = k_list;
+12855        	      }
+12856        	      else
+12857        	      { 
+12858        	        k_list->next = (struct keep *) malloc(sizeof(struct keep));
+12859        	        k_list = k_list->next;
+12860        	      }
+12861        	      copy_fid(&k_list->f_id[0], &xnam.nam$w_fid_num, FALSE);
+12862        	      copy_fid(&k_list->d_id[0], &xnam.nam$w_did_num, FALSE);
+12863        	      strncpy(&k_list->filename, &rx_str[0], 255);
+12864        	      k_list->next = NULL; 
+12865        	    }
+12866        	    status = SYS$SEARCH(&xfab , 0 , 0);
+12867        	  }
+12868        	  return(1);
+12869        	}
+12870        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 26
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (9)
+
+             	
+12871        	int delete_command(mask)
+12872        	/*
+12873        	   Delete file by file-id
+12874        	   Also used for deleting directories and directory trees
+12875        	*/
+12876        	
+12877        	{ 
+12878        	  static char device[64], dummy[7], dname[160], exp_str[255], 
+12879        	  res_str[255], t_str[255], name[255];
+12880        	  unsigned long tmp;
+12881        	  struct FAB fab;
+12882        	  struct NAM nam;
+12883        	  static struct {
+12884        	    unsigned short num, seq; 
+12885        	    unsigned char rvn, nmx;
+12886        	  } 
+12887        	  f_id;
+12888        	  static struct fibdef fib; 
+12889        	  struct {
+12890        	    int fiblen; 
+12891        	    struct fibdef *fibadr;
+12892        	  } 
+12893        	  fib_descr;
+12894        	  unsigned fid_num, x, y;
+12895        	  unsigned short chan;
+12896        	  Boolean matdevice, matnoremove, matdir, matnolog, mattree, matstat;
+12897        	  char deflt[] = ".DIR;1";
+12898        	  $DESCRIPTOR(device_descr , device);
+12899        	  $DESCRIPTOR(dummy_descr , dummy); 
+12900        	  $DESCRIPTOR(dname_descr , dname);
+12901        	  $DESCRIPTOR(item_descr,"FILE_ID");
+12902        	  $DESCRIPTOR(terminal,"SYS$COMMAND");
+12903        	  $DESCRIPTOR(enter_descr,name);
+12904        	
+12905        	  /* Delete directory ? */
+12906        	  status = parse_item("directory", &dummy_descr, 0, &matdir, 2);
+12907        	  status = parse_item("tree", &dummy_descr, 0, &mattree, 2);
+12908        	  status = parse_item("keep", &dummy_descr, 0, &matkeep, 2);
+12909        	  status = parse_item("statistics", &dummy_descr, 0, &matstat, 2);
+12910        	  /* Get device name or directory name */
+12911        	  status = parse_item("device", &dname_descr, 0, &matdevice , 0);
+12912        	  x = strindex(&dname," ",160); 
+12913        	  dname[x]= '\0';
+12914        	  if (!matdir) 
+12915        	  {
+12916        	    /* Check the privileges */
+12917        	    if (mask > -1) 
+12918        	    { 
+12919        	      singlemsg(0, DFU_NOPRIV); 
+12920        	      return(SS$_NOPRIV);
+12921        	    }
+12922        	    strcpy(device,dname); 
+12923        	    device_descr.dsc$w_length=strlen(device);
+12924        	  }
+12925        	  /* Nolog entered */
+12926        	  status = parse_item("nolog", &dummy_descr, 0, &matnolog, 2);
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 27
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (9)
+
+12927        	
+12928        	  if (matstat) status = lib$init_timer();
+12929        	  /* Now follow different code path depending on the /DIRECTORY qualifier */
+12930        	  if (!matdir)
+12931        	  {
+12932        	    /* Remove from directory ? */
+12933        	    status = parse_item("noremove", &dummy_descr, 0, &matnoremove, 2);
+12934        	
+12935        	    /* get the file id */
+12936        	    if (CLI$PRESENT(&item_descr) != CLI$_PRESENT)
+12937        	    { 
+12938        	      sprintf(outbuf,
+12939        	      "%%DFU-E-NOFID, Missing /FILE_ID or /DIRECTORY qualifier on command line");
+12940        	      put_disp();
+12941        	      return(SS$_NOSUCHFILE);
+12942        	    }
+12943        	    dummy_descr.dsc$w_length = 7;
+12944        	    status = CLI$GET_VALUE(&item_descr, &dummy_descr, &dummy_descr.dsc$w_length);
+12945        	    tmp = atoi(&dummy);
+12946        	    f_id.nmx = f_id.rvn = 0;
+12947        	    f_id.num = (tmp % 65536);
+12948        	    f_id.nmx = (tmp / 65536);
+12949        	    dummy_descr.dsc$w_length = 7;
+12950        	    status = CLI$GET_VALUE(&item_descr, &dummy_descr, &dummy_descr.dsc$w_length);
+12951        	    if ((status & 1) != 1) 
+12952        	    { 
+12953        	      sprintf(outbuf,"%%DFU-E-ERRFID, Incorrect File id on command line");
+12954        	      put_disp();
+12955        	      return(SS$_NOSUCHFILE);
+12956        	    }
+12957        	    tmp = atoi(&dummy);
+12958        	    f_id.seq = tmp;
+12959        	    dummy_descr.dsc$w_length = 7;
+12960        	    status = CLI$GET_VALUE(&item_descr, &dummy_descr, &dummy_descr.dsc$w_length);
+12961        	    if ((status & 1) != 1) 
+12962        	    { 
+12963        	      sprintf(outbuf,"%%DFU-E-ERRFID, Incorrect File id on command line");
+12964        	      put_disp();
+12965        	      return(SS$_NOSUCHFILE);
+12966        	    }
+12967        	    tmp = atoi(&dummy);
+12968        	    f_id.nmx = f_id.nmx + (tmp >> 8);
+12969        	    f_id.rvn = (tmp % 255);
+12970        	
+12971        	    /* Parsing complete , now proceed to delete this file */
+12972        	
+12973        	    /* Open a channel to disk */
+12974        	    status = SYS$ASSIGN(&device_descr, &chan, 0 , 0);
+12975        	    if ((status & 1 ) != 1) 
+12976        	    { 
+12977        	      singlemsg(DFU_ASSIGN,status); 
+12978        	      return(status);
+12979        	    }
+12980        	    /* Now delete this file */
+12981        	    status = delete_file(&f_id.num, chan, matnoremove, matdir, matnolog, FALSE);
+12982        	    status = SYS$QIOW(0, chan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+12983        	    status = SYS$DASSGN(chan);
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 28
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (9)
+
+12984        	  } /* File delete done */
+12985        	  else
+12986        	    /* Delete all files in this directory */
+12987        	  { 
+12988        	    ctrlc = 0;
+12989        	    matnoremove = TRUE;
+12990        	
+12991        	    /* fill in FAB and NAM blocks*/
+12992        	
+12993        	    fab = cc$rms_fab;
+12994        	    fab.fab$l_dna = (char *) &deflt;
+12995        	    fab.fab$b_dns = 6;
+12996        	    fab.fab$l_fna = (char *) &dname;
+12997        	    fab.fab$b_fns = strlen(dname);
+12998        	    fab.fab$l_nam = &nam;
+12999        	
+13000        	    nam = cc$rms_nam;
+13001        	    nam.nam$b_rss = NAM$C_MAXRSS;
+13002        	    nam.nam$l_rsa = (char *) &res_str;
+13003        	    nam.nam$b_ess = NAM$C_MAXRSS;
+13004        	    nam.nam$l_esa = (char *) &exp_str;
+13005        	
+13006        	    /* get the rest of the fab fields */
+13007        	
+13008        	    status = SYS$PARSE(&fab , 0 , 0);
+13009        	    if ((status & 1 ) != 1) 
+13010        	    { 
+13011        	      sprintf(outbuf,"%%DFU-E-PARSEERR, Error parsing filename from %s,", dname);
+13012        	      put_disp(); 
+13013        	      singlemsg(0,status); 
+13014        	      return(status);
+13015        	    }
+13016        	
+13017        	    /* now search for the file */
+13018        	
+13019        	    chan = 0;
+13020        	    status = SYS$SEARCH(&fab , 0 , 0);
+13021        	    while (status != RMS$_NMF)
+13022        	    { 
+13023        	      res_str[nam.nam$b_rsl] = '\0';
+13024        	      if ((status & 1 ) != 1) 
+13025        	      { 
+13026        	        sprintf(outbuf,"%%DFU-E-SEARCHERR, Error searching file %s,", res_str);
+13027        	        put_disp(); 
+13028        	        singlemsg(0,status); 
+13029        	        return(status);
+13030        	      }
+13031        	      /* Open a channel to the device */
+13032        	      if (chan == 0)
+13033        	      { 
+13034        	        device_descr.dsc$w_length = nam.nam$t_dvi[0];
+13035        	        strcpy(device,&nam.nam$t_dvi[1]);
+13036        	        /* Open a second channel to the disk */
+13037        	        status = SYS$ASSIGN(&device_descr, &chan, 0 , 0);
+13038        	        if ((status & 1 ) != 1) 
+13039        	        { 
+13040        	          singlemsg(DFU_ASSIGN,status); 
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 29
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (9)
+
+13041        	          return(status);
+13042        	        }
+13043        	      }
+13044        	      strcpy(t_str,res_str); 
+13045        	      status = 1;
+13046        	      if (smg$enable) SMG$SET_CURSOR_MODE(&paste_id,&SMG$M_CURSOR_OFF);
+13047        	      /* Search for directories to save when we delete a single directory */
+13048        	      if ((!mattree) && (matkeep))
+13049        	        status = parse_single(chan, (char *) &t_str);
+13050        	      else	
+13051        	        /* else parse and delete the tree contents first */
+13052        	        if (mattree) status = parse_tree(chan, (char *) &t_str, matnolog);
+13053        	      if ((status & 1) ==1)
+13054        	      { 
+13055        	        if (ctrlc != 1) 
+13056        	        { 
+13057        	          sprintf(outbuf,"\n%%DFU-I-CLEANUP, Deleting %s...",res_str);
+13058        	          put_disp();
+13059        	          status = delete_directory(chan, &nam.nam$w_fid_num, 
+13060        	          (char *) &res_str, matnolog);
+13061        	        }
+13062        	        if (matkeep) /* Now recover the directory entries */
+13063        	        { 
+13064        	          fib_descr.fiblen = sizeof(fib);
+13065        	          fib_descr.fibadr = &fib;
+13066        	          while (k_first != NULL)
+13067        	          { 
+13068        	            k_list = k_first;
+13069        	            copy_fid(&fib.fib$w_fid[0], &k_list->f_id[0], FALSE) ;
+13070        	            copy_fid(&fib.fib$w_did[0], &k_list->d_id[0], FALSE) ;
+13071        	            x = strindex(k_list->filename,"]",255); 
+13072        	            x++;
+13073        	            y = strindex(k_list->filename," ",255); 
+13074        	            k_list->filename[y] = '\0';
+13075        	            strcpy(name, &k_list->filename[x]);
+13076        	            enter_descr.dsc$w_length = strlen(name);
+13077        	            status = SYS$QIOW(0, chan, IO$_CREATE, &iostat, 0, 0,
+13078        	            &fib_descr, &enter_descr, 0,0,0,0);
+13079        	            k_first = k_list->next; 
+13080        	            free(k_list);
+13081        	          }
+13082        	        }
+13083        	        if (ctrlc ==1) 
+13084        	        { 
+13085        	          do_abort();
+13086        	          status = SYS$QIOW(0, chan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+13087        	          status = RMS$_NMF;
+13088        	        }
+13089        	        else status = SYS$SEARCH(&fab , 0 , 0);
+13090        	      }
+13091        	      if (smg$enable) SMG$SET_CURSOR_MODE(&paste_id,&SMG$M_CURSOR_ON);
+13092        	    }
+13093        	    status = SYS$DASSGN(chan);
+13094        	  }
+13095        	  sprintf(outbuf,"\n%%DFU-I-READY, DELETE command ready");
+13096        	  put_disp();
+13097        	  if (matstat) status = lib$show_timer(0,0,display_stat,0);
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 30
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (9)
+
+13098        	}  
+13099        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 31
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (10)
+
+             	
+13100        	int defrag_command(mask)
+13101        	/*
+13102        	   Defrag files using the XQP MOVEFILE function.
+13103        	*/
+13104        	
+13105        	{ 
+13106        	  int x, y, flag;
+13107        	  static char device[64], dummy_item[80], fname[86], version[8], 
+13108        	  dfile[255], file[160];
+13109        	  struct { 
+13110        	    short buflen, itemcode;
+13111        	    int *bufadr, *retlen;
+13112        	  } 
+13113        	  item_list[2];
+13114        	  Boolean matstat, matfile, matbesttry, matdevice, dummy, matwrite;
+13115        	  FILE *ip;
+13116        	  $DESCRIPTOR(fname_descr , fname);
+13117        	  $DESCRIPTOR(device_descr , device);
+13118        	  $DESCRIPTOR(dummy_descr , dummy_item); 
+13119        	  $DESCRIPTOR(terminal,"SYS$COMMAND");
+13120        	
+13121        	  /* Check the privileges */
+13122        	  if (mask > -1) 
+13123        	  { 
+13124        	    singlemsg(0, DFU_NOPRIV); 
+13125        	    return(SS$_NOPRIV);
+13126        	  }
+13127        	
+13128        	  /* Set up itemlist for GETSYI */
+13129        	  item_list[0].buflen = 8;
+13130        	  item_list[0].itemcode = SYI$_NODE_SWVERS;
+13131        	  item_list[0].bufadr = (int *) &version;
+13132        	  item_list[0].retlen = &x;
+13133        	
+13134        	  item_list[1].buflen = 0;
+13135        	  item_list[1].itemcode = 0;
+13136        	
+13137        	  status = SYS$GETSYIW(0,0,0,&item_list,0,0,0);
+13138        	  if ((status & 1 ) !=1)
+13139        	  { 
+13140        	    singlemsg(0,status); 
+13141        	    return(status);
+13142        	  }
+13143        	  x = strncmp("5.5", &version[1], 3);
+13144        	  if ( x > 0 )
+13145        	  { 
+13146        	    sprintf(outbuf,
+13147        	    "%%DFU-E-ILLIOFUNC, This function not supported on this version of VMS");
+13148        	    put_disp(); 
+13149        	    return(1);
+13150        	  }
+13151        	
+13152        	  /* Get device name */
+13153        	  status = parse_item("device", &device_descr, 0, &matdevice , 0);
+13154        	  if (matdevice) 
+13155        	  { 
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 32
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (10)
+
+13156        	    if (strindex(&device,":",64) == -1) 
+13157        	    { 
+13158        	      device[device_descr.dsc$w_length]=':'; 
+13159        	      device_descr.dsc$w_length += 1;
+13160        	    }
+13161        	    device[device_descr.dsc$w_length]='\0';
+13162        	  }
+13163        	  /* Display statistics */
+13164        	  status = parse_item("statistics", &dummy_descr, 0, &matstat, 2);
+13165        	  /* Move to a LBN ? */
+13166        	  status = parse_item("lbn", &dummy_descr, &lbn, &matlbn, 1);
+13167        	  /* Defrag whole disk ? */
+13168        	  /* Writechecking enable? */
+13169        	  status = parse_item("writecheck", &dummy_descr, 0, &matwrite, 2);
+13170        	  /* Besttry contiguous ? */
+13171        	  status = parse_item("besttry", &dummy_descr, 0, &matbesttry, 2);
+13172        	  flag = matbesttry ? 1 : 0;
+13173        	  if (matwrite) flag += 10;
+13174        	  /* Check file name */
+13175        	  status = parse_item("file", &fname_descr, 0 , &matfile, 0);
+13176        	  if (matfile == FALSE) 
+13177        	  { 
+13178        	    sprintf(outbuf,"%%DFU-E-NOFILSPEC, No file specified on command line");
+13179        	    put_disp(); 
+13180        	    return(SS$_NOSUCHFILE);
+13181        	  }
+13182        	  if (matstat) status = lib$init_timer();
+13183        	  x = strindex(&fname," ",86); 
+13184        	  fname[x] = '\0';
+13185        	
+13186        	  { 
+13187        	    sprintf(outbuf,"%%DFU-I-DEFRAG, Start defragmenting file(s) ...");
+13188        	    put_disp();
+13189        	    while((matfile) && (ctrlc ==0))/* Loop through the file list */
+13190        	    { 
+13191        	      if (fname[0] == '@')
+13192        	      { 
+13193        	        ip = fopen(&fname[1], "r");
+13194        	        if (ip == 0) 
+13195        	        { 
+13196        	          sprintf(outbuf,"%%DFU-E-OPENERR, Error opening file %s",&fname[1]);
+13197        	          put_disp();
+13198        	        }
+13199        	        else
+13200        	        { 
+13201        	          status = (int) fgets(file, 160, ip);
+13202        	          while ((status != 0) && (ctrlc ==0))
+13203        	          { 
+13204        	            x = strindex(&file," ",160); 
+13205        	            file[x] = '\0';
+13206        	            if (matdevice)
+13207        	            { 
+13208        	              strcpy(dfile,device); 
+13209        	              strncat(dfile,file,160); 
+13210        	            }
+13211        	            else
+13212        	              strcpy(dfile,file);
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 33
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (10)
+
+13213        	            status = movefile(&dfile, flag);  
+13214        	            status = (int) fgets(file, 160, ip);
+13215        	          }
+13216        	          fclose(ip);
+13217        	        }
+13218        	      }
+13219        	      else
+13220        	      { 
+13221        	        if (matdevice)
+13222        	        { 
+13223        	          strcpy(dfile,device); 
+13224        	          strncat(dfile,fname,86);
+13225        	        }
+13226        	        else
+13227        	          strcpy(dfile,fname);
+13228        	        status = movefile(&dfile, flag);
+13229        	      }
+13230        	      fname_descr.dsc$w_length = 86;
+13231        	      status = parse_item("file", &fname_descr, 0 , &matfile, 0);
+13232        	      if ((status & 1) != 1) matfile = FALSE;
+13233        	      else
+13234        	      { 
+13235        	        x = strindex(&fname," ",86); 
+13236        	        fname[x] = '\0'; 
+13237        	      }
+13238        	
+13239        	    } /*end while */
+13240        	    if (ctrlc == 1) do_abort();
+13241        	  }  
+13242        	  sprintf(outbuf,"\n%%DFU-I-READY, DEFRAG command ready");
+13243        	  put_disp();
+13244        	  if (matstat) status = lib$show_timer(0,0,display_stat,0);
+13245        	  return(1);
+13246        	}
+13247        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 34
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (11)
+
+             	
+13248        	int move_to_lbn(unsigned short * from, unsigned int lbn_to, 
+13249        	unsigned short chan)
+13250        	/*
+13251        	   Move a file to a specific LBN
+13252        	   No placement pointer created in new header !
+13253        	*/
+13254        	
+13255        	{ 
+13256        	  static struct fibdef m_fib;
+13257        	  struct {
+13258        	    int fiblen; 
+13259        	    struct fibdef *fibadr;
+13260        	  } 
+13261        	  fibdescr;
+13262        	  unsigned int func;
+13263        	
+13264        	  /* fill in FAB and NAM blocks */
+13265        	
+13266        	  fibdescr.fiblen = sizeof(m_fib);
+13267        	  fibdescr.fibadr = &m_fib;
+13268        	
+13269        	  m_fib.fib$l_mov_svbn = 1;
+13270        	  m_fib.fib$l_mov_vbncnt = 0;
+13271        	  m_fib.fib$l_acctl = FIB$M_NOVERIFY | FIB$M_CHANGE_VOL; 
+13272        	  func = (IO$_MODIFY | IO$M_MOVEFILE);
+13273        	
+13274        	  /* Now fill in File id and function code for the ACP call */
+13275        	
+13276        	  copy_fid(&m_fib.fib$w_fid[0], from, TRUE);
+13277        	  m_fib.fib$w_exctl = (FIB$M_ALCON + FIB$M_NOPLACE);
+13278        	  m_fib.fib$b_alopts = FIB$M_EXACT;
+13279        	  m_fib.fib$b_alalign = FIB$C_LBN;
+13280        	  m_fib.fib$b_loc_rvn = 0;
+13281        	  m_fib.fib$l_loc_addr = lbn_to;
+13282        	
+13283        	  /* Now defrag the file */
+13284        	  trigger = TRUE;
+13285        	  status = SYS$QIOW(0, chan, func, &iostat, 0, 0,
+13286        	  &fibdescr, 0,0,0,0,0);
+13287        	  if ((status & 1) == 1) status = iostat.iosb_1;
+13288        	  return(status);
+13289        	}
+13290        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 35
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (12)
+
+             	
+13291        	int movefile(char *defr_file, int flag)
+13292        	/*
+13293        	   Performs the actual MOVEFILE function
+13294        	   First $PARSE and $SEARCH the input file to get the full
+13295        	   file spec and the File id for the move file function.
+13296        	   We need to parse and search because wildcards are allowed.
+13297        	*/
+13298        	
+13299        	{ 
+13300        	  struct FAB fab;
+13301        	  struct NAM nam;
+13302        	  static struct fibdef m_fib;
+13303        	  struct {
+13304        	    int fiblen; 
+13305        	    struct fibdef *fibadr;
+13306        	  } 
+13307        	  fibdescr;
+13308        	  static char res_str[255], exp_str[255], devnam[15];
+13309        	  unsigned int func;
+13310        	  unsigned short chan;
+13311        	  $DESCRIPTOR(devnam_descr , devnam);
+13312        	
+13313        	  /* fill in FAB and NAM blocks */
+13314        	
+13315        	  fibdescr.fiblen = sizeof(m_fib);
+13316        	  fibdescr.fibadr = &m_fib;
+13317        	
+13318        	  fab = cc$rms_fab;
+13319        	  fab.fab$l_fna = defr_file;
+13320        	  fab.fab$b_fns = strlen(defr_file);
+13321        	  fab.fab$l_nam = &nam;
+13322        	
+13323        	  nam = cc$rms_nam;
+13324        	  nam.nam$b_rss = NAM$C_MAXRSS;
+13325        	  nam.nam$l_rsa = (char *) &res_str;
+13326        	  nam.nam$b_ess = NAM$C_MAXRSS;
+13327        	  nam.nam$l_esa = (char *) &exp_str;
+13328        	
+13329        	  /* get the rest of the fab fields */
+13330        	
+13331        	  status = SYS$PARSE(&fab , 0 , 0);
+13332        	  if ((status & 1 ) != 1) 
+13333        	  { 
+13334        	    sprintf(outbuf,"%%DFU-E-PARSEERR, Error parsing filename from %s,", defr_file);
+13335        	    put_disp(); 
+13336        	    singlemsg(0,status); 
+13337        	    return(status);
+13338        	  }
+13339        	
+13340        	  m_fib.fib$l_mov_svbn = 1;
+13341        	  m_fib.fib$l_mov_vbncnt = 0;
+13342        	  if (flag >= 10) 
+13343        	  { 
+13344        	    m_fib.fib$l_acctl = 0; 
+13345        	    flag -= 10;
+13346        	  }
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 36
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (12)
+
+13347        	  else  /* disable writechecking */
+13348        	    m_fib.fib$l_acctl = FIB$M_NOVERIFY; 
+13349        	  m_fib.fib$l_acctl |= FIB$M_CHANGE_VOL; /* Allow vol.set moves */
+13350        	
+13351        	  func = (IO$_MODIFY | IO$M_MOVEFILE);
+13352        	  /* now search for the file */
+13353        	
+13354        	  status = SYS$SEARCH(&fab , 0 , 0);
+13355        	  while (status != RMS$_NMF)
+13356        	  { 
+13357        	    res_str[nam.nam$b_rsl] = '\0';
+13358        	    if ((status & 1 ) != 1) 
+13359        	    { 
+13360        	      sprintf(outbuf,"%%DFU-E-SEARCHERR, Error searching file %s,", res_str);
+13361        	      put_disp(); 
+13362        	      singlemsg(0,status); 
+13363        	      return(status);
+13364        	    }
+13365        	    res_str[nam.nam$b_rsl] = '\0';
+13366        	    /* Open a channel to the device */
+13367        	    devnam_descr.dsc$w_length = nam.nam$t_dvi[0];
+13368        	    strcpy(devnam,&nam.nam$t_dvi[1]);
+13369        	    status = SYS$ASSIGN(&devnam_descr, &chan, 0 , 0);
+13370        	    if ((status & 1 ) != 1) 
+13371        	    { 
+13372        	      singlemsg(DFU_ASSIGN,status); 
+13373        	      return(status);
+13374        	    }
+13375        	    if (matlbn)
+13376        	    { 
+13377        	      status = move_to_lbn(&nam.nam$w_fid_num, lbn, chan);
+13378        	    }
+13379        	    else
+13380        	    {
+13381        	      /* Now fill in File id and function code for the ACP call */
+13382        	      m_fib.fib$w_fid[0] = nam.nam$w_fid_num;
+13383        	      m_fib.fib$w_fid[1] = nam.nam$w_fid_seq;
+13384        	      m_fib.fib$w_fid[2] = nam.nam$w_fid_rvn;
+13385        	      /* Contiguous or best_try ? */
+13386        	      if (flag == 0)
+13387        	        m_fib.fib$w_exctl = (FIB$M_ALCON);
+13388        	      else
+13389        	        m_fib.fib$w_exctl = (FIB$M_ALCONB);
+13390        	
+13391        	      /* Now defrag the file */
+13392        	      status = SYS$QIOW(0, chan, func, &iostat, 0, 0,
+13393        	      &fibdescr, 0,0,0,0,0);
+13394        	      if ((status & 1) == 1) status = iostat.iosb_1;
+13395        	    }
+13396        	    if ((status & 1) != 1)
+13397        	      /* Report the result */
+13398        	    { 
+13399        	      sprintf(outbuf,"%%DFU-E-NOTMOVED, Error moving %s, ",res_str);
+13400        	      put_disp(); 
+13401        	      singlemsg(0,status);
+13402        	    }
+13403        	    else
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 37
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (12)
+
+13404        	    { 
+13405        	      sprintf(outbuf,"%%DFU-S-MOVED, File %s defragmented",res_str);
+13406        	      put_disp();
+13407        	    }
+13408        	    status = SYS$DASSGN(chan);
+13409        	    /* Next file if any...*/
+13410        	    status = SYS$SEARCH(&fab , 0 , 0);
+13411        	  }  
+13412        	  return(status);
+13413        	}
+13414        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 38
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (13)
+
+             	
+13415        	int directory_command(mask)
+13416        	/*
+13417        	   Performs the directory command
+13418        	   There are 3 major functions :
+13419        		- compress /dump a directory
+13420        	        - create a directory with a specific preallocation
+13421        		- search all directories of the disk for either files with many
+13422        		    versions , files with aliases or empty directories.
+13423        		  V2.4 Removed /CHECK (now via VERIFY/DIR)
+13424        	*/
+13425        	
+13426        	{ 
+13427        	  static char fname[80], dname[160], dummy_item[80], device[64],
+13428        	  dfile[255], file[160];
+13429        	  int x, build_dir_table();
+13430        	  FILE *ip;
+13431        	  Boolean matstat, matcompress, dummy, matoutput, matdevice, 
+13432        	  matcreate, matalloc, matratio;
+13433        	  void create_dir();
+13434        	  $DESCRIPTOR(dname_descr , dname);
+13435        	  $DESCRIPTOR(dummy_descr , dummy_item); 
+13436        	  $DESCRIPTOR(file_descr , fname);
+13437        	  $DESCRIPTOR(device_descr , device); 
+13438        	  $DESCRIPTOR(terminal,"SYS$COMMAND");
+13439        	
+13440        	  dname[0] = '\0';
+13441        	  /* Get device name */
+13442        	  status = parse_item("device", &device_descr, 0, &matdevice,0);
+13443        	  if (matdevice)
+13444        	  { 
+13445        	    if (strindex(&device,":",64) == -1) 
+13446        	    { 
+13447        	      device[device_descr.dsc$w_length]=':'; 
+13448        	      device_descr.dsc$w_length += 1;
+13449        	    }
+13450        	    device[device_descr.dsc$w_length]='\0';
+13451        	  }
+13452        	  /* Check directory or device name */
+13453        	  status = parse_item("directory", &dname_descr, 0 , &dummy, 0);
+13454        	  /* Dumping ? */
+13455        	  status = parse_item("dump", &dummy_descr, 0, &matdump, 2);
+13456        	  /* Compressing ? */
+13457        	  status = parse_item("compress", &dummy_descr, 0, &matcompress, 2);
+13458        	  /* Fill factor */
+13459        	  status = parse_item("ratio", &dummy_descr, &ratio, &matratio, 1);
+13460        	  if (!matratio) ratio = 100;
+13461        	  if ( (ratio < 50) || (ratio > 100) )
+13462        	  { 
+13463        	    sprintf(outbuf,"%%DFU-E-RATIOERR, fill factor out of range");
+13464        	    put_disp(); 
+13465        	    return(1);
+13466        	  } 
+13467        	  /* Creating ? */
+13468        	  status = parse_item("create", &dummy_descr, 0, &matcreate, 2);
+13469        	  /* Just testing ? */
+13470        	  mattest = 0;
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 39
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (13)
+
+13471        	  if (matcompress) 
+13472        	  { 
+13473        	    status = parse_item("test", &dummy_descr, 0, &mattest, 2);
+13474        	    /* Truncate ? */
+13475        	    status = parse_item("truncate", &dummy_descr, &truncsize, &mattruncate, 1);
+13476        	    if ((status & 1) != 1) return(status);
+13477        	  }
+13478        	  /* Display statistics */
+13479        	  status = parse_item("statistics", &dummy_descr, 0, &matstat, 2);
+13480        	  /* Version search ? */
+13481        	  status = parse_item("version", &dummy_descr, &version, &matversion, 1);
+13482        	  /* Formatted output */
+13483        	  ctrstr1.dsc$w_length = 255;
+13484        	  if (matversion)
+13485        	    status = parse_item("format",&ctrstr1, 0, &matformat, 0);
+13486        	  /* Allocate size  */
+13487        	  if (matcreate) 
+13488        	  { 
+13489        	    status = parse_item("allocate", &dummy_descr, &alloc, &matalloc, 1);
+13490        	    if ((status & 1) != 1) return(status);
+13491        	    if (!matalloc) alloc = 1; 
+13492        	  }
+13493        	  /* Alias search */
+13494        	  status = parse_item("alias", &dummy_descr, 0, &matalias, 2);
+13495        	  /* Check directories ?*/
+13496        	  status = parse_item("check", &dummy_descr, 0, &matcheck, 2);
+13497        	  if (matcheck)
+13498        	  { 
+13499        	    sprintf(outbuf,"%%DFU-W-OBSOLETE, This command is obsolete,");
+13500        	    put_disp(); 
+13501        	    sprintf(outbuf,"Use VERIFY/DIRECTORY instead"); 
+13502        	    put_disp(); 
+13503        	    return(1);
+13504        	  }
+13505        	  /* Empty directory search */
+13506        	  status = parse_item("empty", &dummy_descr, 0, &matempty, 2);
+13507        	  /* Get output file */
+13508        	  status = parse_item("outfile", &file_descr, 0, &matoutput , 0);
+13509        	  if (matoutput == FALSE) 
+13510        	  {
+13511        	    strcpy(fname,"SYS$OUTPUT:"); 
+13512        	    file_descr.dsc$w_length = 11;
+13513        	  }
+13514        	  else
+13515        	  {
+13516        	    fname[file_descr.dsc$w_length] = '\0'; 
+13517        	  }
+13518        	  fp = fopen(fname,"w");	/* Open output file */
+13519        	
+13520        	
+13521        	  if (matrepair)
+13522        	    /* Check the privileges */
+13523        	    if (mask > -1) 
+13524        	    { 
+13525        	      singlemsg(0, DFU_NOPRIV); 
+13526        	      return(SS$_NOPRIV);
+13527        	    }
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 40
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (13)
+
+13528        	
+13529        	  /* All qualifiers parsed */
+13530        	  if (!matcreate && !matdump && !matcompress && 
+13531        	    !matversion && !matalias && !matempty )
+13532        	  { 
+13533        	    sprintf(outbuf,"%%DFU-E-SYNTAXERR, missing required qualifier");
+13534        	    put_disp(); 
+13535        	    return(1);
+13536        	  }
+13537        	
+13538        	  x = strindex(&dname," ",160); 
+13539        	  dname[x] = '\0';
+13540        	  if (matversion || matalias || matempty ) 
+13541        	    /* Follow different code path for this function */
+13542        	  { /* Call build_dir_table. This function scans indexf.sys, builds 
+13543        	  	a directory table, and calls scan_directories */
+13544        	    if (matstat) status = lib$init_timer();
+13545        	    status = build_dir_table(&dname, matoutput);
+13546        	    if (matstat) lib$show_timer(0,0,display_stat,0);
+13547        	    fclose(fp);
+13548        	    return(status); /*Thats all*/
+13549        	  }
+13550        	  else
+13551        	  { 
+13552        	    if (matstat) status = lib$init_timer();
+13553        	    if (matcreate) create_dir(&dname,alloc);
+13554        	    else
+13555        	    { 
+13556        	      if (dname[0] == '@')
+13557        	      { 
+13558        	        ip = fopen(&dname[1],"r");
+13559        	        if (ip==0) 
+13560        	        { 
+13561        	          sprintf(outbuf,"%%DFU-E-OPENERR, Error opening file %s",&dname[1]);
+13562        	          put_disp();
+13563        	        }
+13564        	        else
+13565        	        { 
+13566        	          status = (int) fgets(file, 160, ip);
+13567        	          while ((status != 0) && (ctrlc ==0))
+13568        	          { 
+13569        	            x = strindex(&file," ",160); 
+13570        	            file[x] = '\0';
+13571        	            if (matdevice)
+13572        	            { 
+13573        	              strcpy(dfile,device); 
+13574        	              strncat(dfile,file,160); 
+13575        	            }
+13576        	            else
+13577        	              strcpy(dfile,file);
+13578        	            status = compdir(&dfile, matoutput);  
+13579        	            status = (int) fgets(file, 160, ip);
+13580        	          }
+13581        	          fclose(ip);
+13582        	        }
+13583        	      }
+13584        	      else
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 41
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (13)
+
+13585        	      { 
+13586        	        if (matdevice)
+13587        	        { 
+13588        	          strcpy(dfile,device); 
+13589        	          strncat(dfile,fname,86);
+13590        	        }
+13591        	        else
+13592        	          strcpy(dfile,dname);
+13593        	        status = compdir(&dfile,matoutput);
+13594        	      }
+13595        	    }
+13596        	  }
+13597        	  sprintf(outbuf,"\n%%DFU-I-READY, DIRECTORY command ready");
+13598        	  put_disp();
+13599        	  if (matstat) status = lib$show_timer(0,0,display_stat);
+13600        	  fclose(fp);
+13601        	  return(1);
+13602        	}
+13603        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 42
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (14)
+
+             	
+13604        	void create_dir (char *crea_file, int all_size)
+13605        	/*
+13606        	   Create a new directory with a preallocated size
+13607        	*/
+13608        	{ 
+13609        	  static struct fibdef fib;
+13610        	  char res_str[255], exp_str[255];
+13611        	  struct {
+13612        	    int fiblen; 
+13613        	    struct fibdef *fibadr;
+13614        	  } 
+13615        	  fibdescr;
+13616        	  static int uchar;
+13617        	  struct FAB fab;
+13618        	  struct RAB rab;
+13619        	  struct NAM nam;
+13620        	  short i, channel, buf[256];
+13621        	  static struct { 
+13622        	    unsigned short atr_size, atr_type;
+13623        	    int atr_address; 
+13624        	  } 
+13625        	  acb[2] =  { 
+13626        	    { 
+13627        	      ATR$S_UCHAR, ATR$C_UCHAR, (int) &uchar    }
+13628        	    , {
+13629        	      0, 0, 0    } 
+13630        	  };
+13631        	
+13632        	
+13633        	  buf[0] = -1;
+13634        	  fibdescr.fiblen = sizeof(fib);
+13635        	  fibdescr.fibadr = &fib;
+13636        	  fab = cc$rms_fab;
+13637        	  fab.fab$l_fna = crea_file;
+13638        	  fab.fab$b_fns = strlen(fab.fab$l_fna);
+13639        	  fab.fab$l_dna = ".DIR;1";
+13640        	  fab.fab$b_dns = strlen(fab.fab$l_dna);
+13641        	  fab.fab$l_fop = FAB$M_CTG;
+13642        	  fab.fab$b_rat = FAB$M_BLK;
+13643        	  fab.fab$b_fac = FAB$M_BIO | FAB$M_PUT | FAB$M_GET ;
+13644        	  fab.fab$w_mrs = 512;
+13645        	  fab.fab$l_alq = all_size; 
+13646        	  fab.fab$l_nam = 0;
+13647        	
+13648        	  rab = cc$rms_rab;
+13649        	  rab.rab$l_fab = &fab;
+13650        	  rab.rab$l_rbf = (char *) buf;
+13651        	  rab.rab$w_rsz = sizeof buf;
+13652        	
+13653        	  nam = cc$rms_nam;
+13654        	  nam.nam$b_rss = NAM$C_MAXRSS;
+13655        	  nam.nam$l_rsa = (char *) &res_str;
+13656        	  nam.nam$b_ess = NAM$C_MAXRSS;
+13657        	  nam.nam$l_esa = (char *) &exp_str;
+13658        	
+13659        	  for (i = 1; i <= 255; i++) buf[i] = 0;
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 43
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (14)
+
+13660        	  status=sys$create(&fab);
+13661        	  if (status & 1) status = sys$connect(&rab);
+13662        	  if (status & 1) status = sys$write(&rab);
+13663        	  if (status & 1) status = sys$close(&fab);
+13664        	
+13665        	  fab.fab$l_fop = FAB$M_UFO;
+13666        	  fab.fab$l_nam = &nam;
+13667        	  if (status & 1)  status = sys$open(&fab);
+13668        	  channel = fab.fab$l_stv;
+13669        	  uchar = FH2$M_DIRECTORY;
+13670        	  fib.fib$l_exsz = 0;
+13671        	  fib.fib$w_exctl = 0;
+13672        	  fib.fib$w_fid[0] = fib.fib$w_fid[1] = fib.fib$w_fid[2] = 0;
+13673        	  if (status & 1) 
+13674        	    status = SYS$QIOW(0, channel, IO$_DEACCESS, &iostat, 0,0,
+13675        	    &fibdescr, 0,0,0, &acb,0);
+13676        	  if ((status & 1) == 1) status = iostat.iosb_1;
+13677        	  if ((status & 1) != 1)
+13678        	  { 
+13679        	    sprintf(outbuf, "%%DFU-E-NOTCREATE, Error creating directory %s,", crea_file);
+13680        	    put_disp(); 
+13681        	    singlemsg(0,status);
+13682        	  }
+13683        	  else 
+13684        	  { 
+13685        	    sprintf(outbuf,"%%DFU-S-CREATED, Created directory %.*s", 
+13686        	    nam.nam$b_rsl, res_str);
+13687        	    put_disp();
+13688        	  }
+13689        	}
+13690        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 44
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (15)
+
+             	
+13691        	int compdir (char *comp_file, Boolean matoutput)
+13692        	/*
+13693        	   Performs the actual directory compress or dump
+13694        	*/
+13695        	
+13696        	{ 
+13697        	  struct FAB fab;
+13698        	  struct NAM nam;
+13699        	  struct _d_e *dir_entry;
+13700        	  struct _f_e *fid_entry;
+13701        	  unsigned short chan, func, fid_num;
+13702        	  Boolean found;
+13703        	  static struct fibdef fib; 
+13704        	  static short attrib[16];
+13705        	  static unsigned int uchar;
+13706        	  static struct { 
+13707        	    unsigned short atr_size, atr_type;
+13708        	    int atr_address; 
+13709        	  } 
+13710        	  acb[3] =  { 
+13711        	    {
+13712        	      32, ATR$C_RECATTR, (int) &attrib    }
+13713        	    , 
+13714        	    { 
+13715        	      4, ATR$C_UCHAR, (int) &uchar    } 
+13716        	    ,
+13717        	    {
+13718        	      0, 0, 0    } 
+13719        	  };
+13720        	  struct {
+13721        	    int fiblen; 
+13722        	    struct fibdef *fibadr;
+13723        	  } 
+13724        	  fibdescr;
+13725        	  static char res_str[255], exp_str[255], devnam[15];
+13726        	  int i, j, k, n, nr, newi, newj, vbn, e_blk, h_blk, oldeblk, lastsize, limit;
+13727        	  short error;
+13728        	  char deflt[] = ".DIR;";
+13729        	  struct _quad {
+13730        	    unsigned int address[2];
+13731        	  } 
+13732        	  retadr , outadr;
+13733        	  struct _sh {
+13734        	    char block[512];
+13735        	  } 
+13736        	  *i_dir, *o_dir; /* Pointer to shared memory */
+13737        	  $DESCRIPTOR(devnam_descr , devnam);
+13738        	
+13739        	  /* fill in FAB , NAM and FIB blocks*/
+13740        	  fibdescr.fiblen = sizeof(fib);
+13741        	  fibdescr.fibadr = &fib;
+13742        	  func = IO$_ACCESS | IO$M_ACCESS;
+13743        	
+13744        	  fab = cc$rms_fab;
+13745        	  fab.fab$l_dna = (char *) &deflt;
+13746        	  fab.fab$b_dns = 5;
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 45
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (15)
+
+13747        	  fab.fab$l_fna = comp_file;
+13748        	  fab.fab$b_fns = strlen(comp_file);
+13749        	  fab.fab$l_nam = &nam;
+13750        	
+13751        	  nam = cc$rms_nam;
+13752        	  nam.nam$b_rss = NAM$C_MAXRSS;
+13753        	  nam.nam$l_rsa = (char *) &res_str;
+13754        	  nam.nam$b_ess = NAM$C_MAXRSS;
+13755        	  nam.nam$l_esa = (char *) &exp_str;
+13756        	
+13757        	  /* get the rest of the fab fields */
+13758        	
+13759        	  status = SYS$PARSE(&fab , 0 , 0);
+13760        	  if ((status & 1 ) != 1) 
+13761        	  { 
+13762        	    sprintf(outbuf,"%%DFU-E-PARSEERR, Error parsing filename from %s,", comp_file);
+13763        	    put_disp(); 
+13764        	    singlemsg(0,status); 
+13765        	    return(status);
+13766        	  }
+13767        	
+13768        	  /* now search for the file */
+13769        	
+13770        	  chan = 0;
+13771        	  lastsize = 0;
+13772        	  error = 0;
+13773        	  status = SYS$SEARCH(&fab , 0 , 0);
+13774        	  outadr.address[0] = 0;
+13775        	  while (status != RMS$_NMF)
+13776        	  { 
+13777        	    res_str[nam.nam$b_rsl] = '\0';
+13778        	    if ((status & 1 ) != 1) 
+13779        	    { 
+13780        	      sprintf(outbuf, "%%DFU-E-SEARCHERR, Error searching file %s,", res_str);
+13781        	      put_disp(); 
+13782        	      singlemsg(0,status); 
+13783        	      return(status);
+13784        	    }
+13785        	    /* Open a channel to the device */
+13786        	    if (chan == 0)
+13787        	    { 
+13788        	      devnam_descr.dsc$w_length = nam.nam$t_dvi[0];
+13789        	      strcpy(devnam,&nam.nam$t_dvi[1]);
+13790        	      status = SYS$ASSIGN(&devnam_descr, &chan, 0 , 0);
+13791        	      if ((status & 1 ) != 1) 
+13792        	      { 
+13793        	        singlemsg(DFU_ASSIGN,status); 
+13794        	        return(status);
+13795        	      }
+13796        	    }
+13797        	    /* Now fill in File id and function code for the ACP call */
+13798        	    fib.fib$w_fid[0] = nam.nam$w_fid_num;
+13799        	    fib.fib$w_fid[1] = nam.nam$w_fid_seq;
+13800        	    fib.fib$w_fid[2] = nam.nam$w_fid_rvn;
+13801        	    if (!mattest && !matdump) fib.fib$l_acctl = 
+13802        	      FIB$M_WRITE | FIB$M_NOWRITE;
+13803        	    else fib.fib$l_acctl = FIB$M_NOLOCK; 
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 46
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (15)
+
+13804        	
+13805        	    /* Open the directory */
+13806        	    status = SYS$QIOW(0, chan, func, &iostat,0,0,&fibdescr, 0,0,0, &acb,0);
+13807        	    if ((status & 1 ) == 1) status = iostat.iosb_1;
+13808        	    if ((status & 1) !=1)
+13809        	    { 
+13810        	      sprintf(outbuf,"%%DFU-E-OPENERR, Error opening directory %s,",res_str);
+13811        	      put_disp(); 
+13812        	      singlemsg(0,status); 
+13813        	      goto next_dir;
+13814        	    }
+13815        	    /* Get the directory size */
+13816        	    e_blk = (attrib[4] << 16) + attrib[5];
+13817        	    h_blk = (attrib[2] << 16) + attrib[3];
+13818        	    oldeblk = e_blk - 1;
+13819        	
+13820        	    /* Check if directory is valid */
+13821        	    if ( ((attrib[0] & 2048 ) != 2048) /*NOSPAN attribute */
+13822        	      || ((uchar & 8192) != 8192) /* Directory bit */
+13823        	      || ((uchar & 128) != 128) ) /* Contiguous bit */
+13824        	    { 
+13825        	      sprintf(outbuf,"%%DFU-W-INVDIR, %s is not a valid directory",res_str);
+13826        	      put_disp();
+13827        	      goto next_dir;
+13828        	    }
+13829        	    if ( strstr(res_str,".DIR;1") == 0) 
+13830        	    { 
+13831        	      sprintf(outbuf,"%%DFU-W-INVDIR, %s is not a valid directory",res_str);
+13832        	      put_disp();
+13833        	      goto next_dir;
+13834        	    }
+13835        	    lastsize = 0;
+13836        	    if (e_blk > 1000) 
+13837        	    { /* Allocate dynamic space to read the directory file */
+13838        	      status = SYS$EXPREG(e_blk, &retadr.address[0], 0, 0);
+13839        	      if ((status & 1) != 1)
+13840        	      { 
+13841        	        sprintf(outbuf,"%%DFU-E-INSFMEM, Error allocating %d pages memory for %s",
+13842        	        e_blk, res_str);
+13843        	        put_disp();
+13844        	        singlemsg(0,status); 
+13845        	        lastsize = 0;
+13846        	        goto next_dir;
+13847        	      }
+13848        	      else lastsize = e_blk;
+13849        	    }    
+13850        	    /* Allocate space for new directory (if needed) */
+13851        	    outadr.address[0] = 0;
+13852        	    if (ratio != 100)
+13853        	    { 
+13854        	      status = SYS$EXPREG( h_blk, &outadr.address[0],0,0);
+13855        	      if ((status & 1) != 1)              
+13856        	      { 
+13857        	        sprintf(outbuf,"%%DFU-E-INSFMEM, Error allocating %d pages memory ",
+13858        	        h_blk);
+13859        	        put_disp();
+13860        	        singlemsg(0,status);
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 47
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (15)
+
+13861        	        goto next_dir;
+13862        	      }
+13863        	    }
+13864        	
+13865        	    limit = (512*ratio / 100);
+13866        	    /* Now read the directory with 1 I/O */
+13867        	    vbn = e_blk - 1;
+13868        	    /* Pointer to space for directory blocks */
+13869        	    if (lastsize <= 1000)
+13870        	      i_dir = (struct _sh *) &header[0].block[0];
+13871        	    else
+13872        	      i_dir = (struct _sh *) retadr.address[0];
+13873        	    if (ratio !=100)
+13874        	      o_dir = (struct _sh *) outadr.address[0];
+13875        	    else
+13876        	      o_dir = i_dir;
+13877        	    status = SYS$QIOW(0, chan, IO$_READVBLK, &iostat, 0,0,
+13878        	    i_dir, (vbn*512), 1, 0,0,0);
+13879        	    if ((status & 1 ) == 1) status = iostat.iosb_1;
+13880        	    if ((status & 1) !=1)
+13881        	    { 
+13882        	      sprintf(outbuf,"%%DFU-E-READERR, Error reading directory %s,",res_str);
+13883        	      put_disp(); 
+13884        	      singlemsg(0,status); 
+13885        	      goto next_dir;
+13886        	    }
+13887        	    /* Check for corrupted directory */
+13888        	    if (i_dir->block[0] == 0) { error = 1; goto next_dir; }
+13889        	
+13890        	    /* If just testing we can release the directory now */
+13891        	    if (mattest || matdump) 
+13892        	      status = SYS$QIOW(0, chan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+13893        	
+13894        	    /* Now processs the directory blocks */
+13895        	    newi = 1; 
+13896        	    newj = 1; 
+13897        	    k = 1; 
+13898        	    n = 0;
+13899        	    while (k < e_blk)
+13900        	    { 
+13901        	      i = 1; 
+13902        	      found = FALSE;   
+13903        	      if (matdump) 
+13904        	      { 
+13905        	        sprintf(outbuf,"DUMP of directory block %d",k);
+13906        	        put_disp(); 
+13907        	        if (matoutput) fprintf(fp,"%s\n",outbuf);
+13908        	      }
+13909        	      while (!found)
+13910        	      { 
+13911        	        if ((i > 512) || i_dir->block[i-1] == -1) found = TRUE; /* End of block */
+13912        	        else /* parse this entry */
+13913        	        { 
+13914        	          dir_entry = (struct _d_e *) &i_dir->block[i-1]; 
+13915        		  if (dir_entry->size > (510 - i)) {error = 1; goto next_dir; }
+13916        	          /* Pointer to directory record */
+13917        	          nr = (dir_entry->size - 4 - dir_entry->count) / 8; /* # of files entries */
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 48
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (15)
+
+13918        	
+13919        	          n += nr;
+13920        	          j = i + dir_entry->size + 2; /* End address of this entry */
+13921        	
+13922        	          /* Make sure we can put this entry in a block */
+13923        	          if ((!matdump) && ((dir_entry->size + 2) > limit))
+13924        	          { 
+13925        	            sprintf(outbuf,
+13926        	            "%%DFU-E-LOWFILL, Directory entry too large, choose a higher fill factor");
+13927        	            put_disp(); 
+13928        	            goto next_dir;
+13929        	          }
+13930        	          /* If /dump entered display this entry */
+13931        	          if (matdump)
+13932        	          { 
+13933        	            sprintf(outbuf,
+13934        	            "Size: %d, Version limit: %d, Type: %d, Name(%d): %.*s",
+13935        	            dir_entry->size, dir_entry->versionlim,
+13936        	            dir_entry->flags, dir_entry->count, 
+13937        	            dir_entry->count, dir_entry->name);
+13938        	            put_disp(); 
+13939        	            if (matoutput) fprintf(fp,"%s\n",outbuf);
+13940        	            /* Align count field */
+13941        	            if ((dir_entry->count &1) ==1) dir_entry->count +=1;
+13942        	            if (dir_entry->count > 80) { error = 1; goto next_dir; }
+13943        	            fid_entry = (struct _f_e *) &i_dir->block[i + 5 + dir_entry->count];
+13944        	            while (nr >= 1)
+13945        	            { 
+13946        	              fid_num = (fid_entry->fid_nmx << 16) + fid_entry->fid_num;
+13947        	              sprintf(outbuf,"   Version: %d, FID : (%d,%d,%d)",
+13948        	              fid_entry->version, fid_num, fid_entry->fid_seq, 
+13949        	              fid_entry->fid_rvn);
+13950        	              put_disp(); 
+13951        	              if (matoutput) fprintf(fp,"%s\n",outbuf);
+13952        	              nr--; 
+13953        	              fid_entry++;
+13954        	            }
+13955        	          }
+13956        	
+13957        	          /* Fill in new directory */
+13958        	          if ((newj + j - i) >= limit) /* Check if we reached  block bounds */
+13959        	          { 
+13960        	            o_dir->block[newj-1] = -1; /* Mark end of block */
+13961        	            o_dir->block[newj] = -1;
+13962        	            newj = 1; 
+13963        	            newi += 1; 
+13964        	            o_dir += 1; /* Next block */
+13965        	          }
+13966        	          /* Test if we didn't have an impossible fill_factor */
+13967        	          if (newi > h_blk )
+13968        	          { 
+13969        	            sprintf(outbuf,"%%DFU-E-EXTERR, %s cannot be extended,",res_str);
+13970        	            put_disp(); 
+13971        	            sprintf(outbuf," Choose a higher fill factor"); 
+13972        	            put_disp();
+13973        	            goto next_dir;
+13974        	          }
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 49
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (15)
+
+13975        	          memmove(&o_dir->block[newj-1], dir_entry, (j-i));
+13976        	          newj += (j-i);
+13977        	          i = j; /* Pointer to next entry */
+13978        	        } /* endif*/
+13979        	      } /* end while */
+13980        	      k += 1; 
+13981        	      i_dir += 1; /* Next block */
+13982        	      if (matdump) 
+13983        	      { 
+13984        	        sprintf(outbuf," ");
+13985        	        put_disp(); 
+13986        	        if (matoutput) fprintf(fp,"%s\n",outbuf);
+13987        	      }
+13988        	      if (matdump && (ctrlc == 1)) goto next_dir;
+13989        	    } /* end 'k' loop */
+13990        	    /* Mark end of block */
+13991        	    o_dir->block[newj-1] = -1; 
+13992        	    o_dir->block[newj] = -1;
+13993        	    /* Clear the rest of the bits */
+13994        	    for (j = (newj+2); j <= 512; j++) o_dir->block[j-1] = 0;
+13995        	    if ((!mattest) && (!matdump))
+13996        	      /* Rewrite the new , compressed directory */
+13997        	    { 
+13998        	      e_blk = newi + 1;
+13999        	      attrib[4] = e_blk >> 16;
+14000        	      attrib[5] = e_blk - (attrib[4] << 16);
+14001        	      vbn = e_blk - 1;
+14002        	      if (ratio != 100)
+14003        	        o_dir = (struct _sh *) outadr.address[0];
+14004        	      else 
+14005        	      { 
+14006        	        if (lastsize <= 1000)
+14007        	          o_dir = (struct _sh *) &header[0].block[0];
+14008        	        else
+14009        	          o_dir = (struct _sh *) retadr.address[0];
+14010        	      }
+14011        	      status = SYS$QIOW(0, chan, IO$_WRITEVBLK, &iostat,0,0,
+14012        	      o_dir, (vbn*512), 1, 0,0,0);
+14013        	      if ((status & 1 ) == 1) status = iostat.iosb_1;
+14014        	      if ((status & 1) !=1)
+14015        	      { 
+14016        	        sprintf(outbuf,"%%DFU-E-WRITEERR, Error writing directory %s,",res_str);
+14017        	        put_disp(); 
+14018        	        singlemsg(0,status); 
+14019        	        goto next_dir;
+14020        	      }
+14021        	      /* Write the new attributes back , truncate and close the file */
+14022        	      fib.fib$l_exsz = 0;
+14023        	      if (mattruncate) 
+14024        	      { 
+14025        	        fib.fib$w_exctl = FIB$M_TRUNC;
+14026        	        if ( (truncsize == 0) || (truncsize < e_blk) )
+14027        	          fib.fib$l_exvbn = e_blk;
+14028        	        else fib.fib$l_exvbn = truncsize;
+14029        	      }
+14030        	      else
+14031        	      { 
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 50
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (15)
+
+14032        	        fib.fib$w_exctl = 0;
+14033        	        fib.fib$l_exvbn = 0;
+14034        	      }
+14035        	      status = SYS$QIOW(0, chan, IO$_DEACCESS, &iostat, 0,0,
+14036        	      &fibdescr, 0,0,0, &acb,0);
+14037        	      if (mattruncate) e_blk = fib.fib$l_exvbn - 1;
+14038        	      else e_blk = h_blk;
+14039        	    }
+14040        	    if (mattest)
+14041        	      sprintf(outbuf,
+14042        	      "%%DFU-I-TESTONLY, %s : %d files; old size : %d/%d, new : %d blocks",
+14043        	      res_str, n, oldeblk, h_blk, newi);
+14044        	    else 
+14045        	      if (matdump)
+14046        	        sprintf(outbuf,"%%DFU-I-TOTAL, %s : %d files", res_str, n);
+14047        	      else
+14048        	        sprintf(outbuf,
+14049        	        "%%DFU-S-DONE, %s : %d files; was : %d/%d, now : %d/%d blocks",
+14050        	        res_str, n, oldeblk, h_blk, newi, e_blk);
+14051        	    put_disp();
+14052        	
+14053        	    /* Next file if any...*/
+14054        	next_dir: 
+14055        	    if (error !=0)
+14056        	    { sprintf(outbuf
+14057        	        ,"%%DFU-E-JUNK, invalid directory format at block %d for %s",
+14058        	        k,res_str);
+14059        	      put_disp(); error = 0; 
+14060        	      if (matoutput) fprintf(fp,"%s\n",outbuf);
+14061        	    }
+14062        	    SYS$QIOW(0, chan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+14063        	    if (lastsize !=0)
+14064        	      SYS$DELTVA(&retadr.address[0], 0 , 0);
+14065        	    if (outadr.address[0] !=0)
+14066        	    {  
+14067        	      SYS$DELTVA(&outadr.address[0], 0, 0);
+14068        	      outadr.address[0] = 0;
+14069        	    }
+14070        	    if (ctrlc == 1) status = RMS$_NMF;
+14071        	    else status = SYS$SEARCH(&fab , 0 , 0);
+14072        	  }
+14073        	  status = SYS$DASSGN(chan);
+14074        	
+14075        	  if (ctrlc == 1) do_abort();
+14076        	  return(1);
+14077        	}
+14078        	
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 51
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (16)
+
+             	
+14079        	int scan_directories(int *rvt, int rvn, int cnt, int max, 
+14080        	Boolean matoutput, int in_flag)
+14081        	/* Scan all directories found on this disk. Implicitly called
+14082        	     by the DIR/VERSION , /ALIAS or DIR/EMPTY command. 
+14083        	     RVT is the relative volume table which contains the adresses 
+14084        	     for the dynamic array and the device channel. 
+14085        	   Parameter in_flag is used to see if we were called by VERIFY 
+14086        		: 0 --> we were called by the directory command
+14087        		: 1 --> we were called by verify command
+14088        		: 2 --> we were called by verify /fix command
+14089        	*/
+14090        	
+14091        	{ 
+14092        	  struct _rv 
+14093        	    { /* Structure for relative volume table */
+14094        	    char devnam[64], fulldevnam[64]; 
+14095        	    unsigned int devnam_len,fulldevnam_len, i_open,vbn_file_1,if_size,maxblocks;
+14096        	    unsigned short channel, bchan;
+14097        	    Boolean wlk, slow;
+14098        	    int addr[2], bmap_addr[2]; /* For EXPREG calls */
+14099        	  } 
+14100        	  *rvt_t;
+14101        	  struct _t { 
+14102        	    unsigned short fid[3]; 
+14103        	    unsigned int bakfid, a_size, f_link; 
+14104        	    char rvn, bitje; 
+14105        	  } 
+14106        	  *dyn_array, *temp;
+14107        	  struct _d_e *dir_entry;
+14108        	  static struct _f_e *fid_entry, did;
+14109        	  unsigned int lastsize, progress, totsize;
+14110        	  unsigned short outlen, chan, error;
+14111        	  struct _quad {
+14112        	    unsigned int address[2];
+14113        	  }   retadr;
+14114        	
+14115        	  struct _sh {
+14116        	    char block[512];
+14117        	  } *i_dir; /* Pointer to shared memory */
+14118        	
+14119        	  static struct fibdef fib; 
+14120        	  struct {
+14121        	    int fiblen; 
+14122        	    struct fibdef *fibadr;
+14123        	  }   fibdescr;
+14124        	
+14125        	  static short attrib[16];
+14126        	  static struct { 
+14127        	    short lendir;
+14128        	    char dirnam[198]; 
+14129        	  }   dirrec, filrec;
+14130        	
+14131        	  static struct { 
+14132        	    unsigned short atr_size, atr_type;
+14133        	    int atr_address; 
+14134        	  } 
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 52
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (16)
+
+14135        	  acb[3] =  { 
+14136        	    {
+14137        	      32, ATR$C_RECATTR, (int) &attrib    }
+14138        	    ,
+14139        	    {
+14140        	      200, ATR$C_FILE_SPEC, (int) &dirrec    }
+14141        	    , {
+14142        	      0, 0, 0    } 
+14143        	  }
+14144        	  , 
+14145        	  acb_fil[3] =  { 
+14146        	    {
+14147        	      6, ATR$C_BACKLINK, (int) &did.fid_num    }
+14148        	    , 
+14149        	    {
+14150        	      200, ATR$C_FILE_SPEC, (int) &filrec    }
+14151        	    , {
+14152        	      0, 0, 0    } 
+14153        	  };
+14154        	  char *tmp;
+14155        	  int i, j, k, n, nr, newi, x, vbn, e_blk, maxi, func, dir_cnt;
+14156        	  static char devnam[64], savnam[86], oldnam[86], fulldevnam[64], resname[255];
+14157        	  unsigned int fid, bakfid, acp_stat, xrvn;
+14158        	  register int l;
+14159        	  Boolean found, flag, getdir, do_repair;
+14160        	  $DESCRIPTOR(devnam_descr , fulldevnam);
+14161        	  $DESCRIPTOR(indescr, outbuf);
+14162        	  $DESCRIPTOR(resdescr, resname);
+14163        	
+14164        	  if (in_flag > 0)
+14165        	  { 
+14166        	    matempty = matalias = matversion = matrepair = FALSE;
+14167        	    matcheck = TRUE;
+14168        	    if (in_flag == 2) matrepair = TRUE;
+14169        	  }
+14170        	
+14171        	  lastsize = 0; 
+14172        	  rvt_t = (struct _rv *) rvt; /* Pointer to real relative volume table */
+14173        	  strcpy(fulldevnam, &((rvt_t+rvn)->fulldevnam[1]) );
+14174        	  devnam_descr.dsc$w_length = (rvt_t+rvn)->fulldevnam_len;
+14175        	  dyn_array = (struct _t *) (rvt_t+rvn)->addr[0]; /* Pointer to dynamic array */
+14176        	
+14177        	  maxi = (dyn_array->fid[1] << 16) + dyn_array->fid[0]; /* Highest found file header */
+14178        	
+14179        	
+14180        	  /* open a channel */
+14181        	  status = SYS$ASSIGN(&devnam_descr, &chan, 0 , 0);
+14182        	  if ((status & 1 ) != 1) 
+14183        	  { 
+14184        	    singlemsg(DFU_ASSIGN,status); 
+14185        	    return(0);
+14186        	  }
+14187        	
+14188        	  fibdescr.fiblen = sizeof(fib);
+14189        	  fibdescr.fibadr = &fib;
+14190        	  func = IO$_ACCESS | IO$M_ACCESS;
+14191        	  fib.fib$l_acctl = FIB$M_NOLOCK;
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 53
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (16)
+
+14192        	
+14193        	  /* Scan the array */
+14194        	  l = 4; 
+14195        	  dir_cnt = 0; error = 0;
+14196        	  /*  while ((l <= maxi) && (ctrlc !=1)) */
+14197        	  do /* MAIN LOOP */
+14198        	  { 
+14199        	    if (( (dyn_array+l)->bitje & 4) != 4) goto next;/* Not a directory */
+14200        	    /* Now fill in File id and function code for the ACP call */
+14201        	    copy_fid(&fib.fib$w_fid[0], &((dyn_array+l)->fid[0]), FALSE) ;
+14202        	
+14203        	    /* Open the directory */
+14204        	    status = SYS$QIOW(0, chan, func, &iostat,0,0,&fibdescr, 
+14205        	    0,0,0,&acb,0);
+14206        	    if ((status & 1 ) == 1) status = iostat.iosb_1;
+14207        	    if ((status & 1) !=1) goto next;
+14208        	
+14209        	    /* Get the directory size */
+14210        	    e_blk = (attrib[4] << 16) + attrib[5]; 
+14211        	    lastsize = 0;
+14212        	    if (e_blk > 1000) 
+14213        	    { /* Allocate dynamic space to read the directory file */
+14214        	      status = SYS$EXPREG(e_blk, &retadr.address[0], 0, 0);
+14215        	      if ((status & 1) != 1)
+14216        	      { 
+14217        	        lastsize = 0;
+14218        	        SYS$QIOW(0, chan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+14219        	        goto next;
+14220        	      }
+14221        	      else lastsize = e_blk;
+14222        	    }    
+14223        	
+14224        	    /* Now read the directory with 1 I/O */
+14225        	    vbn = e_blk -1 ;
+14226        	    /* Pointer to space for directory blocks (1000 max) */
+14227        	    if (e_blk <= 1000)
+14228        	      i_dir = (struct _sh *) &header[0].block[0];
+14229        	    else
+14230        	      i_dir = (struct _sh *) retadr.address[0];
+14231        	    status = SYS$QIOW(0, chan, IO$_READVBLK, &iostat, 0,0,
+14232        	    i_dir, (vbn*512), 1, 0,0,0);
+14233        	    SYS$QIOW(0, chan, IO$_DEACCESS,0,0,0,0,0,0,0,0,0);
+14234        	    if ((status & 1 ) == 1) status = iostat.iosb_1;
+14235        	    if ((status & 1) !=1) goto next;
+14236        	
+14237        	    getdir = FALSE;
+14238        	    /* Rearrange directory name */
+14239        	    x = strindex(&dirrec.dirnam,"[",198); 
+14240        	    strncpy(dirrec.dirnam,&dirrec.dirnam[x],(198-x));
+14241        	    tmp = (char *) strstr(dirrec.dirnam,".DIR;"); 
+14242        	    *tmp = ']';
+14243        	    tmp = (char *) strstr(dirrec.dirnam,"]"); 
+14244        	    *tmp = '.';
+14245        	    if (strstr(dirrec.dirnam,"[000000") != 0)
+14246        	    { 
+14247        	      dirrec.dirnam[7] = '[';
+14248        	      strcpy(dirrec.dirnam,&dirrec.dirnam[7]);
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 54
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (16)
+
+14249        	    }
+14250        	    x = strindex(&dirrec.dirnam,"]",198); 
+14251        	    dirrec.dirnam[x+1] = '\0';
+14252        	
+14253        	    if ( (dir_cnt + cnt) % 10 == 0 )
+14254        	    { 
+14255        	      progress = 100 * (dir_cnt + cnt) / max;
+14256        	      sprintf(outbuf,
+14257        	      "     Progress : %3d%%     Status : Scanning directories (%d done)",
+14258        	      progress,(dir_cnt+cnt));
+14259        	      put_status(1);
+14260        	    }
+14261        	    strcpy(oldnam,"\0");
+14262        	    dir_cnt++;
+14263        	
+14264        	    /* Now processs the directory blocks */
+14265        	    if (i_dir->block[0] == -1 ) /* Empty dir */
+14266        	    { 
+14267        	      if (matempty) 
+14268        	      { 
+14269        	        sprintf(outbuf,"%s%s is empty ", fulldevnam, &dirrec.dirnam);
+14270        	        put_disp(); 
+14271        	        if (matoutput) fprintf(fp,"%s\n",outbuf);
+14272        	      }
+14273        	      goto next;
+14274        	    } 
+14275        	    /* If we are searching for empty directories ONLY skip the next code */
+14276        	    if (matempty && (!matalias && !matversion && !matcheck)) goto next;
+14277        	    newi = 1; 
+14278        	    k = 1; 
+14279        	    n = 0; 
+14280        	    flag = FALSE;
+14281        	    do_repair = FALSE;
+14282        	    while (k < e_blk)
+14283        	    { /* Check first for corrupted directory otherwise we might ACCVIO */
+14284        	      if (i_dir->block[0] == 0) 
+14285        	      { error = 1; goto next;
+14286        	      }
+14287        	      i = 1; 
+14288        	      found = FALSE;   
+14289        	      while (!found)
+14290        	      { 
+14291        	        if ((i > 512) || i_dir->block[i-1] == -1) found = TRUE; /* End of block */
+14292        	        else /* parse this entry */
+14293        	        { /* Pointer to directory record */
+14294        	          dir_entry = (struct _d_e *) &i_dir->block[i-1]; 
+14295        		  if (dir_entry->size > (510 - i)) {error = 1; goto next; }
+14296        	          j = i + dir_entry->size + 2; /* End address of this entry */
+14297        	          /* Align count field */
+14298        	          if ((dir_entry->count & 1) ==1) dir_entry->count +=1;
+14299        		  if (dir_entry->count > 80) { error = 1; goto next; }
+14300        	          /* CHECK code starts here...*/
+14301        	          if (matcheck)
+14302        	          { 
+14303        	            x = strncmp(&oldnam, dir_entry->name, dir_entry->count);
+14304        	            strncpy(oldnam, dir_entry->name, dir_entry->count);
+14305        	            oldnam[dir_entry->count] = '\0';
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 55
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (16)
+
+14306        	            if (x > 0) 
+14307        	            { 
+14308        	              sprintf(outbuf,"%s%s%s out of alphabetical order",
+14309        	              fulldevnam, &dirrec.dirnam, &oldnam);
+14310        	              put_disp(); 
+14311        	              if (matoutput) fprintf(fp,"%s\n",outbuf);
+14312        	            }
+14313        	            n = (dir_entry->size - 4 - dir_entry->count) / 8; 
+14314        	            /* Now check if we have a valid file header */
+14315        	            fid_entry = (struct _f_e *) &i_dir->block[i + 5 + dir_entry->count];
+14316        	            while (n > 0)
+14317        	            { 
+14318        	              fid = (fid_entry->fid_nmx << 16) + fid_entry->fid_num;
+14319        	              /* Check if RVN on other disk (possible only in volume sets) */
+14320        	              if ( (fid_entry->fid_rvn != 0 ) && (fid_entry->fid_rvn != rvn) )
+14321        	              { 
+14322        	                xrvn = fid_entry->fid_rvn;
+14323        	                temp = (struct _t *) (rvt_t+xrvn)->addr[0]; /* Pointer to other table */
+14324        	                temp = (temp+fid);
+14325        	              }
+14326        	              else
+14327        	              { 
+14328        	                xrvn = rvn;
+14329        	                temp = (struct _t *) (dyn_array+fid);
+14330        	              }
+14331        		      if (xrvn > 31) {error = 1; goto next;}
+14332        	              if ( (temp->bitje & 16) != 16) /* No valid file header */
+14333        	              { 
+14334        	                sprintf(outbuf,"%s%s%.*s;%d has no valid file header",
+14335        	                fulldevnam, &dirrec.dirnam, dir_entry->count, 
+14336        	                dir_entry->name,fid_entry->version);
+14337        	                put_disp(); 
+14338        	                do_repair = TRUE;
+14339        	                if (matoutput) fprintf(fp,"%s\n",outbuf);
+14340        	              }
+14341        	              else
+14342        	                if ( temp->fid[1] != fid_entry->fid_seq) /*Invalid seq*/
+14343        	                { 
+14344        	                  sprintf(outbuf,"%s%s%.*s;%d invalid file sequence number",
+14345        	                  fulldevnam, &dirrec.dirnam, dir_entry->count, 
+14346        	                  dir_entry->name,fid_entry->version);
+14347        	                  put_disp(); 
+14348        	                  if (matoutput) fprintf(fp,"%s\n",outbuf);
+14349        	                  do_repair = TRUE;
+14350        	                }
+14351        	              temp->bitje = temp->bitje & ~1; /* clear lost file bit */
+14352        	              if (matrepair && do_repair) /* Remove this entry */
+14353        	              { 
+14354        			make_list();
+14355        			copy_fid(&list->fid_num, &fid_entry->fid_num , FALSE);
+14356        			copy_fid(&list->did_num, &fib.fib$w_fid[0], FALSE);
+14357        		        list->function = 7;
+14358        			strcpy(list->name,dir_entry->name);
+14359        	              } 
+14360        	              do_repair = FALSE;
+14361        	              n--; 
+14362        	              fid_entry++;
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 56
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (16)
+
+14363        	            }
+14364        	          } /* End of /CHECK */
+14365        	
+14366        	          /* VERSION code starts here...*/
+14367        	          if (matversion)
+14368        	          { 
+14369        	            if (!flag) totsize = nr = 0;
+14370        	            else 
+14371        	            { 
+14372        	              x = strncmp(&savnam, dir_entry->name, dir_entry->count);
+14373        	              if (x != 0) /* report previous entry */
+14374        	              { 
+14375        	                if (nr >= version)  
+14376        	                { 
+14377        	                  sprintf(outbuf,"%s%s%s , %d versions , %d blocks",
+14378        	                  fulldevnam, &dirrec.dirnam, &savnam, nr, totsize);
+14379        	                  put_disp(); 
+14380        	                  if (matformat)
+14381        	                  { 
+14382        	                    indescr.dsc$w_length = strindex(&outbuf," ",255);
+14383        	                    outbuf[indescr.dsc$w_length] = ' ';
+14384        	                    resdescr.dsc$w_length = 255;
+14385        	                    status = SYS$FAO(&ctrstr1, &outlen, &resdescr, 
+14386        	                    &indescr);
+14387        	                    fprintf(fp,"%.*s\n",outlen,resname);
+14388        	                  } 
+14389        	                  else if (matoutput) fprintf(fp,"%s\n",outbuf);
+14390        	                }
+14391        	                totsize = nr = 0;
+14392        	              }
+14393        	            }
+14394        	            /* # of files entries */ 
+14395        	            n = (dir_entry->size - 4 - dir_entry->count) / 8; 
+14396        	            nr += n;
+14397        	            /* Count the size of the individual files (was saved in the
+14398        	               dynamic array) */
+14399        	            fid_entry = (struct _f_e *) &i_dir->block[i + 5 + dir_entry->count];
+14400        	            while (n > 0)
+14401        	            { 
+14402        	              fid = (fid_entry->fid_nmx << 16) + fid_entry->fid_num;
+14403        	              /* Check if RVN on other disk (possible only in volume sets) */
+14404        	              if ( (fid_entry->fid_rvn != 0 ) && (fid_entry->fid_rvn != rvn) )
+14405        	              { 
+14406        	                xrvn = fid_entry->fid_rvn;
+14407        	                temp = (struct _t *) (rvt_t+xrvn)->addr[0]; /* Pointer to other table */
+14408        	                temp = (temp+fid);
+14409        	              }
+14410        	              else
+14411        	              { 
+14412        	                xrvn = rvn;
+14413        	                temp = (struct _t *) (dyn_array+fid);
+14414        	              }
+14415        	              totsize += temp->a_size;
+14416        	              n--; 
+14417        	              fid_entry++;
+14418        	            }
+14419        	            if ((j > 512) || i_dir->block[j-1] == -1) flag = TRUE;
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 57
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (16)
+
+14420        	            else flag = FALSE;
+14421        	            /* Save name if last entry in this block . We must do this
+14422        	               because directory entries can span blocks */
+14423        	            if (flag) 
+14424        	            { 
+14425        	              strncpy(savnam, dir_entry->name, dir_entry->count);
+14426        	              savnam[dir_entry->count] = '\0';
+14427        	            }
+14428        	            if ((nr >= version) && (!flag))
+14429        	              /* Report this file */
+14430        	            { 
+14431        	              sprintf(outbuf,"%s%s%.*s , %d versions , %d blocks",
+14432        	              fulldevnam, &dirrec.dirnam, dir_entry->count, 
+14433        	              dir_entry->name, nr, totsize);
+14434        	              put_disp(); 
+14435        	              if (matformat)
+14436        	              { 
+14437        	                indescr.dsc$w_length = strindex(&outbuf," ",255);
+14438        	                outbuf[indescr.dsc$w_length] = ' ';
+14439        	                resdescr.dsc$w_length = 255;
+14440        	                status = SYS$FAO(&ctrstr1, &outlen, &resdescr, 
+14441        	                &indescr);
+14442        	                fprintf(fp,"%.*s\n",outlen,resname);
+14443        	              }
+14444        	              else if (matoutput) fprintf(fp,"%s\n",outbuf);
+14445        	              totsize = nr = 0;
+14446        	            }
+14447        	          } /* End version check */
+14448        	
+14449        	          /* ALIAS code starts here */
+14450        	          if (matalias)
+14451        	            /* Setup fid pointer for alias check */
+14452        	          { 
+14453        	            fid_entry = (struct _f_e *) &i_dir->block[i + 5 + dir_entry->count];
+14454        	            n = (dir_entry->size - 4 - dir_entry->count) / 8; 
+14455        	            while (n > 0)
+14456        	            { 
+14457        	              fid = (fid_entry->fid_nmx << 16) + fid_entry->fid_num;
+14458        	              /* Check if RVN on other disk (possible only in volume sets) */
+14459        	              if ( (fid_entry->fid_rvn != 0 ) && (fid_entry->fid_rvn != rvn) )
+14460        	              { 
+14461        	                xrvn = fid_entry->fid_rvn;
+14462        	                temp = (struct _t *) (rvt_t+xrvn)->addr[0]; /* Pointer to other table */
+14463        	                temp = (temp+fid);
+14464        	              }
+14465        	              else
+14466        	              { 
+14467        	                xrvn = rvn;
+14468        	                temp = (struct _t *) (dyn_array+fid);
+14469        	              }
+14470        	              bakfid = temp->bakfid;
+14471        	              if ((bakfid !=l) && (bakfid !=0))
+14472        	                /* Set up FIB to do a pseudo FID_TO_NAME call */
+14473        	              { 
+14474        	                fib.fib$w_fid[0] = fid_entry->fid_num;
+14475        	                fib.fib$w_fid[1] = fid_entry->fid_seq;
+14476        	                fib.fib$w_fid[2] = 
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 58
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (16)
+
+14477        	                  (fid_entry->fid_nmx << 8) + fid_entry->fid_rvn;
+14478        	                status = SYS$QIOW(0, (rvt_t+xrvn)->channel, IO$_ACCESS, 
+14479        	                &iostat,0,0,&fibdescr, 0,0,0, &acb_fil,0);
+14480        	                if ((status & 1 ) == 1) status = iostat.iosb_1;
+14481        	                if ((status & 1) != 1)
+14482        	                  singlemsg(0,status);
+14483        	                else
+14484        	                  /* Check the directory backlink found for this file. We must do this
+14485        	                     because the file header may have been changed since we have set up
+14486        	                     the dynamic array (because of concurrent disk activity). */
+14487        	                { 
+14488        	                  if ( ((did.fid_nmx << 16) + did.fid_num) != l)
+14489        	                  { 
+14490        	                    x = strindex(&filrec.dirnam,"[",198); 
+14491        	                    strncpy(filrec.dirnam,&filrec.dirnam[x],(198-x));
+14492        	                    sprintf(outbuf,"%s%s%.*s;%d is alias for %s%s",
+14493        	                    fulldevnam, &dirrec.dirnam, dir_entry->count, 
+14494        	                    dir_entry->name,fid_entry->version, 
+14495        	                    fulldevnam, &filrec.dirnam);
+14496        	                    put_disp(); 
+14497        	                    if (matoutput) fprintf(fp,"%s\n",outbuf);
+14498        	                  }
+14499        	                }
+14500        	              }  
+14501        	              n--; 
+14502        	              fid_entry++;
+14503        	            }
+14504        	          } /* End Alias check */
+14505        	
+14506        	          i = j; /* Pointer to next entry */
+14507        	        } /* endif*/
+14508        	      } /* end while */
+14509        	      k += 1; 
+14510        	      i_dir += 1; /* Next block */
+14511        	      if (ctrlc == 1) goto next;
+14512        	    } /* end 'k' loop */
+14513        	
+14514        	    /* Check if we have one unreported file left */
+14515        	    if ((flag) && (nr >= version))
+14516        	    { 
+14517        	      flag = FALSE;
+14518        	      /* Report this file */
+14519        	      sprintf(outbuf,"%s%s%.*s , %d versions , %d blocks",
+14520        	      fulldevnam, &dirrec.dirnam, dir_entry->count, 
+14521        	      dir_entry->name, nr, totsize);
+14522        	      put_disp(); 
+14523        	      if (matformat)
+14524        	      { 
+14525        	        indescr.dsc$w_length = strindex(&outbuf," ",255);
+14526        	        outbuf[indescr.dsc$w_length] = ' ';
+14527        	        resdescr.dsc$w_length = 255;
+14528        	        status = SYS$FAO(&ctrstr1, &outlen, &resdescr, 
+14529        	        &indescr);
+14530        	        fprintf(fp,"%.*s\n",outlen,resname);
+14531        	      }
+14532        	      else if (matoutput) fprintf(fp,"%s\n",outbuf);
+14533        	    }
+
+DFU_FILEDIR                                                     22-AUG-1996 11:33:19    DEC C      V5.2-003                 Page 59
+V1.0                                                            22-AUG-1996 11:31:41    DFU_FILEDIR.C;2 (16)
+
+14534        	
+14535        	next: 
+14536        	    if (error !=0)
+14537        	    { sprintf(outbuf
+14538        	        ,"%%DFU-E-JUNK, invalid directory format at block %d for %s%s",
+14539        	        k,fulldevnam, &dirrec.dirnam);
+14540        	      put_disp(); error = 0; 
+14541        	      if (matoutput) fprintf(fp,"%s\n",outbuf);
+14542        	    }
+14543        	    l = (dyn_array+l)->f_link; /* Next file */
+14544        	    if (lastsize !=0)
+14545        	      SYS$DELTVA(&retadr.address[0], 0 , 0);
+14546        	  }
+14547        	  while ((l !=0) && (ctrlc!=1) ); 
+14548        	  SYS$DASSGN(chan);
+14549        	  return(dir_cnt);
+14550        	}
+
+ 
+ 
+Command Line
+------------
+ 
+CC/DECC/EXTERN=COMMON/SHARE/WARN=NOINFO DFU_FILEDIR/LIS
+

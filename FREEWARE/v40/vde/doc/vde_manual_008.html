@@ -1,0 +1,639 @@
+<!-- VDE_MANUAL_008.HTML continuation of VDED$:[VDE.VDEDOC.DOC]VDE_MANUAL.HTML -->
+<html>
+<head>
+<title>VDE</title>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">VDE<br>VDE<br> Reference Manual</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_manual_007.html#bottom_007">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_manual_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_manual_index.html">Index</a>
+</table>
+
+<hr>
+
+<hr>
+<a name="vde_cmd_cre_mod"><h1><font color=maroon>CREATE MODULE</font></h1></a>
+
+<p>
+<blockquote>
+<a name="index_x_225"></a>
+Creates a new module in the current VDE library.
+
+<p>
+<strong>Requires CREMOD privilege.</strong>
+<a name="index_x_226"></a>
+</blockquote>
+
+<hr>
+<h2>Format</h2>
+<blockquote>
+<h3>CREATE MODULE mod-name [, mod-name...] </h3>
+</blockquote>
+
+<hr>
+<h2>Parameter</h2>
+<blockquote>
+<h3>mod-name</h3>
+The name of the module being created. The module name must consist of a 
+module name and a module type separated by a period (as in MODNAM.FOR). 
+It may optionally be preceded by a facility name enclosed in square 
+brackets (as in [ACCTNG]MODNAM.FOR where ACCTNG is the facility name). 
+If no facility name is specified, the module is assumed to belong to 
+the current default facility. The facility name, module name, and type 
+name may each be up to 39 characters long and must follow VDE 
+name syntax.
+</blockquote>
+
+<hr>
+<h2>Description</h2>
+<blockquote>
+The CREATE MODULE command creates a new module in the current 
+VDE library. It records the new module in the VDE 
+database, including its facility, name, type, remark string, and other 
+attributes. Every module belongs to some facility, either the facility 
+you explicitly specify or the current default facility.
+
+<p>
+Modules are classified as source modules or derived modules. A
+<a name="index_x_227"></a>
+<strong>source module</strong> is a text file (normally) which you 
+create and modify manually with an editor. A source module can be 
+reserved from and replaced into the VDE library with the 
+RESERVE and REPLACE commands. The text of each source module is stored 
+in a delta file within a CMS library in the form of
+<a name="index_x_228"></a>
+a CMS &quot;element.&quot;
+
+<p>
+By default, the CREATE MODULE command does not create the initial 
+generation of a source module. Instead it records the module in the 
+VDE database and reserves it for you in your default 
+development stream. You must then use the REPLACE command to actually 
+create the initial generation of the module. This should be the normal 
+way of creating new modules once the VDE library is 
+established. However, if you use the /INPUT or /FROM_DIRECTORY 
+qualifier, the CREATE MODULE command creates the initial generations of 
+the new modules; these qualifiers are useful when you initially 
+establish your VDE library. (Note that /INPUT may not be 
+available, depending on the setting of the queued-replacement option on 
+the stream. If /INPUT is not accepted, you must use a subsequent 
+REPLACE command to specify the contents of the module under creation.)
+
+<p>
+A <strong>derived module</strong> is a file or other entity that is
+<a name="index_x_229"></a>
+produced by an automated build step, such as an object module or an 
+executable image. A derived module cannot be reserved or replaced. In 
+most cases, VDE automatically enters derived modules into the 
+VDE database when the modules are produced; you seldom need 
+to enter them with the CREATE MODULE command. However, when a derived 
+module needs to be entered into the database manually, you can do so 
+with the /DERIVED qualifier to the CREATE MODULE command.
+
+<p>
+If a module is mistakenly created, one can use the DELETE MODULE 
+command to reverse the action and delete it---the UNRESERVE command
+<a name="index_x_230"></a>
+ will <em>refuse</em> to delete modules that lack a first generation.
+
+<p>
+The DELETE MODULE command allows the creator of an errant module to 
+correct simple mistakes---such as a misnamed module---without requiring 
+unusual privileges. With the DELETE MODULE command, the creator can 
+delete the module <em>prior</em> to the initial module replacement. 
+DELETE MODULE will cancel the outstanding reservation on the module, 
+will remove the module from any reservation session that it might be 
+included in, and will prevent the module from ever appearing in the 
+VDE library. For further information on the DELETE MODULE 
+command, see <a href="vde_manual_013.html#vde_cmd_del_mod">DELETE MODULE</a>. (The DELETE MODULE
+<a name="index_x_231"></a>
+ command normally requires DELMOD
+<a name="index_x_232"></a>
+ privilege. In this particular situation,
+<a name="index_x_233"></a>
+ CREMOD privilege is sufficient to permit module deletion.)
+</blockquote>
+
+<hr>
+<h2>Qualifiers</h2>
+<blockquote>
+<h3>/BINARY</h3>
+<h3>/NOBINARY (default)</h3>
+Specifies whether the source module is a binary file or not. The 
+/BINARY qualifier specifies that the source module is a binary 
+(non-text) file. Binary source files cannot be reviewed or differenced 
+with the REVIEW REPLACEMENT command because they do not consist of 
+ordinary ASCII text. The /NOBINARY qualifier specifies that the source 
+module is an ordinary ASCII text file. These qualifiers are only 
+meaningful for source modules.
+
+<p>
+Large files that undergo extensive changes at frequent intervals, or 
+are the output of a language or application, may not be suited for 
+storage as standard delta files as the file delta is never used, 
+occupies a considerable amount of disk space, and grows rapidly. See 
+the /MARKER qualifier. Examples of files well-suited for storage as
+<a name="index_x_234"></a>
+marker files include most executable images, object files, Postscript 
+files, and BACKUP savesets.
+<h3>/CONCURRENT(default)</h3>
+<h3>/NOCONCURRENT</h3>
+Specifies whether the module can be reserved concurrently by more than 
+one user. The /CONCURRENT qualifier allows the module to be reserved 
+concurrently unless a user overrides this default with for a specific 
+reservation. The /NOCONCURRENT qualifier specifies that the module 
+cannot be reserved concurrently.
+<h3>/DELETE</h3>
+<h3>/NODELETE</h3>
+Controls whether the <strong>delete</strong> attribute is set for the 
+new facility. This attribute allows the facility to be deleted with the 
+DELETE FACILITY command. The /DELETE qualifier sets the delete 
+attribute so that the new facility can be deleted. The /NODELETE 
+qualifier clears the delete attribute so that the new facility cannot 
+be deleted unless you first reset this attribute with a MODIFY FACILITY 
+command. Marking a facility as /NODELETE makes it harder to 
+accidentally delete the facility.
+
+<p>
+If this qualifier is not specified, VDE uses the value of the 
+allow-deletion library attribute. The library allow-deletion default 
+attribute can be set or reset by using the /ALLOW_DELETE qualifier on 
+the CREATE LIBRARY or on the MODIFY LIBRARY command.
+<h3>/DERIVED</h3>
+<h3>/SOURCE (default)</h3>
+Specifies whether the new module is a source module or a derived 
+module. By definition, a source module is a module that can be reserved 
+from and replaced into the library. The generations of each such module 
+is stored in a &quot;delta file&quot; (a CMS element). Most source 
+modules are text files that you modify with an editor, but 
+VDE also supports binary (non-text) source modules.
+
+<p>
+A derived module is a module that is produced from source modules or 
+other derived modules by an automated build step. It cannot be reserved 
+or replaced, and is often ignored during command wildcard processing. 
+Derived modules are automatically recorded in the
+<a name="index_x_235"></a>
+<a name="index_x_236"></a>
+VDE database when they are produced; they are seldom entered 
+into a library with the CREATE MODULE command. However, new source 
+modules are not automatically recorded in the VDE database 
+and must be entered into a library with the CREATE MODULE command. For 
+this reason, the /SOURCE qualifier is the default.
+<h3>/FROM_DIRECTORY=dir-spec</h3>
+Specifies that modules be created for all files in a specified disk 
+directory. The <strong>dir-spec</strong> parameter gives the 
+OpenVMS directory specification of the disk directory. When this 
+qualifier is specified, the <strong>mod-name</strong> parameters are 
+omitted, and the CREATE MODULE command creates a new module in the 
+current default facility for each file in the specified directory. Each 
+file becomes the initial generation of the corresponding module. The 
+<strong>dir-spec</strong> parameter may also consist of a wildcarded 
+file specification, in which case VDE creates a module for 
+each file that matches the specification. (This feature can be used to 
+create modules for only those files in a directory that have a certain 
+file extension, for example.) This qualifier lets you enter a large 
+number of new modules into the VDE library with a single 
+command, provided that the initial versions of those modules are stored 
+in a single disk directory and that all modules belong to the same 
+facility.
+
+<p>
+The initial generation of each module created with this qualifier is 
+inserted into (becomes the latest generation of) the stream you specify 
+with the /STREAM qualifier or into the default stream if you omit the 
+/STREAM qualifier. It is also inserted into all successors of that 
+stream.
+
+<p>
+<strong>This qualifier requires the PERFREP privilege.</strong>
+<a name="index_x_237"></a>
+<h3>/HISTORY[="string"]</h3>
+<h3>/NOHISTORY[="string"] (default)</h3>
+Specifies the CMS history string to be associated with the module
+<a name="index_x_238"></a>
+and whether history information should be included in source files when 
+modules are retrieved with the FETCH or RESERVE command. History 
+information gives a historical record of previous changes to the module.
+
+<p>
+The /HISTORY qualifier specifies that history information should be 
+included in source files by default when such files are retrieved with 
+the FETCH or RESERVE command. The /NOHISTORY qualifier specifies that 
+history information should be omitted. The <strong>string</strong> 
+parameter to either qualifier specifies the default history string if 
+the user specifies that history information should be included in a 
+retrieved file. (If you specify the /NOHISTORY qualifier on the CREATE 
+MODULE command, you must use the /HISTORY qualifier on the FETCH or 
+RESERVE command to use the default history string.) If you do not 
+specify a <strong>string</strong> parameter, VDE supplies a 
+default history string that depends on the module type.
+
+<p>
+See the CMS documentation for a description of the CMS history string 
+and its format.
+<h3>/INPUT[=file-spec]</h3>
+The /INPUT qualifier causes the CREATE MODULE command to create the 
+initial generation of the new module. This qualifier is only applicable 
+to source modules. The <strong>file-spec</strong> parameter gives the 
+OpenVMS file specification of a file that contains the initial 
+generation of the module. If the file-name part of the file 
+specification is omitted, the file name is assumed to be the same as 
+the module name. If the directory specification part is omitted, the 
+file is assumed to be in your current default directory. If you omit 
+the whole <strong>file-spec</strong> parameter, VDE creates 
+the initial generation from the file in your default directory with the 
+same name as the new module.
+
+<p>
+The initial generation of each module created with the /INPUT qualifier 
+is inserted into (becomes the latest generation of) the stream you 
+specify with the /STREAM qualifier or into the default stream if you 
+omit the /STREAM qualifier. It is also inserted into all successors of 
+that stream.
+
+<p>
+If neither /INPUT nor /FROM_DIRECTORY is specified, the CREATE MODULE 
+command records the module in the VDE database and marks it 
+as reserved to you. You must then use the REPLACE command to actually 
+create the initial generation of the module. This is the preferred way 
+of creating new modules once a VDE library has been 
+established.
+
+<p>
+The /INPUT qualifier is rejected on any streams marked for
+<a name="index_x_239"></a>
+ queued replacement. To create and insert a module on a stream marked 
+ for queued replacement, omit the /INPUT qualifier, and specify the file 
+ to load into the new module via a REPLACE command.
+
+<p>
+<strong>This qualifier require the PERFREP privilege.</strong>
+<a name="index_x_240"></a>
+<h3>/LOG (default)</h3>
+<h3>/NOLOG</h3>
+Controls whether log messages are printed after the new modules have 
+been created. The /LOG qualifier prints the messages and /NOLOG 
+suppresses them. The messages indicate that the new modules have been 
+added to the VDE library and that the database transaction 
+has successfully committed.
+<h3>/MARKER</h3>
+<h3>/NOMARKER (default)</h3>
+Specifies whether the source module uses a marker file or not. The 
+/MARKER qualifier specifies that the source module uses a marker file. 
+When a source module uses a marker file, the module is stored as an 
+ordinary file in one of the delta-file directories. A small text file, 
+called the marker file, contains the full file name of that source 
+file, and this marker file is stored in the module's delta file (CMS 
+element). In short, the delta file contains a small text file that 
+points to the module's actual source file. The marker-file mechanism is 
+normally only used for large or frequently changed binary source 
+modules, for which the delta-file mechanism may give poor performance 
+or use excessive disk space. Executable images, object modules, 
+Postscript files, and BACKUP savesets are all example of 
+&quot;source&quot; modules for which the marker-file mechanism may be 
+appropriate.
+
+<p>
+The actual source files for modules that use marker files are stored
+<a name="index_x_241"></a>
+in a subdirectory for the module's facility within the VDE 
+library's delta-file directory tree. This subdirectory must have the 
+special
+<a name="index_x_242"></a>
+ directory symbol VDE$MARKER. See the description of
+<a name="index_x_243"></a>
+ the SET DIRECTORY command for an explanation of how to establish 
+ subdirectories and assign them directory symbols. See the description 
+ of the command SHOW DIRECTORY/DELTA for information on displaying the 
+ current marker file directory (or directories) setting.
+
+<p>
+The /NOMARKER qualifier specifies that the source module does not use a 
+marker file and that its text is stored directly in the delta file (CMS 
+element) for the module. Ordinary ASCII text modules should not use 
+marker files.
+
+<p>
+Also see the /[NO]BINARY qualifier.
+<h3>/NOTES[="string"]</h3>
+<h3>/NONOTES[="string"] (default)</h3>
+Specifies the CMS notes string to be associated with the module and 
+whether CMS notes should be included in source files when modules are 
+retrieved with the FETCH or RESERVE command. CMS notes indicate in what 
+module generation each source line was created.
+
+<p>
+The /NOTES qualifier specifies that notes information should be 
+included in source files by default when such files are retrieved with 
+the FETCH or RESERVE command. The /NONOTES qualifier specifies that 
+notes information should be omitted. The <strong>string</strong> 
+parameter to either qualifier specifies the default notes string if the 
+user specifies that notes information should be included in a retrieved 
+file. (If you specify the /NONOTES qualifier on the CREATE MODULE 
+command, you must use the /NOTES qualifier on the FETCH or RESERVE 
+command to use the default notes string.) If you do not specify a 
+<strong>string</strong> parameter, VDE supplies a default 
+notes string that depends on the module type.
+
+<p>
+See the CMS documentation for a description of the CMS notes string and 
+its format.
+<h3>/NOTIFY=(username [,username...])</h3>
+<a name="index_x_244"></a>
+Specifies users to notify of all changes to the new module. Each 
+<strong>username</strong> parameter specifies the OpenVMS 
+username or mail address of a user who should be notified by mail 
+message each time the specified module is replaced into the 
+VDE library.
+
+<p>
+Each <strong>username</strong> parameter can specify the username of a 
+user already recorded in the VDE database, a OpenVMS 
+mail address with one or more node names (such as NODE::SMITH), or a 
+mail forwarding alias, or a defined logical name bound to a list of 
+users to notify. If you specify a logical name, keep in mind that the 
+logical name must be defined when it is later used to send notification 
+messages. It should thus be a group or system logical name or a logical 
+name that is in some other way defined for all users of the 
+VDE library.
+
+<p>
+If you specify only one <strong>username</strong> parameter, you may 
+omit the surrounding parentheses.
+<h3>/POSITION=column-number</h3>
+Specifies the default column number in which CMS notes are to be placed 
+when this source module is retrieved with a FETCH or RESERVE command. 
+The column number must be an integer in the range 1 to 511. If this 
+qualifier is omitted, the default column number is 81. This qualifier 
+has no effect unless notes are enabled with the /NOTES qualifier on the 
+CREATE MODULE command or on the FETCH or RESERVE command.
+
+<p>
+See the CMS documentation for a description of CMS notes and how notes 
+are formatted at the ends of source lines.
+<h3>/PROPAGATE</h3>
+<h3>/NOPROPAGATE</h3>
+Specifies whether automatic change propagation is allowed for this 
+module when it is reserved and replaced into the library. /PROPAGATE 
+allows automatic change propagation and /NOPROPAGATE disallows change 
+propagation. If change propagation is disallowed, VDE 
+automatically inhibits change propagation when the module is reserved 
+or replaced as if the /NOPROPAGATE qualifier had been specified for the 
+RESERVE or REPLACE command. If you omit both qualifiers, the value of 
+the facility's <strong>nopopulate</strong> attribute is used to set the 
+new module's <strong>propogate</strong> attribute.
+<h3>/REMARK="string"</h3>
+Specifies a remark string to be stored for the new module. The quoted 
+remark string, which can be up to 132 characters long, may contain any 
+explanatory remark about the new module that you want stored in the 
+VDE database. Typically the remark describes the purpose or 
+content of the module.
+
+<p>
+Although this qualifier is required, you can specify an empty remark 
+string. If you do not specify the /REMARK qualifier, VDE 
+prompts you for a remark string.
+<a name="index_x_245"></a>
+<h3>/REVIEWER=(username [,username...])</h3>
+<a name="index_x_246"></a>
+Specifies reviewers for all changes to the new module. Each 
+<strong>username</strong> parameter specifies the OpenVMS 
+username of a user who should review all changes to the specified 
+module. The user must already be recorded in the VDE 
+database. When a change to the module is replaced into the 
+VDE library, VDE notifies the user of the change by 
+mail message. If the replacement is queued, the user
+<a name="index_x_247"></a>
+should then review the queued replacement before it is performed. If 
+the replacement is immediate, VDE notifies the user of the 
+new module generation that was created, and the user may then inspect 
+that generation.
+
+<p>
+If you specify only one <strong>username</strong> parameter, you may 
+omit the surrounding parentheses.
+<h3>/SESSION[=session-name]</h3>
+Sessions are used to logically group a set of module reservations 
+together, typically to group all modules related to a particular source 
+code alteration or enhancement together. It allows all component 
+modules reserved to be treated as a single entity for subsequent 
+replacement operations. A session also allows additional modules to be 
+reserved and incorporated into an existing session at a later time.
+
+<p>
+If the new module is being created such that the initial generation 
+will be created by a subsequent replacement, /SESSION specifies that 
+VDE should add the new module reservation to the reservation 
+session given by the <strong>session-name</strong> parameter.
+
+<p>
+If no session with the specified <strong>session-name</strong> session 
+name currently exists, VDE will create a new reservation 
+session under the specified session name and will incorporate the 
+module reservation(s) into it.
+
+<p>
+If the <strong>session-name</strong> parameter is omitted, 
+VDE generates a unique session name, creates a new session by 
+that name, and adds the module reservation to it.
+
+<p>
+If the /SESSION qualifier is omitted on the CREATE MODULE command, 
+VDE will reserve the module (as expected), and will not add 
+the new module reservation to any session.
+
+<p>
+Sessions can be manipulated via the REPLACE, RESERVE, UNRESERVE, MODIFY 
+SESSION, MODIFY RESERVATION, CREATE MODULE, and CANCEL SESSION 
+commands. And modules created by CREATE MODULE (on a queued-replacement 
+stream) and reserved via RESERVE can be combined into the same session.
+<h3>/STREAM=stream-name</h3>
+Specifies that the module be reserved for the stream given by the 
+<strong>stream-name</strong> parameter or that the initial generation 
+of the module be inserted into that stream. If neither /INPUT nor 
+/FROM_DIRECTORY is specified, the /STREAM qualifier causes 
+VDE to mark the module as reserved for the specified stream. 
+If the /INPUT or /FROM_DIRECTORY qualifier is specified, /STREAM causes 
+the the initial generation of the new module to become the latest 
+generation of the module for the specified stream and all its successor 
+streams.
+
+<p>
+If the /STREAM qualifier is omitted, the module is reserved for or 
+inserted into your current default stream.
+</blockquote>
+
+<hr>
+<h2><h3>Examples</H3></h2>
+<blockquote>
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#1</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE MODULE STGCVT.FOR /STREAM=FOO /REMARK="String conversion routines"
+%VDE-I-RESERVED, generation [CODE]STGCVT.FOR reserved from stream FOO
+%VDE-I-MUSTREPL, you must replace the new module to create its first generation
+%VDE-I-MODADDED, module [CODE]STGCVT.FOR added to the database
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This example creates a new source module called STGCVT.FOR. The module 
+is created in the current default facility, facility CODE, and is 
+reserved from the specified stream FOO. A subsequent REPLACE command 
+(not shown) is needed to create the first generation of the module.
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#2</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE MODULE/NOLOG STGCVT.FOR /STREAM=FOO /REMARK="String conversion routines"
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+Here the same module is created as in the previous example, but the 
+/NOLOG qualifier suppresses the log messages.
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#3</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE MODULE STGCVT.FOR /NOLOG /INPUT=[MYDIR]FOO.FOR -
+VDE„                          /REMARK="String conversion routines"
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+In this example, the /INPUT qualifier causes the command to create the 
+initial generation of the module from file [MYDIR]FOO.FOR. In this 
+case, the module is not marked as reserved.
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#4</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE MODULE [CODE]STGCVT.FOR /REMARK="String routines", -
+_VDE„              [ACCTNG]SALES.COB /REMARK="Sales accounting"
+%VDE-I-RESERVED, generation [CODE]STGCVT.FOR reserved from stream MAIN
+%VDE-I-MUSTREPL, you must replace the new module to create its first generation
+%VDE-I-MODADDED, module [CODE]STGCVT.FOR added to the database
+%VDE-I-RESERVED, generation [ACCTNG]SALES.COB reserved from stream MAIN
+%VDE-I-MUSTREPL, you must replace the new module to create its first generation
+%VDE-I-MODADDED, module [ACCTNG]SALES.COB added to the database
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This example creates two new source modules, one in facility CODE and 
+one in facility ACCTNG. Each module has its own remark string. The 
+modules are reserved in the user's default stream, stream MAIN.
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#5</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ SET STREAM MAIN
+VDE„ SET FACILITY CODE
+VDE„ CREATE MODULE/FROM_DIRECTORY=[MYDIR.SOURCES]/REMARK=""
+%VDE-I-GENINSERT, generation [CODE]A.REQ;1(1) inserted into stream MAIN
+%VDE-I-MODADDED, module [CODE]A.REQ added to the database
+%VDE-I-GENINSERT, generation [CODE]B.REQ;1(1) inserted into stream MAIN
+%VDE-I-MODADDED, module [CODE]B.REQ added to the database
+%VDE-I-GENINSERT, generation [CODE]C.B32;1(1) inserted into stream MAIN
+%VDE-I-MODADDED, module [CODE]C.B32 added to the database
+%VDE-I-GENINSERT, generation [CODE]D.B32;1(1) inserted into stream MAIN
+%VDE-I-MODADDED, module [CODE]D.B32 added to the database
+%VDE-I-GENINSERT, generation [CODE]E.B32;1(1) inserted into stream MAIN
+%VDE-I-MODADDED, module [CODE]E.B32 added to the database
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This example uses the /FROM_DIRECTORY qualifier to create modules for 
+all files in a given directory. The SET STREAM command makes stream 
+MAIN the default stream and the SET FACILITY command makes facility 
+CODE the default facility. The CREATE MODULE command reads all files in 
+directory [MYDIR.SOURCES] and creates a module in facility CODE for 
+each such file. VDE creates the initial generation of each 
+module and inserts that generation into the default stream (stream 
+MAIN) and all successor streams. (No successor streams are defined in 
+this example.) The log messages confirm that the initial generations 
+have been inserted into the appropriate streams and that the modules 
+have been added to the database.
+</blockquote>
+
+<a name="bottom_008"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_manual_007.html#bottom_007">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vde_manual_009.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_manual_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_manual_index.html">Index</a>
+</table>
+</body>
+</html>

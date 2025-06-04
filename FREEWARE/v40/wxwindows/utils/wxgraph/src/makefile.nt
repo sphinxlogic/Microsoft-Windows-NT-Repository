@@ -1,0 +1,126 @@
+#
+# File:		makefile.nt
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxGraph class library (MS VC++).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+# Set WXDIR for your system
+WXDIR = $(WXWIN)
+GRAPHDIR = $(WXDIR)\utils\wxgraph
+THISDIR = $(WXDIR)\utils\wxgraph\src
+EXTRALIBS=$(GRAPHDIR)\lib\wxgraph.lib
+DOCDIR=$(WXDIR)\docs
+LOCALDOCDIR=$(WXDIR)\utils\wxgraph\docs
+
+!include $(WXDIR)\src\ntwxwin.mak
+
+PROGRAM=test
+ 
+OBJECTS = wxgraph.obj
+PROGOBJECTS = $(PROGRAM).obj
+LIBTARGET=$(GRAPHDIR)\lib\wxgraph.lib
+
+all:    $(LIBTARGET)
+
+$(PROGRAM):    $(PROGRAM).exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt FINAL=$(FINAL)
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.nt clean
+        cd $(THISDIR)
+
+$(LIBTARGET): $(OBJECTS)
+	-erase $(LIBTARGET)
+	$(implib) @<<
+-out:$(LIBTARGET)
+-machine:$(CPU)
+$(OBJECTS)
+<<
+
+$(PROGRAM).exe:      $(DUMMYOBJ) $(WXLIB) $(PROGOBJECTS) $(LIBTARGET) $(PROGRAM).res
+	$(link) @<<
+-out:$(PROGRAM).exe
+$(LINKFLAGS)
+$(DUMMYOBJ) $(PROGOBJECTS) $(PROGRAM).res
+$(LIBS)
+<<
+
+wxgraph.obj:      wxgraph.h wxgraph.$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+$(PROGRAM).obj:      $(PROGRAM).h $(PROGRAM).$(SRCSUFF) $(DUMMYOBJ)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+$(PROGRAM).res :      $(PROGRAM).rc $(WXDIR)\include\msw\wx.rc
+    $(rc) -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -fo$@ $(PROGRAM).rc
+
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+        -erase $(LIBTARGET)
+
+DOCSOURCES=$(LOCALDOCDIR)\manual.tex $(LOCALDOCDIR)\classes.tex
+
+html: $(DOCDIR)\html\wxgraph\graph.htm
+hlp: $(DOCDIR)\winhelp\wxgraph.hlp
+ps: $(WXDIR)\docs\ps\wxgraph.ps
+
+$(DOCDIR)\winhelp\wxgraph.hlp:         $(LOCALDOCDIR)\wxgraph.rtf $(LOCALDOCDIR)\wxgraph.hpj
+        cd $(LOCALDOCDIR)
+        -erase wxgraph.ph
+        hc wxgraph
+        move wxgraph.hlp $(DOCDIR)\winhelp\wxgraph.hlp
+        move wxgraph.cnt $(DOCDIR)\winhelp\wxgraph.cnt
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\wxgraph.rtf: $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -start /w tex2rtf $(LOCALDOCDIR)\manual.tex $(LOCALDOCDIR)\wxgraph.rtf -twice -winhelp
+        cd $(THISDIR)
+
+$(DOCDIR)\html\wxgraph\graph.htm:         $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -mkdir $(DOCDIR)\html\wxgraph
+        -start /w tex2rtf $(LOCALDOCDIR)\manual.tex $(DOCDIR)\html\wxgraph\graph.htm -twice -html
+        -erase $(DOCDIR)\html\wxgraph\*.con
+        -erase $(DOCDIR)\html\wxgraph\*.ref
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\manual.dvi:	$(DOCSOURCES)
+	cd $(LOCALDOCDIR)
+        -latex manual
+        -latex manual
+        -makeindx manual
+        -bibtex manual
+        -latex manual
+        -latex manual
+        cd $(THISDIR)
+
+$(WXDIR)\docs\ps\wxgraph.ps:	$(LOCALDOCDIR)\manual.dvi
+	cd $(LOCALDOCDIR)
+        -dvips32 -o wxgraph.ps manual
+        move wxgraph.ps $(WXDIR)\docs\ps\wxgraph.ps
+        cd $(THISDIR)
+
+

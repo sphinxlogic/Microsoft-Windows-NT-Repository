@@ -1,0 +1,151 @@
+module SimpleTestVList		/* SimpleTestVList MOTIF/UIL module */
+    names = case_sensitive
+    objects = {
+	XmToggleButton = gadget;
+	XmPushButton = gadget;
+	XmLabel = gadget;
+	XmSeparator = gadget;}
+
+/*
+*******************************************************************************
+* VToolkit (1995) 	"If it doesn't use VToolkit, it isn't cool!"	      *
+* (c) Steve Klein							      *
+* Unpublished rights reserved under the copyright laws of the United States.  *
+*******************************************************************************
+
+This module contains the UIL description of the SimpleTestVList program.
+It is a simplified example of how to use the VList widget from UIL.
+
+MODIFICATION HISTORY:
+
+05-Sep-1993 (sjk/nfc) Run through the Motif Porting tools.
+
+12-Nov-1991 (sjk) Add drag capability and multi-select.
+
+17-May-1991 (sjk) Integrate Ken Burechailo's MOTIF updates.  Thanks Ken!
+*/
+
+include file 'XmAppl.uil';			/* Xm definitions */
+include file 'vtoolkit.uil';			/* VToolkit definition */
+
+value
+  LEFT_VLIST_I		: 0;
+  RIGHT_VLIST_I		: 1;
+  DRAG_LABEL_I		: 2;
+  MAIN_I		: 4;
+  DRAG_FRAME_I		: 5;
+
+procedure
+  DragArmCallback;
+  DragDropCallback;
+  QuitCallback;
+  SelectCallback;
+
+/* Define the label that appears at the top of the main window. */
+
+object topLabel : XmLabel {
+  arguments {
+    XmNlabelString	= 'Select with MB1 or drag with MB2';
+    XmNleftAttachment   = XmATTACH_FORM;	XmNleftOffset	    = 0;
+    XmNrightAttachment  = XmATTACH_FORM;	XmNrightOffset	    = 0;
+    XmNtopAttachment    = XmATTACH_FORM;	XmNtopOffset	    = 10;
+    XmNbottomAttachment = XmATTACH_NONE;};};
+
+/* Define scroll bars for the VList widgets.  Give them non-zero initial size to keep the toolkit happy. */
+
+object vScrollBar : XmScrollBar {arguments {XmNorientation = XmVERTICAL;   XmNheight = 1;};};
+object hScrollBar : XmScrollBar {arguments {XmNorientation = XmHORIZONTAL; XmNwidth  = 1;};};
+
+/* Define the VList widgets and the VFrames containing them. */
+
+object leftVList : user_defined procedure VListCreate {
+  callbacks {
+    MrmNcreateCallback = procedure VtkCreateCallback (LEFT_VLIST_I);
+    vlist_select       = procedure SelectCallback;
+    vlist_drag_arm     = procedure DragArmCallback;
+    vlist_drag_drop    = procedure DragDropCallback;};
+  arguments {
+    vlist_column_style        = VListColumnStyleSingle;
+    vlist_select_style        = VListSelectStyleExtend;
+    vlist_v_scroll_bar_policy = VListScrollBarPolicyAlways;};};
+
+object leftVFrame : user_defined procedure VFrameCreate {
+  controls {
+    XmScrollBar hScrollBar;
+    XmScrollBar vScrollBar;
+    user_defined leftVList;};
+  arguments {
+    XmNborderWidth	= 2; 
+    XmNleftAttachment   = XmATTACH_FORM;     					  XmNleftOffset   = 10;
+    XmNrightAttachment  = XmATTACH_POSITION; XmNrightPosition = 50;		  XmNrightOffset  = 5;
+    XmNtopAttachment    = XmATTACH_WIDGET;   XmNtopWidget     = XmLabel topLabel; XmNtopOffset	  = 10;
+    XmNbottomAttachment = XmATTACH_FORM;     					  XmNbottomOffset = 10;};};
+
+object rightVList : user_defined procedure VListCreate {
+  callbacks {
+    MrmNcreateCallback = procedure VtkCreateCallback (RIGHT_VLIST_I);
+    vlist_select       = procedure SelectCallback;
+    vlist_drag_arm     = procedure DragArmCallback;
+    vlist_drag_drop    = procedure DragDropCallback;};
+  arguments {
+    vlist_column_style        = VListColumnStyleSingle;
+    vlist_select_style        = VListSelectStyleExtend;
+    vlist_v_scroll_bar_policy = VListScrollBarPolicyAlways;};};
+
+object rightVFrame : user_defined procedure VFrameCreate {
+  controls {
+    XmScrollBar  hScrollBar;
+    XmScrollBar  vScrollBar;
+    user_defined rightVList;};
+  arguments {
+    XmNborderWidth	= 2; 
+    XmNleftAttachment	= XmATTACH_POSITION; XmNleftPosition = 50; 		 XmNleftOffset	 = 5;
+    XmNrightAttachment	= XmATTACH_FORM;     					 XmNrightOffset	 = 10;
+    XmNtopAttachment	= XmATTACH_WIDGET;   XmNtopWidget    = XmLabel topLabel; XmNtopOffset	 = 10;
+    XmNbottomAttachment	= XmATTACH_FORM;     					 XmNbottomOffset = 10;};};
+
+/* Define the menu bar hierarchy. */
+
+object quitButton : XmPushButton {
+  arguments {XmNlabelString = 'Quit';};
+  callbacks {XmNactivateCallback = procedure QuitCallback;};
+};
+
+object controlCascade : XmCascadeButton {
+  arguments {XmNlabelString = 'Control';};
+  controls {XmPulldownMenu {controls {XmPushButton quitButton;};};};
+};
+
+object menuBar : XmMenuBar {
+  arguments {XmNorientation = XmHORIZONTAL;};
+  controls {XmCascadeButton controlCascade;};
+};
+
+/* Define the drag label and a frame to give it depth. */
+
+object dragLabel  : XmLabel widget {
+  callbacks {MrmNcreateCallback = procedure VtkCreateCallback (DRAG_LABEL_I);};
+};
+
+object dragFrame : XmFrame {
+  callbacks {MrmNcreateCallback = procedure VtkCreateCallback (DRAG_FRAME_I);};
+  arguments {XmNshadowType = XmSHADOW_OUT; XmNshadowThickness = 5;};
+  controls {XmLabel dragLabel;};
+};
+
+/* Define the main window. */
+
+object main : XmMainWindow {
+  callbacks {MrmNcreateCallback = procedure VtkCreateCallback (MAIN_I);};
+  arguments {XmNx = 100; XmNy = 100; XmNwidth = 250; XmNheight = 250;};
+  controls {
+    XmMenuBar menuBar;
+    XmForm {
+      arguments {XmNunitType = XmPIXELS;};
+      controls {
+	unmanaged XmFrame dragFrame;
+	XmLabel topLabel;
+	user_defined leftVFrame;
+	user_defined rightVFrame;};};};};
+
+end module;

@@ -1,0 +1,752 @@
+<!-- VDE_MANUAL_007.HTML continuation of VDED$:[VDE.VDEDOC.DOC]VDE_MANUAL.HTML -->
+<html>
+<head>
+<title>VDE</title>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">VDE<br>VDE<br> Reference Manual</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_manual_006.html#bottom_006">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_manual_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_manual_index.html">Index</a>
+</table>
+
+<hr>
+
+<hr>
+<a name="vde_cmd_cre_lib"><h1><font color=maroon>CREATE LIBRARY</font></h1></a>
+
+<p>
+<blockquote>
+<a name="index_x_185"></a>
+Creates a new VDE library, including its database and disk 
+directory structure.
+</blockquote>
+
+<hr>
+<h2>Format</h2>
+<blockquote>
+<h3>CREATE LIBRARY dir-spec </h3>
+</blockquote>
+
+<hr>
+<h2>Parameter</h2>
+<blockquote>
+<h3>dir-spec</h3>
+Specifies the name of the root directory of the library. The root 
+directory is the disk directory that contains the database of the 
+library. It normally also contains subdirectories that hold the 
+contents of the library. Use the OpenVMS directory specification 
+format to specify the <strong>dir-spec</strong> parameter.
+
+<p>
+This parameter is required. If not specified, VDE prompts you 
+for the name of the root directory.
+<a name="index_x_186"></a>
+</blockquote>
+
+<hr>
+<h2>Description</h2>
+<blockquote>
+A VDE library is the repository for all the modules in your 
+software system. A library consists of a top-level disk directory 
+called the root directory, an Rdb database which resides in the root 
+directory, and a number of directories (or subdirectories) which 
+contain all the source modules, derived modules, and other components 
+of your software system.
+
+<p>
+The CREATE LIBRARY command first creates a root directory for the new 
+library and defines logical name VDE$LIBRARY to contain the
+<a name="index_x_187"></a>
+<a name="index_x_188"></a>
+name of this directory. It then creates and initializes a VDE 
+database in the root directory. The CREATE LIBRARY command normally 
+also creates the disk directory structure that will hold all sources 
+and other files that make up your software system. However, if the 
+default directory structure is not appropriate for you, you can use the 
+/DEFER qualifier to postpone directory creation until you have 
+specified the directory structure that you want.
+
+<p>
+The VDE database is a multifile Rdb database. This database 
+consists of three separate files: an Rdb root file (the .RDB file), a 
+storage area file (the .RDA file), and a snapshot file (the .SNP file). 
+The
+<a name="index_x_189"></a>
+<a name="index_x_190"></a>
+.RDB file is always stored in the VDE library's root 
+directory. This file is relatively small. The .RDA file stores the bulk 
+of the database contents and the .SNP file allows multiple users to use 
+the database concurrently. The .RDA and .SNP files are stored in the 
+VDE library's
+<a name="index_x_191"></a>
+root directory by default, but you can specify different directory 
+locations for these files with the /DATABASE and /SNAPSHOT qualifiers, 
+or by defining the logical names VDE$DB_AREA and VDE$SNAPSHOT.
+<a name="index_x_192"></a>
+<a name="index_x_193"></a>
+<a name="index_x_194"></a>
+<a name="index_x_195"></a>
+<a name="index_x_196"></a>
+<a name="index_x_197"></a>
+By placing these files on different disks, you can distribute your 
+VDE library's space and I/O requirements across multiple 
+disks.
+
+<p>
+You may also want to establish an Rdb after-image journal file for the 
+VDE database. If used with the RMU database backup facility, 
+such a journal file allows Rdb to recover all database data as of the 
+last completed transaction after a disk failure. To establish 
+journalling, use the /JOURNAL qualifier to specify the directory 
+location of the journal file. This directory should always be on a 
+different physical disk than the rest of your VDE database.
+
+<p>
+Once you have created a new VDE library, that library becomes 
+the current VDE library for your present process so that 
+subsequent VDE commands act upon that library. To change the 
+current VDE library, you must use the SET LIBRARY command or 
+redefine logical name
+<a name="index_x_198"></a>
+<a name="index_x_199"></a>
+VDE$LIBRARY to point to the root directory of the VDE library 
+you want to work with.
+
+<p>
+Most steps in creating a new VDE library are reasonably fast. 
+For example, each directory in your directory structure is created in a 
+fraction of a second unless your system is heavily loaded. However, 
+VDE requires several minutes to create and initialize the 
+library database. The database can usually be created in about six to 
+eight minutes but more time may be required on a heavily loaded system. 
+A log message tells you when database creation starts.
+</blockquote>
+
+<hr>
+<h2>Qualifiers</h2>
+<blockquote>
+<h3>/ALLOW_DELETE (default)</h3>
+<h3>/NOALLOW_DELETE</h3>
+Specifies the default value for the <strong>delete</strong> attribute 
+for new modules, facilities, and streams. The /ALLOW_DELETE qualifier 
+causes VDE to set the <strong>delete</strong> attribute by 
+default when users create new such entities. As a result, users can 
+delete these entities without first having to set the 
+<strong>delete</strong> attribute with a separate MODIFY command. The 
+/NOALLOW_DELETE qualifier causes VDE to clear the 
+<strong>delete</strong> attribute by default for new modules, 
+facilities, and streams. As a result, it is harder for a user to delete 
+an entity by mistake; the entity's <strong>delete</strong> attribute 
+must be set with a separate MODIFY command before the entity can be 
+deleted with a DELETE command. When creating new modules, facilities, 
+and streams, you can override this default setting with an explicit 
+/DELETE or /NODELETE qualifier to the CREATE command.
+
+<p>
+Use the /ALLOW_DELETE qualifier if you expect to make frequent changes 
+to your library, often deleting modules, facilities, and streams. Use 
+the /NOALLOW_DELETE qualifier if you are more concerned about 
+preventing accidental deletion of such entities.
+<h3>/ASK_INFO_FILE</h3>
+<h3>/NOASK_INFO_FILE (default)</h3>
+Specifies whether the REPLACE command should by default ask the user 
+whether he or she wants to edit an information file when creating a
+<a name="index_x_200"></a>
+queued replacement. The /ASK_INFO_FILE qualifier sets a library 
+attribute that causes the REPLACE command to ask for an information 
+file by default. The /NOASK_INFO_FILE qualifier clears this library 
+attribute so that the REPLACE command does not ask for an information 
+file by default. This library attribute only affects queued 
+replacements (not immediate replacements), and it only affects the 
+REPLACE command's default behavior; users can always use the command's 
+/INFORMATION or /NOINFORMATION qualifier to explicitly request either 
+behavior.
+<h3>/ASK_REPL_CAUSE</h3>
+<h3>/NOASK_REPL_CAUSE (default)</h3>
+Specifies whether the REPLACE command should by default ask the user 
+for the &quot;cause&quot; of the replacement. The cause may be a fold 
+operation, a Source Control Tracking (SCT) entry in a Notes conference,
+<a name="index_x_201"></a>
+<a name="index_x_202"></a>
+<a name="index_x_203"></a>
+or some other cause. The /ASK_REPL_CAUSE qualifier sets a library 
+attribute that causes the REPLACE command to query the user for the 
+cause of the replacement. The /NOASK_REPL_CAUSE qualifier clears this 
+library attribute so that the REPLACE command does not ask for this 
+information.
+<h3>/AUTH_PRIVILEGES=(priv [,priv...])</h3>
+Specifies the standard authorized privileges for the library. These are 
+the authorized privileges that a new user gets when added to the 
+library unless a different set of authorized privileges is explicitly 
+specified for that user. Authorized privileges are those VDE 
+privileges the user is allowed to set with the SET PRIVILEGE command.
+
+<p>
+If only one privilege is specified, the parentheses may be omitted. If 
+this qualifier is omitted entirely, VDE provides default 
+values for the standard authorized privileges of the library.
+
+<p>
+Each <strong>priv</strong> parameter specifies the name of one 
+privilege. For a list of privileges, see <a href="vde_manual_028.html#tbl_privileges">Table 3-5</a> in <a href="vde_manual_028.html#vde_cmd_set_priv">SET PRIVILEGES</a>.
+<h3>/AUTO_ADD_USER[=rights-ident]</h3>
+<h3>/NOAUTO_ADD_USER (default)</h3>
+Specifies whether new users should be added to the library database 
+automatically when they first access the library. The /AUTO_ADD_USER 
+qualifier specifies that new users should be added to the library 
+database automatically when they first access the library. If the 
+<strong>rights-ident</strong> parameter is specified, new users are 
+only added to the library if they hold the OpenVMS rights 
+identifier specified by the parameter. The /NOAUTO_ADD_USER qualifier 
+specifies that new users not be added to the library database 
+automatically. In this case, new users can only be added with explicit 
+CREATE USER commands.
+
+<p>
+The owner information specified in the OpenVMS SYSUAF
+<a name="index_x_204"></a>
+ database will be used as the owner of any new VDE username 
+ created. VDE will ignore any leading numerics, leading 
+ hyphens, leading space characters, and leading tilde characters, listed 
+ in the SYSUAF owner field.
+<h3>/AUTO_CONVERT</h3>
+<h3>/NOAUTO_CONVERT (default)</h3>
+Specifies whether the library and its database are automatically 
+converted to the new library format when a new version of VDE 
+is used on the library. A new version of VDE will frequently 
+require a different database schema and possibly other changes to a 
+library than the previous version. Each new version of VDE 
+can convert a VDE library from an older format to the current 
+format. This is either done automatically the first time someone 
+accesses the library database, or it is done with an explicity CONVERT 
+LIBRARY command. These qualifiers determine the behaviour.
+<a name="index_x_205"></a>
+<a name="index_x_206"></a>
+
+<p>
+The /AUTO_CONVERT qualifier specifies that the library should be 
+converted automatically the first time a user uses a new version of 
+VDE on the present library and its database. /NOAUTO_CONVERT 
+specifies that the library should not be converted automatically; 
+instead a privileged user must explicitly convert the library with the 
+CONVERT LIBRARY command.
+
+<p>
+The advantage of automatic conversion is that it is automatic and 
+requires no special steps on the part of the user. However, once a 
+library has been converted, it is not possible to use an older version 
+of VDE on that library.
+
+<p>
+The advantage of disabling automatic conversion is that you get a 
+chance to back up the database (or the whole library) before you 
+explicitly convert the library. You then have the option of restoring 
+the backed up copy of the library if you need to go back to using the 
+old version of VDE. However, once you install a new version 
+of VDE, nobody can use the existing library until it is 
+converted. Also, all accessors must use the same or a compatible 
+version of VDE.
+
+<p>
+In general, automatic conversion is best for small VDE 
+libraries whose databases are relatively easy to rebuild if necessary. 
+Explicit conversion may be more suitable for large libraries where the 
+difficulty of rebuilding the library justifies more stringent backup 
+and recovery procedures.
+
+<p>
+/NOAUTO_CONVERT is the default.
+<h3>/AUTO_MAIL (default)</h3>
+<h3>/NOAUTO_MAIL</h3>
+<a name="index_x_207"></a>
+Specifies whether VDE should automatically send mail 
+notification to the user who has queued a replacement when that 
+replacement is later performed. The /AUTO_MAIL qualifier sets a library 
+attribute that causes the PERFORM REPLACEMENT command to send such mail 
+notification. The /NOAUTO_MAIL qualifier clears this library attribute 
+so that the PERFORM REPLACEMENT command does not send such notification.
+<h3>/CMS_ELEM_HIST (default)</h3>
+<h3>/NOCMS_ELEM_HIST</h3>
+Specifies whether VDE creates the CMS elements for new 
+modules with default CMS history and notes strings. The /CMS_ELEM_HIST 
+qualifier causes VDE to
+<a name="index_x_208"></a>
+create the CMS elements for new modules with default history and notes 
+strings and the /NOCMS_ELEM_HIST qualifier causes VDE to 
+create CMS elements with no default history or notes strings. 
+/NOCMS_ELEM_HIST is normally only used if you regularly fetch 
+VDE modules using the CMS FETCH command and you want to make 
+sure you do not get CMS history or notes by default. If you always 
+fetch through VDE, use /CMS_ELEM_HIST because it allows 
+VDE to avoid a deficiency in CMS and always give and remove 
+history information correctly.
+<h3>/CREATOR_NAME="string"</h3>
+Specifies the full name of the user who created the library. The quoted 
+name string, which may be up to 40 characters long, should contain your 
+first name, middle initial, and last name. The CREATE LIBRARY command 
+automatically creates a user record in the new library for the 
+library's creator. This name string becomes part of that user record.
+
+<p>
+This qualifier is required. An empty name string may be specified but 
+this is not recommended. If the /CREATOR_NAME qualifier for a library 
+is not specified, VDE prompts you for the name string.
+<a name="index_x_209"></a>
+<h3>/DATABASE=dir-spec</h3>
+Specifies that the database storage area (.RDA) file and the snapshot 
+(.SNP) file be created in the directory location given by the 
+<strong>dir-spec</strong> parameter. This qualifier lets you put the 
+largest part of the VDE database on a different disk than the 
+rest of the VDE library. If you omit this qualifier, 
+VDE creates the .RDA and .SNP files in the VDE 
+library's root directory.
+<a name="index_x_210"></a>
+<a name="index_x_211"></a>
+<h3>/DEFER</h3>
+<h3>/NODEFER (default)</h3>
+Specifies whether the creation of the directory structure for the new 
+library should be postponed. The /DEFER qualifier postpones creation of 
+the disk directory structure for the library and the /NODEFER qualifier 
+causes the directory structure to be created immediately. Use the 
+/DEFER qualifier when the default directory structure is inappropriate 
+for the new library.
+
+<p>
+If the /NODEFER qualifier is specified (or /DEFER is omitted), the 
+CREATE LIBRARY command first creates the root directory and the 
+VDE database for the library. Then it creates the remaining 
+disk directory structure for the library. This structure, which 
+includes directories to hold delta-files for one facility and 
+directories to hold files for one development stream, is determined by 
+the default rules of the utility. Once the directory structure exists, 
+source modules and other files can be added to the new library.
+
+<p>
+If the /DEFER qualifier is specified, the CREATE LIBRARY command 
+creates only the library's root directory and its database; it does not 
+create the remaining directory structure for the new library. If you 
+use the /DEFER qualifier, you can enter SET DIRECTORY commands to 
+specify the disk directories you want for the library. Then use the 
+CREATE DIRECTORY_TREE command to create that directory structure on 
+disk. The CREATE DIRECTORY_TREE command uses VDE defaults 
+combined with the rules you specified with SET DIRECTORY commands to 
+create the new directory structure.
+<h3>/DEF_PRIVILEGES=(priv [,priv...])</h3>
+Specifies the standard default privileges for the library. These are 
+the default privileges that a new user gets when added to the library 
+unless a different set of default privileges is explicitly specified 
+for that user. Default privileges are those VDE privileges 
+that are enabled each time the user starts a VDE session.
+
+<p>
+If only one privilege is specified, the parentheses may be omitted. If 
+this qualifier is omitted entirely, VDE provides default 
+values for the standard default privileges of the library.
+
+<p>
+Each <strong>priv</strong> parameter specifies the name of one 
+privilege. For a list of privileges, see <a href="vde_manual_028.html#tbl_privileges">Table 3-5</a> in <a href="vde_manual_028.html#vde_cmd_set_priv">SET PRIVILEGES</a>.
+
+<p>
+Each privilege specified becomes a standard authorized privilege as 
+well as a standard default privilege. This rule ensures that users are 
+authorized to have all their default privileges.
+<h3>/HISTORY_NOTES (default)</h3>
+<h3>/NOHISTORY_NOTES</h3>
+Specifies whether VDE's RESERVE command can produce CMS 
+history or notes
+<a name="index_x_212"></a>
+<a name="index_x_213"></a>
+information in its output files. The /HISTORY_NOTES qualifier allows 
+the RESERVE command to produce history and notes information and to 
+accept the /HISTORY, /NOTES, and /POSITION qualifiers. The 
+/NOHISTORY_NOTES qualifier causes the RESERVE command to never produce 
+history and notes information (even when such information is the 
+default for a module being reserved) and to not accept the /HISTORY, 
+/NOTES, and /POSITION qualifiers. In this case, you must use the 
+VDE FETCH command to get CMS history or
+<a name="index_x_214"></a>
+<a name="index_x_215"></a>
+notes information for a module. Disabling history and notes information 
+in reserved files makes certain mistakes less likely where such 
+information gets replaced into the VDE library as part of the 
+module text.
+<h3>/JOURNAL=dir-spec</h3>
+Enables after-image journalling and specifies that a database 
+after-image journal (.AIJ) file be created in the directory location 
+given by the <strong>dir-spec</strong> parameter. When used with the 
+RMU backup and restore facilities, after-image journalling allows you 
+to recover the up-to-date contents of your database after a disk 
+failure. The specified directory should always reside on a different 
+physical disk than any of your other database files so that the journal 
+file cannot be damaged by the same disk failure as the database itself. 
+If you omit this qualifier, VDE disables after-image 
+journalling. Digital recommends that you always use journalling.
+<h3>/LOG (default)</h3>
+<h3>/NOLOG</h3>
+Controls whether log messages are printed when the new library is 
+created. The /LOG qualifier causes messages to be printed and the 
+/NOLOG qualifier suppresses them. The messages indicate that the 
+library and its many components have been created.
+<h3>/NAME=lib-name</h3>
+Specifies a name for the new library to be created. This name may be up 
+to 39 characters long and must follow VDE name syntax. 
+VDE stores this name in the database and displays it back to 
+you when you enter the SHOW LIBRARY or SHOW DEFAULTS command. This 
+qualifier is required; if you do not specify it, VDE prompts 
+you for the library name.
+<a name="index_x_216"></a>
+<h3>/REMARK="string"</h3>
+Specifies a remark string. The quoted remark string, which can be up to 
+132 characters long, may contain any explanatory remark about the new 
+library that you want stored in the library's database. Typically the 
+remark describes the purpose or contents of the new library.
+
+<p>
+Although this qualifier is required, you can specify an empty remark 
+string. If you do not specify the /REMARK qualifier, VDE 
+prompts you for a remark string.
+<a name="index_x_217"></a>
+<h3>/REPL_HISTORY (default)</h3>
+<h3>/NOREPL_HISTORY</h3>
+Specifies whether VDE should maintain a history of all past 
+source code replacements into the VDE library. The 
+/REPL_HISTORY qualifier specifies that such history information be 
+maintained in the VDE database. The /NOREPL_HISTORY qualifier 
+specifies that such information not be maintained. When you maintain 
+replacement history, you can display past replacements using the 
+/HISTORY qualifier to the SHOW REPLACEMENT command.
+
+<p>
+For documentation on the SHOW REPLACEMENT command in <a href="vde_manual_032.html#vde_cmd_show_repl">SHOW REPLACEMENT</a>.
+<h3>/SEND_MAIL (default)</h3>
+<h3>/NOSEND_MAIL</h3>
+<a name="index_x_218"></a>
+Specifies whether VDE should send mail notification messages 
+for those VDE operations that normally send such messages. 
+The /SEND_MAIL qualifier enables VDE to send such mail 
+messages and the /NOSEND_MAIL qualifier suppresses all VDE 
+mail messages. The /NOSEND_MAIL qualifier is useful when you want to 
+test or play with a private VDE library without sending 
+notification messages to other people. However, for normal production 
+use, you should always leave the mail notification feature enabled. The 
+CREATE LIBRARY command enables mail notification by default.
+<h3>/SHOW_ARCH_NAME</h3>
+<h3>/NOSHOW_ARCH_NAME (default)</h3>
+Specifies whether the architecture name is displayed as part of every 
+module name in VDE output. The /SHOW_ARCH_NAME qualifier sets 
+a library attribute that causes VDE to always include the 
+architecture name in every module name it displays. This attribute also 
+causes the SHOW DEFAULTS command to display the default architecture. 
+The /NOSHOW_ARCH_NAME qualifier clears this library attribute so that 
+VDE omits the architecture names when displaying module 
+names. You normally only want to see the architecture name if you have 
+defined multiple architectures for your VDE library.
+
+<p>
+<em>This qualifier is not yet implemented.</em>
+<h3>/SHOW_GEN_EXPR</h3>
+<h3>/NOSHOW_GEN_EXPR (default)</h3>
+Specifies whether the expected replace-time CMS generation expression 
+for each module is displayed by the RESERVE command. The /SHOW_GEN_EXPR 
+qualifier sets a library attribute that causes the RESERVE command to 
+compute and display the CMS generation expression that the 
+corresponding REPLACE command is most likely to use for the new module 
+generation. You can use this value as an &quot;audit trail 
+identifier&quot; in your code if your project uses this convention. 
+This library attribute also causes the SHOW RESERVATION command to 
+display the expected CMS generation expression and it causes the 
+REPLACE or PERFORM REPLACEMENT command to print an informational 
+message if the actual CMS generation expression for the replaced 
+generation turns out to be different than the expected one. The 
+/NOSHOW_GEN_EXPR qualifier disables this library attribute.
+
+<p>
+Please note that VDE cannot guarantee that the expected CMS 
+generation expression will actually be used. It is not possible to 
+determine at RESERVE time whether a CMS variant letter should be used 
+when the module is eventually replaced; that decision can only be made 
+at REPLACE time and depends on propagation decisions and stream 
+successor relationships at that time. However, the expected CMS 
+generation expression is generally the one that is actually used.
+<h3>/SNAPSHOT=dir-spec</h3>
+Specifies that the database snapshot (.SNP) file be created in the 
+directory location given by the <strong>dir-spec</strong> parameter. 
+This qualifier lets you put the snapshot file on a separate disk to 
+better use disk space or to improve database performance. If you omit 
+this qualifier, VDE creates the .SNP file in the directory 
+given by the /DATABASE qualifier if that qualifier is specified. If 
+neither qualifier is specified, VDE creates the snapshot file 
+in the VDE library's root directory.
+<a name="index_x_219"></a>
+<h3>/LOCK</h3>
+<h3>/UNLOCK</h3>
+The /LOCK and /UNLOCK qualifiers provide a method by which RESERVE, 
+REPLACE, UNRESERVE, and other similar commands can be disabled on a 
+copy of a VDE library. This mechanism is not intended to 
+completely lock-out all access to a VDE library.
+
+<p>
+Specification of /LOCK write-locks the library, and the corresponding 
+/UNLOCK qualifier reverses the lock. The write-lock status is read only 
+when the user initially accesses the library---once a user has 
+connected to the library, the lock status is <em>not</em> updated.
+
+<p>
+A write-locked library can be used to prevent various user 
+modifications to the contents of the library during library 
+maintenance, or to maintain a shadow copy of a library.
+
+<p>
+Users holding the MODLIB privilege are allowed to override the library 
+write-lock.
+<a name="index_x_220"></a>
+  An informational message will be displayed when the lock is overridden.
+<h3>/STATISTICS</h3>
+Enables statistics collection on the specified library. This will cause 
+various extra questions to be asked during replacement and related 
+operations. This includes the addition of questions around the reason 
+for the change, the number of defects fixed, and the particular project 
+a change is associated with.
+<a name="index_x_221"></a>
+<h3>/WILD_INS_GEN</h3>
+<h3>/NOWILD_INS_GEN (default)</h3>
+Specifies whether wildcard characters are allowed in the parameters to 
+the INSERT GENERATION command when the /GENERATION qualifier is 
+specified. The /WILD_INS_GEN qualifier causes VDE to allow 
+wildcard characters in such parameters while the /NOWILD_INS_GEN 
+qualifier causes VDE to not allow such wildcard characters. 
+When the /GENERATION qualifier to INSERT GENERATION specifies a 
+specific CMS generation expression, it is unlikely that this generation 
+expression could apply to more than one module. As a result, it is 
+unlikely that the use of wildcard characters in the module-name 
+parameters will give the result the user intended. To prevent mistakes, 
+VDE therefore does not allow such wildcard usage by default. 
+However, there are some situations when such usage might be correct 
+(for example, if the specified CMS generation expression is 1). For 
+such situations, you can enable the use of wildcard characters with the 
+/WILD_INS_GEN qualifier.
+</blockquote>
+
+<hr>
+<h2><h3>Examples</H3></h2>
+<blockquote>
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#1</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE LIBRARY [PROJDIR] /NAME=NEWLIB -
+_VDE„                         /CREATOR_NAME="John Doe" -
+_VDE„                         /REMARK="Main project library"
+Library NEWLIB to be created in root directory [PROJDIR]
+   Library root directory DEV$:[PROJDIR] already exists.
+   Logical name VDE$LIBRARY now points to the new library.
+   Creating library database; please wait...
+   Library database has been created.
+Staging area root directory DEV$:[PROJDIR.VDE$STAGE] has been created
+Creating directory tree for delta files:
+   Root directory DEV$:[PROJDIR.VDE$CMS] has been created
+   Facility CODE root directory DEV$:[PROJDIR.VDE$CMS.CODE] has been created
+      CMS library for facility CODE has been created
+   All directories for delta files now exist
+Creating directory tree for stream MAIN:
+   Root directory DEV$:[PROJDIR.MAIN] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.VDE$BLD] has been created
+   Facility CODE root directory DEV$:[PROJDIR.MAIN.CODE] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.CODE.SRC] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.CODE.OBJ] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.CODE.VDE$COM] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.CODE.VDE$LOG] has been created
+   All directories for stream MAIN now exist
+Library creation completed.
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This command creates a new library called NEWLIB. The root directory 
+for the new library is DEV$:[PROJDIR] and the name of the creator is 
+John Doe. The log messages indicate when the various steps are 
+completed. First VDE indicates the root directory of the 
+library currently exists and binds the logical name VDE$LIBRARY to that
+<a name="index_x_222"></a>
+<a name="index_x_223"></a>
+<a name="index_x_224"></a>
+directory. Then VDE creates the database of the library, 
+which may take several minutes. Next, VDE creates the 
+directory structure for the delta files of the project. Finally, it 
+creates the directory structure for stream MAIN, the only stream in the 
+library.
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#2</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE LIBRARY
+Enter directory specification for the new library: [PROJDIR]
+Enter the name you want for the new library: NEWLIB
+Enter your full name (first and last names): John Doe
+Enter the remark for new library: Main project library
+Library NEWLIB to be created in root directory [PROJDIR]
+   Library root directory DEV$:[PROJDIR] already exists.
+   Logical name VDE$LIBRARY now points to the new library.
+   Creating library database; please wait...
+   Library database has been created.
+Creating directory tree for delta files:
+   Root directory DEV$:[PROJDIR.VDE$CMS] has been created
+   Facility CODE root directory DEV$:[PROJDIR.VDE$CMS.CODE] has been created
+      CMS library for facility CODE has been created
+   All directories for delta files now exist
+Creating directory tree for stream MAIN:
+   Root directory DEV$:[PROJDIR.MAIN] has been created
+   Facility CODE root directory DEV$:[PROJDIR.MAIN.CODE] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.CODE.SRC] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.CODE.OBJ] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.CODE.VDE$COM] has been created
+      Subdirectory DEV$:[PROJDIR.MAIN.CODE.VDE$LOG] has been created
+   All directories for stream MAIN now exist
+Library creation completed.
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+In this example, the user enters the keywords CREATE LIBRARY and 
+VDE prompts for all other needed information. The new library 
+is created exactly as in the previous example.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ 
+$! Locate and delete previous incarnations of the test facility files, 
+$! then unpack the saveset containing the test files... 
+$ 
+$ if f$search("sys$scratch:A.REQ") .nes. "" Then Delete sys$scratch:A.REQ;*/log 
+$ if f$search("sys$scratch:B.REQ") .nes. "" Then Delete sys$scratch:B.REQ;*/log 
+$ if f$search("sys$scratch:C.B32") .nes. "" Then Delete sys$scratch:C.B32;*/log 
+$ if f$search("sys$scratch:D.B32") .nes. "" Then Delete sys$scratch:D.B32;*/log 
+$ if f$search("sys$scratch:E.B32") .nes. "" Then Delete sys$scratch:E.B32;*/log 
+$ if f$search("sys$scratch:F.B32") .nes. "" Then Delete sys$scratch:F.B32;*/log 
+$ 
+$ Backup VDE$CREATE.BCK/SAVE Sys$Scratch: 
+$ 
+$! Create the core directory -- this must be present... 
+$ 
+$ Create/Directory STAR$DATA:[QTV.WWW.VDE$DATABASE] 
+$ VDE 
+! 
+! create the WWW library in STAR$DATA:[QTV.WWW...], using the 
+! mnemonic WWW, placing all Rdb-related library components in 
+! STAR$DATA:[QTV.WWW.VDE$DATABASE]. 
+! 
+create librar  STAR$DATA:[QTV.WWW.VDE$DATABASE] /DEFER - 
+ /NAME=WWW - 
+ /REMARK="QTV WWW Source Library" - 
+ /NOAUTO_CONVERT /AUTO_ADD_USER=VMS_SOURCE /AUTO_MAIL - 
+ /ASK_INFO_FILE /ASK_REPL_CAUSE /SHOW_GEN_EXPR /NOSTATISTI - 
+ /NOHISTORY_NOTES /NOALLOW_DELETE /NOWILD_INS_GEN - 
+ /NOCMS_ELEM_HIST /CREATOR="Stephen Hoffman" - 
+ /DEF_PRIVILEGES=(CREMOD,RESREP,CREFAC) - 
+ /AUTH_PRIVILEGES=(CREMOD,RESREP,CREFAC) - 
+ /data=STAR$DATA:[QTV.WWW.VDE$DATABASE] - 
+ /journ=STAR$DATA:[QTV.WWW.VDE$DATABASE] - 
+ /snap=STAR$DATA:[QTV.WWW.VDE$DATABASE] 
+! 
+SHOW DEFAULTS 
+SHOW LIBRARY/FULL 
+MODIFY CONTEXT/PUBLIC DEFAULT/NOSTREAM/NOFACILITY 
+! 
+CREATE USER SYSTEM /NAME="System Manager" - 
+    /DEF_P=ALL/AUTH_P=ALL/REMARK="System Manager" 
+! 
+! Create the CMS ("delta") library directory structure. 
+! Configure the CMS libraries to use the directory structure: 
+!   STAR$DATA:[QTV.WWW.CMS$DATABASE.'facility'.CMS]. 
+! Configure the "marker" files to use the directory structure: 
+!   STAR$DATA:[QTV.WWW.CMS$DATABASE.'facility'.SRC]... 
+! 
+SET DIRECTORY/DELTA_FILES STAR$DATA:[QTV.WWW.CMS$DATABASE] 
+SET DIRECTORY/DELTA_FILES/SUBDIRECTORY=VDE$CMS [.CMS] 
+SET DIRECTORY/DELTA_FILES/SUBDIRECTORY=VDE$MARKER [.SRC] 
+CREATE DIRECTORY_TREE/DELTA_FILES 
+SHOW DIRECTORY/DELTA_FILES 
+! 
+! Create the staging area... 
+! 
+SET DIRECTORY/STAGING STAR$DATA:[QTV.WWW.VDE$STAGING] 
+CREATE DIRECTORY_TREE/STAGING 
+! 
+! Create the stream/build directories 
+! 
+SET DIRECTORY/STREAM STAR$DATA:[QTV.WWW.VDE$STREAM] 
+CREATE DIRECTORY_TREE/STREAM 
+! 
+! create and load the VDE test facility. 
+! 
+CREATE FACILITY AAA_VDE_TEST - 
+    /REMARK="Test facility for VDE developers" 
+SET FACILITY AAA_VDE_TEST" 
+CREATE MODULE/NODELETE/REMARK="VDE self-test module" - 
+  /INPUT=SYS$SCRATCH: A.REQ 
+CREATE MODULE/NODELETE/REMARK="VDE self-test module" - 
+  /INPUT=SYS$SCRATCH: B.REQ 
+CREATE MODULE/NODELETE/REMARK="VDE self-test module" - 
+  /INPUT=SYS$SCRATCH: C.B32 
+CREATE MODULE/NODELETE/REMARK="VDE self-test module" - 
+  /INPUT=SYS$SCRATCH: D.B32 
+CREATE MODULE/NODELETE/REMARK="VDE self-test module" - 
+  /INPUT=SYS$SCRATCH: E.B32 
+CREATE MODULE/NODELETE/REMARK="VDE self-test module" - 
+  /INPUT=SYS$SCRATCH: F.B32 
+! 
+EXIT 
+$ 
+$ Exit 
+</pre>
+</font>
+</table>
+
+</blockquote>
+
+<a name="bottom_007"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_manual_006.html#bottom_006">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vde_manual_008.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_manual_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_manual_index.html">Index</a>
+</table>
+</body>
+</html>

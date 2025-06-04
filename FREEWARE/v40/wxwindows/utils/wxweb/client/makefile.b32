@@ -1,0 +1,110 @@
+#
+# File:		makefile.bcc
+# Author:	Julian Smart
+# Created:	1993
+# Updated:
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxweb example (DOS).
+
+# WXWIN and BCCDIR are set by parent make
+
+WXDIR = $(WXWIN)
+WXLIBDIR = $(WXDIR)\lib
+WXINC = $(WXDIR)\include\msw
+WXBASESRC = $(WXDIR)\src\base
+WXBASEINC = $(WXDIR)\include\base
+WXLIB = $(WXLIBDIR)\wx32.lib $(WXLIBDIR)\wxtree.lib $(WXLIBDIR)\wximage.lib \
+        $(WXDIR)\utils\wximage\lib\libpng.lib \
+        $(WXDIR)\utils\wximage\lib\zlib.lib \
+        $(WXDIR)\utils\wximage\lib\winjpeg.lib
+LIBS=$(WXLIB) cw32 import32
+
+SRC = ..\src
+
+SRCSUFF = cpp
+CFG = $(WXDIR)\src\wxwin32.cfg
+TARGET = wxweb
+
+!if "$(FINAL)" == "0"
+LINKFLAGS=/v /Tpe /L$(WXLIBDIR);$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS= -v
+!else
+LINKFLAGS=/Tpe /L$(WXLIBDIR);$(BCCDIR)\lib
+OPT = -O2
+DEBUG_FLAGS =
+!endif
+
+CPPFLAGS= -DALLOW_EDIT_MODE=0 $(DEBUG_FLAGS) $(OPT) -I..\src -I$(WXWIN)\utils\wximage\win @$(CFG)
+
+OBJECTS =       wxweb.obj wxwww.obj wxhtml.obj htmldraw.obj \
+			htmlpars.obj htmlmisc.obj \
+			htmltabl.obj authent.obj base64.obj \
+			simsock.obj listof.obj htmlform.obj \
+                        htmlfram.obj htmlsite.obj astring.obj \
+			smtpmail.obj popmail.obj \
+			htmledit.obj htmlprop.obj
+
+$(TARGET).exe:	$(OBJECTS) $(TARGET).def $(TARGET).res
+  tlink32 $(LINKFLAGS) /c @&&!
+c0w32.obj $(OBJECTS)
+$(TARGET)
+nul
+$(LIBS)
+$(TARGET).def
+!
+		  brc32 -K $(TARGET).res
+
+.$(SRCSUFF).obj:
+	bcc32 $(CPPFLAGS) -c {$< }
+
+.c.obj:
+	bcc32 $(CPPFLAGS) -P- -c {$< }
+
+wxweb.obj:      wxweb.$(SRCSUFF) $(SRC)\wxwww.h $(SRC)\wxhtml.h
+
+wxwww.obj:      $(SRC)\wxwww.$(SRCSUFF) $(SRC)\wxwww.h $(SRC)\wxhtml.h \
+		$(SRC)\authent.h $(SRC)\simsock.h
+
+authent.obj:    $(SRC)\authent.h $(SRC)\base64.h $(SRC)\authent.$(SRCSUFF)
+
+base64.obj:     $(SRC)\base64.h $(SRC)\base64.$(SRCSUFF)
+
+wxhtml.obj:     $(SRC)\wxhtml.$(SRCSUFF) $(SRC)\wxhtml.h
+
+htmldraw.obj:   $(SRC)\htmldraw.$(SRCSUFF) $(SRC)\wxhtml.h $(SRC)\htmledit.h
+
+htmlfram.obj:   $(SRC)\htmlfram.$(SRCSUFF) $(SRC)\wxhtml.h
+
+htmlform.obj:   $(SRC)\htmlform.$(SRCSUFF) $(SRC)\wxhtml.h
+
+htmlpars.obj:   $(SRC)\htmlpars.$(SRCSUFF) $(SRC)\wxhtml.h $(SRC)\htmledit.h
+
+htmledit.obj:   $(SRC)\htmledit.$(SRCSUFF) $(SRC)\wxhtml.h $(SRC)\htmledit.h
+
+htmlprop.obj:   $(SRC)\htmlprop.$(SRCSUFF) $(SRC)\wxhtml.h $(SRC)\htmledit.h
+
+htmltabl.obj:   $(SRC)\htmltabl.$(SRCSUFF) $(SRC)\wxhtml.h
+
+htmlmisc.obj:   $(SRC)\htmlmisc.$(SRCSUFF) $(SRC)\wxhtml.h
+
+htmlsite.obj:   $(SRC)\htmlsite.$(SRCSUFF) $(SRC)\wxhtml.h
+
+simsock.obj:    $(SRC)\simsock.$(SRCSUFF) $(SRC)\simsock.h
+
+listof.obj:     $(SRC)\listof.$(SRCSUFF) $(SRC)\listof.h
+
+astring.obj:     $(SRC)\astring.$(SRCSUFF) $(SRC)\astring.h
+
+smtpmail.obj:	$(SRC)\smtpmail.$(SRCSUFF) $(SRC)\smtpmail.h $(SRC)\simsock.h
+
+popmail.obj:	$(SRC)\popmail.$(SRCSUFF) $(SRC)\popmail.h $(SRC)\simsock.h
+
+$(TARGET).res :      $(TARGET).rc $(WXDIR)\include\msw\wx.rc
+	 brc32 -r /i$(BCCDIR)\include /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa $(TARGET)
+
+clean:
+		  -erase *.obj *.exe *.res *.map *.rws

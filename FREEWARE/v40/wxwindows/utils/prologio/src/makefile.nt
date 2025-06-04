@@ -1,0 +1,147 @@
+#
+# File:		makefile.nt
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	Ulrich Leodolter <ulrich@lab1.psy.univie.ac.at>
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds PROLOGIO library on Windows NT
+#
+!include <..\..\..\src\ntwxwin.mak>
+
+PROLOGDIR = $(WXDIR)\utils\prologio
+PROLOGINC = $(PROLOGDIR)\src
+PROLOGLIB = $(PROLOGDIR)\lib\prologio.lib
+OBJECTS = read.obj y_tab.obj # prorpc.obj
+DOCDIR=$(WXDIR)\docs
+LOCALDOCDIR=$(WXDIR)\utils\prologio\docs
+
+all:    $(PROLOGLIB)
+
+wx:
+        cd $(WXDIR)\src
+        nmake -f makefile.nt
+        cd $(PROLOGDIR)\src
+
+$(PROLOGLIB): $(OBJECTS)
+	-erase $(PROLOGLIB)
+	$(implib) @<<
+-out:$(PROLOGLIB)
+-machine:$(CPU)
+$(OBJECTS)
+<<
+
+$(OBJECTS):     $(PROLOGINC)\read.h $(PROLOGINC)\expr.h
+
+read.obj: read.$(SRCSUFF) $(PROLOGINC)\read.h $(PROLOGINC)\expr.h
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+prorpc.obj: prorpc.$(SRCSUFF) $(PROLOGINC)\read.h $(PROLOGINC)\expr.h $(PROLOGINC)\prorpc.h
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+#expr.obj: expr.c $(PROLOGINC)\read.h $(PROLOGINC)\expr.h
+#        $(cc) $(CFLAGS) /c /Tc $*.c
+
+# *** These lines ensure you don't need
+# *** YACC or FLEX
+y_tab.c:    dosyacc.c
+    copy dosyacc.c y_tab.c
+
+lex_yy.c:    doslex.c
+    copy doslex.c lex_yy.c
+
+y_tab.obj:    y_tab.c lex_yy.c
+#        $(cc) $(CPPFLAGS2) -DYY_USE_PROTOS /c /Tc $*.c
+        $(cc) $(CPPFLAGS2) -DUSE_DEFINE -DYY_USE_PROTOS /c /Tc $*.c
+
+# *** This is how you would recreate the files
+# *** using the YACC and FLEX
+
+#y_tab.c:      parser.y
+#        yacc parser.y
+
+#lex_yy.c:     lexer.l
+#        flex -t -L lexer.l > lex_yy.c
+
+test.exe:      $(WXLIB) $(PROLOGLIB) test.obj test.res
+	$(link) @<<
+-out:test.exe
+-machine:$(CPU)
+-subsystem:windows
+$(LINKFLAGS)
+$(WXDIR)\src\msw\dummy.obj test.obj test.res
+$(PROLOGLIB) $(WXLIB)
+shell32.lib $(guilibs)
+<<
+
+
+test.obj:      test.$(SRCSUFF)
+        $(cc) @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+test.res :      test.rc $(WXDIR)\include\msw\wx.rc
+    $(rc) -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa -fo$@ test.rc
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+        -erase y_tab.c
+        -erase $(PROLOGLIB)
+
+cleanall: clean
+
+DOCSOURCES=$(LOCALDOCDIR)\manual.tex $(LOCALDOCDIR)\classes.tex $(LOCALDOCDIR)\tutorial.tex
+
+html: $(DOCDIR)\html\prologio\proio.htm
+hlp: $(DOCDIR)\winhelp\prologio.hlp
+ps: $(WXDIR)\docs\ps\prologio.ps
+
+$(DOCDIR)\winhelp\prologio.hlp:         $(LOCALDOCDIR)\prologio.rtf $(LOCALDOCDIR)\prologio.hpj
+        cd $(LOCALDOCDIR)
+        -erase prologio.ph
+        hc prologio
+        move prologio.hlp $(DOCDIR)\winhelp\prologio.hlp
+        move prologio.cnt $(DOCDIR)\winhelp\prologio.cnt
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\prologio.rtf: $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -start /w tex2rtf $(LOCALDOCDIR)\manual.tex $(LOCALDOCDIR)\prologio.rtf -twice -winhelp
+        cd $(THISDIR)
+
+$(DOCDIR)\html\prologio\proio.htm:         $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -mkdir $(DOCDIR)\html\prologio
+        -start /w tex2rtf $(LOCALDOCDIR)\manual.tex $(DOCDIR)\html\prologio\proio.htm -twice -html
+        -erase $(DOCDIR)\html\prologio\*.con
+        -erase $(DOCDIR)\html\prologio\*.ref
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\manual.dvi:	$(DOCSOURCES)
+	cd $(LOCALDOCDIR)
+        -latex manual
+        -latex manual
+        -makeindx manual
+        -bibtex manual
+        -latex manual
+        -latex manual
+        cd $(THISDIR)
+
+$(WXDIR)\docs\ps\prologio.ps:	$(LOCALDOCDIR)\manual.dvi
+	cd $(LOCALDOCDIR)
+        -dvips32 -o prologio.ps manual
+        move prologio.ps $(WXDIR)\docs\ps\prologio.ps
+        cd $(THISDIR)
+
+

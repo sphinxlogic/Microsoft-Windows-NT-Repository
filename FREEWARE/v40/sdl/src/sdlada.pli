@@ -1,0 +1,5450 @@
+/****************************************************************************/
+/*									    */
+/*  Copyright (c) 1984, 1987, 1988					    */
+/*  by DIGITAL Equipment Corporation, Maynard, Mass.			    */
+/* 									    */
+/*  This software is furnished under a license and may be used and  copied  */
+/*  only  in  accordance  with  the  terms  of  such  license and with the  */
+/*  inclusion of the above copyright notice.  This software or  any  other  */
+/*  copies  thereof may not be provided or otherwise made available to any  */
+/*  other person.  No title to and ownership of  the  software  is  hereby  */
+/*  transferred.							    */
+/* 									    */
+/*  The information in this software is subject to change  without  notice  */
+/*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment  */
+/*  Corporation.							    */
+/* 									    */
+/*  DIGITAL assumes no responsibility for the use or  reliability  of  its  */
+/*  software on equipment which is not supplied by DIGITAL.		    */
+/*									    */
+/****************************************************************************/
+/*
+facility:
+
+	SDL (Structure Definition Language)
+
+abstract:
+
+	Generates the Ada 
+
+author:
+	C. Z. Mitchell
+
+date:
+	10-January-1984
+*/
+
+/*			C H A N G E    L O G
+
+      Date	| Name	| Description
+________________|_______|______________________________________________________
+    5-Apr-1985	| KD	| 2-1  Add scalar support.
+________________|_______|______________________________________________________
+   10-Apr-1985	| KD 	| 2-2  Add named type support.
+________________|_______|______________________________________________________
+   23-Apr-1985	| KD	| 2-3  Modify type_from_comment to use the nod$t_typename
+		|	|	field in the sdl node rather than extracting it
+		|	|	from the comment.
+________________|_______|______________________________________________________
+   10-May-1985	| KD	| 2-4  Make ASCII.NULL initializer be ASCII.NUL.
+________________|_______|______________________________________________________
+   10-May-1985	| KD	| 2-5  For subaggregates, use the previously defined
+		|	|	initial constant name.
+________________|_______|______________________________________________________
+   14-May-1985	| KD	| 2-6  Check for /MODULE qualifier.
+________________|_______|______________________________________________________
+   16-May-1985	| KD	| 2-7  Put out array types for structures.
+________________|_______|______________________________________________________
+     6-Jun-1985	|  kd	| 2-8  Add a close for output file.  Add on 
+		|	|      condition handler for undefinedfile condition.
+________________|_______|______________________________________________________
+    11-Jun-1985	|  kd	| T2.9-0 Make the backend ident be the sdl version
+________________|_______|______________________________________________________
+     2-Aug-1985 | WSM   | T2.9-1 Dont write "with system; use system" if
+		|	|          /NOMODULE specified
+		|	|        Support for TYPENAME on CONSTANT definitions
+		|	|	 Just write DESCRIPTOR rather than DESCRIPTOR(S)
+		|	|	   as the Ada compiler knows what class to use
+		|	|	 Fix some tabbing and formatting problems
+________________|_______|______________________________________________________
+    21-Aug-1985	| kd	| T2.9-2 Change sdl$v_module to sdl$v_module_opt.
+________________|_______|______________________________________________________
+    30-Mar-1986	| pc	| V3.0-1 add List parameter stuff.
+________________|_______|______________________________________________________
+    12-Mar-1987	| jgw	| T3.1-0 Allow for OPTIONAL LIST ("0 or more")
+		|	|	 parameters, and change the meaning of LIST
+		|	|	 (without OPTIONAL specified) to "1 or more".
+		|	|	 Also, OPTIONAL and DEFAULT 0 are restored to
+		|	|	 their respective proper meanings.
+		|	|	 [11-May-1987, jgw:  It turns out that OPTIONAL
+		|	|	 out parameters were not implemented
+		|	|	 correctly this time around.  See 06-May-1987.]
+________________!_______!______________________________________________________
+    12-Mar-1987	| jgw	| T3.1-1 Enhanced descriptor passing mechanism
+		|	|	 (RTL_STR_DESC attribute).
+________________!_______!______________________________________________________
+     2-Apr-1987	| jgw	| X3.1-2 Bumped the version number and switched from T
+		|	|	 to X in the version number, since X is used
+		|	|	 for development releases.
+________________!_______!______________________________________________________
+    14-Apr-1987	| jgw	| X3.1-3 Added handling of F, D, G, and H_FLOATING
+		|	|	 COMPLEX data types.
+________________!_______!______________________________________________________
+    06-May-1987	| jgw	| X3.1-4 Added handling of "LENGTH *" for CHARACTER
+		|	|	 data type.
+		|	|	 Also:  Removed "FIRST_OPTIONAL_PARAMETER => "
+		|	|	 label, putting out just the parameter;
+		|	|	 correctly implemented OPTIONAL out parameters
+		|	|	 (previously attempted with 12-Mar-1987 fixes).
+________________!_______!______________________________________________________
+    13-May-1987	| jgw	| X3.1-5 Put out "with STARLET; use STARLET;" at the
+		|	|	 beginning of the output file.
+________________!_______!______________________________________________________
+    13-May-1987	| jgw	| X3.1-6 Treat LIST parameters specified with mode OUT
+		|	|	 as though LIST were not specified.
+________________!_______!______________________________________________________
+    20-May-1987	| jgw	| X3.1-7 Add processing of nod$t_return_name if NAMED
+		|	|	 was specified with RETURNS for an ENTRY.
+________________!_______!______________________________________________________
+    08-Jun-1987	| jgw	| X3.1-8 Fixed bug #51 (i.e., SDL_BUGS Note 51):
+		|	|	 Prevented the OUT signature for an OPTIONAL
+		|	|	 OUT parameter from being considered an
+		|	|	 optional parameter when generating
+		|	|	 FIRST_OPTIONAL_PARAMETER)
+________________!_______!______________________________________________________
+    18-Jun-1987	| jgw	| X3.1-9 Implemented the following mappings of special
+		|	|	 VMS TYPENAMEs:
+		|	|
+		|	|	    ANY_TYPE			    If mechanism is reference, then
+		|	|					    ADDRESS by VALUE, else UNSIGNED_LONGWORD
+		|	|					    by VALUE.
+		|	|
+		|	|	    BYTE_SIGNED_TYPE		    SHORT_SHORT_INTEGER
+		|	|	    BYTE_UNSIGNED_TYPE		    UNSIGNED_BYTE
+		|	|	    CHAR_STRING_TYPE		    STRING
+		|	|	    FLOATING_POINT_TYPE		    The appropriate floating point type
+		|	|					    FLOAT, D_FLOAT, G_FLOAT, LONG_LONG_FLOAT
+		|	|					    (given the value of NOD$W_DATATYPE).
+		|	|	    F_FLOAT_TYPE		    FLOAT
+		|	|	    D_FLOAT_TYPE		    D_FLOAT
+		|	|	    G_FLOAT_TYPE		    G_FLOAT
+		|	|	    H_FLOAT_TYPE		    LONG_LONG_FLOAT
+		|	|	    IDENTIFIER_TYPE		    UNSIGNED_LONGWORD
+		|	|	    LONGWORD_SIGNED_TYPE	    INTEGER
+		|	|	    LONGWORD_UNSIGNED_TYPE	    UNSIGNED_LONGWORD
+		|	|	    MASK_BYTE_TYPE		    UNSIGNED_BYTE
+		|	|	    MASK_LONGWORD_TYPE		    UNSIGNED_LONGWORD
+		|	|	    MASK_WORD_TYPE		    UNSIGNED_WORD
+		|	|	    PROCEDURE_TYPE		    ADDRESS by VALUE
+		|	|	    QUADWORD_SIGNED_TYPE	    QUADWORD
+		|	|	    QUADWORD_UNSIGNED_TYPE	    UNSIGNED_QUADWORD
+		|	|	    VARYING_ARG_TYPE		    UNSIGNED_LONGWORD
+		|	|	    VECTOR_BYTE_UNSIGNED_TYPE	    UNSIGNED_BYTE_ARRAY
+		|	|	    VECTOR_LONGWORD_SIGNED_TYPE     INTEGER_ARRAY
+		|	|	    VECTOR_LONGWORD_UNSIGNED_TYPE   UNSIGNED_LONGWORD_ARRAY
+		|	|	    VECTOR_MASK_BYTE_TYPE	    UNSIGNED_BYTE_ARRAY
+		|	|	    VECTOR_QUADWORD_UNSIGNED_TYPE   UNSIGNED_QUADWORD_ARRAY
+		|	|	    WORD_SIGNED_TYPE		    SHORT_INTEGER
+		|	|	    WORD_UNSIGNED_TYPE		    UNSIGNED_WORD
+		|	|
+		|	|	 Added the `map_typename' routine.
+		|	|	 Also, made sure the value of `type_name' is
+		|	|	 uppercase so that special-case checks work.
+________________!_______!______________________________________________________
+    09-Jul-1987	| jgw	| X3.1-10 Fix the implementation of the mapping of
+		|	|	  special VMS TYPENAMEs to Ada data types.
+		|	|	  The requirements for this enhancement were
+		|	|	  misconstrued such that _TYPE was incorrectly
+		|	|	  understood to terminate the VMS TYPENAME in
+		|	|	  the SDL source.  The following is a correct
+		|	|	  representation of the intended mapping:
+		|	|
+		|	|	    TYPENAME specified		       Ada
+		|	|	    in SDL source:		    data type:
+		|	|	   --------------------		   ------------
+		|	|
+		|	|	    ANY				    If mechanism is reference, then
+		|	|					    ADDRESS by VALUE, else UNSIGNED_LONGWORD
+		|	|					    by VALUE.
+		|	|
+		|	|	    BYTE_SIGNED			    SHORT_SHORT_INTEGER
+		|	|	    BYTE_UNSIGNED		    UNSIGNED_BYTE
+		|	|	    CHAR_STRING			    STRING
+		|	|	    FLOATING_POINT		    The appropriate floating point type
+		|	|					    FLOAT, D_FLOAT, G_FLOAT, LONG_LONG_FLOAT
+		|	|					    (given the value of NOD$W_DATATYPE).
+		|	|	    F_FLOAT			    FLOAT
+		|	|	    D_FLOAT			    D_FLOAT
+		|	|	    G_FLOAT			    G_FLOAT
+		|	|	    H_FLOAT			    LONG_LONG_FLOAT
+		|	|	    IDENTIFIER			    UNSIGNED_LONGWORD
+		|	|	    LONGWORD_SIGNED		    INTEGER
+		|	|	    LONGWORD_UNSIGNED		    UNSIGNED_LONGWORD
+		|	|	    MASK_BYTE			    UNSIGNED_BYTE
+		|	|	    MASK_LONGWORD  		    UNSIGNED_LONGWORD
+		|	|	    MASK_WORD			    UNSIGNED_WORD
+		|	|	    PROCEDURE			    ADDRESS by VALUE
+		|	|	    QUADWORD_SIGNED		    QUADWORD
+		|	|	    QUADWORD_UNSIGNED	   	    UNSIGNED_QUADWORD
+		|	|	    VARYING_ARG			    UNSIGNED_LONGWORD
+		|	|	    VECTOR_BYTE_UNSIGNED	    UNSIGNED_BYTE_ARRAY
+		|	|	    VECTOR_LONGWORD_SIGNED	    INTEGER_ARRAY
+		|	|	    VECTOR_LONGWORD_UNSIGNED	    UNSIGNED_LONGWORD_ARRAY
+		|	|	    VECTOR_MASK_BYTE		    UNSIGNED_BYTE_ARRAY
+		|	|	    VECTOR_QUADWORD_UNSIGNED	    UNSIGNED_QUADWORD_ARRAY
+		|	|	    WORD_SIGNED			    SHORT_INTEGER
+		|	|	    WORD_UNSIGNED		    UNSIGNED_WORD
+		|	|
+		|	|	 Also, generated "with CONDITION_HANDLING; use
+		|	|	 CONDITION_HANDLING;" in the same context as
+		|	|	 "with STARLET; use STARLET;"
+		|	|	 Also, made certain that UNSIGNED_LONGWORD would
+		|	|	 always be put out for TYPENAME MASK_LONGWORD
+		|	|	 by removing a check for MASK_LONGWORD [JGW0001]
+________________!_______!______________________________________________________
+    13-Jul-1987	| jgw	| X3.1-11 Map TYPENAME VECTOR_WORD_UNSIGNED to
+		|	|	  UNSIGNED_WORD_ARRAY; map TYPENAME ANY to
+		|	|	  IN ADDRESS by VALUE if by REFERENCE (IN or
+		|	|	  OUT), and IN UNSIGNED_LONGWORD by VALUE if
+		|	|	  IN by VALUE.
+________________!_______!______________________________________________________
+    01-Dec-1987	| jgw	| V3.1-12 Updated copyright; converted the pre-defined
+		|	|	  record type name specified as the type of an
+		|	|	  aggregate member to an Ada name before putting
+		|	|	  it out to the SDL source; fixed the name_of_
+		|	|	  record_type routine by: (1) making sure the
+		|	|	  prefix specified on the PREFIX clause is the
+		|	|	  same case (upper) as the segment of the
+		|	|	  aggregate [Ada] name to which we compare it,
+		|	|	  and (2) commenting out the check for a prefix
+		|	|	  that's less than 2 characters since a facility
+		|	|	  mnemonic can be 1 character (excluding the
+		|	|	  "$"); prevented an ACCVIO from being incurred
+		|	|	  when referencing the name of a pre-defined
+		|	|	  aggregate from within another aggregate.
+________________|_______|______________________________________________________
+     1-Feb-1988	| PG	| X3.2-0  Add STRING CONSTANT
+________________|_______|______________________________________________________
+    03-Feb-1988	| jg	| X3.2-1  User-defined types.  Entry point return
+		|	|	  types.
+		|	|	  Replace all type array dimensions `22's by
+		|	|	   constant `ntypes', the number of data types,
+		|	|	   and increase this to 24 to allow for
+		|	|	   user and void.
+________________|_______|______________________________________________________
+    05-Feb-1988	| jg	| X3.2-2  Re-instate INIT for typedef'd aggregate
+		|	|	  Don't output (null) on IMPORT pragma.
+________________|_______|______________________________________________________
+    18-Feb-1988	|  jg	| X3.2-3 Add support for conditional compilation and
+		|	|	  LITERAL.
+________________|_______|______________________________________________________
+    23-Feb-1988	|  jg	| X3.2-4 Translate TYPENAME F_FLOATING, D_FLOATING,
+		|	|	  G_FLOATING, and H_FLOATING to ADA type
+		|	|	  names, as well as F_FLOAT, etc.
+________________|_______|______________________________________________________
+    10-May-1988	|  jg	| X3.2-5 Fix inconsistency whereby _TYPE not added to
+		|	|	  all type and subtype declarations and
+		|	|	  references.
+		|	|	 Give error on forward reference.
+________________|_______|______________________________________________________
+    20-Jun-1988	|  jgw	| X3.2-6 Fixed bugs whereby references to pre-defined
+		|	|	 structures or unions were either causing the
+		|	|	 back end to incur an access violation or
+		|	|	 generating incorrect VAX Ada output.  Changed
+		|	|	 the mechanism that is put out for CHARACTER
+		|	|	 arguments by DESCRIPTOR and RTL_STR_DESC to
+		|	|	 DESCRIPTOR(S) and DESCRIPTOR(SB), respectively,
+		|	|	 instead of DESCRIPTOR.  Fixed the default value
+		|	|	 for a BOOLEAN DEFAULT 0 argument with the
+		|	|	 TYPENAME BOOLEAN clause attached.  Accounted
+		|	|	 for greater than one level of indirection via
+		|	|	 user type references when supplying a default
+		|	|	 value for a record component.  Supplied a value
+		|	|	 of FALSE for the types_zero(typ$k_boolean)
+		|	|	 array element (previously null by default).
+		|	|	 Supply an Ada type name and _INIT default text
+		|	|	 for a named aggregate type reference which
+		|	|	 points back to the defining subtree.
+________________|_______|______________________________________________________
+    12-Oct-1988	|  jgw	| T3.2-7 Made the routine GET_AGGREGATE_ADDRESS
+		|	|	 understand the way conditional code is
+		|	|	 stored in the intermediate tree (i.e.,
+		|	|	 the conditional node and its list of
+		|	|	 conditional level-1 subtrees).
+________________|_______|______________________________________________________
+    13-FEB-1990 |  WRV  | X3.2-VMS1 Modifiers are members of VMS tools group.
+                |  RHT  |           Added code for file dependency recording for
+                |       |           VMS VDE system builder.
+________________|_______|______________________________________________________
+    15-Jul-1992 |  JAK  | EV1-16 Change ADAPARM and ADAREC to match new NODEF.
+		|	|	Added revision checks.
+		|	|	Added NYI definitions for new data types.
+________________|_______|______________________________________________________
+     8-Aug-1992 |  JAK  | EV1-18 Fix bug in NAME_OD_RECORD_TYPE ... if input pointer 
+		|	|	does not address an adarec node, then p->item_type_namep 
+		|	|	is null and causes an access violation when checking for 
+		|	|	nod$v_dimen.  Changed to use "p" rather than "p->item_type_namep" 
+		|	|	when P does not point to an adarec node.
+		|CDM/JAK|	Add definitions for new datatypes.
+    10-Aug-1992	|  JAK	|       Add missing RETURN statement to function ALLOC_ADAPARM.
+    11-Aug-1992 |  JAK  |       Change 64-bit pointer types from NYI_... to UNSIGNED_QUADWORD.
+		|	|	Temporarilly disabled assert check '[name_of_item_of_record_type #1'.
+________________|_______|______________________________________________________
+    20-Oct-1994	|  RC	| EV1-40    Native Alpha port.  See SDLGETFNM.PLI.
+________________|_______|______________________________________________________
+    20-Jan-1998	|  AEM	| EV1-60  INTEGER_64 should only be output if /ALPHA
+		|	|	&/VMS.  In cases where INTEGER_64 is output,
+		|	|	UNSIGNED_QUADWORD will be used if both of these
+		|	|	options have not been specified.
+________________|_______|______________________________________________________
+*/
+%replace MODULE_IDENT by 'EV1-60';
+
+
+sdl$output:	procedure (out_file, default_name, sdl$_shr_data)
+			options(ident(MODULE_IDENT));  /* routine activated by sdlimgact */
+
+%include 'sdl$library:sdlnodef.in';
+%include 'sdl$library:sdltypdef.in';
+%include 'sdl$library:sdlshr.in';
+%include 'sdl$library:sdlmsgdef.in';
+%include 'sdl$library:sdlgetfnm.in';
+
+  
+    /*<ff>*/
+
+%replace true by '1'b;
+%replace false by '0'b;
+%replace lang_ext by '.ada';	/* language extension */
+%replace lang_name by 'ADA';	/* Language name for conditional - jg */
+%replace max_line_length by 120;
+%replace nsize by 50;		/* Sometimes a name can be followed by
+				 * 'NULL_PARAMETER
+				 */
+%replace ntypes by 36;			/* jg - number of data types */
+%replace vsize by 1024;
+%replace logical_tab_size by 4;
+%replace nom_pre_comment_width by 68;
+%replace nom_constant_name_width by 22;
+%replace nom_formal_width by 12;
+%replace nom_object_name_width by 12;
+%replace nom_formal_type_width by 32;
+%replace nom_object_type_width by 24;
+%replace formal_indent by 2;
+
+%replace mode_in by 1;
+%replace mode_in_out by 2;
+%replace mode_out by 3;
+
+%replace mech_value by 1;
+%replace mech_ref by 2;
+%replace mech_desc by 3;
+%replace mech_rtl_str_desc by 4;
+
+%replace rec_ctx_type by 1;
+%replace rec_ctx_rep_spec by 2;
+%replace rec_ctx_const_outer by 3;
+%replace rec_ctx_const_inner by 4;
+%replace rec_ctx_const_multiple_nested by 5;
+%replace rec_ctx_const_trail_comma by 6;
+%replace rec_ctx_const_no_trail_punc by 7;
+
+    /*<ff>*/
+
+    %replace special_nod$k_adaparm by 126;
+
+    /* Structure adaparm is used to represent an Ada formal parameter.
+     * The type field is the same as nod$b_type in an SDL node 
+     * and is set to special_nod$k_adaparm to  differentiate from tree nodes.
+     */
+    dcl 1 adaparm based,
+
+	/* The first part contains FLINK, BLINK, TYPE */
+	2 fill(20) pointer,
+
+	/*
+	 * Define components that do not change once set.
+	 */
+	2 nodep ptr,			/* Associated entry or parmnode, if 
+					 * any (for debugging)
+					 */
+	2 formal_name_text char(nsize) var, /* Text of formal parameter name */
+	2 type_text char(nsize) var,	/* Text of formal type */
+	2 default_text char(nsize) var,	/* Text of default value */
+	2 mode fixed bin,		/* mode_in, mode_in_out, or mode_out */
+	2 mech fixed bin,		/* mech_value, mech_ref, mech_desc, or
+					 * mech_rtl_str_desc
+					 */
+	2 is_optional bit,		/* Parameter is optional - i.e.,
+					 * optional specified in SDL source (or
+					 * parameter is an optional LIST parameter),
+					 * and a variable number of arguments
+					 * can be passed if all following
+					 * parameters are also optional.
+					 */
+	2 is_output_length bit,		/* Parameter looks like a length
+					 * returned by VMS.
+					 */
+	2 requires_overloading bit,	/* Default expression cannot be 
+					 * given in Ada.
+					 */
+	2 related_parm fixed bin,	/* Parameter number of related
+					 * parameter.  If non-zero, 
+					 * overloadings are done in pairs.
+					 * (i.e., neither or both are
+					 * defaulted.)
+					 */
+
+	/* Define temporary flags that are modified when generating 
+	 * overloadings.
+	 */
+	2 overload bit,			/* Use type ADDRESS (or UNSIGNED_LONGWORD)
+					 * rather than the real type
+					 * when generating a particular
+					 * subprog decl or import pragma.
+					 */
+	2 ignore bit;			/* Ignore this parameter when
+					 * when generating a particular
+					 * subprogram decl or import pragma.
+					 */
+
+    /*<ff>*/
+
+    %replace special_nod$k_adarec by 127;
+
+    /* Structure adarec is used to represent an Ada record.  
+     * An adarec is created whenever the record information is needed
+     * for a structure or union by calling structure_to_adarec or
+     * union_to_adarec.
+     * The type field is the same as nod$b_type in an SDL node 
+     * and is set to special_nod$k_adarec to  differentiate from tree nodes.
+     */
+    dcl 1 adarec based,
+
+	/* The first part contains FLINK, BLINK, TYPE */
+	2 fill(20) pointer,
+
+	2 item_type_namep ptr,		/* Itemnode that defines name of the 
+					 * the type and the name of a component
+					 * of that type.
+					 */
+	2 discrimp ptr,			/* Itemnode of the discriminant name, 
+					 * if any.  (For parameterized records)
+					 */
+	2 discrim_type char(nsize) var,	/* Discriminant type, if there is a
+					 * discriminant.
+					 */
+	2 comp_startp ptr,		/* Start of record components */
+	2 comp_stopp ptr,		/* Stop node for record components.
+					 * [do while (p ^= adarecp->comp_stopp]
+					 */
+	2 variantp ptr,			/* Itemnode for the variant if the
+					 * record has a discriminant.  (If
+					 * present the datatype will be union.)
+					 */
+
+	/* In processing some unions, an item other than the first member is
+	 * chosen as the record component.  In such a case, some of the 
+	 * overlapping components can precede and follow the component.  Thus,
+	 * there are two lists of overlapping components
+	 */
+	2 overlap1_startp ptr,		/* Start of first list of overlapping 
+					 * components.
+					 */
+	2 overlap1_stopp ptr,		/* Stop node for first list of
+					 * overlapping components.  (Node
+					 * on which to stop processing.  See
+					 * comment for comp_stopp.)
+					 */
+	2 overlap2_startp ptr,		/* Start of second list of overlapping 
+					 * components.
+					 */
+	2 overlap2_stopp ptr,		/* Stop node for second list of
+					 * overlapping components.
+					 */
+	2 generate_record_type bit;	/* If true, will generate a record
+					 * type for this structure or union.
+					 * If false, will output components
+					 * as components of the containing
+					 * record.
+					 */
+    /*<ff>*/
+
+/*
+ * the following is a character string giving the "base" filename,
+ * i.e. without device, directory, or extension, of the input file
+
+	dcl filename char(128) var external;
+ */
+
+/*
+ * The following array gives the Ada equivalents for SDL data types
+ */
+	dcl types(ntypes) char (nsize) var;
+ 
+	types = '';
+			/* EV1-18 */ 
+	types(typ$k_address)='ADDRESS';
+	types(typ$k_byte)='INTEGER_8';
+	types(typ$k_word)='INTEGER_16';
+	types(typ$k_longword)='INTEGER_32';
+
+	if sdl$v_vms_opt & sdl$v_alpha_opt then
+	   types(typ$k_quadword)='INTEGER_64';
+	else
+	   types(typ$k_quadword)='UNSIGNED_QUADWORD';
+
+	types(typ$k_char)='CHARACTER';
+	types(typ$k_decimal)='NYI_PACKED_DECIMAL';
+	types(typ$k_double)='D_FLOAT';
+	types(typ$k_float)='FLOAT';
+	types(typ$k_grand)='G_FLOAT';
+	types(typ$k_huge)='LONG_LONG_FLOAT';
+	types(typ$k_double_complex)='D_FLOATING_COMPLEX';
+	types(typ$k_float_complex)='F_FLOATING_COMPLEX';
+	types(typ$k_grand_complex)='G_FLOATING_COMPLEX';
+	types(typ$k_huge_complex)='H_FLOATING_COMPLEX';
+
+	types(typ$k_pointer_long)='ADDRESS';
+	types(typ$k_pointer)='ADDRESS';
+	types(typ$k_pointer_quad)='UNSIGNED_QUADWORD';
+
+	types(typ$k_integer)='INTEGER_32';
+	types(typ$k_integer_byte)='INTEGER_8';
+	types(typ$k_integer_word)='INTEGER_16';
+	types(typ$k_integer_long)='INTEGER_32';
+	if sdl$v_vms_opt & sdl$v_alpha_opt then
+	   types(typ$k_integer_quad)='INTEGER_64';
+        else
+	   types(typ$k_integer_quad)='UNSIGNED_QUADWORD';
+
+	types(typ$k_pointer_hw)='ADDRESS';
+	types(typ$k_hardware_address)='ADDRESS';
+	types(typ$k_integer_hw)='INTEGER_32';
+	types(typ$k_hardware_integer)='INTEGER_32';
+	if sdl$v_alpha_opt then 
+	    do;
+	    types(typ$k_pointer_hw)='UNSIGNED_QUADWORD';
+	    types(typ$k_hardware_address)='UNSIGNED_QUADWORD';
+	    types(typ$k_integer_hw)='INTEGER_64';
+	    types(typ$k_hardware_integer)='INTEGER_64';
+	    end;
+
+	/* Octaword won't work if it's an array of them.  Seems unlikely.
+	 */
+	types(typ$k_octaword)='UNSIGNED_LONGWORD_ARRAY(0 .. 3)';
+
+	types(typ$k_any)='UNSIGNED_LONGWORD';
+
+/*
+ * The following array gives the name for default values of zero for 
+ * types.
+ */
+	dcl types_zero(ntypes) char (nsize) var;
+ 
+	types_zero = '';
+ 
+	types_zero(typ$k_address)='ADDRESS_ZERO';
+	types_zero(typ$k_boolean)='FALSE';
+	types_zero(typ$k_byte)='0';
+	types_zero(typ$k_char)='ASCII.NUL';
+	types_zero(typ$k_decimal)='NYI_PACKED_DECIMAL_ZERO';
+	types_zero(typ$k_double)='0.0';
+	types_zero(typ$k_float)='0.0';
+	types_zero(typ$k_grand)='0.0';
+	types_zero(typ$k_huge)='0.0';
+	types_zero(typ$k_longword)='0';        
+
+	if sdl$v_vms_opt & sdl$v_alpha_opt then
+	   types_zero(typ$k_quadword)='0';
+	else
+	   types_zero(typ$k_quadword)='(0, 0)';
+
+	types_zero(typ$k_octaword)='(0, 0, 0, 0)';
+	types_zero(typ$k_word)='0';
+
+/*
+ * These equivalents are used for unsigned data types, except for
+ * arrays that have an alternate specified in the unsigned_array
+ * table that follows.
+ */
+	dcl unsigned (ntypes) char (nsize) var;
+
+	unsigned = '';
+
+	unsigned(typ$k_byte)='UNSIGNED_BYTE';
+	unsigned(typ$k_word)='UNSIGNED_WORD';
+	unsigned(typ$k_longword)='UNSIGNED_LONGWORD';
+	unsigned(typ$k_quadword)='UNSIGNED_QUADWORD';
+
+	/* Octaword won't work if it's an array of them.  Seems unlikely.
+	 */
+	unsigned(typ$k_octaword)='UNSIGNED_LONGWORD_ARRAY(0 .. 3)';
+
+	/* EV1-18 */
+
+	unsigned(typ$k_address)='ADDRESS';
+	unsigned(typ$k_pointer_long)='ADDRESS';
+	unsigned(typ$k_pointer)='ADDRESS';
+	unsigned(typ$k_pointer_quad)='UNSIGNED_QUADWORD';
+
+	unsigned(typ$k_integer)='UNSIGNED_LONGWORD';
+	unsigned(typ$k_integer_byte)='UNSIGNED_BYTE';
+	unsigned(typ$k_integer_word)='UNSIGNED_WORD';
+	unsigned(typ$k_integer_long)='UNSIGNED_LONGWORD';
+	unsigned(typ$k_integer_quad)='UNSIGNED_QUADWORD';
+
+	unsigned(typ$k_pointer_hw)='ADDRESS';
+	unsigned(typ$k_hardware_address)='ADDRESS';
+	unsigned(typ$k_hardware_integer)='UNSIGNED_LONGWORD';
+	unsigned(typ$k_integer_hw)='UNSIGNED_LONGWORD';
+	if sdl$v_alpha_opt then 
+	    do;
+	    unsigned(typ$k_pointer_hw)='UNSIGNED_QUADWORD';
+	    unsigned(typ$k_hardware_address)='UNSIGNED_QUADWORD';
+	    unsigned(typ$k_hardware_integer)='UNSIGNED_QUADWORD';
+	    unsigned(typ$k_integer_hw)='UNSIGNED_QUADWORD';
+	    end;
+
+/*
+ * These supply the "zero" values.
+ */
+	dcl unsigned_zero (ntypes) char (nsize) var;
+
+	unsigned_zero = '';
+
+	unsigned_zero(typ$k_byte)='0';
+	unsigned_zero(typ$k_word)='0';
+	unsigned_zero(typ$k_longword)='0';
+/* 
+ * There don't appear to be any UNSIGNED INTEGER_64, so
+ * continue to initialize as 2 longs for /VAX and /ALPHA
+ */
+
+	unsigned_zero(typ$k_quadword)='(0, 0)';
+	unsigned_zero(typ$k_octaword)='(0, 0, 0, 0)';
+
+/*
+ * These equivalents are used for unsigned data types for arrays.
+ */
+	dcl unsigned_array (ntypes) char (nsize) var;
+
+	unsigned_array = '';
+
+	unsigned_array(typ$k_byte)='UNSIGNED_BYTE_ARRAY';
+	unsigned_array(typ$k_word)='UNSIGNED_WORD_ARRAY';
+
+    /*<ff>*/
+
+/* LOCAL VARIABLES */
+
+	dcl parm_comment_processing_enabled bit init(true); 
+
+	dcl default_name char(132) var;
+	dcl out_file char(128) var;
+	dcl output_file file output record sequential;
+
+	%replace null_parm_disabled by 1;
+	%replace null_parm_enabled by 2;
+	%replace null_parm_enabled_no_gen by 3;
+
+	dcl tick_null_parm_processing fixed bin init(null_parm_enabled);
+
+	dcl based_string char(vsize) var based;
+	dcl i fixed bin(31);
+	dcl tab char(1) initial (byte(9));
+
+	dcl ltab(0 : 8) char(8) var init(
+	    '',
+	    '    ',
+	    byte(9),
+	    byte(9) || '    ',
+	    byte(9) || byte(9),
+	    byte(9) || byte(9) || '    ',
+	    byte(9) || byte(9) || byte(9),
+	    byte(9) || byte(9) || byte(9) || '    ',
+	    byte(9) || byte(9) || byte(9) || byte(9));
+
+	dcl first_module bit init (true);
+	dcl pcnt fixed bin(31);
+	dcl modname char (32) var;
+	dcl blank_line_pending bit init (false);
+	dcl 1 some_bits union,
+		2 bit_struc,
+		    3 const_section bit,
+		    3 comm_section bit,
+		2 sections bit(32) aligned;
+
+	dcl process_conditional bit init (false);		/* jg */
+
+    /*<ff>*/
+
+/************************* MAIN PROCEDURE **************************/
+ 
+/* Check version mismatch */
+    if shrdata_version ^= sdl$k_shrdata_rev |
+       node_version ^= sdl$k_node_rev then 
+	do;
+	call errmsg(sdl$_shr_data,sdl$_revcheck,,);
+	goto exit;
+	end;
+
+    on undefinedfile (output_file) 
+	begin;
+	    call errmsg (sdl$_shr_data, sdl$_outfilopn,,(sdl$gt_filename));
+	    goto exit;
+	end;
+  
+/* first open the file */
+	open file (output_file) title (out_file)
+		environment(default_file_name(default_name || lang_ext),
+			    user_open(sdl$getfnm));
+	outfile = output_file;	/* equate the file with the file variable
+				    in the shared structure */
+/* 
+ * Output the little SDL header with time and date info 
+ */
+	call sdl$header(sdl$_shr_data,'--','', max_line_length);
+/*
+ * Output the MODULE header and predeclared types
+ */
+	if sdl$v_module_opt
+	then do;
+	    call output_line('with SYSTEM; use SYSTEM;');
+	    call output_line('with STARLET; use STARLET;');
+	    call output_line('with CONDITION_HANDLING; use CONDITION_HANDLING;');
+	    call skip_line;
+	    call output_line('package ' || ada_name(null(), default_name) || ' is');
+	    call skip_line;
+	end;
+
+/*
+ * Go down the tree
+ */
+	call output_node(tree_root->nod$a_flink, tree_root, 0);
+
+/*
+ * Output the END statement
+ */
+	if sdl$v_module_opt
+	then do;
+	    call skip_line;
+	    call output_line('end ' || ada_name(null(), default_name) || ';');
+	end;
+
+/* Get the fully resolved language specific output file and
+   and move it the shared data area for the front-end. The reultant
+   name will be recorded as a file dependency for the VDE system builder.
+*/
+	vde_lang_file = sdl$gt_filename;
+	
+	close file (output_file);
+exit: 
+	return;
+
+
+    /*<ff>*/
+
+ada_name : procedure(p, name) returns (char(max_line_length) var);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Ada_Name converts an SDL identifier to a valid Ada
+ *	identifier.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		node associated with the name, if any.
+ *			(Can be null.)
+ *
+ *	name		SDL identifier 
+ *
+ * ROUTINE VALUE:
+ *
+ *	Ada identifier
+ */
+
+    dcl p ptr;
+    dcl name char(*) var;
+    dcl ret char(max_line_length) var;
+    dcl (i, j, b1) fixed bin;
+    dcl last_was_underscore bit;
+    dcl (c, pending_c) char(1);
+
+/* This is the list of Ada reserved words converted by routine ada_name to
+ * noninterfering spellings (by eliminating the last character)
+ */
+
+%replace num_reserved_names by 63;
+dcl reserved_names (num_reserved_names) char (9) var static init (
+	'ABORT',	'ABS',		'ACCEPT',	/* A -  1 */
+	'ACCESS',	'ALL',		'AND',
+	'ARRAY',	'AT',
+
+	'BEGIN',	'BODY',				/* B -  9 */
+
+	'CASE',		'CONSTANT',			/* C - 11 */
+
+	'DECLARE',	'DELAY',	'DELTA',	/* D - 13 */
+	'DIGITS',	'DO',
+
+	'ELSE',		'ELSIF',	'END',		/* E - 18 */
+	'ENTRY',	'EXCEPTION',	'EXIT',
+
+	'FOR',		'FUNCTION',			/* F - 24 */
+
+	'GENERIC',	'GOTO',				/* G - 26 */
+
+							/* H -    */
+
+	'IF',		'IN',		'IS',		/* I - 28 */
+
+							/* J -    */
+							/* K -    */
+
+	'LIMITED',	'LOOP',				/* L - 31 */
+
+	'MOD',						/* M - 33 */
+
+	'NEW',		'NOT',		'NULL',		/* N - 34 */
+
+	'OF',		'OR',		'OTHER',	/* O - 37 */
+	'OUT',
+
+	'PACKAGE',	'PRAGMA',	'PRIVATE',	/* P - 41 */
+	'PROCEDURE',
+
+							/* Q -    */
+
+	'RAISE',	'RANGE',	'RECORD',	/* R - 45 */
+	'REM',		'RENAMES',	'RETURN',
+	'REVERSE',
+
+	'SELECT',	'SEPARATE',	'SUBTYPE',	/* S - 52 */
+
+	'TASK',		'TERMINATE',	'THEN',		/* T - 55 */
+	'TYPE',
+
+	'USE',						/* U - 59 */
+
+							/* V -    */
+
+	'WHEN',		'WHILE',	'WITH',		/* W - 60 */
+
+	'XOR'						/* X - 63 */
+
+							/* Y -    */
+							/* Z -    */
+	);
+
+    dcl first_index (26) fixed bin static init (
+	1,	/* A */
+	9,	/* B */
+	11,	/* C */
+	13,	/* D */
+	18,	/* E */
+	24,	/* F */
+	26,	/* G */
+	0,	/* H */
+	28,	/* I */
+	0,	/* J */
+	0,	/* K */
+	31,	/* L */
+	33,	/* M */
+	34,	/* N */
+	37,	/* O */
+	41,	/* P */
+	0,	/* Q */
+	45,	/* R */
+	52,	/* S */
+	55,	/* T */
+	59,	/* U */
+	0,	/* V */
+	60,	/* W */
+	63,	/* X */
+	0,	/* Y */
+	0);	/* Z */
+
+    dcl num_of_indices (26) fixed bin static init (
+	8,	/* A */
+	2,	/* B */
+	2,	/* C */
+	5,	/* D */
+	6,	/* E */
+	2,	/* F */
+	2,	/* G */
+	0,	/* H */
+	3,	/* I */
+	0,	/* J */
+	0,	/* K */
+	2,	/* L */
+	1,	/* M */
+	3,	/* N */
+	4,	/* O */
+	4,	/* P */
+	0,	/* Q */
+	7,	/* R */
+	3,	/* S */
+	4,	/* T */
+	1,	/* U */
+	0,	/* V */
+	3,	/* W */
+	1,	/* X */
+	0,	/* Y */
+	0);	/* Z */
+
+    ret = '';
+    last_was_underscore = true;		/* So skip leading $ and _ */
+    pending_c = ' ';
+
+    i = 1;
+    do while (i <= length(name));
+
+	c = substr(name, i, 1);
+	if c ^= ' ' then
+	    if (c = '$' | c = '_') then do;
+		if ^last_was_underscore then do;
+
+		    if pending_c ^= ' ' then ret = ret || pending_c;
+		    pending_c = '_';
+		    last_was_underscore = true;
+
+		    end;
+		end;	    		
+	    else do;
+
+		if pending_c ^= ' ' then ret = ret || pending_c;
+		pending_c = c;
+		last_was_underscore = false;
+
+		end;
+
+	i = i + 1;
+	end;
+
+    /* Ignore trailing underscores also. 
+     */
+    if pending_c ^= ' ' & pending_c ^= '_' then ret = ret || pending_c;
+
+    /* Convert to upper case and check for reserved word
+     */
+    ret = translate(ret, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz');
+
+    b1 = rank(substr(ret,1,1)) - rank('A') + 1;
+    if b1 > 0 & b1 < 27 then do;
+
+	i = first_index(b1);
+	j = num_of_indices(b1);
+
+	/* If find a match with a reserved word, then return the 
+	 * reserved name without the last letter
+	 */
+	do while (j > 0);
+
+	    if ret = reserved_names(i) then 
+		return (substr(ret, 1, length(ret) - 1));
+
+	    j = j-1;
+ 	    i = i+1;
+ 	    end;
+
+	return (ret);
+
+	end;
+
+    /* Identifier doesn't begin with a letter.  If no prefix,
+     * just stick "X_" in front.  Otherwise, put the "adaized" prefix
+     * in front.
+     */
+    if p = null() then return ('X_' || ret);
+
+    if p->nod$t_prefix = '' then return ('X_' || ret);
+
+    return (ada_name(p, p->nod$t_prefix || ret));
+
+end ada_name;
+
+    /*<ff>*/
+
+align : procedure(buf, indent, max_len);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *
+ * FORMAL PARAMETERS:
+ *
+ */
+
+    dcl buf char(vsize) var;
+    dcl (indent, max_len) fixed bin;
+    dcl (actual_len, nom_len, num_tabs, i) fixed bin;
+
+    /* Calculate the "actual length," i.e., the number of column
+     * positions occupied after accounting for tabs.
+     */
+    actual_len = 0;
+    do i = 1 to length(buf);
+
+	if substr(buf, i, 1) = tab then
+	    actual_len = (actual_len/8 + 1)*8;
+	else
+	    actual_len = actual_len + 1;
+
+	end;
+
+    nom_len = ((indent*4 + max_len - 1)/8 + 1)*8;
+
+    if actual_len >= nom_len then
+	num_tabs = 1;
+    else
+	num_tabs = (nom_len - actual_len - 1)/8 + 1;
+
+    do i = 1 to num_tabs;
+	buf = buf || tab;
+	end;
+
+end align;
+
+    /*<ff>*/
+
+alloc_adaparm : procedure returns (ptr);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *
+ * FORMAL PARAMETERS:
+ *
+ */
+
+    dcl adaparmp ptr;
+
+    allocate adaparm set (adaparmp);
+
+    adaparmp->adaparm.fill = null();
+    adaparmp->nod$b_type = special_nod$k_adaparm;
+
+    adaparmp->nodep = null();
+    adaparmp->formal_name_text = '';
+    adaparmp->type_text = '';
+    adaparmp->default_text = '';
+    adaparmp->mode = 0;
+    adaparmp->mech = 0;
+    adaparmp->is_optional = false;
+    adaparmp->is_output_length = false;
+    adaparmp->requires_overloading = false;
+    adaparmp->related_parm = 0;
+    adaparmp->overload = false;
+    adaparmp->ignore = false;
+
+    return (adaparmp);	/* EV1-18 */
+
+end alloc_adaparm;
+
+    /*<ff>*/
+
+alloc_adarec : procedure returns (ptr);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ */
+
+    dcl adarecp ptr;
+
+    allocate adarec set (adarecp);
+
+    adarecp->adarec.fill = null();
+    adarecp->nod$b_type = special_nod$k_adarec;
+
+    adarecp->item_type_namep = null();
+    adarecp->discrimp = null();
+    adarecp->discrim_type = '';
+    adarecp->comp_startp = null();
+    adarecp->comp_stopp = null();
+    adarecp->variantp = null();
+    adarecp->overlap1_startp = null();
+    adarecp->overlap1_stopp = null();
+    adarecp->overlap2_startp = null();
+    adarecp->overlap2_stopp = null();
+
+    /* By default, generate a record type.  A record type is not generated
+     * only for some unions.
+     */
+    adarecp->generate_record_type = true;
+
+    return (adarecp);
+
+end alloc_adarec;
+
+    /*<ff>*/
+
+append_type : procedure (p, buf);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Append the type of a node to a buffer.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		(in) current node
+ *
+ *	buf		(in out) buffer to which the type text is appended
+ */
+
+    dcl p ptr;
+    dcl buf char(*) var;
+    dcl def_value char(1) var;
+
+    call append_type_supply_default(p, buf, false, def_value);
+
+end append_type;
+
+    /*<ff>*/
+
+append_type_supply_default : procedure (
+    p, buf, supply_def, def_text);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Append the type of a node to a buffer.  Optionally supply
+ *	a default value for the type.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		(in) current node
+ *
+ *	buf		(in out) buffer to which the type text is appended
+ *
+ *	supply_def	(in) supply a default value if true.
+ *			(p->nod$v_default must be true if supply_def 
+ *			is true.)
+ *
+ *	def_text	(out) If supply_def is true and able to supply
+ *			a default value then def_text contains the 
+ *			text.  Otherwise, is a null string.
+ */
+
+    dcl p ptr;
+    dcl buf char(*) var;
+    dcl supply_def bit;
+    dcl def_text char(*) var;
+    dcl def_value fixed bin;
+    dcl supply_zero_def bit;
+    dcl (i, start, end) fixed bin;    
+    dcl q ptr;
+    dcl type_name char(vsize) var;
+    dcl (total_size, element_size) fixed bin;
+
+    /* def_text is a null string unless a value is requested and can
+     * be supplied.
+     */
+    def_text = '';
+
+    /* If no default was specified in the SDL source (currently can
+     * only be specified for parameters), assume the "zero" default
+     * is wanted.
+     */
+    if p->nod$v_default then
+	def_value = p->nod$l_initial;
+    else
+	def_value = 0;
+
+    /* First handle the special cases:
+     *
+     *	1.  Character and string types
+     *
+     *  2.  Boolean or boolean array types.
+     *
+     *  3.  User defined types.				jg
+     */
+
+    /* Case 1.  CHARACTER and STRING types.
+     */
+    if p->nod$w_datatype = typ$k_char then do;
+
+	    /* If descriptor bit is set or an unknown LENGTH
+	     * ("LENGTH *") was specified, then this is a parameter of
+	     * type STRING.  (Note that the length - TYPEINFO field -
+	     * will be set to 1 if no length is specified.  Thus,
+	     * can't express the thought of an Ada CHARACTER type,
+	     * passed by descriptor.
+	     *
+	     * If the descriptor bit is not set then this is either
+	     * of type CHARACTER (if number of charactes is 1) or
+	     * is a constrained STRING subtype (i.e., with bounds).
+	     */
+	    if p->nod$v_desc | p->nod$v_rtl_str_desc | (p->nod$l_typeinfo = sdl$k_unknown_length) then
+		buf = buf || 'STRING';
+
+	    else if p->nod$l_typeinfo = 1 then do;
+		buf = buf || 'CHARACTER';
+		if supply_def & (def_value = 0) then def_text = 'ASCII.NUL';
+		end;
+
+	    else if p->nod$b_type = nod$k_parmnode & p->nod$v_varying
+	    then 
+		call errmsg(sdl$_shr_data, sdl$_invparmtyp, p->nod$l_srcline,
+		     'VAX Ada');
+
+	    else do;
+		buf = buf || 'STRING(1 .. ' || trim(p->nod$l_typeinfo) || ')' ;
+		if supply_def & (def_value = 0) then 
+		    def_text = '(others => ASCII.NUL)';
+
+		end;
+
+	    return;
+
+	end;
+
+    /* Case 2.  Boolean and boolean array types.
+     *
+     */
+    if  p->nod$w_datatype = typ$k_vield |
+	p->nod$w_datatype = typ$k_boolean 
+    then do;
+	/* Aren't supposed to be able to specify a dimension for
+	 * datatype boolean.
+	 */
+	total_size = tick_size(p);
+	element_size = p->nod$l_typeinfo;
+
+	/* First, handle a BOOLEAN or an array of BOOLEANs, as in
+	 *
+	 *  X1 bitfield;		/* generate BOOLEAN
+	 *  X2 bitfield dimension(3)	/* generate BIT_ARRAY(0 .. 2)
+	 */
+	if element_size = 1 then do;
+
+	    if ^p->nod$v_dimen then do;
+
+		buf = buf || 'BOOLEAN';
+		if supply_def then
+		    if def_value = 0 then
+			def_text = 'FALSE';
+		    else
+			def_text = 'TRUE';
+
+		return;
+		end;
+
+	    buf = buf || 'BIT_ARRAY (0 .. ' || 
+		trim(p->nod$l_typeinfo - 1) || ')' ;
+	    if supply_def & (def_value = 0) then 
+		def_text = '(others => FALSE)';
+
+	    return;
+	    end;
+
+	/* Handle a bitfield where each element has more more than one 
+	 * bit.  (Most often this is used to indicate an unsigned integer).
+	 *
+	 *  X1 bitfield length 3;	/* generate UNSIGNED_3
+	 *  X2 bitfield length 2 dimension (3); /* gen. BIT_ARRAY(0 .. 5)
+	 *
+	 * First handle the common case (no dimension, < 32 bits)
+	 */
+	if ^p->nod$v_dimen & (total_size < 32) then do;
+
+	    buf = buf || 'UNSIGNED_' || trim(total_size);
+	    if supply_def & (def_value = 0) then def_text = '0';
+
+	    return;
+	    end;
+
+	/* If a dimension is specified, just use BIT_ARRAY
+	 */
+	buf = buf || 'BIT_ARRAY (0 .. ' || trim(total_size - 1) || ')' ;
+	if supply_def & (def_value = 0) then def_text = '(others => FALSE)';
+
+	return;
+	end;
+
+
+    /*
+     * jg
+     * Case 3.  User-defined types.
+     */
+
+    if p->nod$w_datatype = typ$k_user then do;
+	q = p->nod$a_typeinfo2->nod$a_flink;	/* point to defining node */
+
+       /*
+        * Allow for greater than one level of indirection via
+	* user type references.
+	*/
+	do while (q->nod$w_datatype = typ$k_user);
+	    q = q->nod$a_typeinfo2->nod$a_flink;
+	    end;
+
+	if q->nod$w_datatype = typ$k_structure |
+	   q->nod$w_datatype = typ$k_union
+	then
+	    type_name = name_of_record_type(q) ;
+	else
+	    type_name = ada_name (q, q->nod$t_name) || '_TYPE';
+	buf = buf || type_name ;
+	if supply_def & (def_value = 0) then
+	    def_text = types_zero(q->nod$w_datatype);
+	return;
+	end;
+
+    /* Now handle the general cases.  Get the type from the table.
+     *
+     * SDL note:  Treat fillers as unsigned.
+     */
+    if (item_is_filler(p)) | (p->nod$v_unsigned) then do;
+
+	call assert(unsigned(p->nod$w_datatype) ^= '',
+	    p,
+	    '[APPEND_TYPE_SUPPLY_DEFAULT #2]');
+    
+	i = index(unsigned(p->nod$w_datatype), 'NYI');
+	if i > 0 then
+	    call report_nyi(p, 'Datatype:  ' || unsigned(p->nod$w_datatype));
+    
+	type_name = unsigned(p->nod$w_datatype);
+    
+	end;
+
+    else do;
+
+       /*
+	* Check for a named type, the defining subtree of which is NOT pointed
+	* to by the current node.  In this case, a "dummy" type node containing
+	* the name of the pre-defined type is all we have to work with.
+	*/
+	if (p->nod$a_typeinfo2 ^= null() &
+	    p->nod$w_datatype ^= typ$k_decimal &
+	    p->nod$a_typeinfo2->nod$b_type = nod$k_typnode)
+	then do;
+	    type_name = ada_name(null(), p->nod$a_typeinfo2->nod$t_name||'_TYPE');
+	    def_text = type_name || '_INIT';
+	    end;
+
+       /*
+	* Check for a named pre-defined aggregate type, the defining subtree
+	* of which is pointed to by the current node.
+	*/
+	else if (p->nod$a_typeinfo2 ^= null() &
+	       ((p->nod$w_datatype = typ$k_structure) |
+	        (p->nod$w_datatype = typ$k_union)))
+	then do;
+	    type_name = name_of_record_type(p->nod$a_typeinfo2);
+	    if supply_def then
+		def_text = type_name || '_INIT';
+	    end;
+
+	else do;
+	    call assert(types(p->nod$w_datatype) ^= '',
+		p,
+		'[APPEND_TYPE_SUPPLY_DEFAULT #3]');
+	
+	    i = index(types(p->nod$w_datatype), 'NYI');
+	    if i > 0 then
+		call report_nyi(p, 'Datatype:  ' || types(p->nod$w_datatype));
+	
+	    type_name = types(p->nod$w_datatype);
+	end;
+    end;
+
+    /* Now handle the dimension if any.  Append _ARRAY to the type 
+     * name and append constraints unless this is a subprogram formal.
+     * A default value is only supplied for non-arrays.
+     */
+    if p->nod$v_dimen then do;
+
+	buf = buf || type_name || '_ARRAY';
+
+	if p->nod$b_type ^= nod$k_parmnode then
+	    buf = buf || ' (' || trim(p->nod$l_lodim) || ' .. ' ||
+		    trim(p->nod$l_hidim) || ')' ;
+
+	if supply_def & (def_value = 0) then do;
+
+	    /* Set nod$v_dimen bit to false, recurse to get the default
+	     * for a component, and then set nod$v_dimen back to true.
+	     */
+	    dcl (t_name, d_text) char(vsize) var;
+
+	    t_name = '';
+	    p->nod$v_dimen = false;
+	    call append_type_supply_default(p, t_name, true, d_text);
+	    p->nod$v_dimen = true;
+
+	    def_text = '(others => ' || d_text || ')' ;
+
+	    end;
+	end;
+    else do;
+    
+	buf = buf || type_name;
+
+	if supply_def then call supply_default(type_name, def_value, def_text);
+
+	end;
+
+    return;
+
+    /*<ff>*/
+
+    supply_default : procedure (prefix, def_value, def_text);
+
+    /* FUNCTIONAL DESCRIPTION:
+     *
+     *	Nested routine within append_type_supply_default.
+     *
+     * FORMAL PARAMETERS:
+     *
+     */
+
+	dcl prefix char(vsize) var;
+	dcl def_value fixed bin;
+	dcl def_text char(*) var;
+	dcl zero_from_table char(nsize) var;
+
+	zero_from_table = '';
+	if p->nod$v_unsigned then
+	    zero_from_table = unsigned_zero(p->nod$w_datatype);	    
+	else
+	    zero_from_table = types_zero(p->nod$w_datatype);	    
+
+       /*
+        * Eliminate named types (including those for which the current
+	* node points back to a defining subtree and those for which we
+	* have only a "dummy" type node) ... they have def_text.
+	*/
+	if (p->nod$a_typeinfo2 ^= null()) &
+	   (((p->nod$w_datatype ^= typ$k_decimal) &
+	     (p->nod$a_typeinfo2->nod$b_type = nod$k_typnode)) |
+	    (p->nod$w_datatype = typ$k_structure) |
+	    (p->nod$w_datatype = typ$k_union))
+	then ;
+
+	else do;
+	    if  def_value = 0 
+	    then 
+	       /* For initial value of zero, use the name in the types_zero
+		* or unsigned_zero table, if present.  Otherwise, append
+		* "_ZERO" to the prefix.
+		*/
+	       if zero_from_table ^= '' then
+		    def_text = zero_from_table;
+	       else 
+		    def_text = prefix || '_ZERO';
+	    else
+
+		/* If the number 0 is used as the zero value, then just
+		 * use the value since it must be an integer type.
+		 * Otherwise, append the number to the prefix.
+		 */
+		if zero_from_table = '0' then
+		    def_text = trim(def_value);
+		else
+		    def_text = prefix || '_' || trim(def_value);
+	end;
+    end supply_default;
+
+end append_type_supply_default;
+
+    /*<ff>*/
+
+assert : procedure(condition, p, text);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Checks an assertion (debugging routine).
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		in : node
+ *
+ *	condition	in : condition that must be true
+ *
+ *	text		in : commentary
+ *
+ */
+
+    dcl p ptr;
+    dcl condition bit;
+    dcl text char(vsize) varying;
+
+    if condition then return;
+
+    call assert_error(p, text);
+
+end assert;
+
+    /*<ff>*/
+
+assert_error : procedure(p, text);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		in : node
+ *
+ *	text		in : commentary
+ *
+ */
+
+    dcl p ptr;
+    dcl text char(vsize) varying;
+    dcl line char(vsize) varying;
+
+    line = '--***ASSERT ERROR:  ' || text_for_node(p) || text;
+    call output_line(line);
+    put skip edit(line) (a);
+
+end assert_error;
+
+    /*<ff>*/
+
+entry_or_parmnode_to_adaparm : procedure(p) returns (ptr);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *
+ * FORMAL PARAMETERS:
+ *
+ */
+
+    dcl p ptr;
+    dcl adaparmp ptr;
+    dcl (use_type_from_comment, type_name_mapped) bit;
+    dcl type_name char(nsize) var;
+
+    call assert(
+	p->nod$b_type = nod$k_parmnode |
+	    p->nod$b_type = nod$k_entrynode,
+	p,
+	'[entry_or_parmnode_to_adaparm #1]');
+
+    adaparmp = alloc_adaparm();
+
+    adaparmp->nodep = p;
+
+    if p->nod$b_type = nod$k_parmnode then do;
+
+	adaparmp->formal_name_text = name_of_subprog_parm(p);
+	adaparmp->mode = find_parm_mode(p);
+	adaparmp->is_optional = p->nod$v_optional;
+
+	/* By default, use the parameter passing mechanism specified
+	 * in the SDL source.  (It later may be changed.  For example,
+	 * an in parameter of type ADDRESS is passed by value.
+	 */
+	adaparmp->mech = find_parm_mech(p);
+
+	end;
+    else do;
+
+	/* This is the "parameter" for the return value.
+	 * If NAMED was specified with RETURNS for this ENTRY,
+	 * use the specified parameter name.
+	 */
+	if  p->nod$t_return_name ^= '' then
+	    adaparmp->formal_name_text = ada_name(null(), p->nod$t_return_name);
+	else
+	    adaparmp->formal_name_text = 'STATUS';
+	adaparmp->mode = mode_out;
+	adaparmp->mech = mech_value;
+
+	end;
+
+    /* If 'TYPENAME type-name' was declared in the SDL source, then
+     * type-name may be used as the Ada type text.  (Need to special-case for
+     * particular type-names.)
+     */
+    use_type_from_comment = false;
+    type_name = translate(p->nod$t_typename, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+					     'abcdefghijklmnopqrstuvwxyz');
+    if type_name ^= '' then 
+	use_type_from_comment = true;
+
+    if use_type_from_comment then do;
+
+       /*
+	* Map the type-name to an Ada data type, if there is an Ada equivalent.
+	*/
+	type_name_mapped = map_typename(type_name, adaparmp->type_text);
+
+	if  type_name = 'ADDRESS' |
+	    type_name = 'CNTRLBLK' |
+	    type_name = 'PROCEDURE' |
+	    type_name = 'NULL_ARG' |
+	    type_name = 'VECTOR'
+	then do;
+	    /*
+	     * (adaparmp->type_text = 'ADDRESS')
+	     *
+	     * For Ada, an "in" parameter of type ADDRESS is always 
+	     * passed by VALUE.
+	     */
+	    if adaparmp->mode = mode_in then adaparmp->mech = mech_value;
+
+	    /* Can only specify the default without overloading for
+	     * "in" parameters in this case.
+	     */
+	    if p->nod$v_default then
+		if adaparmp->mode = mode_in then
+		    if p->nod$l_initial = 0 then
+			adaparmp->default_text = 'ADDRESS_ZERO';
+		    else
+			call report_info(p,
+			    'Only initial value supported for ' ||
+				type_name || ' is 0');
+		else
+		    call overload_or_tick_null_parm;
+
+	    end;
+	else if type_name = 'ASTADR' then do;
+    
+	    /*
+	     * (adaparmp->type_text = 'AST_HANDLER')
+	     *
+	     * AST_HANDLER can only be an "in" parameter passed by
+	     * value.
+	     */
+	    adaparmp->mech = mech_value;
+
+	    if adaparmp->mode ^= mode_in 
+	    then 
+		call report_error(p,
+		    'A formal of type ASTADR can only be an ' ||
+			'"in" parameter');
+
+	    if p->nod$v_default then
+		if p->nod$l_initial = 0 then
+		    adaparmp->default_text = 'NO_AST_HANDLER';
+		else
+		    call report_info(p,
+			'Only supported default value for ASTPRM is 0');
+
+	    end;
+	else if type_name = 'BOOLEAN' then do;
+    
+	    /*
+	     * (adaparmp->type_text = 'BOOLEAN')
+	     */
+	    if p->nod$v_default then
+		if adaparmp->mode = mode_in & adaparmp->mech = mech_value then
+		    if p->nod$l_initial = 0 then
+			adaparmp->default_text = 'FALSE';
+		    else
+			adaparmp->default_text = 'TRUE';
+		else
+		    call overload_or_tick_null_parm;
+
+	    end;
+       /*
+        * [JGW0001] The following condition was previously satisfied if
+	*	    type_name = 'MASK_LONGWORD' also.
+	*/
+	else if (type_name = 'NUMBER') then do;
+
+	    /* Determine the type from the allocation information
+	     */
+	    use_type_from_comment = false;
+
+	    /* See if this looks like a length returned by VMS.
+	     * (mode is "out", a word passed by reference, and
+	     * formal name ends with "LEN")
+	     */
+	    if	adaparmp->mode = mode_out & 
+		adaparmp->mech = mech_ref &
+		p->nod$w_datatype = typ$k_word &
+		'LEN' = 
+		    substr(
+			adaparmp->formal_name_text,
+			length(adaparmp->formal_name_text) - 2,
+			3)
+	    then
+		adaparmp->is_output_length = true;
+		
+	    end;
+	else if type_name = 'VARYING_ARG' then do;
+
+	    /*
+	     * (adaparmp->type_text = 'UNSIGNED_LONGWORD')
+	     *
+	     * For Ada, an "in" parameter of type "VARYING_ARG" is always
+	     * passed by VALUE.
+	     */
+	    if adaparmp->mode = mode_in then adaparmp->mech = mech_value;
+
+	    if p->nod$v_default then
+		if adaparmp->mode = mode_in then
+		    adaparmp->default_text = trim(p->nod$l_initial);
+		else
+		    call overload_or_tick_null_parm;
+
+	    end;
+	else do;
+
+	    /* Use the type name in the comment.
+	     *
+	     * SDL note:  Append "_TYPE" since types tend to have
+	     * the same names as formals.  Special case some
+	     * names that get special treatment.
+	     */
+	    if type_name = 'FLOATING_POINT' then
+		select (p->nod$w_datatype);
+		    when (typ$k_float) adaparmp->type_text = 'FLOAT';
+		    when (typ$k_double) adaparmp->type_text = 'D_FLOAT';
+		    when (typ$k_grand) adaparmp->type_text = 'G_FLOAT';
+		    when (typ$k_huge) adaparmp->type_text = 'LONG_LONG_FLOAT';
+		    otherwise adaparmp->type_text = 'FLOAT';
+		end; /* select */
+	    else if type_name = 'ANY' then do;
+		adaparmp->mode = mode_in;
+		adaparmp->mech = mech_value;
+		if (p->nod$b_type = nod$k_parmnode) & p->nod$v_ref then
+		    adaparmp->type_text = 'ADDRESS';
+		else
+		    adaparmp->type_text = 'UNSIGNED_LONGWORD';
+		end;
+	    else if type_name = 'UIC' then
+		/*
+		 * (adaparmp->type_text = 'UIC_LONGWORD_TYPE')
+		 */
+		type_name = 'UIC_LONGWORD';
+	    else if ^type_name_mapped then
+		adaparmp->type_text = ada_name(p, type_name || '_TYPE');
+
+	    if p->nod$v_default then
+		if adaparmp->mode = mode_in & adaparmp->mech = mech_value then
+		    if p->nod$l_initial = 0 then
+			adaparmp->default_text = type_name || '_ZERO';
+		    else
+			adaparmp->default_text = 
+			    type_name || '_' || trim(p->nod$l_initial);
+		else
+		    call overload_or_tick_null_parm;
+
+	    end;
+	end;    
+	
+    /* Handle the case where the type from the comment isn't being
+     * used, either because it wasn't specified or because it's
+     * being ignored, such as for TYPENAME(NUMBER).
+     */
+    if ^use_type_from_comment then do;
+
+	call append_type_supply_default(
+	    p, 
+	    adaparmp->type_text,
+	    (p->nod$v_default),
+	    adaparmp->default_text);
+
+	/* Special case type ADDRESS since it's always passed by value
+	 * for an in parameter.
+	 */
+	if p->nod$w_datatype = typ$k_address then
+	    if adaparmp->mode = mode_in then adaparmp->mech = mech_value;
+
+	/* Can only specify the default without overloading if the
+	 * mode is "in" and the mechanism is VALUE.
+	 */
+	if p->nod$v_default then
+	    if adaparmp->mode = mode_in & adaparmp->mech = mech_value then do;
+
+		if adaparmp->default_text = '' then
+		    call report_info(p,
+			'Default requested but is not available');
+
+		end;
+	    else do;
+
+		adaparmp->default_text = '';
+		call overload_or_tick_null_parm;
+
+	 	end;
+
+	end;
+
+   /*
+    * If this is an OPTIONAL parameter, then indicate that
+    * 0 will be passed by immediate value if the actual
+    * parameter is omitted.
+    */
+    if adaparmp->is_optional then do;
+	adaparmp->default_text = '';
+	call overload_or_tick_null_parm;
+	end;
+
+    return (adaparmp);
+
+    /*<ff>*/
+
+    overload_or_tick_null_parm : procedure;
+
+    /*
+     * Nested in entry_or_parmnode_to_adaparm
+     */
+
+    if  (adaparmp->mode ^= mode_in) | 
+	tick_null_parm_processing = null_parm_disabled
+    then
+	adaparmp->requires_overloading = true;
+    else
+	if tick_null_parm_processing = null_parm_enabled then
+	    adaparmp->default_text = adaparmp->type_text || '''NULL_PARAMETER';
+
+
+    end overload_or_tick_null_parm;
+
+end entry_or_parmnode_to_adaparm;
+
+    /*<ff>*/
+
+find_parm_mech : procedure(parmp) returns (fixed bin);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Determine the mode of a parameter.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	parmp		(in) parmnode
+ *
+ * ROUTINE VALUE:
+ *
+ *	MECH_VALUE, MECH_REF, MECH_DESC, or MECH_RTL_STR_DESC
+ */
+
+    dcl parmp ptr;
+
+    call assert(parmp->nod$b_type = nod$k_parmnode,
+	parmp,
+	'[FIND_PARM_MECH #1]');
+
+    /* SDL note:  Need to figure out the rules.  SDL front end
+     * should set the bit.
+     */
+
+    if parmp->nod$v_value then
+	return (MECH_VALUE);
+    else if parmp->nod$v_ref then
+	return (MECH_REF);
+    else if parmp->nod$v_desc then
+	return (MECH_DESC);
+    else if parmp->nod$v_rtl_str_desc then
+	return (MECH_RTL_STR_DESC);
+    else 
+	return (MECH_REF);
+
+end find_parm_mech;
+
+    /*<ff>*/
+
+find_parm_mode : procedure(parmp) returns (fixed bin);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Determine the mode of a parameter.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	parmp		(in) parmnode
+ *
+ * ROUTINE VALUE:
+ *
+ *	MODE_IN, MODE_IN_OUT, or MODE_OUT
+ */
+
+    dcl parmp ptr;
+
+    call assert(parmp->nod$b_type = nod$k_parmnode,
+	parmp,
+	'[FIND_PARM_MODE #1]');
+
+    /* I think the rules are something like the following:
+     *
+     *		SDL source	Flags set in tree
+     *		----------	-----------------
+     *		IN		IN
+     *		OUT		OUT
+     *		IN OUT		IN, OUT
+     *		-		(none set) - default is IN
+     *
+     */
+    if parmp->nod$v_out then
+	if parmp->nod$v_in then
+	    return (MODE_IN_OUT);
+	else
+	    return (MODE_OUT);
+    else 
+	return (MODE_IN);
+
+end find_parm_mode;
+
+    /*<ff>*/
+
+generate_entry : procedure(entryp);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	entryp		entry
+ *
+ */
+
+    dcl entryp ptr;
+    dcl (p, headp) ptr;
+    %replace max_parms by 250;
+    dcl adaparmp_vec(max_parms) ptr;	/* Vector of pointers to adaparm's */
+    dcl adaparmp ptr;
+    dcl gen_type_address(255) bit;
+    dcl is_func bit;
+    %replace max_overloaded_parm by 8;
+    dcl (pcount, overloaded_parm_count, optional_count) fixed bin;
+    dcl (i, j) fixed bin;
+
+    /* overloaded_parm is indexed by overloaded_parm_count and
+     * contains the parameter number (position) of the parameter
+     * that needs to be overloaded.
+     */
+    dcl overloaded_parm(max_overloaded_parm) fixed bin;
+    dcl prefix char(3);
+
+    call assert(entryp->nod$b_type = nod$k_entrynode,
+	entryp,
+	'[GENERATE_ENTRY #1]');
+
+    headp = entryp->nod$a_child;
+
+    /* Collect data - create an adaparm "node" for each formal.
+     */
+    if entryp->nod$w_datatype = 0 |
+	entryp->nod$w_datatype = typ$k_void then do;		/* jg */
+
+	is_func = false;
+	pcount = 0;
+
+	end;
+    else do;
+
+	/* The return value is always treated as the first parameter
+	 * of a IMPORT_VALUED_PROCEDURE.
+	 */
+	is_func = true;
+	pcount = 1;
+	adaparmp_vec(pcount) = entry_or_parmnode_to_adaparm(entryp);
+
+	end;
+
+    optional_count = 0;
+    if headp ^= null() then do;
+    
+	p = headp->nod$a_flink;
+	do while (p ^= headp);
+	    if p->nod$b_type = nod$k_parmnode then do;
+	
+		if(p->nod$v_list) & ^p->nod$v_out
+		then
+		    call setup_list_parm(p,pcount,adaparmp_vec);
+		else do;
+		    pcount = pcount + 1;
+		    adaparmp = entry_or_parmnode_to_adaparm(p);
+		    adaparmp_vec(pcount) = adaparmp;
+		end;
+	
+		if adaparmp->is_optional then 
+		    optional_count = optional_count + 1;
+
+		p = p->nod$a_flink;
+		end;
+	    end;    
+	end;
+    
+
+    /*
+     * If there are no optional parameters,
+     * sector vector overloaded_parm to contain parameter numbers of
+     * the parameters needing overloading.  Also combine any related
+     * pairs of default parameters (such an output buffer
+     * and an associated length).
+     */
+    overloaded_parm_count = 0;
+    if optional_count = 0 then do;
+
+	do i = 1 to pcount;
+
+	    if	adaparmp_vec(i)->requires_overloading &
+		(overloaded_parm_count < max_overloaded_parm)
+	    then do;
+
+		overloaded_parm_count = overloaded_parm_count + 1;
+		overloaded_parm(overloaded_parm_count) = i;
+
+		if adaparmp_vec(i)->is_output_length then do;
+    
+		    /* Looks like a length returned by VMS.  If
+		     * find something that looks like the related
+		     * output buffer, decrement the overloaded_parm_count
+		     * and "pair" the two.
+		     */
+		    prefix = substr(adaparmp_vec(i)->formal_name_text, 1, 3);
+    
+		    do j = 1 to pcount;
+    
+			if  (adaparmp_vec(j)->requires_overloading) &
+			    (i ^= j) &
+			    (adaparmp_vec(j)->mode = mode_out) &
+			    ((adaparmp_vec(j)->mech = mech_desc) |
+			     (adaparmp_vec(j)->mech = mech_rtl_str_desc)) &
+			    (prefix = 
+				substr(
+				    adaparmp_vec(j)->formal_name_text, 
+				    1, 
+				    3))
+			then do;
+    
+			    overloaded_parm_count = overloaded_parm_count - 1;
+			    adaparmp_vec(i)->related_parm = j;
+			    adaparmp_vec(j)->related_parm = i;
+    
+			    end;
+			end;
+		    end;
+		end;
+	    end;	/* of do i = 1 to pcount; */
+
+	if overloaded_parm_count > 3 then
+	    call report_info(
+		p,
+		trim(overloaded_parm_count) || ' parameters require overloading');
+
+	end;
+
+
+    if optional_count > 0 then do;
+
+	/* Output all necessary overloaded signatures:  i.e., 2**n signatures,
+	 * where n is the number of OPTIONAL OUT or IN OUT parameters, to
+	 * catch each possible combination.
+	 */
+	 do i = 1 to pcount;
+		if adaparmp_vec(i)->is_optional &
+		   ((adaparmp_vec(i)->mode = mode_out) |
+		    (adaparmp_vec(i)->mode = mode_in_out)) then do;
+		    adaparmp_vec(i)->requires_overloading = true;
+		    if overloaded_parm_count < max_overloaded_parm then do;
+			overloaded_parm_count = overloaded_parm_count + 1;
+			overloaded_parm(overloaded_parm_count) = i;
+			end;
+		    end;
+	    end; /* do i := 1 to pcount */
+
+	end;
+
+   /* Output all overloadings by calling the nested routine
+    * output_subprog_overloadings.  (Note that output_subprog_decl
+    * is called for each overloading.)
+    */
+    call clear_temp_adaparm_flags;
+    call output_subprog_overloadings(output_subprog_decl, 1);
+
+   /* Output the INTERFACE pragma.  The nod$t_name field (in quotes)
+    * is used for the external name.
+    */
+    call skip_line;
+    call output_line(ltab(1) || 'pragma INTERFACE (EXTERNAL, ' ||
+	name_of_int_subprog(entryp) || ');' );
+
+   /* Now output the IMPORT_xxx pragmas
+    *
+    * Output all overloadings by calling the nested routine
+    * output_subprog_overloadings.  (Note that output_subprog_import
+    * is called for each overloading.)
+    */
+    call clear_temp_adaparm_flags;
+    call output_subprog_overloadings(output_subprog_import, 1);
+
+
+    /* Free all the adaparm nodes now.
+     */
+    do i = 1 to pcount;
+	free adaparmp_vec(i)->adaparm;
+	end;
+
+    return;
+    
+    /*<ff>*/
+
+    clear_temp_adaparm_flags : procedure;
+
+    /* 
+     * FUNCTIONAL DESCIRPTION:
+     *
+     *	This subprogram is nested within generate_entry and is
+     *  used to clear the temporary flags in all adaparm records
+     *
+     */
+
+	do i = 1 to pcount;
+
+	    adaparmp_vec(i)->overload = false;
+	    adaparmp_vec(i)->ignore = false;
+
+	    end;
+
+    end clear_temp_adaparm_flags;
+
+    /*<ff>*/
+
+    output_subprog_overloadings : procedure(output_proc, count);
+
+    /* 
+     * FUNCTIONAL DESCIRPTION:
+     *
+     *	This subprogram is nested within generate_entry and is
+     *  used to output all combinations of overloadings of a
+     *	subprogram.
+     *
+     * FORMAL PARAMETERS:
+     *
+     *	output_proc	(in) procedure to do the actual output
+     *
+     *  count		(in) index of overloaded_parm
+     *
+     */
+
+    dcl output_proc entry (ptr, bit, (*) ptr, fixed bin, fixed bin) variable;
+    dcl (count, parm_number, related_pnum) fixed bin;
+
+    /* First check for the case where no parameters require 
+     * overloading
+     */
+    if count > overloaded_parm_count then do;
+
+	call output_proc(entryp, is_func, adaparmp_vec, pcount, pcount);
+	return;
+
+	end;
+
+    /* If the count is smaller than the number of overloaded
+     * formal parameters, then recurse to generate all combinations.
+     * Otherwise, output this particular combination.
+     */
+    if count < overloaded_parm_count then
+	call output_subprog_overloadings(output_proc, count + 1);
+    else 
+	call output_proc(entryp, is_func, adaparmp_vec, pcount, pcount);
+
+    /* Now reverse the bit used to indicate that type ADDRESS (or LONGWORD)
+     * is to be used for parameter number being considered.  Also set
+     * the overload bit the same in any related parametere.  Recurse to 
+     * generate all combinations or output this particular combination.
+     */
+    parm_number = overloaded_parm(count);
+    adaparmp = adaparmp_vec(parm_number);
+    related_pnum = adaparmp->related_parm;
+
+    adaparmp->overload = ^adaparmp->overload;
+    if related_pnum > 0 then
+	adaparmp_vec(related_pnum)->overload = adaparmp->overload;
+
+    if count < overloaded_parm_count then
+	call output_subprog_overloadings(output_proc, count + 1);
+    else 
+	call output_proc(entryp, is_func, adaparmp_vec, pcount, pcount);
+
+    end output_subprog_overloadings;
+
+    /*<ff>*/
+
+setup_list_parm : proc(p,pcount,adaparmp_vec);
+/*
+ * It is assumed that p points to a parameter of mode IN.
+ */
+
+dcl p ptr;
+dcl (pcount,count) fixed bin;
+dcl adaparmp_vec(max_parms) ptr;
+dcl save_node ptr;
+
+/*
+ * We don't want to change the tree so make a copy of the current node.
+ */
+    allocate nod$_node set(save_node);
+    save_node->nod$_node = p->nod$_node;
+
+/*
+ * The ADA group has decided to limit LIST parameters to 10. The VAX
+ * limit is 255 but ADA feels that 10 is sufficient. So for the one LIST
+ * parameter we are going to add a total of ten parameters to adaparmp_vec.
+ */
+    count = 1;
+    do while( count <= 10 );
+	if( p->nod$t_name ^= '' )
+	then p->nod$t_name = p->nod$t_name || '_' || trim(count);
+
+	p->nod$t_naked = p->nod$t_naked || '_' || trim(count);
+	pcount = pcount + 1;
+	adaparmp = entry_or_parmnode_to_adaparm(p);
+       /*
+	* For all trailing optional LIST parameters:
+	*
+	*	- Set is_optional flag to TRUE
+	*	- Assign appropriate default text
+	*/
+	if (save_node->nod$v_optional) | ((count > 1) & (^save_node->nod$v_optional)) then do
+	    adaparmp->is_optional = true;
+	    adaparmp->default_text = '';
+	    if tick_null_parm_processing = null_parm_enabled then
+		adaparmp->default_text = adaparmp->type_text || '''NULL_PARAMETER';
+	    end;
+	adaparmp_vec(pcount) = adaparmp;
+	p->nod$t_name = save_node->nod$t_name;   /* get rid of the appended number */
+	p->nod$t_naked = save_node->nod$t_naked; /* get rid of the appended number */
+	count = count + 1;
+     end;
+
+    p->nod$_node = save_node->nod$_node;
+
+end setup_list_parm;
+
+end generate_entry;
+
+    /*<ff>*/
+
+generate_record_types : procedure(startp, stopp) returns(bit);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	startp		in : first item in list to be checked
+ *
+ *	stopp		in : stop when get to this node
+ *
+ * ROUTINE VALUE:
+ *
+ *	Returns true iff a record type is generated.
+ */
+
+    dcl (startp, stopp) ptr;
+    dcl p ptr;
+    dcl ret bit init(false);
+
+    p = startp;
+    do while (p ^= stopp);
+	if  p->nod$b_type = nod$k_itemnode  &
+	    p->nod$a_typeinfo2 = null()
+	then do;
+	    if p->nod$w_datatype = typ$k_structure 
+	    then do;
+		call generate_structure(p);
+		ret = true;
+		end;
+	    else if p->nod$w_datatype = typ$k_union then
+		if generate_union(p) then ret = true;
+	    end;
+
+	p = p->nod$a_flink;
+	end;
+
+    return (ret);
+
+end generate_record_types;
+
+    /*<ff>*/
+
+generate_structure: procedure(structurep);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	structurep	structure item
+ *
+ */
+
+    dcl (structurep, structure_tempp) ptr;
+    dcl (p, headp) ptr;
+    dcl status bit;
+    dcl adarecp ptr;
+
+    call assert(structurep->nod$b_type = nod$k_itemnode & 
+	    structurep->nod$w_datatype = typ$k_structure,
+	structurep,
+	'[GENERATE_STRUCTURE #1]');
+
+    /* Create an Ada record node from the structure.
+     */
+    structure_tempp = get_aggregate_address(structurep);
+    adarecp = structure_to_adarec(structure_tempp);
+    /* Generate types for nested structures
+     */
+    status = generate_record_types(adarecp->comp_startp, adarecp->comp_stopp);
+    /* Generate types for the variant part if any.       
+     */
+    if adarecp->discrimp ^= null() then do;
+
+	headp = adarecp->variantp->nod$a_child;
+	p = headp->nod$a_flink;
+	do while (p ^= headp);
+
+	    if p->nod$b_type = nod$k_itemnode then
+		if p->nod$w_datatype = typ$k_structure then
+
+		    /* For structures, the sons of the structure
+		     * are used as the components for the case alternative.
+		     * Therefore, don't generate an Ada record type
+		     * for such a structure.  However, need to generate
+		     * types for the grand childen.
+		     */
+		    status = 
+			generate_record_types(
+			    p->nod$a_child->nod$a_flink,
+			    p->nod$a_child);
+		else if p->nod$w_datatype = typ$k_union then
+		    status = generate_union(p);
+	    p = p->nod$a_flink;
+	    end;
+	end;
+    /* Output the record type and rep spec for this structure
+     */
+    call output_record(adarecp, 1);
+    call output_record_rep_spec(adarecp, 3);
+    call output_record_init(adarecp, 1);
+
+    /* Free the Ada record node
+     */
+    free adarecp->adarec;
+
+end generate_structure;
+
+    /*<ff>*/
+
+generate_union : procedure(unionp) returns(bit);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	unionp		union item
+ *
+ * ROUTINE VALUE:
+ *
+ *	True iff a record type is generated for the union.
+ */
+
+    dcl (unionp, union_tempp) ptr;
+    dcl status bit;
+    dcl adarecp ptr;
+
+
+    call assert(unionp->nod$b_type = nod$k_itemnode & 
+	    unionp->nod$w_datatype = typ$k_union,
+	unionp,
+	'[GENERATE_UNION #1]');
+    /* Create an Ada record node from the union
+     */
+    union_tempp = get_aggregate_address(unionp);
+    adarecp = union_to_adarec(union_tempp);
+    /* Generate record types for nested unions and structures, 
+     * including those that overlap the record components.
+     */
+    status = 
+	generate_record_types(
+	    adarecp->comp_startp, adarecp->comp_stopp);
+    status = 
+	generate_record_types(
+	    adarecp->overlap1_startp, adarecp->overlap1_stopp);
+    status = 
+	generate_record_types(
+	    adarecp->overlap2_startp, adarecp->overlap2_stopp);
+
+    /* Check if this is a union for which a record type is not
+     * generated.  All done if not.
+     */
+    if ^adarecp->generate_record_type then do;
+
+	/* Free the Ada record node
+	 */
+	free adarecp->adarec;
+
+	return (false);
+	end;
+
+    /* Output the record type and rep spec for this structure
+     */
+    call output_record(adarecp, 1);
+    call output_record_rep_spec(adarecp, 3);
+    if ^unionp->nod$v_typedef then	    /* jg - no init if TYPEDEF */
+        call output_record_init(adarecp, 1);
+
+    /* Free the Ada record node
+     */
+    free adarecp->adarec;
+
+    return (TRUE);
+
+end generate_union;
+
+    /*<ff>*/
+
+get_aggregate_address : procedure(item_ptr) returns(ptr);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	This routine checks whether or not the item node pointed to by the
+ *	formal parameter item_ptr is the actual root of the subtree that
+ *	corresponds to the aggregate being referenced.  (The routine therefore
+ *	assumes that item_ptr always points to an item whose data type is
+ *	either a structure or union.)
+ *
+ *	If the item is the root of the actual subtree (as mentioned above),
+ *	we simply return that same address (item_ptr).  If the item is not
+ *	the root of the actual subtree (i.e., a "dummy" type node containing
+ *	the name of the referenced aggregate is attached to the item node),
+ *	we need to search all 1st-level items of the current module to
+ *	find the root of the actual subtree.  We find this root and return
+ *	its address.
+ *
+ *	Note:  This algorithm is really a workaround for the front end problem
+ *	       of putting out this "dummy" type node instead of correctly
+ *	       pointing back to the actual subtree that corresponds to the
+ *	       aggregate being referenced.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	item_ptr		the address of an item node whose data type
+ *				is either structure or union.
+ *
+ * RETURN VALUE:
+ *
+ *	The address of the root node of the actual sub-tree that corresponds
+ *	to the aggregate being referenced.
+ */
+
+    dcl (item_ptr, subtree_ptr, module_ptr, module_head_ptr, cond_head_ptr) ptr;
+
+       /*
+        * If the formal parameter is the root of the actual subtree
+	* corresponding to this aggregate, then just return that same address.
+	*/
+	if item_ptr->nod$a_typeinfo2 = null() then
+	    return(item_ptr);
+	else do;
+	   /*
+	    * The formal parameter points to a type node (NOD$K_TYPENODE)
+	    * which stores the name of the aggregate only.  We need to search
+	    * the entire intermediate tree for the current module to find the
+	    * item node which is the root of the actual subtree corresponding
+	    * to the aggregate being referenced.
+	    */
+	    module_ptr = tree_root->nod$a_flink;
+	    do while ((modname ^= module_ptr->nod$t_name) &
+		      (module_ptr ^= tree_root));
+		module_ptr = module_ptr->nod$a_flink;
+	        end;
+	    if module_ptr = tree_root then do;
+		call errmsg (sdl$_shr_data, sdl$_bugcheck, item_ptr->nod$l_srcline, );
+		goto exit;
+		end;
+	    module_head_ptr = module_ptr->nod$a_child;
+
+	   /*
+	    * Find the 1st level subtree that is the actual definition
+	    * of the aggregate named in the type node.
+	    */
+	    subtree_ptr = module_head_ptr->nod$a_flink;
+	    do while ((subtree_ptr->nod$t_name ^=
+	               item_ptr->nod$a_typeinfo2->nod$t_name) &
+		      (subtree_ptr ^= module_head_ptr));
+	       /*
+	        * If we have a conditional node (i.e., conditional code),
+		* the conditional first level subtrees are headed up by
+		* a head node pointed to by the conditional node's child
+		* pointer.  We must search that list of subtrees.
+		*/
+		if subtree_ptr->nod$b_type = nod$k_condnode then do;
+		    cond_head_ptr = subtree_ptr->nod$a_child;
+		    subtree_ptr = cond_head_ptr->nod$a_flink;
+		    do while ((subtree_ptr->nod$t_name ^=
+			       item_ptr->nod$a_typeinfo2->nod$t_name) &
+			      (subtree_ptr ^= cond_head_ptr));
+			subtree_ptr = subtree_ptr->nod$a_flink;
+		        end;
+		   /*
+		    * If we've come full circle to the head node (i.e., the
+		    * child of the conditional node), then we know there was
+		    * no match for the aggregate name in the conditional code.
+		    * We therefore resume our traversal through the level 1
+		    * subtrees at the non-conditional level by following the
+		    * conditional node's forward pointer.
+		    */
+		    if subtree_ptr = cond_head_ptr then
+		        subtree_ptr = subtree_ptr->nod$a_parent->nod$a_flink;
+		    end;
+		else
+		    subtree_ptr = subtree_ptr->nod$a_flink;
+	        end;
+
+	   /*
+	    * We've found the subtree.  Return its address.
+	    */
+	    return (subtree_ptr);
+
+	    end;
+
+end get_aggregate_address;
+
+    /*<ff>*/
+
+hexval : procedure(i) returns (char(12));
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Generate an Ada hexadecimal constant form
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	i		(in) integer
+ *
+ */
+
+    dcl i fixed bin;
+    dcl hexstr char(8);
+
+    dcl ots$cvt_l_tz entry(fixed bin(31), char(*), fixed bin(31) value);
+
+    call ots$cvt_l_tz(i, hexstr, 8);
+
+    return ('16#' || hexstr || '#');
+
+end hexval;
+
+    /*<ff>*/
+
+item_is_filler : procedure(p) returns(bit);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *
+ */
+
+    dcl p ptr;
+    dcl ret bit;
+
+    if  p->nod$b_type = nod$k_entrynode |
+	p->nod$b_type = nod$k_parmnode then return (false);
+
+    call assert(p->nod$b_type = nod$k_itemnode,
+	p,
+	'[item_is_filler #1]');
+
+    if  p->nod$w_datatype = typ$k_structure | 
+	p->nod$w_datatype = typ$k_union then return (false);
+
+/*  if  p->nod$v_generated |	*/
+    if  p->nod$v_userfill |
+	(index(p->nod$t_naked, 'fill_') = 1) |
+	(index(p->nod$t_naked, 'FILL_') = 1)
+    then 
+	return (true);
+    else
+	return (false);
+
+end item_is_filler;
+
+    /*<ff>*/
+
+map_typename : procedure (type_name, mapped_type_name) returns (bit);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Maps a VMS TYPENAME to the corresponding Ada data type.
+ *	Returns a boolean indicating whether or not a mapping was made (i.e.,
+ *	whether or not a match was found for the specified TYPENAME).
+ *
+ *	This routine should always be used when interpreting type names
+ *	specified using the TYPENAME keyword.  Currently, TYPENAME can be
+ *	used for PARAMETER descriptions, ENTRY return descriptions and
+ *	CONSTANT definitions.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	type_name	    (input) p->nod$t_typename [in uppercase]
+ *
+ *	mapped_type_name    (output) Ada data type to be used in place of
+ *				     the specified VMS TYPENAME.  If there
+ *				     is no match, mapped_type_name is a null
+ *				     string ('').
+ *
+ */
+
+    dcl (type_name, test_name, mapped_type_name) char(nsize) var;
+    dcl type_name_mapped bit init (true);
+
+    mapped_type_name = '';
+    test_name = type_name;
+
+    if test_name = 'CHAR_STRING' then
+	mapped_type_name = 'STRING';
+    else if test_name = 'ASTADR' then
+	mapped_type_name = 'AST_HANDLER';
+    else if test_name = 'UNSIGNED_BYTE_ARRAY' |
+	    test_name = 'VECTOR_BYTE_UNSIGNED' |
+	    test_name = 'VECTOR_MASK_BYTE' then
+	mapped_type_name = 'UNSIGNED_BYTE_ARRAY';
+    else if test_name = 'UNSIGNED_WORD_ARRAY' |
+	    test_name = 'VECTOR_WORD_UNSIGNED' then
+	mapped_type_name = 'UNSIGNED_WORD_ARRAY';
+    else if test_name = 'VECTOR_LONGWORD_UNSIGNED' |
+	    test_name = 'UNSIGNED_LONGWORD_ARRAY' then
+	mapped_type_name = 'UNSIGNED_LONGWORD_ARRAY';
+    else if test_name = 'BYTE_UNSIGNED' |
+	    test_name = 'MASK_BYTE' then
+	mapped_type_name = 'UNSIGNED_BYTE';
+    else if test_name = 'IDENTIFIER' |
+	    test_name = 'LONGWORD_UNSIGNED' |
+	    test_name = 'MASK_LONGWORD' |
+	    test_name = 'VARYING_ARG' then
+	mapped_type_name = 'UNSIGNED_LONGWORD';
+    else if test_name = 'BYTE_SIGNED' then
+	mapped_type_name = 'SHORT_SHORT_INTEGER';
+    else if test_name = 'LONGWORD_SIGNED' then
+	mapped_type_name = 'INTEGER';
+    else if test_name = 'MASK_WORD' then
+	mapped_type_name = 'UNSIGNED_WORD';
+    else if test_name = 'QUADWORD_SIGNED' then
+	mapped_type_name = 'QUADWORD';
+    else if test_name = 'QUADWORD_UNSIGNED' then
+	mapped_type_name = 'UNSIGNED_QUADWORD';
+    else if test_name = 'VECTOR_LONGWORD_SIGNED' then
+	mapped_type_name = 'INTEGER_ARRAY';
+    else if test_name = 'VECTOR_QUADWORD_UNSIGNED' then
+	mapped_type_name = 'UNSIGNED_QUADWORD_ARRAY';
+    else if test_name = 'WORD_SIGNED' then
+	mapped_type_name = 'SHORT_INTEGER';
+    else if test_name = 'WORD_UNSIGNED' then
+	mapped_type_name = 'UNSIGNED_WORD';
+    else if test_name = 'F_FLOAT' |
+	    test_name = 'F_FLOATING' then			/* jg */
+	mapped_type_name = 'FLOAT';
+    else if test_name = 'D_FLOAT' |
+	    test_name = 'D_FLOATING' then			/* jg */
+	mapped_type_name = 'D_FLOAT';
+    else if test_name = 'G_FLOAT' |
+	    test_name = 'G_FLOATING' then			/* jg */
+	mapped_type_name = 'G_FLOAT';
+    else if test_name = 'H_FLOAT' |
+	    test_name = 'H_FLOATING' then			/* jg */
+	mapped_type_name = 'LONG_LONG_FLOAT';
+    else if test_name = 'FLOATING_POINT' then
+	mapped_type_name = 'FLOAT';
+    else if test_name = 'BOOLEAN' then
+	mapped_type_name = 'BOOLEAN';
+    else if test_name = 'UIC' then
+	mapped_type_name = 'UIC_LONGWORD_TYPE';
+    else if test_name = 'ADDRESS' |
+	    test_name = 'CNTRLBLK' |
+	    test_name = 'PROCEDURE' |
+	    test_name = 'NULL_ARG' |
+	    test_name = 'VECTOR' then
+	mapped_type_name = 'ADDRESS';
+    else
+       /*
+	* Indicate in the return value that we couldn't find a match for
+	* the specified TYPENAME.
+	*/
+	type_name_mapped = false;
+
+    return (type_name_mapped);
+
+end map_typename;
+
+    /*<ff>*/
+
+name_of_int_subprog : procedure(entryp) returns (char(vsize) var);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Return the internal name of a subprogram (the name to be used
+ *	in the Ada code).
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	entryp		(in) entry node
+ */
+
+    dcl entryp ptr;
+
+    call assert(entryp->nod$b_type = nod$k_entrynode,
+	entryp,
+	'[name_of_int_subprog #1]');
+
+    /* Use the alias (stored in nod$t_naked field), if any, for the
+     * internal name.  
+     */
+    if entryp->nod$t_naked ^= '' then
+	return (ada_name(entryp, entryp->nod$t_naked));
+    else
+	return (ada_name(entryp, entryp->nod$t_name));
+
+end name_of_int_subprog;
+
+    /*<ff>*/
+
+name_of_item : procedure(p) returns(char(vsize) var);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Returns the Ada name of an object or record component.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		: in item node
+ *
+ *	filler_count	: in out - number of fillers for current structure
+ */
+
+    dcl (p, tempp) ptr;
+    dcl adarecp ptr;
+    dcl name char(vsize) var;
+    dcl ret_name char(vsize) var;
+
+    /* Filler names can only be determined if the filler count for
+     * the entire record is available.  (This is done in routine
+     * output_item_list.)
+     */
+    call assert(^item_is_filler(p),
+	p,
+	'[name_of_item #1]');
+
+    /* For structures, can determine the name from the structure
+     * node without creating an adarec node.
+     */
+    if p->nod$w_datatype = typ$k_structure then 
+	return (name_of_item_of_record_type(p));
+
+    /* For unions, need to create an adarec node first.  Note, that
+     * if an adarec node has already been created, it's more
+     * efficient to call routine name_of_item_of_record_type directly.
+     */
+    if p->nod$w_datatype = typ$k_union then do;
+
+	/* Create an adarec node, get the name, and free the adarec 
+	 * node.
+	 */
+	tempp = get_aggregate_address(p);
+	adarecp = union_to_adarec(tempp);
+	name = name_of_item_of_record_type(adarecp);
+	free adarecp->adarec;
+
+	end;
+
+    /* Not a union or a structure.
+     */
+    ret_name = ada_name(p, p->nod$t_naked);
+    return (ret_name);
+
+end name_of_item;
+
+    /*<ff>*/
+
+name_of_item_of_record_type : procedure(p) returns(char(vsize) var);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Returns the Ada name of an object that is of a record type;
+ *	i.e., for which a record type has been generated.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		: in item node
+ *
+ */
+
+    dcl p ptr;
+    dcl adarecp ptr init (null());
+    dcl namep ptr; 
+    dcl name char(vsize) var;
+    dcl ret_name char(vsize) var;
+
+    name = '';
+    ret_name = '';
+
+    if p->nod$b_type = special_nod$k_adarec then do;
+	adarecp = p;
+	namep = adarecp->item_type_namep;
+	name = namep->nod$t_naked;
+
+	/* Check that the item that defines the name of the component
+ 	 * and the record type isn't a filler.  Also check that
+	 * a record type was generated.
+	 */
+/* disabled EV1-18 
+/*	call assert((^item_is_filler(adarecp->item_type_namep)),
+/*	    adarecp,
+/*	    '[name_of_item_of_record_type #1');
+*/
+
+	call assert((adarecp->generate_record_type),
+	    adarecp,
+	    '[name_of_item_of_record_type #2');
+
+	end;
+    else do;
+	namep = p;
+	name = namep->nod$t_naked;
+
+	end;
+
+    /* Remove "DEF" from the end of name.  (Special case to generate names 
+     * like Pascal;  e.g., FAB_TYPE rather than FABDEF_TYPE.)
+     */
+    if  length(name) > 3 &
+	substr(name, length(name) - 2, 3) = 'DEF'
+    then
+	name = substr(name, 1, length(name) - 3);
+
+    ret_name = ada_name(namep, name);
+    return (ret_name);
+
+end name_of_item_of_record_type;
+
+
+    /*<ff>*/
+
+name_of_record_type : procedure(p) returns (char(vsize) var);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Returns the name used as a record type name.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *
+ * ROUTINE VALUE:
+ *
+ *	Ada name to be used for the record type.
+ */
+
+    dcl (p, q) ptr;					/* jg */
+    dcl name char(vsize) var;
+    dcl prefix char(nsize) var;
+    dcl ret_name char(vsize) var;
+    dcl i fixed bin init(0);
+    dcl len fixed bin init (0); 
+
+    name = '';
+    prefix = '';
+    ret_name = '';
+
+    name = name_of_item_of_record_type(p);
+    /* If the start of the name isn't the same as the prefix (before
+     * the "$" if any) or if either the name or the prefix is less than 
+     * two characters, then start the name with the prefix.
+     */
+
+    /* jg
+     * Set up a new pointer `q' to point to the real node
+     */
+    q = p;
+    if p->nod$b_type = special_nod$k_adarec then
+	q = p->item_type_namep;
+
+    prefix = q->nod$t_prefix;
+
+    /* Remove the "$", if any, and characters that follow.
+     */
+    i = index(prefix, '$');
+    if i >0 then
+	prefix = substr(prefix, 1, i - 1);
+        
+   /*
+    * Make sure the prefix is the same case (i.e., upper) as the segment
+    * of the Ada name to which we're comparing it.
+    */
+    prefix = translate(prefix, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+			       'abcdefghijklmnopqrstuvwxyz');
+
+    len = min(length(name), length(prefix));
+    if  /* len < 2 | <---- commented out because facility mnemonics can be
+			   less than 2 characters---e.g., "x" in "x$" */
+	substr(name, 1, len) ^= substr(prefix, 1, len)
+    then
+	name = prefix || '_' || name;
+
+    if q->nod$v_dimen		    /* EV1-18 */
+    then 
+	ret_name = ada_name(p, name || '_COMPONENT_TYPE');
+    else
+	ret_name = ada_name(p, name || '_TYPE');
+
+    return (ret_name);
+
+end name_of_record_type;
+
+    /*<ff>*/
+
+name_of_subprog_parm : procedure(parmp) returns (char(vsize) var);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Return the name to be used for a parameter in the Ada code.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	parmp		(in) parm node
+ */
+
+    dcl parmp ptr;
+
+    call assert(parmp->nod$b_type = nod$k_parmnode,
+	parmp,
+	'[name_of_subprog_parm #1]');
+
+    /* Use the parameter name in the source (nod$t_name).  If none,
+     * use the SDL generated name.
+     */
+    if parmp->nod$t_name ^= '' then
+	return (ada_name(parmp, parmp->nod$t_name));
+    else
+	return (ada_name(parmp, parmp->nod$t_naked));
+
+end name_of_subprog_parm;
+
+    /*<ff>*/
+ 
+output_eol_comment : procedure(p);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Output a comment, indented over to the end-of-line comment margin.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		(in) comment node
+ *
+ */
+
+    dcl p ptr;
+
+    if ^sdl$v_comment_opt then return;
+
+    call assert(p->nod$b_type = nod$k_commnode,
+	p,
+	'[OUTPUT_EOL_COMMENT #1]');
+
+    call output_line_wc('', p);
+
+end output_eol_comment;
+
+    /*<ff>*/
+
+output_item_list : procedure(
+    context, base_offset, filler_count, leading_indent, comment, startp, stopp);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *
+ */
+
+    dcl context fixed bin;
+    dcl base_offset fixed bin;
+    dcl filler_count fixed bin;
+    dcl inner_filler_count fixed bin;
+    dcl rout_param fixed bin;
+    dcl leading_indent fixed bin;
+    dcl comment bit;
+    dcl (startp, stopp) ptr;
+    dcl adarecp ptr;
+    dcl aggr_context fixed bin;
+    dcl (p, tempp) ptr;
+    dcl save_name char(vsize) var;
+    dcl (item_name, type_name, def_text) char(vsize) var;
+    dcl buf char(vsize) var;
+    dcl commentp ptr;
+    dcl (offset, from, to) fixed bin;
+    dcl (firstp, lastp) ptr;		/* first and last non-comments */
+    dcl chvar_length_string char(vsize) var;
+
+    ctx_is_trail_comma_or_no_punc : procedure returns(bit);
+
+	if  context = rec_ctx_const_trail_comma |
+	    context = rec_ctx_const_no_trail_punc
+	then
+	    return (true);
+	else
+	    return (false);
+
+    end ctx_is_trail_comma_or_no_punc;
+
+    firstp = null();
+    lastp = null();
+    p = startp;
+    do while (p ^= stopp);
+
+	if p->nod$b_type = nod$k_itemnode then do;
+
+	    if firstp = null() then firstp = p;
+	    lastp = p;
+
+	    end;
+
+	p = p->nod$a_flink;
+	end;
+
+    p = startp;
+    do while (p ^= stopp);
+
+	if p->nod$b_type = nod$k_commnode then
+	    call output_eol_comment(p);
+	else if p->nod$b_type = nod$k_itemnode then do;
+
+	    /* There are 5 cases:
+	     *
+	     *	    1.	The node is a union for which a record type 
+	     *		was generated.
+	     *
+	     *	    2.	The node is a union for which no record type
+	     *		was generated.  In this case need to
+	     *		recursively call one of the callers of this
+	     *		routine to generate the components as 
+	     *		components of the containing record.
+	     *
+	     *	    3.	The node is a structure for which a record
+	     *		type was generated.
+	     *
+	     *	    4.	The node is a filler.  A unique filler name
+	     *		has to be generated.
+	     *
+	     *	    5.	Other.
+	     */
+	    commentp = p;
+	    item_name = '';
+	    type_name = '';
+	    def_text = '';
+
+	    if p->nod$w_datatype = typ$k_union then do;
+		tempp = get_aggregate_address(p);
+		adarecp = union_to_adarec(tempp);
+
+		if adarecp->generate_record_type then do;
+
+		    /* Case 1.  A record type was generated for a union.
+		     */
+		    item_name = name_of_item_of_record_type(adarecp);
+		    if context = rec_ctx_type then do;
+
+			type_name = name_of_record_type(adarecp);
+			end;
+		    else if context = rec_ctx_rep_spec then
+		        ;
+		    else do;
+			/* Output the leading "(" if this is the first
+			 * component is itself an aggregate, output the
+			 * inner aggregate, and then output a trailing
+			 * ")" this is the last component.
+			 */
+			if  (p = firstp) & 
+			    (^ctx_is_trail_comma_or_no_punc())  then
+				call output_line(ltab(leading_indent) || '(');
+
+			buf = ltab(leading_indent) || item_name;
+			item_name = '';
+			call align(buf, leading_indent, nom_object_name_width);
+			buf = buf || '=> ';
+
+			aggr_context = rec_ctx_const_inner;
+			if  (p = lastp) &
+			    (^ctx_is_trail_comma_or_no_punc())
+			then
+			    aggr_context = rec_ctx_const_multiple_nested;
+
+			buf = buf || name_of_record_type(adarecp) ;
+			if adarecp->item_type_namep->nod$v_dimen
+			then do;	    		/* strip off 'component' */
+			    i = index(buf, '_COMPONENT');
+			    if i > 0 then
+			    buf = substr(buf, 1, i-1) || '_TYPE' ;
+			end;
+			buf = buf || '_INIT';
+			if (p ^= lastp) 
+			then do;
+			    buf = buf || ',';
+			end;
+			call output_line(buf);
+
+			inner_filler_count = 0;
+/*kd
+			call output_record_aggr(
+			    adarecp, 
+			    inner_filler_count, 
+			    leading_indent + 1, 
+			    aggr_context);
+*/
+			if  (p = lastp) & 
+			    (^ctx_is_trail_comma_or_no_punc())  
+			then do;
+			    buf = ltab(leading_indent) || ')';
+			    if context = rec_ctx_const_multiple_nested then
+				;
+			    else if context = rec_ctx_const_outer then
+				buf = buf || ';';
+			    else
+				buf = buf || ',';
+			    call output_line(buf);
+			    end;
+
+			end;
+
+		    commentp = adarecp->item_type_namep;
+
+		    end;
+
+		else do;
+
+		    /* Case 2.  A record type was not generated for this
+		     * union.  
+		     */
+		    if context = rec_ctx_type then
+			call output_record_comp(
+			    adarecp, filler_count, leading_indent);
+		    else if context = rec_ctx_rep_spec then
+			call output_record_rep_spec_comp(
+			    adarecp,
+			    filler_count,
+			    leading_indent,
+			    0);		/* Base offset is zero since 
+					 * expanding in the containing record
+					 */
+		    else do;
+
+			/* Output the leading "(" if this is the first
+			 * component is itself an aggregate, output the
+			 * components, and then output a trailing
+			 * ")" this is the last component.
+			 */
+			if  (p = firstp) & 
+			    (^ctx_is_trail_comma_or_no_punc())  then
+				call output_line(ltab(leading_indent) || '(');
+
+			/* Don't want any trailing punctuation if this
+			 * the last item.  Otherwise, want a trailing comma.
+			 */
+			if (p = lastp) then
+			    aggr_context = rec_ctx_const_no_trail_punc;
+			else
+			    aggr_context = rec_ctx_const_trail_comma;
+
+			call output_record_aggr(
+			    adarecp, 
+			    filler_count, 
+			    leading_indent, 
+			    aggr_context);
+
+			if  (p = lastp) & 
+			    (^ctx_is_trail_comma_or_no_punc())  then do;
+
+			    buf = ltab(leading_indent) || ')';
+			    if context = rec_ctx_const_multiple_nested then
+				;
+			    else if context = rec_ctx_const_outer then
+				buf = buf || ';';
+			    else
+				buf = buf || ',';
+
+			    call output_line(buf);
+
+			    
+			    end;
+			end;
+		    end;
+
+		free adarecp->adarec;
+
+		end;
+	    else if p->nod$w_datatype = typ$k_structure &
+		    p->nod$a_typeinfo2 = null()
+	    then do;
+
+		/* Case 3.  Structure for which a record type was generated.
+		 */
+		item_name = name_of_item_of_record_type(p);
+		if context = rec_ctx_type then do;
+
+		    type_name = name_of_record_type(p);
+		    end;
+		else if context = rec_ctx_rep_spec then
+    		    ;
+		else do;
+		    /* Output the leading "(" if this is the first
+		     * component is itself an aggregate, output the
+		     * inner aggregate, and then output a trailing
+		     * ")" this is the last component.
+		     */
+		    if  (p = firstp) & 
+			(^ctx_is_trail_comma_or_no_punc())  then
+			    call output_line(ltab(leading_indent) || '(');
+
+		    buf = ltab(leading_indent) || item_name;
+		    item_name = '';
+		    call align(buf, leading_indent, nom_object_name_width);
+		    buf = buf || '=> ';
+
+		    aggr_context = rec_ctx_const_inner;
+		    if  (p = lastp) &
+			(^ctx_is_trail_comma_or_no_punc())
+		    then
+			aggr_context = rec_ctx_const_multiple_nested;
+
+		    /* Generate an Ada record node from the structure
+		     */
+		    tempp = get_aggregate_address(p);
+		    adarecp = structure_to_adarec(tempp);
+		    buf = buf || name_of_record_type(adarecp) ;
+		    if adarecp->item_type_namep->nod$v_dimen
+		    then do;	    		/* strip off 'component' */
+			i = index(buf, '_COMPONENT');
+			if i > 0 then
+			buf = substr(buf, 1, i-1) || '_TYPE' ;
+		    end;
+		    buf = buf || '_INIT';
+		    if (p ^= lastp) 
+		    then do;
+			buf = buf || ',';
+			call output_line(buf);
+		    end;
+			inner_filler_count = 0; 
+/*kd
+			call output_record_aggr(
+			    adarecp, 
+			    inner_filler_count, 
+			    leading_indent + 1, 
+			    aggr_context);
+*/
+		    if  (p = lastp) & 
+			(^ctx_is_trail_comma_or_no_punc())  
+		    then do;
+			buf = buf || ')';
+    			if context = rec_ctx_const_multiple_nested then
+    			    ;
+			else if context = rec_ctx_const_outer then
+			    buf = buf || ';';
+			else
+			    buf = buf || ',';
+
+			call output_line(buf);
+			end;
+
+		    end;
+
+		end;
+	    else if item_is_filler(p) then do;
+    
+		/* Case 4.  Filler - need to generate a unique name for
+		 * the record type.
+		 *
+		 * SDL note:  Use "FILLER" so make it clear that the 
+		 * Ada backend is generating the name.
+		 */
+		filler_count = filler_count + 1;
+		item_name = 'FILLER_' || trim(filler_count);
+
+		if context = rec_ctx_type then
+		    call append_type_supply_default(
+			p, type_name, true, def_text);
+		else if context = rec_ctx_rep_spec then
+		    ;
+		else do;
+
+		    call append_type_supply_default(
+			p, type_name, true, def_text);
+
+		    if def_text = '' then
+			call report_info(p, 
+			    'Default wanted but not available');
+
+		    end;
+		end;
+	    else do;
+    
+		/* Case 5.  Other - just an ordinary item.
+		 */
+		item_name = name_of_item(p);
+
+		/* special case for character varying */
+		if p->nod$w_datatype = typ$k_char &
+		    p->nod$v_varying 
+		then do;
+		    chvar_length_string = ltab(leading_indent)||item_name;
+		    chvar_length_string = chvar_length_string||'_LENGTH ';
+		    if context = rec_ctx_type then
+			chvar_length_string = chvar_length_string || ' : '
+			    ||unsigned(typ$k_word)|| ';';
+		    else
+		    if context = rec_ctx_const_outer then
+		       chvar_length_string = chvar_length_string || ' => '
+			||unsigned_zero(typ$k_word)||',';
+		    else ;
+		end;
+
+		if context = rec_ctx_type 
+		then 
+		    call append_type_supply_default(
+			p, type_name, true, def_text);
+		else if context = rec_ctx_rep_spec then
+		    ;
+		else do;
+		    def_text = remove_default_from_comment(p);
+		    if def_text = '' then do;
+
+		        call append_type_supply_default(
+			    p, type_name, true, def_text);
+
+			if def_text = '' then
+			    call report_info(p, 
+				'Default wanted but not available');
+
+			end;
+		    else
+			call append_type(p, type_name);
+
+		    end;
+		end;
+
+
+	    /* If item_name is null, then nothing left to do.
+	     */
+	    if item_name ^= '' then do;
+
+		if comment then 
+		    buf = ltab(leading_indent) || '----'; 
+		else 
+		    buf = ltab(leading_indent);
+    
+		if context = rec_ctx_type then do;
+
+		    buf = buf || item_name;
+		    call align(buf, leading_indent, nom_object_name_width);
+		    buf = buf || ': ' || type_name || ';';
+
+		    end;
+		else if context = rec_ctx_rep_spec then do;
+
+		    buf = buf || item_name;
+		    call align(buf, leading_indent, nom_object_name_width);
+		    call rep_spec_info(p, base_offset, offset, from, to);
+		    if p->nod$w_datatype = typ$k_char &
+		       p->nod$v_varying 
+		    then do;
+			chvar_length_string = chvar_length_string
+			    || 'at ' || trim(offset) || ' range ' || 
+			    '0 .. 15;' ;
+			/* add two bytes to structure size for length field.
+			    then get new offset for the string field. */
+			offset = offset + 2;
+		    end;
+		    buf = buf || 'at ' || trim(offset) || ' range ' || 
+			trim(from) || ' .. ' || trim(to) || ';' ;
+		    end;
+		else do;
+
+		    if p = firstp then
+			if ^ctx_is_trail_comma_or_no_punc()
+		        then 
+			    buf = buf || '(';
+
+		    buf = buf || item_name;
+		    call align(buf, leading_indent, nom_object_name_width);
+		    buf = buf || '=> ' || def_text;
+
+		    if p = lastp then
+			if context = rec_ctx_const_trail_comma
+			then
+			    buf = buf || ',';
+			else if context = rec_ctx_const_no_trail_punc
+			then
+			    ;
+			else do;
+
+			    buf = buf || ')';
+    
+    			    if context = rec_ctx_const_multiple_nested then
+    				;
+			    else if context = rec_ctx_const_outer then
+				buf = buf || ';';
+			    else
+				buf = buf || ',';
+    
+			    end;
+		    else
+			buf = buf || ',';
+
+		    end;
+
+		if p->nod$w_datatype = typ$k_char &
+		    p->nod$v_varying 
+		then do;
+		    call output_line(chvar_length_string);
+		end;
+
+		call output_line_wc(buf, commentp);
+
+		end;
+	    end;
+
+	p = p->nod$a_flink;
+	end;
+
+end output_item_list;
+
+    /*<ff>*/
+
+output_line : procedure(text);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Output a line
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	text		Text to be output
+ *
+ */
+
+    dcl text char(vsize) var;
+
+    call output_line_wc(text, null());
+
+end output_line;
+
+    /*<ff>*/
+ 
+output_line_comment : procedure(p);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Output a comment that should not be indented to the 
+ *	end-of-line comment margin.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		(in) comment node
+ *
+ */
+
+    dcl p ptr;
+    dcl line char(vsize) var;
+
+    if ^sdl$v_comment_opt then return;
+
+    call assert(p->nod$b_type = nod$k_commnode,
+	p,
+	'[OUTPUT_LINE_COMMENT #1]');
+
+    line = '--';
+    if p->nod$a_comment ^= null() then 
+	line = line || p->nod$a_comment->based_string;
+
+    /* If the line is too long, truncate it.
+     */
+    if length(line) > max_line_length then
+	line = substr(line, 1, max_line_length);
+
+    call output_line_wc(line, null());
+
+end output_line_comment;
+
+    /*<ff>*/
+
+output_line_wc : procedure(text, p);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Output a line after appending the comment associated with
+ *	a node, if any, as an end-of-line comment.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	text		Text
+ *
+ *	p		Node from which to get the comment (can be null)
+ *
+ */
+
+    dcl text char(vsize) var;
+    dcl p ptr;
+    dcl line char(vsize) var;
+    dcl (too_long, with_comment) bit;
+    dcl blank_pos fixed bin;
+
+    if blank_line_pending then do;
+	call sdl$putline( outfile, ' ', max_line_length);
+	blank_line_pending = false;
+	end;
+
+    with_comment = false;
+    if p ^= null() then
+	if (p->nod$a_comment ^= null()) & sdl$v_comment_opt then with_comment = true;
+
+    line = text;
+
+    /* Break up the line before adding the comment if it's too long.
+     * (sdl$putline is supposed to do this but doesn't seem to pay
+     * attention to the second argument now.
+     */
+    too_long = false;
+    do while (length(line) > max_line_length);
+
+	too_long = true;
+
+	/* Make sure that at least the "--" portion of a comment will fit
+	 */
+	blank_pos = max_line_length - 2;
+	do while (blank_pos > 0 & substr(line, blank_pos, 1) ^= ' ');
+	    blank_pos = blank_pos - 1;
+	    end;
+
+	if blank_pos = 0 then blank_pos = max_line_length;
+
+	call sdl$putline( outfile, substr(line, 1, blank_pos - 1), max_line_length);
+
+	if blank_pos = length(line) then
+	    line = '';
+	else
+	    line = tab || 
+		substr(line, blank_pos + 1, length(line) - blank_pos);
+
+	end;
+
+    if (too_long) & (^with_comment) & (line = '') then return;
+
+    if with_comment then do;
+	call align(line, 0, nom_pre_comment_width);
+
+	line = line || '-- ' || p->nod$a_comment->based_string;
+
+	/* Truncate if too long
+	 */
+	if length(line) > max_line_length then
+	    line = substr(line, 1, max_line_length);
+
+	end;
+
+    call sdl$putline( outfile, line, max_line_length);
+
+end output_line_wc;
+
+    /*<ff>*/
+
+output_node : procedure (initp, stopp, level);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	This is a main recursive routine that travels through the SDL tree
+ *  	and outputs the appropriate data declaration for each tree node.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	initp		(in) address of node to output
+ *
+ *	stopp		(in) address of node on which to stop
+ *
+ * 	level		(in) level number of aggregate (incremented by 1
+ * 			with each sub-aggregate)
+ */
+
+    dcl (initp, stopp) ptr;
+    dcl buf char(vsize) var;
+    dcl (type_name, mapped_type_name) char(nsize) var;
+    dcl level fixed bin;
+    dcl (p,q) ptr;
+    dcl type_name_mapped bit;	/* map_typename return value:  indicates
+				   whether or not the VMS TYPENAME specified
+				   was mapped to an Ada data type */
+    dcl (temp1, temp2) char(128) var;
+
+    /* For all nodes in the list, case on the node type and go do the 
+     * appropriate Processing
+     */
+    p = initp;
+    do while (p ^= stopp);
+
+	goto case(p->nod$b_type);
+
+ 
+case (nod$k_rootnode):		/* Root node */
+
+	goto common;
+
+ 
+case (nod$k_commnode):		/* Comment node */
+	if ^comm_section then call skip_line;
+	sections	= false;
+	comm_section	= true;
+	call output_line_comment(p);
+	goto common;
+ 
+
+case (nod$k_constnode):		/* Constant node */
+
+	/* SDL note:  Sometimes masks are passed to system services.
+	 */
+	if ^const_section then call skip_line;
+	sections	= false;
+	const_section	= true;
+
+	buf = ltab(1) || ada_name(p, p->nod$t_name);
+	call align(buf, 1, nom_constant_name_width);
+
+	/* Output TYPENAME if specified for constants */
+	if p->nod$t_typename = '' then
+	    buf = buf || ': constant';
+	else do;
+	   /*
+	    * Special-case certain VMS TYPENAMEs
+	    */
+	    type_name = translate(p->nod$t_typename,
+				  'ABCDEFGHIJKLMNOPQRSTUVWXYZ',
+				  'abcdefghijklmnopqrstuvwxyz');
+	    type_name_mapped = map_typename(type_name, mapped_type_name);
+	    if type_name_mapped then
+		buf = buf || ': constant ' || mapped_type_name;
+	    else
+		buf = buf || ': constant ' || type_name || '_TYPE';
+	    end;
+
+	if p->nod$w_datatype = typ$k_char then do;
+		temp1 = p->nod$a_typeinfo2->based_string;
+		call sdl$cvtstr(temp1, temp2, '"""');
+		buf = buf || ' STRING := "' || temp2 || '"';
+		end;
+	else do;
+		buf = buf || ' := ';
+		/* Output the hex value for masks; decimal, for others.
+	         */
+	        if p->nod$v_mask then
+		    buf = buf || hexval(p->nod$l_typeinfo);
+		else
+		    buf = buf || trim(p->nod$l_typeinfo);
+		end;
+	buf = buf || ';' ;
+
+	call output_line_wc(buf, p);
+
+	goto common;
+
+ 
+case (nod$k_entrynode):		/* Entry node */
+
+	sections	= false;
+	call generate_entry(p);
+	goto common_3;
+
+case (nod$k_itemnode):		/* Item node */
+
+	if p->nod$v_declared then goto common;	/* ignore declared item - jg */
+
+	if p->nod$v_forward then
+	    call errmsg (sdl$_shr_data, sdl$_illforwref,
+					    p->nod$l_srcline, 'VAX Ada');
+
+	if p->nod$w_datatype = typ$k_structure | 
+	   p->nod$w_datatype = typ$k_union then
+	    if generate_record_types(p, p->nod$a_flink) then 
+		goto common_3;
+
+	/*
+	 * jg
+	 * If a non-aggregate item which is TYPEDEF'd, generate a
+	 * subtype
+	 */
+	if p->nod$v_typedef then
+	    buf = ltab(1)||'subtype '||ada_name(p, p->nod$t_name)||'_TYPE is ';
+	else
+	    buf = ltab(1)||ada_name(p, p->nod$t_name)||' : ';
+
+	call append_type(p, buf);
+	buf = buf || ';' ;
+	call output_line_wc(buf, p);
+
+	goto common_3;
+
+case (nod$k_modulnode):		/* Module node */
+
+	/*
+	 * output module name as a  comment
+	 */
+	sections=false;
+
+	/* Output a form feed if not the first module in the file.
+	 */
+	if first_module then
+	    first_module = false;
+	else
+	    call output_line(byte(12));
+
+	call skip_line;
+	modname=p->nod$t_name;
+	buf	= '--  module ' || modname;
+	if p->nod$t_naked ^= '' then
+		buf	= buf || ' IDENT ' || p->nod$t_naked;
+	call output_line_wc(buf, p);
+
+	goto common; 
+
+case(nod$k_parmnode):		/* Parameter node */
+
+	/* Shouldn't process a parameter node with this procedure.
+	 * It is done by the generate_entry procedure.
+	 */
+	call assert(false, p, '[output_node #1]');
+
+	goto common_3;
+
+case (nod$k_objnode):		/* Object node for pointer items */
+
+	/* For now, address datatype just generates type ADDRESS.
+	 */
+	call assert(false, p, '[output_node #2]');
+
+	goto common_3;
+
+case (nod$k_typnode):		/* Object node for pointer items */
+
+	goto common_3;
+
+
+case (nod$k_headnode):		/* Header node */
+
+	goto common;
+
+case(nod$k_condnode):						/* jg */
+
+	/* Search for this language in the list */
+
+	q = p->nod$a_typeinfo2->nod$a_flink;
+	do while (^process_conditional & q->nod$b_type = nod$k_objnode);
+	    if q->nod$t_name = lang_name then process_conditional = true;
+	    q = q->nod$a_flink;
+	end;
+
+	/*
+	 * If this language has been found, then children will be processed
+	 * at common at the same level.
+	 *
+	 * Output any IFLANGUAGE comment only if processing for this language.
+	 */
+	if process_conditional then call output_line_wc('',p);
+	goto common;
+
+case(nod$k_litnode):						/* jg */
+
+	/* Process literal node */
+
+	call output_line_wc(p->nod$a_typeinfo2->based_string,p);
+	goto common;
+
+common:
+	if process_conditional then do;				/* jg */
+	    process_conditional = false;
+	    call output_node(p->nod$a_child->nod$a_flink,p->nod$a_child,
+				level);
+	    end;
+
+	else if p->nod$a_child^=null() & p->nod$b_type ^= nod$k_condnode then
+	    call output_node(
+		p->nod$a_child->nod$a_flink, 
+		p->nod$a_child, 
+		level + 1);
+
+common_3:
+	p = p->nod$a_flink;
+	end;	/* of loop */
+
+    return;
+
+end output_node;
+
+    /*<ff>*/
+
+output_record : procedure(adarecp, indent);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *
+ */
+
+    dcl adarecp ptr;		/* to adarec structure */
+    dcl indent fixed bin;
+    dcl filler_count fixed bin init(0);
+    dcl buf char(vsize) var;
+
+    call assert(adarecp->nod$b_type = special_nod$k_adarec,
+	adarecp,
+	'[output_record #1]');
+
+    call skip_line;
+    buf = ltab(indent) || 'type ' || 
+	name_of_record_type(adarecp);
+
+    if adarecp->discrimp ^= null() then
+	call output_line(buf || ' (' || 
+	    name_of_item(adarecp->discrimp) ||
+	    ' : ' || adarecp->discrim_type || ') is' );
+    else
+	call output_line_wc(buf || ' is', adarecp->item_type_namep);
+
+    call output_line(ltab(indent+1) || 'record');
+
+    /* Output components
+     */
+    call output_record_comp(adarecp, filler_count, indent + 2);
+
+    call output_line(ltab(indent+1) || 'end record;');
+    call skip_line;
+
+end output_record;
+
+    /*<ff>*/
+
+output_record_aggr : procedure(adarecp, filler_count, indent, context);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *
+ */
+
+    dcl adarecp ptr;		/* to adarec structure */
+    dcl indent fixed bin;
+    dcl filler_count fixed bin;
+    dcl context fixed bin;
+    dcl buf char(vsize) var;
+
+    call assert(adarecp->nod$b_type = special_nod$k_adarec,
+	adarecp,
+	'[output_record_aggr #1]');
+
+    call output_item_list(
+	context,		/* context where item list appears */
+	0,			/* not used for record type */
+	filler_count,		/* in/out - count of fillers for this type */
+	indent,			/* leading indent */
+	false,			/* don't output as a comment */
+	adarecp->comp_startp, 	/* startp */
+	adarecp->comp_stopp);	/* stopp */
+
+    /* Output variant if there is a discriminant
+     */
+    if adarecp->discrimp ^= null() then
+	call output_variant(
+	    adarecp,		/* Ada record structure */
+	    0,			/* ignored for record component */
+	    filler_count,	/* in/out - count of fillers for this type */
+	    indent,		/* leading indent */
+	    context);		/* context where item list appears */
+
+end output_record_aggr;
+
+    /*<ff>*/
+
+output_record_comp : procedure(adarecp, filler_count, indent);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *
+ */
+
+    dcl adarecp ptr;		/* to adarec structure */
+    dcl indent fixed bin;
+    dcl filler_count fixed bin;
+    dcl buf char(vsize) var;
+
+    call assert(adarecp->nod$b_type = special_nod$k_adarec,
+	adarecp,
+	'[output_record_comp #1]');
+
+    call output_item_list(
+	rec_ctx_type,	/* context where item list appears */
+	0,			/* not used for record type */
+	filler_count,		/* in/out - count of fillers for this type */
+	indent,			/* leading indent */
+	false,			/* don't output as a comment */
+	adarecp->comp_startp, 	/* startp */
+	adarecp->comp_stopp);	/* stopp */
+
+    /* Output variant if there is a discriminant
+     */
+    if adarecp->discrimp ^= null() then
+	call output_variant(
+	    adarecp,		/* Ada record structure */
+	    0,			/* ignored for record component */
+	    filler_count,	/* in/out - count of fillers for this type */
+	    indent,		/* leading indent */
+	    rec_ctx_type);/* context where item list appears */
+
+    /* Output comments for overlapping components, if any.
+     */
+    if  adarecp->overlap1_startp ^= adarecp->overlap1_stopp | 
+	adarecp->overlap2_startp ^= adarecp->overlap2_stopp then do;
+
+	call skip_line;
+	call output_line(ltab(indent) ||
+	    '----Component(s) below are defined as comments since they');
+	call output_line(ltab(indent) ||
+	    '----overlap other fields');
+	call output_line(ltab(indent) || '----');
+
+	call output_item_list(
+	    rec_ctx_type,		/* context where item list appears */
+	    0,				/* not used for record type */
+	    filler_count,		/* in/out - # of fillers for type */
+	    indent,			/* leading indent */
+	    true,			/* output as a comment */
+	    adarecp->overlap1_startp, 	/* startp */
+	    adarecp->overlap1_stopp);	/* stopp */
+
+	call output_item_list(
+	    rec_ctx_type,		/* context where item list appears */
+	    0,				/* not used for record type */
+	    filler_count,		/* in/out - # of fillers for type */
+	    indent,			/* leading indent */
+	    true,			/* output as a comment */
+	    adarecp->overlap2_startp, 	/* startp */
+	    adarecp->overlap2_stopp);	/* stopp */
+
+	/* Always skip a line after overlapping components.
+	 */
+	call skip_line;
+
+	end;
+
+end output_record_comp;
+
+    /*<ff>*/
+
+output_record_init : procedure(adarecp, indent);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *
+ */
+
+    dcl adarecp ptr;		/* to adarec structure */
+    dcl indent fixed bin;
+    dcl filler_count fixed bin init(0);
+    dcl (type_name, buf) char(vsize) var;
+    dcl saved_comments bit;
+    dcl array_type_name char(vsize) var;
+    dcl (high, low) fixed bin;
+
+    call assert(adarecp->nod$b_type = special_nod$k_adarec,
+	adarecp,
+	'[output_record_init #1]');
+
+    /* Pust the value of the comments flag and suppress comments
+     */
+    saved_comments = sdl$v_comment_opt ;
+    sdl$v_comment_opt = false;
+
+    type_name = name_of_record_type(adarecp);
+    call skip_line;
+
+    call output_line(
+	ltab(indent) || type_name || '_INIT : constant ' || type_name ||
+	' := ');
+
+    /* Output aggregate
+     */
+    call output_record_aggr(adarecp, filler_count, indent + 2, 
+	    rec_ctx_const_outer);
+    call skip_line;
+
+    /* Restore the value of the comments flag
+     */
+    sdl$v_comment_opt = saved_comments;
+
+    if adarecp->item_type_namep->nod$v_dimen 
+    then do;
+	i = index(type_name, '_COMPONENT');
+	if i > 0 then	/* strip off component */
+	    array_type_name = substr(type_name, 1, i-1) || '_TYPE' ;
+	low = adarecp->item_type_namep->nod$l_lodim;
+	high = adarecp->item_type_namep->nod$l_hidim;
+	call output_line(ltab(indent) || 'TYPE '|| array_type_name || ' is' );
+	call output_line(ltab(indent+1) || 'ARRAY (' || trim(low) || 
+		' .. ' || trim(high) || ')' || ' of ' || type_name || ';');
+	call skip_line;
+	call output_line(ltab(indent) || array_type_name 
+		|| '_INIT : constant ' || array_type_name || ' := ');
+	call output_line(ltab(indent+1) || '( others => ' 
+		|| type_name || '_INIT' || ');');
+    end;
+
+end output_record_init;
+
+    /*<ff>*/
+
+output_record_rep_spec : procedure(adarecp, indent);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *
+ */
+
+    dcl adarecp ptr;		/* to adarec structure */
+    dcl indent fixed bin;
+    dcl filler_count fixed bin init(0);
+    dcl buf char(vsize) var;
+    dcl saved_comments bit;
+    dcl base_offset fixed bin;
+
+    call assert(adarecp->nod$b_type = special_nod$k_adarec,
+	adarecp,
+	'[output_record_rep_spec #1]');
+
+    /* Push the value of the comments flag, and suppress comments
+     */
+    saved_comments = sdl$v_comment_opt ;
+    sdl$v_comment_opt = false;
+
+    /* Save the base_offset of this record.  For top level aggregates,
+     * it will be 0.  For nested aggregates, it will be the offset
+     * of the nested aggregate within the top level aggregate.
+     */
+    base_offset = adarecp->item_type_namep->nod$l_offset;
+
+    call skip_line;
+    call output_line(ltab(indent) || 'for ' || 
+	name_of_record_type(adarecp) || ' use ');
+    call output_line(ltab(indent+1) || 'record');
+
+    call output_record_rep_spec_comp(
+	adarecp, filler_count, indent + 2, base_offset);
+
+    call output_line(ltab(indent+1) || 'end record;');
+
+    /* Can't specify a size rep spec for a record with discriminants
+     * if the variants are of a different size.  The size rep spec
+     * is only given as a double check that the compiler and SDL
+     * are in synch.  Therefore, only output the size rep spec
+     * if there is not a discriminant.
+     */
+    if adarecp->discrimp = null() then
+	call output_line(
+	    ltab(indent) || 'for ' || 
+	    name_of_record_type(adarecp) || '''SIZE use ' || 
+	    trim(tick_size(adarecp->item_type_namep)) || ';' );
+
+    /* Always put a blank link after a rep spec.
+     */
+    call skip_line;
+
+    /* Restore the value of the comments flag.
+     */
+    sdl$v_comment_opt = saved_comments;
+
+end output_record_rep_spec;
+
+    /*<ff>*/
+
+output_record_rep_spec_comp : procedure(
+	adarecp, filler_count, indent, base_offset);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *
+ */
+
+    dcl adarecp ptr;		/* to adarec structure */
+    dcl indent fixed bin;
+    dcl filler_count fixed bin;
+    dcl base_offset fixed bin;
+    dcl buf char(vsize) var;
+
+    call assert(adarecp->nod$b_type = special_nod$k_adarec,
+	adarecp,
+	'[output_record_rep_spec_comp #1]');
+
+    /* Output component rep spec for the discriminant, if any.
+     */
+    if adarecp->discrimp ^= null() then
+	call output_item_list(
+	    rec_ctx_rep_spec,	/* context where item list appears */
+	    base_offset,		/* of start current record within 
+					 * containing record
+					 */
+	    filler_count,		/* in/out - # of fillers for type */
+	    indent,			/* leading indent */
+	    false,			/* don't output as a comment */
+	    adarecp->discrimp, 		/* startp */
+	    adarecp->discrimp->nod$a_flink);	/* stop on next node*/
+
+    /* Output components
+     */
+    call output_item_list(
+	rec_ctx_rep_spec,	/* context where item list appears */
+	base_offset,		/* of start current record within 
+				 * containing record
+				 */
+	filler_count,		/* in/out - count of fillers for this type */
+	indent,			/* leading indent */
+	false,			/* don't output as a comment */
+	adarecp->comp_startp, 	/* startp */
+	adarecp->comp_stopp);	/* stopp */
+
+    /* Output variant if there is a discriminant
+     */
+    if adarecp->discrimp ^= null() then
+	call output_variant(
+	    adarecp,		/* Ada record structure */
+	    base_offset,
+	    filler_count,	/* in/out - count of fillers for this type */
+	    indent,		/* leading indent */
+	    rec_ctx_rep_spec);/* context where item list appears */
+
+    /* Output comments for overlapping components, if any.
+     */
+    if  adarecp->overlap1_startp ^= adarecp->overlap1_stopp | 
+	adarecp->overlap2_startp ^= adarecp->overlap2_stopp then do;
+
+	call skip_line;
+	buf = ltab(indent) ||
+	    '----Component representation spec(s) below are defined as';
+	call output_line(buf);
+	buf = ltab(indent) ||
+	    '----comments since they overlap other fields';
+	call output_line(buf);
+	buf = ltab(indent) || '----';
+	call output_line(buf);
+
+	call output_item_list(
+	    rec_ctx_rep_spec,	/* context where item list appears */
+	    base_offset,		/* of start current record within 
+					 * containing record
+					 */
+	    filler_count,		/* in/out - # of fillers for type */
+	    indent,			/* leading indent */
+	    true,			/* output as a comment */
+	    adarecp->overlap1_startp, 	/* startp */
+	    adarecp->overlap1_stopp);	/* stopp */
+
+	call output_item_list(
+	    rec_ctx_rep_spec,	/* context where item list appears */
+	    base_offset,		/* of start current record within 
+					 * containing record
+					 */
+	    filler_count,		/* in/out - # of fillers for type */
+	    indent,			/* leading indent */
+	    true,			/* output as a comment */
+	    adarecp->overlap2_startp, 	/* startp */
+	    adarecp->overlap2_stopp);	/* stopp */
+
+	/* Always skip a line after overlapping components.
+	 */
+	call skip_line;
+
+	end;
+
+end output_record_rep_spec_comp;
+
+    /*<ff>*/
+
+output_subprog_decl : procedure(
+    entryp, is_func, adaparmp_vec, max_parm, num_parm);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Output a single subprogram declaration
+ *
+ * FORMAL PARAMETERS:
+ *
+ */
+
+    dcl entryp ptr;
+    dcl is_func bit;
+    dcl adaparmp_vec(*) ptr;
+    dcl (max_parm, num_parm) fixed bin;
+    dcl (i, pcount) fixed bin;
+    dcl adaparmp ptr;
+    dcl buf char(vsize) var;
+
+    call skip_line;
+    buf = ltab(1) || 'procedure ' || name_of_int_subprog(entryp);
+
+    if num_parm = 0 then do;
+
+	call output_line(buf || ';');
+
+	return;
+	end;
+
+    call output_line(buf || ' (');
+
+    /* Output formals
+     */
+    pcount = 0;
+    do i = 1 to max_parm;
+
+	adaparmp = adaparmp_vec(i);
+	if ^adaparmp->ignore then do;
+
+	    pcount = pcount + 1;
+
+	    buf = ltab(formal_indent) || adaparmp->formal_name_text;
+	    call align(buf, formal_indent, nom_formal_width);
+	    buf = buf || ': ';
+
+	    if adaparmp->overload then do;
+
+		/* Have to overload type ADDRESS with another type
+		*/
+		if adaparmp->type_text = 'ADDRESS' then do;
+
+		    buf = buf || 'in  UNSIGNED_LONGWORD';
+		    call align(
+			buf, 
+			formal_indent, 
+			nom_formal_width + nom_formal_type_width);
+		    buf = buf || ':= 0';
+
+		    end;
+		else do;
+
+		    buf = buf || 'in  ADDRESS';
+		    call align(
+			buf, 
+			formal_indent, 
+			nom_formal_width + nom_formal_type_width);
+		    buf = buf || ':= ADDRESS_ZERO';
+
+		    end;
+
+		if pcount = num_parm then 
+		    buf = buf || ');' ;
+		else
+		    buf = buf || ';' ;
+
+		call align(buf, 0, nom_pre_comment_width);
+		buf = buf || '-- To omit optional ' || 
+		    adaparmp->formal_name_text || ' argument' ;
+
+		end;
+	    else do;
+
+		if adaparmp->mode = mode_in then 
+		    buf = buf || 'in  ';
+		else if adaparmp->mode = mode_in_out then 
+		    buf = buf || 'in out ';
+		else 
+		    buf = buf || 'out ';
+    
+		buf = buf || adaparmp->type_text;
+
+		if adaparmp->default_text ^= '' then do;
+
+		    call align(
+			buf, 
+			formal_indent, 
+			nom_formal_width + nom_formal_type_width);
+		    buf = buf || ':= ' || adaparmp->default_text;
+
+		    end;
+
+		if pcount = num_parm then 
+		    buf = buf || ');' ;
+		else
+		    buf = buf || ';' ;
+
+		if (i = 1) & is_func then do;
+
+		    call align(buf, 0, nom_pre_comment_width);
+		    buf = buf || '-- return value';
+
+		    end;
+
+		end;
+
+	    call output_line(buf);
+
+	    end;
+	end;
+
+end output_subprog_decl;
+
+    /*<ff>*/
+
+output_subprog_import : procedure(
+	entryp, is_func, adaparmp_vec, max_parm, num_parm);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Output a single subprogram declaration
+ *
+ * FORMAL PARAMETERS:
+ *
+ */
+
+    dcl entryp ptr;
+    dcl is_func bit;
+    dcl adaparmp_vec(*) ptr;
+    dcl (max_parm, num_parm) fixed bin;
+    dcl (i, pcount, temp_parm_counter) fixed bin;
+    dcl (adaparmp, temp_parmp) ptr;
+    dcl buf char(vsize) var;
+    dcl trailing_optional bit;
+    dcl found_first_opt_parm bit init('0'b);
+    dcl first_opt_text char(75) var;
+
+    call skip_line;
+    buf = ltab(1) || 'pragma IMPORT_';
+    if is_func then buf = buf || 'VALUED_';
+    buf = buf || 'PROCEDURE (' || name_of_int_subprog(entryp) ||
+
+/*jg	', "' || entryp->nod$t_name || '",' ; */
+	', "' || entryp->nod$t_name || '"' ;
+
+    if num_parm = 0 then do;
+
+/*jg	call output_line(buf || ' (null));');	*/
+
+	call output_line(buf || ');');		/* jg - (null) not required */
+
+	return;
+	end;
+
+/*jg    call output_line(buf);	*/
+    call output_line(buf || ',');
+
+    /* Output parameter types
+     */
+    buf = ltab(formal_indent) || '(' ;
+    pcount = 0;
+    do i = 1 to max_parm;
+
+	adaparmp = adaparmp_vec(i);
+	if ^adaparmp->ignore then do;
+
+	    pcount = pcount + 1;
+
+	    if adaparmp->overload then do;
+
+		/* Have to overload type ADDRESS with another type
+		*/
+		if adaparmp->type_text = 'ADDRESS' then
+		    buf = buf || 'UNSIGNED_LONGWORD';
+		else
+		    buf = buf || 'ADDRESS';
+
+		end;
+	    else
+		buf = buf || adaparmp->type_text;    
+
+	    if pcount = num_parm then 
+		buf = buf || '),' ;
+	    else
+		buf = buf || ', ' ;
+
+	    end;
+	end;
+
+	call output_line(buf);
+
+    /* Output mechanisms
+     */
+    buf = ltab(formal_indent) || '(' ;
+    pcount = 0;
+    do i = 1 to max_parm;
+
+	adaparmp = adaparmp_vec(i);
+	if ^adaparmp->ignore then do;
+
+	    pcount = pcount + 1;
+
+	    if adaparmp->overload then
+		buf = buf || 'VALUE';
+	    else if adaparmp->mech = mech_value then
+		buf = buf || 'VALUE';
+	    else if adaparmp->mech = mech_ref then
+		buf = buf || 'REFERENCE';
+	    else if adaparmp->mech = mech_desc then do;
+		if adaparmp->nodep->nod$w_datatype = typ$k_char then
+		    buf = buf || 'DESCRIPTOR(S)';
+		else
+		    buf = buf || 'DESCRIPTOR';
+	        end;
+	    else if adaparmp->mech = mech_rtl_str_desc then
+		buf = buf || 'DESCRIPTOR(SB)';
+
+	    if adaparmp->is_optional & (^found_first_opt_parm) & (^(adaparmp->requires_overloading & (^adaparmp->overload)))
+	    then do;
+	       /*
+		* FIRST_OPTIONAL_PARAMETER must be a *trailing* optional.
+		*/
+		temp_parm_counter = i + 1;
+		trailing_optional = true;
+		do while (trailing_optional &: (temp_parm_counter <= max_parm));
+		    temp_parmp = adaparmp_vec(temp_parm_counter);
+		    if (^temp_parmp->is_optional) | (temp_parmp->requires_overloading & (^temp_parmp->overload)) then
+			trailing_optional = false;
+		    temp_parm_counter = temp_parm_counter + 1;
+		    end;
+		if trailing_optional then do;
+		    found_first_opt_parm = true;
+		    first_opt_text = ' ' || adaparmp->formal_name_text || ');';
+		    end;
+	    end;
+
+	    if pcount = num_parm then 
+		buf = buf || ')' ; 
+	    else
+		buf = buf || ', ' ;
+
+	    end;
+	end;
+
+	if( found_first_opt_parm )
+	then do;
+	    call output_line( buf || ',' );       /* put out the mechanisms   */
+	    buf = ltab(formal_indent) || first_opt_text;
+	    call output_line( buf );   /* FIRST_OPTIONAL_PARAMETER */
+	end;
+	else
+	    call output_line( buf || ');' );
+
+	call skip_line;
+
+end output_subprog_import;
+
+    /*<ff>*/
+
+output_variant : procedure(
+    adarecp, base_offset, filler_count, indent, context);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ */
+
+
+    dcl adarecp ptr;
+    dcl (base_offset, filler_count, indent) fixed bin;
+    dcl context fixed bin;
+    dcl (p, headp) ptr;
+    dcl choice_name char(nsize) var;
+    dcl (start, end) fixed bin;
+    dcl (startp, stopp) ptr;
+    dcl buf char(vsize) var;
+    dcl unionp ptr;
+
+    call assert(adarecp->nod$b_type = special_nod$k_adarec,
+	adarecp,
+	'[output_variant #1]');
+
+    unionp = adarecp->variantp;
+    call assert(unionp->nod$w_datatype = typ$k_union,
+	adarecp,
+	'[output_variant #2]');
+
+    buf = ltab(indent);
+
+    if (context = rec_ctx_type) | (context = rec_ctx_rep_spec)
+    then do;
+
+	if context = rec_ctx_rep_spec then buf = buf || '--';
+	buf = buf || 'case ' || 
+	    name_of_item(adarecp->discrimp) || ' is' ;
+	call output_line(buf);
+
+	end;
+
+    headp = unionp->nod$a_child;
+    p = headp->nod$a_flink;
+    do while (p ^= headp);
+
+	if p->nod$b_type = nod$k_commnode then
+	    call output_eol_comment(p);
+	else if p->nod$b_type = nod$k_itemnode then do;
+
+	    /* Determine choice name
+	     */
+	    choice_name = 'CHOICE_NOT_SPECIFIED';
+
+	    start = index(p->nod$a_comment->based_string, 'WHEN(');
+	    if (start = 0) & (context = rec_ctx_type) then
+		call report_error(p, 'Missing "WHEN(" for case alternative');
+	    else do;
+    
+		start = start + 5;	/* len('WHEN(') = 5 */
+		end = index(p->nod$a_comment->based_string, ')');
+	        if (end = 0) & (context = rec_ctx_type) then do;
+    
+		    call report_error(p, 'Missing ")" following "WHEN("');
+		    end = length(p->nod$a_comment->based_string);
+    
+		    end;
+    
+		choice_name = 
+		    ada_name(
+			p,
+		        substr(
+			    p->nod$a_comment->based_string, 
+			    start, 
+			    end - start));
+    
+		end;
+
+	    buf = ltab(indent+1);
+	    if context = rec_ctx_rep_spec then buf = buf || '--';
+	    call output_line(buf || 'when ' || choice_name || ' =>' );
+
+	    /* If this item is a structure, use the components of
+	     * the structure as the components of this case alternative.
+	     * Otherwise, output a single component.
+	     */
+	    if p->nod$w_datatype = typ$k_structure then do;
+
+		stopp = p->nod$a_child;
+		startp = stopp->nod$a_flink;
+
+		end;
+	    else do;
+
+		startp = p;
+		stopp = p->nod$a_flink;
+
+		end;
+
+	    call output_item_list(
+		context,		/* context where item list appears */
+		base_offset, 		/* for rep specs */
+		filler_count,		/* in/out - # fillers for this type */
+		indent + 2,		/* leading indent */
+		false,			/* don't output as a comment */
+		startp, 		/* startp */
+		stopp);			/* stopp */
+
+	    end;
+
+	p = p->nod$a_flink;
+	end;
+
+    if context ^= rec_ctx_rep_spec then do;
+
+	call output_line(ltab(indent+1) || 'when others =>');
+	call output_line(ltab(indent+2) || 'null;');
+
+	end;
+
+    buf = ltab(indent);
+
+    if (context = rec_ctx_type) | (context = rec_ctx_rep_spec)
+    then do;
+
+	if context = rec_ctx_rep_spec then buf = buf || '--';
+	call output_line(buf || 'end case;');
+
+	end;
+
+end output_variant;
+
+    /*<ff>*/
+
+remove_default_from_comment : procedure (p) returns (char(vsize) var);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ */
+
+    dcl p ptr;
+    dcl def_text char(vsize) var;
+    dcl (start, rp_pos) fixed bin;
+
+    def_text = '';
+    if p->nod$a_comment = null() then return (def_text);
+
+    start = index(p->nod$a_comment->based_string, 'DEFAULT(');
+    if start = 0 then return (def_text);
+    start = start + 8;		/* length('DEFAULT(') = 8 */
+
+    rp_pos = index(p->nod$a_comment->based_string, ')');
+    if rp_pos <= start then do;
+
+	call report_error(p, 'Missing ")" after "DEFAULT("');
+
+	return (def_text);
+	end;
+
+    def_text = substr(p->nod$a_comment->based_string, start, rp_pos - start);
+    p->nod$a_comment->based_string = 
+	substr(
+	    p->nod$a_comment->based_string, 
+	    rp_pos + 1, 
+	    length(p->nod$a_comment->based_string) - rp_pos);
+
+    return (def_text);
+
+end remove_default_from_comment;
+
+    /*<ff>*/
+
+report_error : procedure(p, text);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Outputs a message for errors.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		in : node
+ *
+ *	text		in : commentary
+ *
+ */
+
+    dcl p ptr;
+    dcl text char(vsize) varying;
+    dcl line char(vsize) var;
+
+    line = '--***ERROR:  ' || text_for_node(p) || text;
+    call output_line(line);
+    put skip edit (line) (a);
+
+end report_error;
+
+    /*<ff>*/
+
+report_info : procedure(p, text);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Outputs a message when an interested event occurs
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		in : node
+ *
+ *	text		in : commentary
+ *
+ */
+
+    dcl p ptr;
+    dcl text char(vsize) varying;
+    dcl line char(vsize) var;
+
+    line = '--***INFO:  ' || text_for_node(p) || text;
+    call output_line(line);
+    put skip edit (line) (a);
+
+end report_info;
+
+    /*<ff>*/
+
+report_nyi : procedure(p, text);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Outputs a NYI message
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		in : node
+ *
+ *	text		in : commentary
+ *
+ */
+
+    dcl p ptr;
+    dcl text char(vsize) varying;
+    dcl line char(vsize) var;
+
+    line = '--***NYI:  ' || text_for_node(p) || text;
+    call output_line(line);
+    put skip edit (line) (a);
+
+end report_nyi;
+
+    /*<ff>*/
+
+rep_spec_info : procedure (itemp, base_offset, offset, from, to);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ *
+ */
+
+    dcl itemp ptr;
+    dcl base_offset fixed bin;
+    dcl (offset, from, to, adjust) fixed bin;
+
+    /* SDL Note:  aggregate members can not be of datatype typ$k_boolean.
+     * If they could this routine would have to change since fields are
+     * not set the same for this data type.
+     */
+    call assert(itemp->nod$b_type = nod$k_itemnode,
+	itemp,
+	'[rep_spec_info #1]');
+
+    offset = itemp->nod$l_offset - base_offset;	
+
+    if itemp->nod$w_datatype = typ$k_vield  
+    then do;
+	from = itemp->nod$l_typeinfo2;
+	to = from + itemp->nod$l_typeinfo - 1;
+	end;
+    else 
+    /* if this is VARYING CHARACTER string, then don't use the
+	nod$l_fldsiz value since it already contains the two byte length
+	field. */
+    if (itemp->nod$w_datatype = typ$k_char & itemp->nod$v_varying)
+    then do;
+	from = 0;
+	to = itemp->nod$l_typeinfo*8 - 1;
+    end;
+    else do;
+	from = 0;
+	to = itemp->nod$l_fldsiz*8 - 1;
+	end;
+
+    /* Adjust the offset so that the "from" value is < 8 to correspond
+     * to what the Ada compiler does.
+     */
+    adjust = from/8;
+    offset = offset + adjust;
+    from = from - adjust*8;
+    to = to - adjust*8;
+
+end rep_spec_info;
+
+    /*<ff>*/
+
+skip_line : procedure;
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Skip a line
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	NONE
+ */
+
+    blank_line_pending = true;
+
+end skip_line;
+
+    /*<ff>*/
+
+structure_to_adarec : procedure(structurep) returns (ptr);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ * FORMAL PARAMETERS:
+ *
+ * ROUTINE VALUE:
+ *
+ *	Returns a pointer to an adarec structure.
+ */
+
+    dcl structurep ptr;
+    dcl adarecp ptr;
+    dcl (headp, first_compp, last_compp) ptr;
+
+    /* Allocate the Ada record node
+     *
+     */
+    adarecp = alloc_adarec();
+    /* Find the first and last items
+     */
+    headp = structurep->nod$a_child;
+    first_compp = headp->nod$a_flink;
+    do while (
+	    first_compp ^= headp & first_compp->nod$b_type ^= nod$k_itemnode);
+	first_compp = first_compp->nod$a_flink;
+	end;
+    last_compp = headp->nod$a_blink;
+    do while (
+	    last_compp ^= headp & last_compp->nod$b_type ^= nod$k_itemnode);
+	last_compp = last_compp->nod$a_blink;
+	end;
+
+    /* Fill in the fields in the Ada record node
+     */
+    adarecp->item_type_namep = structurep;
+    if has_valid_discrim() then do;	/* see next page */
+
+	adarecp->discrimp = first_compp;
+	adarecp->comp_startp = first_compp->nod$a_flink;
+	adarecp->comp_stopp = last_compp;
+	adarecp->variantp = last_compp;
+
+	end;
+    else do;
+
+	adarecp->comp_startp = headp->nod$a_flink;
+	adarecp->comp_stopp = headp;
+
+	end;
+    return (adarecp);
+
+    /*<ff>*/
+
+    has_valid_discrim : procedure returns (bit);
+
+    /*
+     * FUNCTIONAL DESCRIPTION:
+     *
+     * 	Nested routine within structure_to_adarec.
+     *
+     * Check if this is a parameterized record (one with a discriminant)
+     * The format of the comment for such records is
+     *
+     *		/* DISCRIM(name:type-name)
+     *
+     * The name given must be the same as the first member of the
+     * structure, and the last member must be a union, which is
+     * treated as the variant (case).   The members of the variant
+     * should all have a comment of the form
+     *
+     *		/* WHEN(choice-name)
+     *
+     * FORMAL PARAMETERS:
+     *
+     *	none
+     *
+     * IMPLICIT PARAMETERS (in structure_to_adarec):
+     *
+     *	adarecp, headp, first_compp, last_compp
+     *
+     */
+
+    dcl buf char(vsize) var;
+    dcl (start, colon_pos, right_paren_pos) fixed bin;
+    dcl commentp ptr;
+
+    /* A comment on the same line as the structure is stored in
+     * a comment node as the first child.
+     */
+    commentp = headp->nod$a_flink;
+    if commentp->nod$b_type ^= nod$k_commnode then return (false);
+    if commentp->nod$a_comment = null() then return (false);
+
+    /* Check for "DISCRIM("
+     */
+    buf = commentp->nod$a_comment->based_string;
+    start = index(buf, 'DISCRIM(');
+    if start = 0 then return (false);
+
+    /* Get rid of everything up to the first character after the "("
+     */
+    start = start + 8;		/* len('DISCRIM(') = 8 */
+    buf = substr(buf, start, length(buf) + 1 - start);
+
+    /* Find the discriminant name and check that it is the same
+     * as the naked name for the component of the structure.
+     */
+    colon_pos = index(buf, ':');
+    if colon_pos = 0 then do;
+
+	call report_error(
+	    structurep,
+	    'Missing ":" following "DISCRIM("');
+
+	return (false);
+	end;
+
+    if  substr(buf, 1, colon_pos - 1) ^=
+	first_compp->nod$t_naked
+    then do;
+
+	call report_error(
+	    structurep,
+	    'Discriminant name must be ' || 
+		first_compp->nod$t_naked || ' (first component name)');
+
+	return (false);
+	end;
+
+    /* Check that the first component is not a union or structure
+     */
+    if  first_compp->nod$w_datatype = typ$k_union |
+	first_compp->nod$w_datatype = typ$k_structure
+    then do;
+
+	call report_error(
+	    structurep,
+	    'First component of record with discriminant must not ' ||
+		'be a union or structure');
+
+	return (false);
+	end;
+
+    /* Check that the last component is a union
+     */
+    if last_compp->nod$w_datatype ^= typ$k_union
+    then do;
+
+	call report_error(
+	    structurep,
+	    'Last component of record with discriminant must be a union');
+
+	return (false);
+	end;
+
+    /* Set the discriminant type name in the adarec.  First get rid
+     * of everything up to the first character after the ":"
+     */
+    buf = substr(buf, colon_pos + 1, length(buf) - colon_pos);
+    right_paren_pos = index(buf, ')');
+    if right_paren_pos = 0 then do;
+
+	call report_error(
+	    structurep,
+	    'Missing ")" following "DISCRIM(name:type-name"');
+
+	return (false);
+	end;
+
+    adarecp->discrim_type = substr(buf, 1, right_paren_pos - 1);
+
+    return (true);
+
+    end has_valid_discrim;
+
+end structure_to_adarec;
+ 
+    /*<ff>*/
+
+text_for_node : procedure(p) returns(char(vsize) var);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Returns textual representation for a node.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	p		in : node
+ */
+
+    dcl p ptr;
+
+    if p = null() then return ('');
+
+    if p->nod$b_type = special_nod$k_adarec then
+	return (text_for_node(p->item_type_namep));
+
+    if p->nod$b_type = special_nod$k_adaparm then
+	return (p->formal_name_text);
+
+    if p->nod$b_type ^= nod$k_itemnode then return ('');
+
+    return (' (' || p->nod$t_naked || 
+	text_for_node(p->nod$a_parent) || ') ');
+
+end text_for_node;
+
+    /*<ff>*/
+
+tick_size : procedure (itemp) returns (fixed bin);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Returns the size (in bits) of an item.
+ *
+ * FORMAL PARAMETERS:
+ *
+ *	NONE
+ */
+
+    dcl itemp ptr;
+    dcl dimens fixed bin;
+
+    call assert(
+	itemp->nod$b_type = nod$k_itemnode |
+	    itemp->nod$b_type = nod$k_entrynode |
+	    itemp->nod$b_type = nod$k_parmnode,
+	itemp,
+	'[TICK_SIZE #1]');
+
+    /* SDL Note:  Aren't supposed to be able to specify a dimension
+     * for datatype boolean.
+     */
+    if itemp->nod$w_datatype = typ$k_boolean then
+	return (1);
+
+    /* if this is a dimensioned structure or array, the size of a single 
+	element is what we want...not the size of the whole array. */
+    else if (itemp->nod$w_datatype = typ$k_structure | 
+	    itemp->nod$w_datatype = typ$k_union) &
+	    itemp->nod$v_dimen 
+    then do;
+	dimens = itemp->nod$l_hidim - itemp->nod$l_lodim + 1 ;
+	return(((itemp->nod$l_fldsiz)/dimens)*8);
+    end;
+
+    else if (itemp->nod$w_datatype = typ$k_structure | 
+	    itemp->nod$w_datatype = typ$k_union)
+    then do;
+	return((itemp->nod$l_fldsiz)*8);
+    end;
+   
+    else if itemp->nod$w_datatype = typ$k_vield then
+	if itemp->nod$v_dimen then
+	    return (itemp->nod$l_fldsiz);
+	else
+	    return (itemp->nod$l_typeinfo);
+
+    else if itemp->nod$w_datatype = typ$k_char &
+	    itemp->nod$v_varying
+	then return (itemp->nod$l_typeinfo*8);
+    else
+	return (itemp->nod$l_fldsiz*8);
+
+end tick_size;
+
+    /*<ff>*/
+
+try_mod_structure_size : procedure (structurep, desired_size);
+
+/* FUNCTIONAL DESCRIPTION:
+ *
+ *	Try to make the structure size the same as the union
+ *	size if is isn't already by increasing the size of
+ * 	any fillers at the end
+ */
+
+    dcl structurep ptr;
+    dcl desired_size fixed bin;
+    dcl (structure_headp, p, lastp) ptr;
+    dcl (added_fill_size, last_size, total_size) fixed bin;
+
+    call assert(
+	structurep->nod$b_type = nod$k_itemnode &
+	    structurep->nod$w_datatype = typ$k_structure,
+	structurep,
+	'[TRY_MOD_STRUCTURE_SIZE #1]');
+
+    if tick_size(structurep) = desired_size then return;
+
+    structure_headp = structurep->nod$a_child;
+    total_size = 0;
+
+    p = structure_headp->nod$a_flink;
+    do while (p ^= structure_headp);
+
+	if p->nod$b_type = nod$k_itemnode then do;
+
+	    lastp = p;
+	    last_size = tick_size(p);
+	    total_size = total_size + last_size;
+
+	    end;
+
+	p = p->nod$a_flink;
+	end;
+
+    /*  If the last item is a filler,
+     *      the total size of the structure is less than the desired size,
+     *      the last item is a bit field, and
+     *      is not an array, 
+     *	then modify the filler so that the structure is the desired size.
+     */
+    if  (item_is_filler(lastp)) &
+	(total_size < desired_size) &
+	(lastp->nod$w_datatype = typ$k_vield) &
+	(^lastp->nod$v_dimen)
+    then do;
+
+	added_fill_size = desired_size - (total_size - last_size);
+	lastp->nod$l_typeinfo = added_fill_size;	/* size in bits */
+	lastp->nod$l_fldsiz = added_fill_size;		/* size in bits */
+	structurep->nod$l_fldsiz = desired_size/8;	/* size in bytes */
+	end;
+
+    return;
+
+end try_mod_structure_size;
+
+    /*<ff>*/
+
+type_from_comment : procedure (p) returns (char(vsize) var);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+	This routine used to extract the type name from comments
+    that look like '/* TYPE(' but was changed when the nod$t_typename
+    field was added to the sdl nodes.
+
+ * FORMAL PARAMETERS:
+ *
+ */
+
+    dcl p ptr;
+    dcl type_name char(vsize) var;
+    dcl (start, rp_pos) fixed bin;
+
+    type_name = '';
+    if p->nod$t_typename = '' 
+    then 
+	return (type_name);
+    else do;
+	type_name = p->nod$t_name;
+	return (type_name);
+    end;
+
+end type_from_comment;
+
+    /*<ff>*/
+
+union_to_adarec : procedure(unionp) returns (ptr);
+
+/*
+ * FUNCTIONAL DESCRIPTION:
+ *
+ *	Determines the record type to be generated for a union.
+ *
+ *	temp ** - doc needs to be updated. (Note that also handle
+ *	a single element that is a structure.)
+ *
+ *	If the union is of the following form it is treated as a record
+ *	type:
+ *
+ *	    A ... union;
+ *		ITEM_1 ...;		/* First member is not a union or a 
+ *						structure and
+ *					     the size of the first member is 
+ *					     	the same as the size of the 
+ *						union and
+ *		ITEM_2 structure ...;	/* Second member is a structure and
+ *					     the size of the first member is
+ *					     	the same as the size of the 
+ *						union.  (Needed so size based
+ *						on structure components is
+ *						correct.)
+ *		    I_2_A ...;
+ *		    I_2_B ...;
+ *		    ...
+ *		end ITEM_2;
+ *		ITEM_3 ...;
+ *		...
+ *	    end A;
+ *
+ *	Otherwise the union is ignored and only the first member
+ *	is used.
+ *
+ *	Example 1 - Criteria are satisfied:
+ *	---------
+ *
+ *	    aggregate X prefix XXX$;
+ *		X_1 longword unsigned;
+ *		X_2_OVERLAY union;
+ *		    X_2 longword unsigned;
+ *		    X_2_FIELDS structure;
+ *			X_2_B_1 byte unsigned;
+ *			X_2_B_2 byte unsigned;
+ *		    end X_2_B;
+ *		    X_2_C word unsigned;
+ *		    X_2_D structure;
+ *			X_2_D_1 bitfield(3);
+ *			X_2_D_2 bitfield;
+ *		    end X_2_D;
+ *		end X_2_OVERLAY;
+ *	    end X;
+ *
+ *	The X_2_OVERLAY union in this example statisfies the criteria above
+ *	and would be treated as a record declaration.  Something like
+ *	the following would be generated:
+ *
+ *	    type XXX_X_2_TYPE is record
+ *		X_2_B_1 : BYTE;
+ *		X_2_B_2 : BYTE;
+ *		end record;
+ *
+ *	    type XXX_X_2_D_TYPE is record
+ *	        X_2_D_1 : FLAGS(1 .. 3);
+ *		X_2_D_2 : BOOLEAN;
+ *		end record;
+ *
+ *	    type XXX_TYPE is record
+ *		X_1 : LONGWORD;
+ *		X_2 : XXX_X_2_TYPE;
+ *
+ *	    ----X_2_C overlaps X_2
+ *	    ----
+ *	    ----X_2_C : UNSIGNED_16;
+ *
+ *	    ----X_2_D overlaps X_2
+ *	    ----
+ *	    ----X_2_D : XXX_X_2_D_TYPE;
+ *
+ *		end record;
+ *	    
+ *
+ *	Example 2 - Criteria are not satisfied
+ *	---------
+ *
+ *	    aggregate Y prefix YYY$;
+ *		Y_1 longword unsigned;
+ *		Y_2_OVERLAY union;
+ *		    Y_2_A byte unsigned;
+ *		    Y_2_B byte unsigned;
+ *		end Y_2_OVERLAY;
+ *	    end Y;
+ *
+ *	In this example the second member is not a structure.  The
+ *	following would be generated:
+ *
+ *	    type YYY_TYPE is record
+ *		Y_1 : LONGWORD;
+ *		Y_2_A : BYTE;
+ *
+ *	    ----Y_2_B overlaps Y_2_A
+ *	    ----
+ *	    ----Y_2_B : BYTE;
+ *
+ *	 	end record;
+ * 
+ * FORMAL PARAMETERS:
+ *
+ *
+ */
+
+    dcl unionp ptr;
+    dcl (union_headp, p, tempp) ptr;
+    %replace max_items by 3;
+    dcl items(max_items) ptr init ((3) null());
+    dcl item_count fixed bin;
+    dcl union_size fixed bin;
+    dcl adarecp ptr;
+    dcl (first_maxp, first_max_non_aggrp) ptr;
+    dcl can_combine bit;
+
+    call assert(unionp->nod$b_type = nod$k_itemnode & 
+	    unionp->nod$w_datatype = typ$k_union,
+	unionp,
+	'[union_to_adarec #1]');
+
+    /* Allocate the Ada record node
+     *
+     */
+    adarecp = alloc_adarec();
+    /* Collect some data
+     */
+    union_headp = unionp->nod$a_child;
+    union_size = tick_size(unionp) ;
+    first_maxp = null();
+    first_max_non_aggrp = null();
+    items(1) = union_headp;
+    items(2) = union_headp;
+    items(3) = union_headp;
+    item_count = 0;
+    p = union_headp->nod$a_flink;
+
+    do while (p ^= union_headp);
+
+	if p->nod$b_type = nod$k_itemnode then do;
+
+	    item_count = item_count + 1;
+	    if item_count <= max_items then items(item_count) = p;
+
+	    if (first_maxp = null()) & (tick_size(p) = union_size) then
+		first_maxp = p;
+
+	    if  (first_max_non_aggrp = null()) & 
+		(p->nod$w_datatype ^= typ$k_structure) &
+		(p->nod$w_datatype ^= typ$k_union) &
+		(tick_size(p) = union_size)
+	    then
+		first_max_non_aggrp = p;
+
+	    end;
+
+	p = p->nod$a_flink;
+	end;
+
+    /* If can't combine the union and an aggregate underneath, prefer 
+     * put a non-aggregate in the containing record.
+     */
+    if first_max_non_aggrp ^= null() then first_maxp = first_max_non_aggrp;
+
+    call assert(first_maxp ^= null(),
+	unionp,
+	'[union_to_adarec #2]');
+
+    can_combine = false;
+
+    if item_count = 1 then do;
+
+	if  (items(1)->nod$w_datatype = typ$k_structure) &
+	    (tick_size(items(1)) = union_size)
+	then
+	    can_combine = true;
+
+	end;
+    else if item_count >= 2 then do;
+
+	if  (items(1)->nod$w_datatype ^= typ$k_structure) &
+	    (items(1)->nod$w_datatype ^= typ$k_union) &
+	    (tick_size(items(1)) = union_size) &
+/**	    (items(1)->nod$v_unsigned) &			**/
+	    (items(2)->nod$w_datatype = typ$k_structure) 
+	then do;
+
+	    /* Try to make the structure size the same as the union
+	     * size if is isn't already by increasing the size of
+	     * an fillers at the end
+	     */
+	    call try_mod_structure_size(items(2), union_size);
+	    if tick_size(items(2)) = union_size then
+		can_combine = true;
+
+	    end;
+	end;
+
+    if can_combine then do;
+	/* Can combine the union, the first member, and the second
+	 * member (a structure) into a record type.  The first
+	 * member defines the record type name and size.  The
+	 * components of second member are the components of the
+	 * record.
+	 *
+	 * or can combine a single element which is a structure.
+	 * (in this case use the union name as the type name)
+	 */
+	if item_count = 1 then do;
+
+	    adarecp->item_type_namep = unionp;
+	    tempp = get_aggregate_address(items(1));
+	    adarecp->comp_stopp = tempp->nod$a_child;
+	    adarecp->comp_startp = adarecp->comp_stopp->nod$a_flink;
+
+	    end;
+	else do;
+
+	    adarecp->item_type_namep = items(1);
+	    tempp = get_aggregate_address(items(2));
+	    adarecp->comp_stopp = tempp->nod$a_child;
+	    adarecp->comp_startp = adarecp->comp_stopp->nod$a_flink;
+	    adarecp->overlap1_startp = items(3);
+	    adarecp->overlap1_stopp = union_headp;
+
+	    end;
+	end;
+    else do;
+
+	adarecp->item_type_namep = unionp;
+	adarecp->overlap1_startp = items(1);
+	adarecp->overlap1_stopp = first_maxp;
+
+	/* If the member used is a structure, collapse the union and
+	 * the structure by making the children of the structure the
+	 * record components.
+	 */
+	if first_maxp->nod$w_datatype = typ$k_structure then do;
+
+	    tempp = get_aggregate_address(first_maxp);
+	    adarecp->comp_stopp = tempp->nod$a_child;
+	    adarecp->comp_startp = adarecp->comp_stopp->nod$a_flink;
+
+	    end;
+	else do;
+
+	    adarecp->comp_startp = first_maxp;
+	    adarecp->comp_stopp = first_maxp->nod$a_flink;
+
+	    end;
+
+	adarecp->overlap2_startp = first_maxp->nod$a_flink;
+	adarecp->overlap2_stopp = union_headp;
+
+	/* If we end up with a single record component and it is
+	 * not a structure or union, then don't generate a record
+	 * type: output the record components as components of the
+	 * containing structure instead unless there is no containing
+	 * structure.
+	 */
+	if  adarecp->comp_startp->nod$a_flink = adarecp->comp_stopp &
+	    adarecp->comp_startp->nod$b_type ^= typ$k_structure &
+	    adarecp->comp_startp->nod$b_type ^= typ$k_union &
+	    adarecp->item_type_namep->nod$l_offset ^= 0
+	then
+	    adarecp->generate_record_type = false;
+	end;
+    return (adarecp);
+
+end union_to_adarec;
+
+end sdl$output;

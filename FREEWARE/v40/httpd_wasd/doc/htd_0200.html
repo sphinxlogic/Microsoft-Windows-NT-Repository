@@ -1,0 +1,465 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.7.0">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.HTD]HTD.SDML">
+<META NAME="date" CONTENT="Tue, 08 Sep 1998 10:04:11">
+<!--
+WASD (HFRD) VMS Hypertext Services, Copyright (c) 1996-1998 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>HyperText Transport Protocol Daemon - Overview</TITLE>
+</HEAD>
+<BODY>
+<H1>WASD Hypertext Services - Technical Overview</H1>
+[<A HREF="HTD_0300.HTML" TARGET="_self">next</A>] [<A HREF="HTD_0100.HTML" TARGET="_self">previous</A>] [<A HREF="HTD_0001.HTML"TARGET="_top" >contents</A>] [<A HREF="HTD_0200.HTML"TARGET="_top" >full-page</A>]
+<HR>
+
+<A NAME="15">
+<H1>2 - HyperText Transport Protocol Daemon - Overview</H1>
+</A>
+
+<P>
+ The most fundamental component of the WASD VMS Hypertext Services 
+environment is the <B>HTTPd</B>, or HyperText Protocol Transport
+Daemon, or HTTP server.  It has a single-process, multi-threaded, asynchronous
+I/O design.
+
+<A NAME="16">
+<H2><BR><U>2.1 - Server Features</U></H2>
+</A>
+
+<P>
+ The package provides a complete implementation of a basic HTTP/1.0 server,
+including: 
+<UL>
+<LI> concurrent, multi-threaded client support
+<P>
+<LI> &quot;DELETE&quot;, &quot;GET&quot;, &quot;HEAD&quot;, &quot;POST&quot; and
+&quot;PUT&quot; HTTP method support
+<P>
+<LI> optional enhanced privacy using Secure Sockets Layer (SSL) technology (USA
+domestic, full-strength encryption)
+<P>
+<LI> &quot;If-Modified-Since:&quot; / &quot;304 Not Modified&quot; functionality 
+(document is only sent if modified since time specified by client)
+<P>
+<LI> HTTP/1.0 de-facto persistent connections (i.e. &quot;Keep-Alive:&quot;,
+reducing the number of TCP/IP connects required)
+<P>
+<LI> versatile directory listing (generic and VMS-style)
+<P>
+<LI> CGI-compliant subprocess scripting
+(with configurable, automatic, MIME content-type initiated activation)
+<P>
+<LI> &quot;CGIplus&quot; scripting
+(offering reduced latency, increased throughput and reduced system impact when
+scripting)
+<P>
+<LI> DECnet-based CGI scripting (with connection reuse)
+<P>
+<LI> user account scripting
+(provided using the DECnet environment)
+<P>
+<LI> OSU (DECthreads server) scripting emulation, with connection reuse
+(as per OSU 3.3a), allowing many OSU scripts to be employed unmodified
+<P>
+<LI> script processor (e.g. PERL) configurable on file type (extension)
+<P>
+<LI> Server-Side Includes (HTML pre-processing)
+<P>
+<LI> configurable cache, with time-based and forced re-validation (reload)
+<P>
+<LI> clickable-image support (both NCSA and CERN formats)
+<P>
+<LI> <I>smart</I> rule mapping (conditional rules)
+<P>
+<LI> &quot;Basic&quot; and &quot;Digest&quot; user authentication and
+path/group-based authorization
+<P>
+<LI> optional SYSUAF-authentication and VMS user security profile based file
+access control
+<P>
+<LI> Web-standard, &quot;common&quot; and &quot;combined&quot; access log formats
+(allowing processing by most log-analysis tools), along with a user-definition
+capability allowing custom log formats
+<P>
+<LI> logging periods, where log files automatically change on a daily,
+weekly or monthly basis (keeps log files ordered and at a managable size)
+<P>
+<LI> host-level access control, on per-host or per-domain acceptance or 
+rejection 
+<P>
+<LI> single server can support multi-homed (host name) and multiple port
+services
+<P>
+<LI> customizable message database
+(capable of supporting non-English and concurrent, multiple languages)
+<P>
+<LI> on-line server configuration, including reports on requests,
+loaded configuration, mapping rules, authorization information and graphical
+activity displays
+</UL>
+ 
+
+<A NAME="17">
+<H2><BR><U>2.2 - Server Behaviour</U></H2>
+</A>
+
+<P>
+ The HTTPd executes permanently on the server host, listening for client
+connection requests on TCP/IP port 80 (by default). It provides concurrent
+services for a (technically) unlimitted number of clients (constrained only by
+the server resources). When a client connects the server performs the
+following tasks: 
+<OL>
+<LI> creates a <I>thread</I> for this request
+<LI> reads and analyzes the HTTP request sent,
+
+<BR> depending on the nature of the request ...
+<UL>
+<LI> transfer of a file (possibly from cache)
+<LI> processing of an SSI HTML file
+<LI> processing of a clickable-image mapping file
+<LI> directory listing
+<LI> file/directory create/update
+<LI> server administration
+<LI> web file-system update
+<LI> interpretation of a menu file
+<LI> spawn a subprocess to to provide a CGI scripting environment:
+<UL>
+<LI> standard CGI
+ 
+<LI> WASD CGIplus
+</UL>
+ 
+<LI> connects to a DECnet object to provide a scripting environment:
+<UL>
+<LI> standard CGI
+ 
+<LI> OSU (DECthreads) emulated
+</UL>
+ 
+</UL>
+ 
+<LI> closes the connection to the client and disposes of the thread data 
+structures 
+</OL>
+
+<P>
+ For I/O intensive activities like file transfer and directory listing, the 
+AST-driven code provides an efficient, multi-threaded environment for the 
+concurrent serving of multiple clients. 
+
+<P>
+ For scripts, the technique of using multi-threaded, concurrent, spawned
+subprocesses or network processes, attached to standard input/output streams,
+provides a versatile, extensible, powerful scripting environment. Any DCL
+procedure or image executing within the process can behave essentially as an
+HTTP server. This capability is employed to easily extend the basic services
+provided by the core daemon code. An HTTP script/server for this environment
+does not need to concern itself with network activities, it merely reads and
+writes from the standard I/O streams. 
+
+<A NAME="18">
+<H2><BR><U>2.3 - TCP/IP Packages</U></H2>
+</A>
+
+<P>
+ The WASD server supports Digital TCP/IP Services (UCX) with a native
+image.
+
+<P>
+ The &quot;UCX&quot; version is also known to work under TCPware
+v5.<I>n</I> (UCX compatibility emulation) from Process Software
+Corporation.
+
+<P>
+ Using the excellent <I>freeware</I> NETLIB package from MadGoat
+Software (Matthew Madison), this server can also (potentially) support
+<UL>
+<LI> Cisco MultiNet for OpenVMS, any version
+<LI> PathWay from Attachmate Inc., any version
+<LI> TCPware from Process Software Corporation, any version
+<LI> CMU TCP/IP (VAX only) v6.5 or later <B>is not supported!</B>
+(too much variation from mainstream IP packages)
+</UL>
+
+<P>
+ NETLIB requires VAX/VMS v5.2 or later, or OpenVMS Alpha v1.5 or later.
+
+<P>
+ NETLIB must be obtained and installed separately. This is not a difficult
+undertaking for there is a familiar VMSINSTAL-driven installation and
+configuration.
+
+<P>
+ The WASD NETLIB support was developed using v2.1, which may be obtained
+from
+
+<BLOCKQUOTE>
+<A TARGET="_top" HREF="http://www.madgoat.com/netlib.html">http://www.madgoat.com/netlib.html</A>
+<P><A TARGET="_top" HREF="ftp://ftp.madgoat.com/madgoat/">ftp://ftp.madgoat.com/madgoat/</A>
+</BLOCKQUOTE>
+
+<P>
+ NETLIB support within the WASD server is tested in-house using the
+Digital TCP/IP Services package.  Other TCP/IP packages may or may not perform
+as tested.
+
+<A NAME="19">
+<H2><BR><U>2.4 - International Features</U></H2>
+</A>
+
+<P>
+ As of version 4.4 the HTTP server has undergone a limited degree of
+<I>internationalization</I>.  The impetus for this development was the use
+of the package in some European countries where English is not the first
+language.
+
+<P>
+ As this was not within the original critera while building the server it
+has meant an extensive rewrite of some functionality within the code (I hope
+it's appreciated ;^) The objective is to provide users of the server with a
+more familiar and therefore more comfortable environment. Unfortunately the
+server administrators are still confronted by an English-language interface
+and documentation, but then the package doesn't pretend to be
+<I>international software</I>!
+
+<A NAME="20">
+<H3>Aspects</H3>
+</A>
+
+<P>
+ The international features only apply to the server, not to scripts!
+<UL>
+<LI><B>Server Messages</B>
+
+<P>
+ The server uses an administrator-customizable database of messages that
+can contain multiple language instances of some or all messages, using the
+Latin-1 character set (ISO8859-1). Although the base English messages can be
+completely changed and/or translated to provide any message text required or
+desired, a more convenient approach is to supplement this base set with a
+language-specific one.
+
+<P>
+ One language is designated the prefered language. This would most commonly
+be the language appropriate to the geographical location and/or clientele of
+the server. Another language is designated the base language. This must have a
+complete set of messages and is a fall-back for any messages not configured
+for the additional language. Of course this base language would most commonly
+be the original English version.
+
+<P>
+ More than just two languages can be supported. If the browser has
+<I>prefered languages</I> set the server will attempt to match a message
+with a language in this preference list. If not, then the server-prefered and
+then the base language message would be issued, in that order. In this way it
+would be possible to simultaneously provide for English, French, German and
+Swedish audiences, just for example.
+
+<P>
+ For message configuration information see <A HREF="htd_0700.html#80" TARGET="_self">7 - Message Configuration</A>.
+<P>
+<LI><B>Server Dates</B>
+
+<P>
+ Dates appearing in server-generated, non-administrative content (e.g.
+directory listings, not META-tags, which use Web-standard time formats) will
+use the natural language specified by any SYS$LANGUAGE environment in use on
+the system or specifically created for the server.
+<P>
+<LI><B>Conditional Rule Mapping</B>
+
+<P>
+ Mapping rules map requested URL paths to physical or other paths (see
+<A HREF="htd_0800.html#84" TARGET="_self">8 - Mapping Rules</A>).  Conditional rules are only applied if the
+request matches criteria such as prefered language, host address (hence
+geographical location to a certain extent), etc.  This allows requests for
+generic documents (e.g. home pages) to be mapped to language versions
+appropriate to the above criteria.
+
+<P>
+ For example, requests originating with a language preference of
+&quot;en, fr&quot; from &quot;.au&quot; can receive an English version, whilst
+requests prefering &quot;de, se, en&quot; from &quot;.de&quot; and &quot;.se&quot;
+receive German and Swedish versions respectively. 
+
+<P>
+ For conditional mapping information see
+<A HREF="htd_0800.html#99" TARGET="_self">8.5 - Conditional Mapping</A>.
+</UL>
+
+<A NAME="21">
+<H2><BR><U>2.5 - HTTP Methods Usage</U></H2>
+</A>
+
+<P>
+ This section describes WASD-specific characteristics of the available
+HTTP/1.0 request methods.
+
+<A NAME="22">
+<H3><BR><U>2.5.1 - GET</U></H3>
+</A>
+
+<P>
+ Of course, the GET method is used to access documents supplied by the
+server.  There is nothing WASD server-specific about this method.
+
+<A NAME="23">
+<H3><BR><U>2.5.2 - POST &amp; PUT</U></H3>
+</A>
+
+<P>
+ The WASD HTTPd does not differentiate between POST and PUT methods, both
+are handled identically.
+
+<A NAME="24">
+<H3>Script Handling</H3>
+</A>
+
+<P>
+ The &quot;normal&quot; usage of the POST method is to return data from a
+&lt;FORM&gt;..&lt;/FORM&gt; construct to a script running on the server.  In
+this regard WASD is no different to other any web server; the form data is
+delivered to the script's standard input as a stream of URL-encoded text.  For
+example:
+
+<PRE>  name=Fred+Nurk&amp;address=Fred%27s+House%0D%0A0+Nowhere+Lane&amp;submit=Submit
+</PRE>
+
+<P>
+ Note that WWW_CONTENT_LENGTH will be the length of the form data.  See
+<A HREF="htd_1200.html#145" TARGET="_self">12 - Scripting</A> for further information.
+
+<A NAME="25">
+<H3>File Creation/Upload</H3>
+</A>
+
+<P>
+ If the client sends data back to the server using either the POST or
+the PUT methods, without a script being mapped to be executed in response to
+that data, the WASD HTTPd will create a file corresponding to the specified
+path.  The data stream may be text or binary.
+
+<P>
+ <B>Of course, for the server to accept POST and PUT data in this
+manner, authentication and authorization must be enabled and allow such access
+to the request path.</B>
+
+<P>
+ The data stream is processed according to MIME content-type:
+<UL>
+<LI><B>application/x-www-form-urlencoded</B>
+
+<P>
+ The server specially processes &quot;application/x-www-form-urlencoded&quot;
+POSTS (i.e. those generated by &lt;FORM&gt;...&lt;/FORM&gt;, allowing files to
+be created directly from HTML forms.  The processing eliminates any field names
+from the URL-encoded data stream, placing only field values into the file. 
+This capability can be quite useful and is demonstrated in the Update HTTPd
+module
+
+(<A TARGET="_top" HREF="/ht_root/src/httpd/upd.c">UPD.C</A>).
+<P>
+<LI><B>multipart/form-data</B>
+
+<P>
+ This server can process a request body according to RFC-1867,
+&quot;Form-based File Upload in HTML&quot;.  As yet it is not a full
+implementation.  It will not process  "multipart/mixed" subsections. The
+implementation is basic, providing a facility to allow the upload of a file
+into the server administered file system.  The ACTION= parameter of the
+&lt;FORM&gt; tag must specify the directory (as a URL path) in which the
+uploaded file will be created.
+
+<P>
+ The following example HTML illustrates how a form may be used to upload a
+file from the browser host file system:
+
+<PRE>  
+  &lt;FORM METHOD=POST ACTION="/web/directory/" ENCTYPE="multipart/form-data"&gt;
+  &lt;INPUT TYPE=submit VALUE=" Upload document ... "&gt;
+  &lt;INPUT TYPE=file SIZE=50 NAME=uploadfile&gt;
+  &lt;/FORM&gt;
+</PRE>
+
+<P> Again, the <B>Upd</B>ate module
+(<A TARGET="_top" HREF="/ht_root/src/httpd/upd.c">UPD.C</A>)
+illustrates the use of this facility.
+<P><FONT SIZE=+1 COLOR="#ff0000"><B><U>NOTE:</U></B></FONT>
+ 
+This capability has only been tested against Netscape Navigator versions 2 and
+3.  VMS Netscape Navigator 3.0b5 hangs if an upload of a variable-record format
+file is attempted.  Stick to STREAM-LF or fixed, or convert the file to 
+STREAM-LF.
+<P>
+<LI><B>text/html</B>
+
+<BR><B>text/plain</B>
+
+<P>
+ Text file created according to the path, VMS record type is STREAM-LF.
+<P>
+<LI><B>image/gif</B>
+
+<BR><B>application/octet-stream</B>
+
+<BR><B>etc., etc., etc.</B>
+
+<P>
+ Any other MIME type is considered <I>binary</I> and the created file
+is made an UNDEFINED record type.
+</UL>
+
+<A NAME="26">
+<H3>Directory Creation</H3>
+</A>
+
+<P>
+ A directory will be created by the HTTPd if a directory path is provided
+with the POST or PUT methods.  For example:
+
+<PRE>  /dir1/dir2/dir-to-be-created/
+</PRE>
+
+<A NAME="27">
+<H3>File Deletion</H3>
+</A>
+
+<P>
+ A file will be deleted by the HTTPd if the file path ending with a
+wildard version specification is provided with the POST or PUT methods.  For
+example:
+
+<PRE>  /dir1/dir2/file-to-be.deleted;*
+</PRE>
+
+<A NAME="28">
+<H3>Directory Deletion</H3>
+</A>
+
+<P>
+ A directory will be deleted by the HTTPd if a directory path ending with a
+wildard version specification is provided with the POST or PUT methods.  For
+example:
+
+<PRE>  /dir1/dir2/dir-to-be-deleted/;*
+</PRE>
+
+<A NAME="29">
+<H3><BR><U>2.5.3 - DELETE</U></H3>
+</A>
+
+<P>
+ The DELETE method should delete the file or directory corresponding to the
+supplied path.
+
+<P>
+<HR>
+[<A HREF="HTD_0300.HTML" TARGET="_self">next</A>] [<A HREF="HTD_0100.HTML" TARGET="_self">previous</A>] [<A HREF="HTD_0001.HTML"TARGET="_top" >contents</A>] [<A HREF="HTD_0200.HTML"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

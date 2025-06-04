@@ -1,0 +1,124 @@
+#
+# File:		makefile.dos
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds winstall example (DOS).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+LIBS=oldnames libw llibcew commdlg shell ddeml lzexpand
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+RTFSTYLE=-winhelp
+
+THISDIR=$(WXWIN)\utils\winstall\src
+
+INC=/I$(WXDIR)\include\msw /I$(WXDIR)\include\base
+
+# Set this to nothing if using MS C++ 7
+# ZOPTION=/Z7
+
+!if "$(FINAL)" == "0"
+CPPFLAGS=/AL /W3 /Zi $(ZOPTION) /G2sw /Od /Gy
+LINKFLAGS=/NOD /CO /ONERROR:NOEXE
+!else
+# NOTE: Optimisation (/Os) causes a crash on exit, so
+# use /Ox instead.
+CPPFLAGS=/AL /W3 /G2sw /Ox /Gy
+LINKFLAGS=/NOD /ONERROR:NOEXE
+!endif
+
+HEADERS =
+OBJECTS = install.obj utils.obj # lzw.obj
+
+all:    install.exe
+
+install.exe:      $(OBJECTS) install.def install.res
+        link $(LINKFLAGS) @<<
+$(OBJECTS),
+install,
+NUL,
+$(LIBS),
+install.def
+;
+<<
+        rc -K install.res
+
+install.obj:      install.cpp install.h
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+utils.obj:      utils.cpp utils.h
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+lzw.obj:      lzw.cpp lzw.h
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.cpp
+<<
+
+install.res :      install.rc
+    rc -r install
+
+# No PostScript production on the PC: just check it goes through Latex
+DOCDIR=../docs
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+
+cleanrtf:
+        cd $(DOCDIR)
+        -erase *.rtf
+        cd $(THISDIR)
+
+docs:	dvi hlp xlp html
+dvi:	$(DOCDIR)/install.dvi
+hlp:	$(DOCDIR)/install.hlp
+rtf:	$(DOCDIR)/install.rtf
+xlp:    $(DOCDIR)/install.xlp
+html:   $(DOCDIR)/install.html
+
+$(DOCDIR)/install.dvi:	$(DOCDIR)/install.tex
+	cd $(DOCDIR)
+        latex install
+        latex install
+        makeindx install
+        latex install
+#        dvips -f -r < install.dvi > install.ps
+
+$(DOCDIR)/install.rtf:  $(DOCDIR)/install.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\install.tex $(DOCDIR)\install.rtf -twice $(RTFSTYLE)
+        cd $(THISDIR)
+
+$(DOCDIR)/install.xlp:         $(DOCDIR)/install.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\install.tex $(DOCDIR)\install.xlp -xlp -twice
+        cd $(THISDIR)
+
+$(DOCDIR)/install.html:         $(DOCDIR)/install.tex
+        cd $(DOCDIR)
+        -wx /W tex2rtf $(DOCDIR)\install.tex $(DOCDIR)\install.htm -html -twice
+        cd $(THISDIR)
+
+$(DOCDIR)/install.hlp:         $(DOCDIR)/install.rtf
+        cd $(DOCDIR)
+        hc install
+        cd $(THISDIR)
+
+

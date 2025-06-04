@@ -1,0 +1,195 @@
+>>>>	Overview   <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+Emon in an ethernet monitor that allows the display and analysis of
+ethernet frames on an ethernet cable. The sampling lasts 8 seconds
+between the display updates, at the specified priority (needs ALTPRI).
+The first two lines contain on the left the current bandwidth used, and
+the maximum bandwidth, in the middle, various error counters, on the right
+the filter being used.
+
+>>>>	Configuration file   <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+The configuration file is pointed by the logical name EMON$CFG, and
+has the .CFG default type.
+
+	Control entries
+parameter buffers	# buffers alloted to emon
+parameter priority	sampling priority (may need ALTPRI privilege)
+parameter io		# simultaneous IO's
+parameter device	ethernet device to use (may also be given by the logical
+			name EMON$DEVICE:)
+parameter 802mode	Ahhhh. Off or On. If the ethernet driver works
+			correctly (V5.5-2 (??) or PATCH) must be ON.
+			In the contrary: must be OFF if no 802.3 frames
+			are to be observed and must be ON if no ethernet
+			frames are to be observed. When both types of frames
+			(802.3 and ethernet) are present, you must expect
+			strange frames...
+parameter nopad		Ahhhh again. Off or On. Depends on the VMS/driver
+			version. if you get SS$_BADPARAM, try toggling
+			this parameter.
+
+	Sizing entries	-- must precede definition entries
+
+maximum circuit 	max # of couples (station, station, protocol)
+maximum transport	max # of couples (station, protocol)
+maximum system		max # of stations
+maximum protocol	max # of ethernet protocols
+maximum area		max # of phase IV decnet areas
+maximum address		max decnet addr for all the areas
+maximum map		max # of maps
+maximum 802eprotocol	max # of 802/802e protocols
+
+	Definition entries
+
+decnet node	a.n <name>	name of a decnet phase IV node
+decnet area	a   <name>	name of a decnet phase IV area
+hardware	xx-xx-xx-xx-xx-xx	<name>	name of an ethernet station
+protocol	xx-xx			<name>	name of an ethernet protocol
+802eprotocol	xx-xx-xx-xx-xx		<name>  name of a 802E protocol
+map number	n	name <nom>	nom de la map numéro n
+map node	<nom>	n		mappe le noeud <nom> dans la map # n
+
+>>>	Control commands   <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+EXIT
+HELP	
+MAP	<name>	<map #>
+PRINT	dumps internal databases
+SET	ERROR	[HALT/CONTINUE]	continue or not after an error during the
+				ethernet
+SHOW	MAP	n	
+	NODE	<nom>	
+SPAWN	[command]		as usual
+
+	Filters
+
+Most commands allow the filtering of frames using various criteria
+/FROM=(n1,...)		name of the sender station(s)
+/TO=(n1,...)		name of the receiver station(s)
+/END_ADDRESS=(n1,...)	name of the receiving or sending station(s)
+/BETWEEN=((n1,n2),...)	couple(s) of station exchanging glances on ethernet
+/PROTOCOL=(p1,...)	name of protocol(s)
+
+	/FROM, /TO and /PROTOCOL can have the valus 'UNKNOWN', means everything
+not contained in the configuration file.
+	a tilda (~) in front of a name means every value but this one.
+
+	Commands
+
+filter switches: switches for personal filters.
+
+/FILTER=<filter name>: activates the filter EMON$FILTER_<filter name>.EXE
+/L3= (protocol=ppppp, from=ffff, to=tttt, end_address=eeee,
+	between=(e1e1e1,e2e2e2),    filter=fffff,
+     display=(ddddd,ddddd,ddddd,dddd),events=(eeee,eeee,eee,eee,eee) )
+	parameters used by the filter
+/L4= (protocol=ppppp, from=ffff, to=tttt, end_address=eee, 
+	between=(e1e1e1,e2e2e2),     filter=fffff,
+     display=(ddddd,ddddd,ddddd,dddd),events=(eeee,eeee,eee,eee,eee) )
+	parameters used by the filter
+/BRIEF
+/FULL
+/DEBUG	filter debug mode
+
+TRACE	[/from/to/protocol/end_address]
+	/TRUNC (D)	truncates the display to the width of the screen
+	/PAD		interprets the 2 first octets of the frame as a count
+	/TIME	(D)	displays frame receive time
+	/IOSB		display frames receive IOSB
+	/802_TRAILER	display frames 802 trailer
+	/INITIALIZE     clears the screen before displaying
+	/DATA[={HEX,ASC}]	displays the data
+	/OUTPUT		stores into a file
+	/MIN_SIZE	selects frames with a minimum size
+	/ERROR		display only frames with errors
+	[filter switches]
+displays or records selected frames
+
+ANALYZE file [/from/to/protocol/end_address]
+	file 		file output by the trace command
+	/TRUNC (D)	truncates the display to the width of the screen
+	/PAD		interprets the 2 first octets of the frame as a count
+	/TIME	(D)	displays frame receive time
+	/IOSB		display frames receive IOSB
+	/802_TRAILER	display frames 802 trailer
+	/INITIALIZE     clears the screen before displaying
+	/DATA[={HEX,ASC}]	displays the data
+	/OUTPUT		stores into a file
+	/MIN_SIZE	selects frames with a minimum size
+	/ERROR		display only frames with errors
+	[filter switches]
+analyzes recorded frames
+
+MONITOR	NODE	<node>	[/protocol/initialize]
+	/TALK		only count packets sent
+	/LISTEN		only count packets received
+	/DELTA (D)	display what's been received during the sampling
+			interval
+	/TOTAL		display what's been received since the the start of the
+			command
+monitors one given mode
+
+MONITOR TOP
+monitors traffic tops
+
+MONITOR	PROTOCOL	[/from/to/end/protocol/initialize]
+	/RECORD		record the informations into a file
+monitor protocols
+
+MONITOR	MULTICAST	[/from/to/end/protocol/initialize]
+	/RECORD		record the informations into a file
+monitors multicast frames on the cable
+
+MONITOR AREA	<area_nb> [/delta/total/protocol/initialize]
+	/PACKETS	statistics by frames
+	/BYTES		statistics by octets
+monirors a decnet phase IV area
+
+MONITOR MAP		[/delta/total/byte/packet/protocol/initialize]
+monitors communications between maps
+
+MONITOR	SIZE		[/from/to/protocol/end]
+	/FRAME		list of frame sizes to make a tabular display
+	/CHECK		stop in case of error
+display statistics on the frame sizes
+
+MONITOR SUMMARY	
+displays general informations on the ethernet traffic
+
+
+>>>>	considerations systeme   <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+1) NETMBX,PHY_IO	mandatory
+2) ALTPRI		helps
+3) LRPCOUNT		many
+4) BYTLM	increase if %EXQUOTA when starting the interface
+
+	check if the interface warks ok in promiscuous mode. If it does not,
+your system will show it tou you rather rudely.
+
+	link with SYS.STB only for EXE$GQ_SYSTIME
+
+********************************************************************************
+filters: they are shareable images linked against EMON
+	the descriptions of the interfaces are in trace.h
+	an example of programmation is emon$filter_internet.c
+	dont'forget to put the shareable image in sys$share, or to define
+	a logical name pointing at it
+********************************************************************************
+	recommendations for the use of the ethernet drivers
+
+	I only tested a few drivers and versions/patches of VMS. First check
+in the DIGITAL databases if the promiscuous mode works on the vms version
+and selected hardware.
+
+starting with EMON version v2.1, NOPAD should work on any version of VMS.
+	VMS v5.5 ... v5.5-2,  series 4000 only, i believe:
+			apply patch CSCPAT_0552017 at least,
+			to avoid fatal hangs on your system.
+================================================================================
+! Guillaume Gerard                ! PSI    *20807504128505::gerard             !
+! Systems responsible             ! Email  gerard@enst.fr                      !
+! France Telecom University       ! X400   C=FR AD=ATLAS PD=TELECPARIS         !
+================================================================================
+%SYSTEM-W-TMNYFNGRS, too many fingers on keyboard

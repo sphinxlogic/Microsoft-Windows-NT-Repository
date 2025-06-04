@@ -1,0 +1,307 @@
+<TITLE>Routine Analyzer Source File Analysis - objalloc.c</TITLE>
+<H2><A NAME="s1002d480">objalloc.c</a> Source Code</H2>
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00014.html#s1001da00">Next file in section</a>; <A HREF="ranalyzer_src00014.html#s10025f00">Previous file in section</a>.<P>
+<H3><A NAME="routines_in_this_file">Routines In This File (Alphabetical)</a></H3>
+<PRE>
+ Line Name
+----- ----
+  148 <A HREF="#d1002d700">free_str</A>
+  105 <A HREF="#d10019000">new_str</A>
+   27 <A HREF="#d10018f00">obj_alloc</A>
+   75 <A HREF="#d1002d600">obj_free</A>
+  204 <A HREF="#d1002d800">trace_free_obj</A>
+  174 <A HREF="#d1002d780">trace_new_obj</A>
+</PRE>
+<HR>
+<PRE>BEGINNING OF FILE
+</PRE>
+<HR>
+<PRE>
+     1: /****************************************************************************/
+     2: /*									    */
+     3: /*  FACILITY:	Generic Support Library					    */
+     4: /*									    */
+     5: /*  MODULE:	Object Memory Management 				    */
+     6: /*									    */
+     7: /*  AUTHOR:	Steve Branam, Network Product Support Group, Digital	    */
+     8: /*		Equipment Corporation, Littleton, MA, USA.		    */
+     9: /*									    */
+    10: /*  DESCRIPTION: This module contains routines to support memory allocation */
+    11: /*  and deallocation of application objects from the heap. It supports	    */
+    12: /*  string objects directly, and provides routines to be used by other	    */
+    13: /*  object types, both to do the actual memory management, and for tracing  */
+    14: /*  the activity to stdout.						    */
+    15: /*									    */
+    16: /*  REVISION HISTORY:							    */
+    17: /*									    */
+    18: /*  V0.1-00 24-AUG-1994 Steve Branam					    */
+    19: /*									    */
+    20: /*	Original version.						    */
+    21: /*									    */
+    22: /****************************************************************************/
+    23: 
+    24: #include "objalloc.h"
+    25: 
+    26: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10018f00">ROUTINE</A> <A HREF="ranalyzer_xrf00015.html#x10018f00">obj_alloc</A>. Go to: 
+<A HREF="#d1002d600">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+    27: char *obj_alloc(
+    28: /* Allocates and clears memory for an object, warning if the allocation	    */
+    29: /* exceeds the expected limit for the object, or the available memory.	    */
+    30: 
+    31:     long    vNBytes,
+    32: 	    /* (READ, BY VAL):  					    */
+    33: 	    /* Number of bytes to allocate.				    */
+    34: 
+    35:     long    vMaxBytes,
+    36: 	    /* (READ, BY VAL):  					    */
+    37: 	    /* Maximum number of bytes for this type of object. If vNBytes  */
+    38: 	    /* is larger than vMaxBytes, a warning will be issued, since    */
+    39: 	    /* this indicates that some assumption about the size of an	    */
+    40: 	    /* object has been violated, but the object will still be	    */
+    41: 	    /* allocated.						    */
+    42: 
+    43:     char    *aTypeName
+    44: 	    /* (READ, BY ADDR):  					    */
+    45: 	    /* Object type name string.					    */
+    46: 
+    47: )	/* Returns ptr to allocated object, or NULL if the memory could not */
+    48: 	/* be allocated.						    */
+    49: 	/*****************************************************************--*/
+    50: 
+    51: {
+    52:     char    *ptr;			    /* Ptr to allocated memory.	    */
+    53: 
+    54:     if (vNBytes &gt; vMaxBytes) {
+    55: 	printf("WARNING: Alloc of %ld bytes for %s exceeds max of %ld bytes\n",
+    56: 	    vNBytes, aTypeName, vMaxBytes);
+    57:     }
+    58:     if ((ptr = calloc(1, vNBytes)) == NULL) {
+    59: 	printf("WARNING: Alloc of %ld bytes for %s failed\n", vNBytes,
+    60: 	    aTypeName);
+    61:     }
+    62:     else {
+    63: 	inc_nobjects();
+    64: 	inc_nobjbytes(vNBytes);
+    65: 	if (trace_mem_enabled()) {
+    66: 	    printf(
+    67: 	"TRACE: Alloc %ld bytes for %s @ %lxh, %ld objects (%ld bytes)\n",
+    68: 		vNBytes, aTypeName, ptr, num_objects(), num_objbytes());
+    69: 	}
+    70:     }
+    71:     return ptr;
+    72: }
+</PRE>
+END obj_alloc. Go to: <A HREF="#d10018f00">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+    73: 
+    74: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002d600">ROUTINE</A> <A HREF="ranalyzer_xrf00015.html#x1002d600">obj_free</A>. Go to: 
+<A HREF="#d10019000">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+    75: char *obj_free(
+    76: /* Frees memory allocated for an object.				    */
+    77: 
+    78:     void    *aObject,
+    79: 	    /* (DELETE, BY ADDR):  					    */
+    80: 	    /* Object to be deleted.					    */
+    81: 
+    82:     long    vNBytes,
+    83: 	    /* (READ, BY VAL):  					    */
+    84: 	    /* Size of object to free.					    */
+    85: 
+    86:     char    *aTypeName
+    87: 	    /* (READ, BY ADDR):  					    */
+    88: 	    /* Object type name string.					    */
+    89: 
+    90: )	/* Returns NULL ptr.						    */
+    91: 	/*****************************************************************--*/
+    92: 
+    93: {
+    94:     dec_nobjects();
+    95:     dec_nobjbytes(vNBytes);
+    96:     if (trace_mem_enabled()) {
+    97: 	printf("TRACE: Free %ld bytes for %s @ %lxh, %ld objects (%ld bytes)\n",
+    98: 	    vNBytes, aTypeName, aObject, num_objects(), num_objbytes());
+    99:     }
+   100:     free(aObject);
+   101:     return NULL;
+   102: }
+</PRE>
+END obj_free. Go to: <A HREF="#d1002d600">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   103: 
+   104: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d10019000">ROUTINE</A> <A HREF="ranalyzer_xrf00014.html#x10019000">new_str</A>. Go to: 
+<A HREF="#d1002d700">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   105: char *new_str(
+   106: /* Allocates and initializes a string object.				    */
+   107: 
+   108:     char    *aStr,
+   109: 	    /* (READ, BY ADDR):  					    */
+   110: 	    /* String value. The memory will be allocated just large enough */
+   111: 	    /* to hold this string.					    */
+   112: 
+   113:     long    vMaxBytes,
+   114: 	    /* (READ, BY VAL):						    */
+   115: 	    /* Maximum number of bytes for this type of object. If length   */
+   116: 	    /* of aStr is larger than vMaxBytes (which is assumed to	    */
+   117: 	    /* exclude the string null terminator), a warning will be	    */
+   118: 	    /* issued, since this indicates that some assumption about the  */
+   119: 	    /* size of an object has been violated, but the object will	    */
+   120: 	    /* still be allocated.					    */
+   121: 
+   122:     char    *aTypeName
+   123: 	    /* (READ, BY ADDR):  					    */
+   124: 	    /* Object type name string.					    */
+   125: 
+   126: )	/* Returns ptr to allocated object, or NULL if the memory could not */
+   127: 	/* be allocated.						    */
+   128: 	/*****************************************************************--*/
+   129: 
+   130: {
+   131:     int	    length;			    /* Length of string.	    */
+   132:     char    *ptr;			    /* Ptr to allocated memory.	    */
+   133: 
+   134:     length = strlen(aStr) + 1;
+   135:     if ((ptr = obj_alloc(length, vMaxBytes + 1, aTypeName)) != NULL) {
+   136: 	inc_nstrings();
+   137: 	strcpy(ptr, aStr);
+   138: 	if (trace_str_enabled()) {
+   139: 	    printf("TRACE: Alloc %s string \"%s\"\n", aTypeName, ptr);
+   140: 	    printf("       @ %lxh, %ld objects (%ld bytes), %ld strings\n",
+   141: 		ptr, num_objects(), num_objbytes(), num_strings());
+   142:     	}
+   143:     }
+   144:     return ptr;
+   145: }
+</PRE>
+END new_str. Go to: <A HREF="#d10019000">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   146: 
+   147: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002d700">ROUTINE</A> <A HREF="ranalyzer_xrf00008.html#x1002d700">free_str</A>. Go to: 
+<A HREF="#d1002d780">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   148: char *free_str(
+   149: /* Frees a string object.						    */
+   150: 
+   151:     char    *aStr,
+   152: 	    /* (DELETE, BY ADDR):  					    */
+   153: 	    /* String to free.						    */
+   154: 
+   155:     char    *aTypeName
+   156: 	    /* (READ, BY ADDR):  					    */
+   157: 	    /* Object type name string.					    */
+   158: 
+   159: )	/* Returns NULL ptr.						    */
+   160: 	/*****************************************************************--*/
+   161: 
+   162: {
+   163:     dec_nstrings();
+   164:     if (trace_str_enabled()) {
+   165: 	printf("TRACE: Free %s string \"%s\"\n", aTypeName, aStr);
+   166: 	printf("       @ %lxh freed, %ld objects (%ld bytes), %ld strings\n",
+   167: 	    aStr, num_objects(), num_objbytes(), num_strings());
+   168:     }
+   169:     obj_free(aStr, strlen(aStr) + 1, aTypeName);
+   170:     return NULL;
+   171: }
+</PRE>
+END free_str. Go to: <A HREF="#d1002d700">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   172: 
+   173: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002d780">ROUTINE</A> <A HREF="ranalyzer_xrf00031.html#x1002d780">trace_new_obj</A>. Go to: 
+<A HREF="#d1002d800">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   174: void trace_new_obj(
+   175: /* Prints a trace message for an object allocation.			    */
+   176: 
+   177:     void    *aObject,
+   178: 	    /* (READ, BY ADDR):  					    */
+   179: 	    /* Object to be traced.					    */
+   180: 
+   181:     char    *aTypeName,
+   182: 	    /* (READ, BY ADDR):  					    */
+   183: 	    /* Object type name string.					    */
+   184: 
+   185:     char    *aName,
+   186: 	    /* (READ, BY ADDR):  					    */
+   187: 	    /* Object instance name string.				    */
+   188: 
+   189:     long    vNObjects
+   190: 	    /* (READ, BY VAL):  					    */
+   191: 	    /* Total number of objects of this type allocated after this    */
+   192: 	    /* one was allocated.					    */
+   193: 
+   194: )	/* No return value.      					    */
+   195: 	/*****************************************************************--*/
+   196: 
+   197: {
+   198:     printf("TRACE: Alloc %s %s\n", aTypeName, aName);
+   199:     printf("       @ %lxh, %ld objects (%ld bytes), %ld %ss\n",
+   200: 	aObject, num_objects(), num_objbytes(), vNObjects, aTypeName);
+   201: }
+</PRE>
+END trace_new_obj. Go to: <A HREF="#d1002d780">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   202: 
+   203: /*************************************************************************++*/
+</PRE><HR>
+<A NAME="d1002d800">ROUTINE</A> <A HREF="ranalyzer_xrf00031.html#x1002d800">trace_free_obj</A>. Go to: 
+<A HREF="#d1002d980">Next routine in file</A>; <A HREF="#routines_in_this_file">Routines in this file</A>.<P>
+<PRE>
+   204: void trace_free_obj(
+   205: /* Prints a trace message for an object deallocation.			    */
+   206: 
+   207:     void    *aObject,
+   208: 	    /* (READ, BY ADDR):  					    */
+   209: 	    /* Object to be traced.					    */
+   210: 
+   211:     char    *aTypeName,
+   212: 	    /* (READ, BY ADDR):  					    */
+   213: 	    /* Object type name string.					    */
+   214: 
+   215:     char    *aName,
+   216: 	    /* (READ, BY ADDR):  					    */
+   217: 	    /* Object instance name string.				    */
+   218: 
+   219:     long    vNObjects
+   220: 	    /* (READ, BY VAL):  					    */
+   221: 	    /* Total number of objects of this type allocated before this   */
+   222: 	    /* one is freed.						    */
+   223: 
+   224: )	/* No return value.      					    */
+   225: 	/*****************************************************************--*/
+   226: 
+   227: {
+   228:     printf("TRACE: Free %s %s\n", aTypeName, aName);
+   229:     printf("       @ %lxh, %ld objects (%ld bytes), %ld %ss\n",
+   230: 	aObject, num_objects(), num_objbytes(), vNObjects - 1, aTypeName);
+   231: }
+</PRE>
+END trace_free_obj. Go to: <A HREF="#d1002d800">Beginning of routine</A>.<P>
+<HR>
+<PRE>
+   232: 
+<HR>
+END OF FILE
+
+TOTAL: 6 routines, 33 Avg Length
+</PRE>
+<HR>
+
+Go to: <A HREF="ranalyzer_files.html#table_of_contents">Contents</a>; <A HREF="ranalyzer_calltree.html">Previous section</a>; <A HREF="ranalyzer_src00001.html">Beginning of section</a>; <A HREF="ranalyzer_src00014.html#s1001da00">Next file in section</a>; <A HREF="ranalyzer_src00014.html#s10025f00">Previous file in section</a>.<P>

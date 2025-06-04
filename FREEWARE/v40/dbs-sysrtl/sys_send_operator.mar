@@ -1,0 +1,111 @@
+	.title	sys_send_operator
+	.ident	"X1-002"
+
+;+
+; Version:	X1-002
+;
+; Facility:	General system routines.
+;
+; Abstract:	
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	19-Nov-1993, DBS; Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS; Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;	call sys_send_operator (%descr(message), %ref(request_id))
+;		-or-
+;	pushal	request_id
+;	pushaq	message
+;	calls	#2, g^sys_send_operator
+;
+; Formal Argument(s):
+;	message.rt.ds
+;	request_id.rl.r
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	None.
+;
+; Side Effects:
+;	None
+;--
+
+	.library	"SYS$LIBRARY:LIB.MLB"
+	.library	"SYS$LIBRARY:STARLET.MLB"
+	.library	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	$opcdef
+	$ssdef
+	_opcdef
+
+	$gblini GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+	message = 4			; offset to message descriptor
+	request_id = 8			; offset to request id address
+
+	opc_bufsiz = <opc$k_hdr_size+opc$k_maxmessage>
+
+opc_buffer_ds:	.long	0		; filled in later
+		.address opc_buffer
+opc_buffer:	.blkb	opc_bufsiz
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+sys_send_operator, ^m<r2,r3,r4,r5,r6,r7,r8>
+
+	movq	@message(ap), r6	; grab the message descriptor
+	movab	opc_buffer, r8		; we will use this later
+
+	movb	#opc$_x_request, -	; we are doing a request
+		opc$b_rqstcode(r8)
+	movb	#opc$k_system, -	; set scope to system
+		opc$b_scope(r8)
+	movl	#opc$m_nm_centrl, -
+		opc$l_attnmask1(r8)
+	movl	@request_id(ap), -	; grab the request id
+		opc$l_rqstid(r8)
+	movw	r6, opc$w_request_length(r8) ; that's the message length
+	movc5	r6, (r7), #0, -		; now grab the text
+		#opc$k_maxmessage, -
+		opc$t_request_text(r8)
+	addw3	#opc$t_request_text, -	; fix up the buffer length
+		opc$w_request_length(r8), -
+		opc_buffer_ds
+
+	$sndopr_s msgbuf=opc_buffer_ds
+
+90$:	ret
+
+	.end

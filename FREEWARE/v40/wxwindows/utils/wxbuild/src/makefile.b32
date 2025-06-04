@@ -1,0 +1,80 @@
+#
+# File:		makefile.b32
+# Author:	Patrick Halke
+# Created:	1995
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds 32bit wxbuild utility.
+
+# WXWIN and BCCDIR are set by parent make
+
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makeb32.env
+
+WXLIBDIR = $(WXDIR)\lib
+WXINC = $(WXDIR)\include\msw
+WXBASESRC = $(WXDIR)\src\base
+WXBASEINC = $(WXDIR)\include\base
+WXLIB = $(WXLIBDIR)\wx32.lib
+WXTREELIB = $(WXLIBDIR)\wxtree.lib
+LIBS=$(WXLIB) cw32 import32 $(WXTREELIB)
+
+TARGET=wxbuild
+
+!if "$(FINAL)" == "0"
+LINKFLAGS=/v /Tpe /L$(WXLIBDIR);$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS= -v
+!else
+LINKFLAGS=/Tpe /L$(WXLIBDIR);$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS =
+!endif
+CPPFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+
+OBJECTS = wxbuild.obj bapp.obj bmenu.obj bframe.obj bsubwin.obj bgencpp.obj\
+  namegen.obj bitem1.obj bitem2.obj bwin.obj btoolbar.obj bactions.obj btree.obj\
+  bgdi.obj rcload.obj
+
+$(TARGET).exe:	$(OBJECTS) $(TARGET).def $(TARGET).res
+  tlink32 $(LINKFLAGS) @&&!
+c0w32.obj $(OBJECTS)
+$(TARGET)
+nul
+$(LIBS)
+$(TARGET).def
+!
+        brc32 -K $(TARGET).res
+
+.$(SRCSUFF).obj:
+	bcc32 $(CPPFLAGS) -c {$< }
+
+.c.obj:
+	bcc32 $(CPPFLAGS) -P- -c {$< }
+
+bapp.obj: bapp.$(SRCSUFF) bapp.h wxbuild.h bmenu.h bsubwin.h bframe.h namegen.h bwin.h bactions.h btree.h
+wxbuild.obj: wxbuild.$(SRCSUFF) wxbuild.h bapp.h bmenu.h bsubwin.h bframe.h namegen.h bwin.h rcload.h
+bmenu.obj: bmenu.$(SRCSUFF) wxbuild.h bapp.h bmenu.h bframe.h namegen.h bwin.h
+bframe.obj: bframe.$(SRCSUFF) wxbuild.h bapp.h bmenu.h bframe.h bsubwin.h namegen.h bwin.h bactions.h
+bsubwin.obj: bsubwin.$(SRCSUFF) wxbuild.h bapp.h bsubwin.h bframe.h namegen.h bwin.h
+bitem.obj: bitem.$(SRCSUFF) wxbuild.h bapp.h bsubwin.h bframe.h namegen.h bitem.h bwin.h bactions.h
+bitem1.obj: bitem2.$(SRCSUFF) wxbuild.h bapp.h bsubwin.h bframe.h namegen.h bitem.h bwin.h bactions.h
+bwin.obj: bwin.$(SRCSUFF) wxbuild.h bwin.h bactions.h bactions.h
+btoolbar.obj: btoolbar.$(SRCSUFF) wxbuild.h bwin.h
+bgencpp.obj: bgencpp.$(SRCSUFF) wxbuild.h bapp.h bframe.h bgencpp.h namegen.h bwin.h
+namegen.obj: namegen.$(SRCSUFF) namegen.h
+bactions.obj: bactions.$(SRCSUFF) bactions.h wxbuild.h bwin.h
+bgdi.obj: bgdi.$(SRCSUFF) bgdi.h wxbuild.h bwin.h
+btree.obj: btree.$(SRCSUFF) btree.h bwin.h wxbuild.h bapp.h
+rcload.obj: rcload.$(SRCSUFF) rcload.h
+
+$(TARGET).res :      $(TARGET).rc $(WXDIR)\include\msw\wx.rc
+    brc32 -r /i$(BCCDIR)\include /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa $(TARGET)
+
+clean:
+        -erase *.obj *.exe *.res *.map *.rws
+
+

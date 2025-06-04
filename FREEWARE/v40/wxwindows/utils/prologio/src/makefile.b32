@@ -1,0 +1,80 @@
+#
+# File:		makefile.b32
+# Author:	Patrick Halke
+# Created:	1995
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds 32bit prologio library for Windows 3.1
+# and Borland C++ 4.x
+
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makeb32.env
+
+WXLIB = $(WXDIR)\lib
+WXINC = $(WXDIR)\include\msw
+WXBASESRC = $(WXDIR)\src\base
+WXBASEINC = $(WXDIR)\include\base
+
+!ifndef DEBUG
+DEBUG=0
+!endif
+
+!if "$(FINAL)" == "0"
+OPT = -Od
+DEBUG_FLAGS= -v -DDEBUG=$(DEBUG)
+!else
+OPT = -O2
+DEBUG_FLAGS = -DDEBUG=$(DEBUG)
+!endif
+
+# If it ain't one, it's t'other.
+CPPFLAGS=$(DEBUG_FLAGS) $(OPT) -DUSE_DEFINE @$(CFG)
+#CPPFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+
+LIBTARGET= $(WXLIB)\prologio.lib
+
+.$(SRCSUFF).obj:
+	bcc32 $(CPPFLAGS) -c {$< }
+
+.c.obj:
+	bcc32 $(CPPFLAGS) -P- -c {$< }
+
+OBJECTS = read.obj y_tab.obj # prorpc.obj
+
+all:    $(LIBTARGET)
+
+$(LIBTARGET):	$(OBJECTS)
+	erase $(LIBTARGET)
+	tlib $(LIBTARGET) /P32 @&&!
++$(OBJECTS:.obj =.obj +)
+!
+
+
+read.obj:	read.$(SRCSUFF) read.h expr.h
+prorpc.obj: prorpc.$(SRCSUFF) read.h expr.h
+y_tab.obj:	y_tab.c lex_yy.c read.h expr.h
+
+# *** These lines ensure you don't need
+# *** YACC or FLEX
+y_tab.c:    dosyacc.c
+    copy dosyacc.c y_tab.c
+
+lex_yy.c:    doslex.c
+    copy doslex.c lex_yy.c
+
+# *** This is how you would recreate the files
+# *** using the YACC and FLEX. Then you'd have to
+# edit out the malloc and free prototypes for Borland
+# because Borland don't like 'em one little bit
+#y_tab.c:	parser.y
+#	byacc parser.y
+
+#lex_yy.c:     lexer.l
+#        flex -8 -t lexer.l > lex_yy.c
+
+
+clean:
+        -erase *.obj $(LIBTARGET) *.exe *.res *.map *.rws

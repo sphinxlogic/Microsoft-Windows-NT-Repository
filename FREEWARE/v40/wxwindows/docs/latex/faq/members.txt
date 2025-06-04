@@ -1,0 +1,422 @@
+Date: Thu, 18 Nov 1993 11:15:44 +0200
+From: Syst{ Kari <ks@fi.tut.cs>
+Message-Id: <199311180915.AA06005@karikukko.cs.tut.fi>
+To: wxwin-users@ed.aiai, tane@fi.uta.cs
+Subject: Re: member function as wxFunction
+
+> > is it true that i can't use a member function of a class as a callback
+> > function?
+> 
+> Yes, unless you declare your member function as static. But then you
+> don't have this-pointer available in your function.
+
+There is actually a way. The I first define a new button class:
+
+void my_text_callback (wxObject &obj, wxEvent &ev);
+
+// The typedef for a callback member.
+// I found something like this from the Solbource OI include files,
+// I just copied it without fully understanding the corresponding
+// C++ rule.
+typedef void (wxObject::callback_member_func)(...);
+
+// A class with a possibility to send callback method calls to other
+// objects/
+class MyButton: public wxButton {
+public:
+  wxObject *client_obj;
+  callback_member_func* mem_func;
+  MyButton(wxPanel *panel, wxObject *client,
+	 callback_member_func *mem, char *label) :
+  wxButton(panel, my_text_callback, label)
+    {
+    client_obj = client;
+    mem_func = mem;
+  };
+};
+    
+void my_text_callback (wxObject &obj, wxEvent &ev) {
+
+/* This is a terrible glude. The member 'mem_func' should
+   should defined at the top of inheritance hierarchy */
+  MyButton &o = (MyButton &) obj;
+  wxObject *to = o.client_obj;
+  (to->*(o.mem_func))(obj,ev);
+};
+
+Now, I can set a call back which is a object+method pair (see "new MyButton"):
+
+#include <stream.h>
+#include <wx.h>
+#include "mybutton.h"
+
+wxText *text;
+
+class MyText: public wxText { // A new class with a call-back method
+  int n;
+  static char *toolkits[4];
+public:
+  MyText(wxPanel *p, wxFunction f, char *l) : wxText(p,f,l) {
+    n = 0;
+    this->SetValue(toolkits[0]);
+  };
+  void Inc() {
+    ++n;
+    if (n >= sizeof(toolkits) / sizeof(toolkits[0]))
+     n = 0;    
+    this->SetValue(toolkits[n]);
+  }
+};
+char *MyText::toolkits[4] = {"wxwin", "uit", "oi", "interviews"};
+
+class MyApp: public wxApp {
+public:
+  wxFrame *OnInit() {
+    wxFrame *frame = new wxFrame(NULL,"Button test");
+    wxPanel *panel = new wxPanel(frame);
+    text = new MyText(panel, NULL,"Toolkit");
+    panel->NewLine();
+
+    new MyButton(panel, text, &MyText::Inc, "Push Me2");
+    frame->Show(TRUE);
+    return frame;
+  };
+} myApp;
+
+From: Burell David Kingery <kingery@edu.tamu.cs>
+Message-Id: <9312171452.AA05907@clavin>
+Subject: wxWindows code sample
+To: Craig Cockburn <craig@ed.festival>
+Date: Fri, 17 Dec 1993 08:59:15 -0600 (CST)
+
+Craig,
+
+Here is the first code sample I promised.  It is a list dialog which can swap
+between two different lists.  In my application I use it to swap between
+active and inactive employees (those still working and those who aren't).
+
+It is a good example of how to use static member functions as wxFunctions
+for callbacks.
+
+Here is the .h file for the list dialog.  I have added comments where I
+thought they were appropriate so search for //= to find them.
+
+Hope this helps,
+
+David
+
+================================ CODE STARTS HERE ==========================
+/* listdiag.h */
+
+#ifndef LISTDIAG_H
+#define LISTDIAG_H
+
+class ListDialog
+{
+  public:
+    ListDialog(wxFrame *parent, int x, int y, char *message,
+	       char *caption, int count1, char *list1[],
+	       int count2, char *list2[], char **choice, int *index);
+    ~ListDialog(void);
+
+  private:
+    wxDialogBox *dialog;
+    wxListBox	*listbox;
+    wxButton	*list_select;
+    char	*the_selection;
+    int		the_index;
+    int 	visible_list;
+    int 	c1;
+    char	**l1;
+    int 	c2;
+    char	**l2;
+
+//=
+// Here are the three member functions which actually do the work I want
+// when the callback is invoked.  Since these are member functions they
+// will have access to the instance data of the object.
+
+    void	OkCallback(void);
+    void	CancelCallback(void);
+    void	ListSelectCallback(void);
+
+
+//=
+// Here are three static member functions which are the initial callbacks
+// of the class.  These are invoked in the normal manner for wxWindows.
+
+    static void	OnOk(wxObject& the_object, wxEvent& the_event);
+    static void	OnCancel(wxObject& the_object, wxEvent& the_event);
+    static void OnListSelect(wxObject& the_object, wxEvent& the_event);
+};
+
+#endif
+
+
+Now here is the .cc file for the list dialog.  I'm not real sure if you could
+compile and link, but you could give it a try.  I'm now swamped with other
+work here at Texas A&M so it's been awhile since I looked at this code.
+Once again search for //= to find pertinent comments.
+
+/* listdiag.cc */
+
+/*
+ * standard header goes here.
+ */
+
+#include <windows.h>
+
+extern "C"
+{
+#include <stdio.h>
+}
+
+#include "wx.h"
+
+#include "listdiag.h"
+
+ListDialog::ListDialog(wxFrame *parent, int x, int y, char *message,
+		       char *caption, int count1, char *list1[],
+		       int count2, char *list2[], char **choice, int *index)
+{
+  if (x < 0) x = 300;
+  if (y < 0) y = 300;
+
+  wxDialogBox the_dialog(parent, caption, TRUE, x, y, 300, 250);
+
+  dialog = &the_dialog;
+  dialog->SetClientSize(300, 250);
+  (void)new wxMessage(dialog, message);
+  dialog->NewLine();
+
+  listbox = new wxListBox(dialog, NULL, NULL, wxSINGLE,
+			  -1, -1, 150, 200,
+			  count1, list1);
+  visible_list = 1;
+  c1 = count1;
+  l1 = list1;
+  c2 = count2;
+  l2 = list2;
+
+  dialog->NewLine();
+
+//=
+// Here I am setting the callback function of the button to be the
+// static member function ListDialog::OnOk.  The other buttons are 
+// the same way.
+
+  wxButton *ok = new wxButton(dialog,
+			      (wxFunction)ListDialog::OnOk, "OK");
+
+//=
+// Here is where I set the client data of the button to the this pointer.
+// This will be used in the static member function to invoke the correct
+// method on the correct object.
+
+  ok->SetClientData((char *)this);
+
+
+  wxButton *button = new wxButton(dialog,
+				  (wxFunction)ListDialog::OnCancel,
+				  "Cancel");
+  button->SetClientData((char *)this);
+  list_select = new wxButton(dialog,
+			     (wxFunction)ListDialog::OnListSelect,
+			     "Show Inactive");
+  list_select->SetClientData((char *)this);
+
+  ok->SetDefault();
+
+  dialog->Fit();
+  dialog->Centre();
+  dialog->Show(TRUE);
+  *choice = the_selection;
+  *index = the_index;
+}
+
+ListDialog::~ListDialog(void)
+{
+  return;
+}
+
+void ListDialog::OnOk(wxObject& the_object, wxEvent& the_event)
+{
+  ListDialog	*list_dialog;
+
+//=
+// Here is a static member function which is used as a wxFunction.
+// The wxObject is the button which was pressed and I use it to get
+// the client data of the button.  Remember the client data is the
+// this pointer of the object of interest.
+
+  list_dialog = (ListDialog *)((wxButton&)the_object).GetClientData();
+
+//=
+// Now that I have the correct object, I can invoke the member function
+// of the object.
+
+  list_dialog->OkCallback();
+
+  return;
+}
+
+void ListDialog::OnCancel(wxObject& the_object, wxEvent& the_event)
+{
+  ListDialog	*list_dialog;
+
+  list_dialog = (ListDialog *)((wxButton&)the_object).GetClientData();
+
+  list_dialog->CancelCallback();
+
+  return;
+}
+
+void ListDialog::OnListSelect(wxObject& the_object, wxEvent& the_event)
+{
+  ListDialog	*list_dialog;
+
+  list_dialog = (ListDialog *)((wxButton&)the_object).GetClientData();
+
+  list_dialog->ListSelectCallback();
+
+  return;
+}
+
+void ListDialog::OkCallback(void)
+{
+//=
+// This is the member function of the object which gets invoked from the
+// static member function ListDialog::OnOk.  Now that I'm within a member
+// function I can access the instance data of the object as well as invoke
+// other member functions.  The other callbacks are handled the same way.
+
+  the_index = listbox->GetSelection();
+
+  if (the_index != -1)
+    {
+     the_selection = copystring(listbox->String(listbox->GetSelection()));
+    }
+  else
+    {
+     the_selection = NULL;
+    }
+
+  dialog->Show(FALSE);
+  return;
+}
+
+void ListDialog::CancelCallback(void)
+{
+  the_selection = NULL;
+  the_index = -1;
+  dialog->Show(FALSE);
+  return;
+}
+
+void ListDialog::ListSelectCallback(void)
+{
+  listbox->Clear();
+
+  switch (visible_list)
+    {
+     case 1:
+       listbox->Set(c2, l2);
+       list_select->SetLabel(" Show Active ");
+       visible_list = 2;
+       break;
+
+     case 2:
+       listbox->Set(c1, l1);
+       list_select->SetLabel("Show Inactive");
+       visible_list = 1;
+       break;
+    }
+
+  return;
+}
+
+
+Date: Wed, 12 Mar 1997 16:29:36 -0500
+From: Bill McGrory <mcgrory@aerosft.com>
+To: Julian Smart <julian.smart@ukonline.co.uk>
+
+Hi Julian,
+
+The examples you have of using member functions in callbacks
+needs updating for what I believe is ANSI C++.
+(the file members.txt, and the html page on c++ issues)
+
+I tried the first example, and that failed, but with a little playing
+around I got something to work.
+
+here's my sample code. (it compiles with SGI's c++ compiler, and
+Digital Unix's as well)
+
+#include "stdio.h"
+
+class CallbackClass;
+
+typedef void (CallbackClass::*Func)();
+
+class CallbackClass
+{
+private:
+	int	junk;
+};
+
+class Main: public CallbackClass
+{
+public:
+	int		data1, data2;
+
+	void	Callback1(void) {printf("data1 = %d\n",data1);};
+	void	Callback2(void) {printf("data2 = %d\n",data2);};
+};
+
+class Second
+{
+public:
+	CallbackClass	*theObj;
+	Func	theFunc;
+
+	void	EvalCallback(void);
+};
+
+void
+Second::EvalCallback(void)
+{
+	(theObj->*theFunc)();
+}
+
+main()
+{
+	Main	*main1, *main2;
+	Second	*second;
+	
+	main1 = new Main;
+	main2 = new Main;
+	
+	main1->data1 = 1;
+	main1->data2 = 2;
+	main2->data1 = 3;
+	main2->data2 = 4;
+
+	second = new Second;
+	
+	second->theObj = main1;
+	second->theFunc = (Func)&Main::Callback1;
+	second->EvalCallback();
+	
+	second->theObj = main1;
+	second->theFunc = (Func)&Main::Callback2;
+	second->EvalCallback();
+
+	second->theObj = main2;
+	second->theFunc = (Func)&Main::Callback1;
+	second->EvalCallback();
+	
+	second->theObj = main2;
+	second->theFunc = (Func)&Main::Callback2;
+	second->EvalCallback();
+};
+

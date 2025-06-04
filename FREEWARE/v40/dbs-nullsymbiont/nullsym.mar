@@ -1,0 +1,104 @@
+	.title	nullsym
+	.ident	"X1-001"
+
+;+
+; Version:	X1-001
+;
+; Facility:	Null Symbiont
+;
+; Abstract:	Symbiont to not print jobs.
+;
+; Environment:
+;
+; History:
+;
+;	06-Dec-1991, DBS, Version X1-001
+; 001 -	Original version.
+;-
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+	.link		"SYS$LIBRARY:SMBSRVSHR.EXE" /shareable
+
+	.disable global
+
+	.external	psm$_funnotsup
+	.external	psm$print
+	.external	psm$replace
+
+	$dscdef
+	$psmdef
+	$smbdef
+	$ssdef
+	$gblini	GLOBAL
+
+	def_psect _psym_data, type=DATA, alignment=LONG
+	def_psect _psym_code, type=CODE, alignment=LONG
+
+	.subtitle Local Macros and Data areas
+
+.macro	replace function, routine=null_routine, ?next
+
+	movl	#psm$k_'function, -
+		sym_code
+	pushal	routine
+	pushal	sym_code
+	calls	#2, g^psm$replace
+	blbs	r0, next
+	brw	90$
+next:
+
+.endm	replace
+
+	set_psect _psym_data
+
+sym_code:	.long	0
+sym_streams:	.long	16
+sym_bufsiz:	.long	32768
+
+	reset_psect
+
+	.subtitle Symbiont Code
+
+	set_psect _psym_code
+
+	.entry -
+nullsym, ^m<>
+
+	replace	job_setup
+	replace	form_setup
+	replace	job_flag
+	replace	job_burst
+	replace	file_setup
+	replace	file_flag
+	replace	file_burst
+	replace	file_setup_2
+	replace main_input
+	replace file_information
+	replace	file_errors
+	replace	file_trailer
+	replace	job_reset
+	replace	job_trailer
+	replace	job_completion
+	replace	page_setup
+	replace	page_header
+	replace library_input
+	replace main_format
+	replace output
+
+	pushal	sym_bufsiz
+	pushal	sym_streams
+	calls	#2, g^psm$print		; let the symbiont do the work
+
+90$:	ret
+
+	.entry -			; this routine replaces the majority
+null_routine, ^m<>			;  of the normal functions
+
+	movl	#psm$_funnotsup, r0	; and just doesn't do anything
+
+	ret
+
+	.end	nullsym

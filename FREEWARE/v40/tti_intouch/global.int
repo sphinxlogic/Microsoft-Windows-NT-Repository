@@ -1,0 +1,124 @@
+1       printed = false
+        commasep$ = chr$(1)
+        eqsep$ = chr$(2)
+        clear
+        print at 1,20, underline : "Global Change and Replace"
+        print
+        print
+        dim pat$(100)
+        gosub input_info
+        for i = 1 to 99999
+          file$ = findfile$(spec$,i)
+          if file$ = '' then exit for
+          in_ch = _channel
+          open #in_ch : name file$
+          out_ch = _channel
+          out_file$ = element$(file$, 1, ';') + '_new'
+          open #out_ch : name out_file$, access output
+          set #out_ch : margin 8192
+          subs_made = 0
+          gosub process_file
+          close #in_ch
+          close #out_ch
+          if subs_made = 0 then kill out_file$  ! no changes
+        next i
+        if not printed then print "No substitutions performed"
+        stop
+
+
+13000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description: does replacements on a file
+        !
+        ! Expected: channel 1 = input
+        !           channel 2 = output
+        !
+        ! Locals: ln$ = input line
+        !
+        ! Result:
+        !    subs_made = number of substitutions made
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_file
+          subs_made = 0
+          do
+            when exception in
+              line input #in_ch : ln$
+            use
+            end when
+            if _error then exit routine
+            for i = 1 to pat_ct
+              if pattern(ln$, pat$[i]) > 0 then exit do
+            next i
+            print #out_ch : ln$
+          loop
+
+          gosub print_filename
+
+          do
+            new_ln$ =  replace$(ln$,rep$,commasep$,eqsep$)
+            print #out_ch : new_ln$
+            if new_ln$ <> ln$ then subs_made = subs_made + 1
+            when exception in
+              line input #in_ch : ln$
+            use
+            end when
+            if _error then exit do
+          loop
+          if subs_made > 0 then
+            print 'Substitutions:'; subs_made
+          else
+            print 'none'
+          end if
+        end routine
+
+14000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   F I L E   N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description: output file name to screen
+        !                    when substitutions are done
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine print_filename
+          if not printed then
+            printed = true
+            print "Substitutions performed on the following files:"
+            print "Note:  New files will be in the form FILENAME.EXT_NEW"
+          end if
+          print file$;'...';
+        end routine
+
+
+15000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N P U T   I N F O
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description: inputs filename and pattern strings
+        !
+        ! Results: rep$  = replacement string
+        !          pat$()= patterns
+        !          spec$ = file spec
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine input_info
+          line input "File spec" : spec$
+          if _exit or _back or _reply = '' then stop
+          pat_ct = 0
+          do
+            line input "Pattern str" : p$
+            if _exit or p$ = "" then exit do
+            line input "Replace str" : r$
+            if _exit then exit do
+            pat_ct = pat_ct + 1
+            pat$(pat_ct) = p$
+            if rep$ <> "" then rep$ = rep$+commasep$
+            rep$ = rep$+p$+eqsep$+r$
+          loop
+          if pat_ct = 0 then
+            print "No patterns - exiting"
+            end
+          end if
+        end routine
+

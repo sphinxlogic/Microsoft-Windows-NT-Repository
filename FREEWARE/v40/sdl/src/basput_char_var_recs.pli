@@ -1,0 +1,105 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1978, 1979, 1980	                                    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Paul A. Calato
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	! Name	! Description
+________________!_______!______________________________________________________
+   		!  	! 					
+    23-Nov-1985	|  pc	| Adding copyright header and change log.
+________________!_______!______________________________________________________
+    13-May-1987	|  pc	| X3.1-0 Suppress specification of maximum string
+		|	|	 length if LENGTH * was specified for the
+		|	|	 parameter; added %include of sdlshr.in from
+		|	|	 sdl$library to get definition of the constant
+		|	|	 sdl$k_unknown_length; thereupon removed
+		|	|	 duplicate declaration of TRIM function which
+		|	|	 is already declared in sdl$library:sdlshr.in
+________________!_______!______________________________________________________
+*/
+
+
+
+/****************************************************************/
+/*								*/
+/* PUT_CHAR_VAR_RECS puts out a record for each character varying */
+/* that appears as a parameter. The record name is generated	*/
+/* from "char_varying_n" where n is a counter.			*/
+/*								*/
+/****************************************************************/
+
+put_char_var_recs: proc(entry_node);
+					    /********************/
+					    /*			*/
+					    /* PUT_CHAR_VAR_RECS*/
+					    /*			*/
+					    /********************/
+
+%include 'sdl$library:sdlshr.in';
+%include 'sdl$library:sdlnodef.in';
+
+/* declare variables */
+declare
+    entry_node pointer,			    /* pointer to the entry node    */
+    start_node pointer,			    /* pointer the the beginign of the parameter list */
+    param_node pointer,			    /* pointer to the first parameter */
+    counter fixed binary(31) static initial(0);/* counter appended to generated name */
+
+/* declare external routines */
+DCL OUTPUT_BUF ENTRY (
+	character(1024) VARYING );
+
+
+    start_node = entry_node->nod$a_child;
+    param_node = entry_node->nod$a_child->nod$a_flink;
+
+    do while( param_node ^= start_node );
+	if( param_node->nod$v_varying )
+	then do;
+	    counter = counter + 1;
+	    call output_buf('   RECORD char_varying_' || trim(counter) );
+	    call output_buf('      WORD str_len');
+	    if param_node->nod$l_typeinfo = sdl$k_unknown_length then
+		call output_buf('      STRING str_text');
+	    else
+		call output_buf('      STRING str_text = ' || trim(param_node->nod$l_typeinfo) );
+	    call output_buf('   END RECORD char_varying_' || trim(counter) );
+	    call output_buf('  ');
+	END;
+
+	param_node = param_node->nod$a_flink;
+
+    END;
+
+
+end put_char_var_recs;
+

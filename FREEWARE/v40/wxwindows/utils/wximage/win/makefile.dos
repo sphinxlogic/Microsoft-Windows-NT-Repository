@@ -1,0 +1,144 @@
+#
+# File:		makefile.dos
+# Author:	Alejandro Aguilar-Sierra
+# Created:	1995
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds wxImalib and demo (DOS).
+
+!if "$(WXWIN)" == ""
+!error You must define the WXWIN variable in autoexec.bat, e.g. WXWIN=c:\wx
+!endif
+
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+LIBS=$(WXLIB) oldnames.lib libw llibcew commdlg shell ddeml wxima.lib png\winpng.lib zlib\zlib.lib
+INC=-I$(WXDIR)\include\base -I$(WXDIR)\include\msw -Izlib -Ipng # -Ijpeg 
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+# Set this to nothing if using MS C++ 7
+ZOPTION=/Z7
+
+!if "$(FINAL)" == "0"
+DEBUG_FLAGS= /Zi $(ZOPTION)
+LINK_DEBUG_FLAGS=/CO
+OPT = /Od
+!else
+# /Ox for real FINAL version
+DEBUG_FLAGS=/Zi
+LINK_DEBUG_FLAGS=
+OPT = /Ox
+!endif
+
+CPPFLAGS= $(DEBUG_FLAGS) /AL /Gt4 /W4 /G2sw $(OPT) $(INC) /DEBUG=$(DEBUG) /Dwx_msw
+CFLAGS= $(DEBUG_FLAGS) /AL /W3 /G2sw $(OPT) /Dwx_msw
+LINKFLAGS=$(LINK_DEBUG_FLAGS) /NOD /SEG:512 /ONERROR:NOEXE
+IMALIB = $(WXDIR)\utils\wximage\lib\wxima.lib
+
+all:    $(IMALIB) # demo.exe
+
+OBJECTS = demo.obj
+
+LOBJECTS = dibutils.obj wbima.obj wxima.obj imagif.obj gifdecod.obj imabmp.obj # imapng.obj imajpg.obj
+
+LINCS = imabase.h imaiter.h wbima.h
+
+demo:    demo.exe
+
+demo.exe:      $(WXLIB) $(IMALIB) demo.obj demo.def demo.res
+        link $(LINKFLAGS) @<<
+$(WXDIR)\src\msw\dummy.obj demo.obj,
+demo,
+NUL,
+$(LIBS),
+demo.def
+;
+<<
+        rc -30 -K demo.res
+
+demo.obj:      demo.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+gifdecod.obj:	gifdecod.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+dibutils.obj:	dibutils.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+wbima.obj:	$(LINCS) wbima.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+wxima.obj:	$(LINCS) wxima.h wxima.$(SRCSUFF)  
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+imapng.obj:	$(LINCS) imapng.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+imajpg.obj:	$(LINCS) imajpg.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+imabmp.obj:	$(LINCS) imabmp.$(SRCSUFF)         
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+imagif.obj:	$(LINCS) imagif.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+demo.res :      demo.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa demo
+
+winjpeg.lib: 
+	cd jpeg
+	nmake -f makefile.dos
+	cd ..
+	  
+winpng.lib: 
+	cd png
+	nmake -f makefile.dos
+	cd ..
+
+$(IMALIB):      $(LOBJECTS) # winhpeg.lib winpng.lib
+        -erase $(IMALIB)
+        lib /PAGESIZE:128 @<<
+$(IMALIB)
+y
+$(LOBJECTS)
+nul
+;
+<<
+
+# jpeg\winjpeg.lib png\winpng.lib
+
+clean:
+        -erase *.obj
+        -erase *.res
+        -erase *.map
+        -erase *.sbr
+        -erase $(IMALIB)
+        

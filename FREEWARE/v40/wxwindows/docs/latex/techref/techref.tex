@@ -1,0 +1,262 @@
+\documentstyle[a4,makeidx,verbatim,texhelp,fancyhea,mysober,mytitle]{report}
+\input psbox.tex
+
+% Remove this for processing with dvi2ps instead of dvips
+%\special{!/@scaleunit 1 def}
+
+\parskip=10pt
+\parindent=0pt
+\title{Technical Reference Manual for wxWindows}
+\author{Julian Smart\\Artificial Intelligence Applications Institute\\
+University of Edinburgh\\EH1 1HN}
+\date{March 1995}
+
+\makeindex
+\begin{document}
+\maketitle
+
+\pagestyle{fancyplain}
+\bibliographystyle{plain}
+\setheader{{\it CONTENTS}}{}{}{}{}{{\it CONTENTS}}
+\setfooter{\thepage}{}{}{}{}{\thepage}
+\pagenumbering{roman}
+\tableofcontents
+
+\chapter*{Copyright notice}
+\setheader{{\it COPYRIGHT}}{}{}{}{}{{\it COPYRIGHT}}%
+\setfooter{\thepage}{}{}{}{}{\thepage}
+
+\begin{center}
+Copyright (c) 1995 Artificial Intelligence Applications Institute,
+The University of Edinburgh\\
+\end{center}
+
+Permission to use, copy, modify, and distribute this software and its
+documentation for any purpose is hereby granted without fee, provided that the
+above copyright notice, author statement and this permission notice appear in
+all copies of this software and related documentation.
+
+THE SOFTWARE IS PROVIDED ``AS-IS'' AND WITHOUT WARRANTY OF ANY KIND, EXPRESS,
+IMPLIED OR OTHERWISE, INCLUDING WITHOUT LIMITATION, ANY WARRANTY OF
+MERCHANTABILITY OR FITNESS FOR A PARTICULAR PURPOSE.
+
+IN NO EVENT SHALL THE ARTIFICIAL INTELLIGENCE APPLICATIONS INSTITUTE OR THE
+UNIVERSITY OF EDINBURGH BE LIABLE FOR ANY SPECIAL, INCIDENTAL, INDIRECT OR
+CONSEQUENTIAL DAMAGES OF ANY KIND, OR ANY DAMAGES WHATSOEVER RESULTING FROM
+LOSS OF USE, DATA OR PROFITS, WHETHER OR NOT ADVISED OF THE POSSIBILITY OF
+DAMAGE, AND ON ANY THEORY OF LIABILITY, ARISING OUT OF OR IN CONNECTION WITH
+THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+\chapter{About this technical reference}
+\pagenumbering{arabic}%
+\setheader{{\it CHAPTER \thechapter}}{}{}{}{}{{\it CHAPTER \thechapter}}%
+\setfooter{\thepage}{}{}{}{}{\thepage}
+
+wxWindows is a class library for C++ providing GUI (Graphical User
+Interface) and other facilities on more than one platform. This document
+describes technical aspects, likely to be of interest to those wishing
+to port wxWindows onto new platforms, or adding functionality.
+
+This is a first attempt at a technical reference and will initially
+take the form of rough and random notes on specific issues.
+
+Please refer to the wxWindows user and reference manuals for information
+about the wxWindows Application Programmer's Interface (API).
+
+\chapter{Architecture of wxWindows}
+
+This chapter summarizes the overall design of wxWindows.
+
+wxWindows is a set of C++ classes encapsulating miscellaneous GUI and operating
+system functionality. All classes derive from the class wxObject, which
+has one member variable: {\bf \_\_type}. This variable allows any object to identify
+its type dynamically, and the application can query the type using the {\bf wxSubType} function.
+
+Most (but not all) classes have one base, platform-independent version,
+and several platform-dependent versions (one for each platform). This allows base functionality
+to be coded once and for all, reimplementing only the minimum of specific functionality
+for each platform. The base headers and source reside in wx/include/base and wx/src/base,
+and the platform-specific headers and source have their own directories under wx/include
+and wx/src.
+
+The file {\bf wx\_defs.h} implements some common types and identifiers, and {\bf wx.h}\rtfsp
+includes common.h plus many headers which are likely to be used by an application.
+
+\section{Makefiles}
+
+Currently, one set of makefiles is required for UNIX, and another set
+for every different MS Windows compiler. Variation between compiler
+switches and make utilities seems to be greater under DOS than
+under UNIX.
+
+For UNIX makefiles, there are some standard targets.
+
+\begin{description}\itemsep=0pt
+\item[all] The default target. Calls the makefile recursively.
+\item[xview] XView compilation. Calls the makefile recursively.
+\item[motif] Motif compilation. Calls the makefile recursively.
+\item[hp] Hewlett Packard-specific target (for local AIAI convenience). Calls the makefile recursively.
+\item[clean...] Cleans the object files, executable and library archive (if any). The ellipsis
+indicates a GUI suffix e.g. \_motif, \_ol.
+\item[cleanall...] Cleans the object files, executable and library archive (if any),
+plus any associated utilities (possibly including the wxWindows library itself).
+The ellipsis indicates a GUI suffix e.g. \_motif, \_ol.
+\end{description}
+
+For DOS targets, the {\bf all} target is usually the default target, and there
+are often {\bf clean} and {\bf cleanall} targets.
+
+The file {\bf wx/src/make.env} has common settings that are included
+by all UNIX makefiles. Currently there is no equivalent for DOS makefiles.
+
+\section{Setup and peripheral libraries}
+
+Not all wxWindows code is in the main directories; other peripheral utilities
+and contributions are included according to settings in the file {\bf wx\_setup.h}\rtfsp
+and in the main wxWindows makefile.
+
+It is possible to switch on and off various parts of wxWindows according to need,
+via the {\bf wx\_setup.h} file, whether or not the code resides in separate libraries.
+For example, the PostScript support may be deactivated.
+See the FAQ document for details on these settings.
+
+\section{Platform independence}
+
+Wherever possible, functionality described in the reference manual is the same
+across all platforms. However, this is not always possible, but taking a strict lowest
+common denominator approach would often be foolish. So, some functionality is
+implemented on specific platforms only: but in the same wxWindows style, so that
+the ifdef-ing required is minimal and the programmer has little difficulty
+in writing platform-specific code. In the case of the Windows metafile device context,
+which is only available under MS Windows, drawing code which is used for other device contexts
+(such as wxCanvasDC or wxPostScriptDC) can be used immediately, so the amount
+of extra programming required to implement this platform-specific feature is absolutely
+minimal.
+
+Similarly, Windows MDI support is obtainable with the use of a window style at run-time,
+making it possible to enhance a Windows-hosted wxWindows application with very little fuss.
+
+If you decide to add functionality to wxWindows, {\it try} to be generic, but be pragmatic
+if total platform-dependence is not feasible.
+
+\chapter{Implementation}
+
+This chapter describes some of the details of implementation.
+
+\section{Motif}
+
+\section{MS Windows}
+
+Much of the implementation of (sub)windows centres
+around wx\_win.cc. The approach taken is to use a set of {\it intermediate} classes,
+whose base class is called {\it wxWnd}. {\bf wxSubWnd} is used for subwindows
+and dialog boxes. The members of these classes are called by the main
+window or dialog procedure (also in wx\_win.cc), and themselves call
+the member functions of the `real' wxWindow-derived classes.
+
+This introduction of intermediate classes helps deal with Windows-specific
+issues without too much confusion with the more abstract wxWindows classes. Also,
+there is not always a one-to-one mapping between these classes: for example,
+wxStatusWnd is used to implement the fields of a status line, which is
+not an individual window in wxWindows terms.
+
+The intermediate classes have their own {\it handle} member which points
+to the actual HWND. The wxWindows abstract class uses its {\it handle} member
+to point to the intermediate window class. For convenience, use wxWindow::GetHWND to
+get the actual HWND for any wxWindows window.
+
+\subsection{Window procedures}
+
+The window procedures wxWndProc (for subwindows, frames) and and wxDlgProc (dialogs)
+intercept a range of normal Windows messages, and call member functions in the
+intermediate wxWnd classes. Because a wxWnd may not have been associated with
+a wxWindow just as the window is being created, there has to be a temporary
+`hook' (wxWndHook) which is set just before creation, so that the window
+procedure knows about the wxWnd when it gets a message during the creation
+process.
+
+wxWnd::DefWindowProc defines a default procedure to be called if a message
+is not handled.
+
+\subsection{wxWindow Destructor}
+
+There is some code in the wxWindow destructor that looks like it should belong
+in the destructors of individual classes. However, it's necessary to do some cleanup
+in the wxWindow destructor because the ordering of destructor calling conflicts
+with what's required for window cleanup.
+
+\chapter{Adding new window classes}
+
+\section{Adding a panel item}
+
+To add a new panel item, you need to write a wrapper for it in the same manner that
+existing widgets are done. For example, the Motif and Windows gauge widgets are
+totally separate C code from wxWindows (contrib/xmgauge and
+contrib/gauge respectively). I've created the appropriate classes: wxbGauge
+in include/base/wb\_gauge.h, and wxGauge in include/msw/wx\_gauge.h and
+include/x/wx\_gauge.h.
+
+If the widget is likely to be useful for all wxWindows users, it
+can be integrated into the wxWindows distribution. A contributor
+can send me code and a bit of explanation and I'll include it.
+If it's of more limited interest, it can be organized as a separate
+library or patch file, and I can put it on our ftp site. Or it
+may be something you can't distribute externally and you'll
+want to find an easy way to patch it into new releases of wxWindows
+as you get them.
+
+There's no way of slotting in custom widgets by simply providing a DLL,
+and I don't really see how this would be possible because, unlike with
+(say) plain Windows, you're always going to have to write the C++
+wrapper class (which might, of course, still call a DLL).
+
+\section{Adding a subwindow}
+
+Similar to adding a panel item. See the implementation of wxTextWindow
+in wx\_text.cc for an example.
+
+\chapter{Documentation}
+
+For a cross-platform project, it is important for the documentation to
+be available in a wide range of paper and online formats.
+
+For this reason, all documentation is written in a subset of LaTeX and
+converted to the following formats:
+
+\begin{enumerate}\itemsep=0pt
+\item PostScript, via LaTeX and dvips
+\item Windows Help, via Tex2RTF and the Windows help compiler
+\item Word processor RTF (especially Word for Windows), via Tex2RTF
+\item World Wide Web HTML, via Tex2RTF
+\item wxHelp .XLP, via Tex2RTF
+\end{enumerate}
+
+Please read the Tex2RTF manual if you are going to write or modify
+wxWindows documentation, and ensure that the LaTeX source conforms
+to Tex2RTF guidelines.
+
+\chapter{Using wxWindows in non-C++ languages}
+
+Bindings to other languages are available or being developed. Examples of these
+are wxCLIPS, wxPython, wxPerl, wxScheme and wxOPL (Object Prolog).
+
+To help in this effort, a library called wxExtend has been devolved
+from the original wxCLIPS code. This library maps from most
+wxWindows C++ classes to C functions that take a long integer argument
+representing the actual C++ object. Dynamic type checking is performed
+by the library, and it also helps the implementer register
+C callbacks representing the C++ overridable member functions,
+which can then call the appropriate foreign language callback or
+member function.
+
+This library is available from AIAI at:\\
+ftp.aiai.ed.ac.uk/pub/packages/wxwin/utils/wxextend.
+
+
+\addcontentsline{toc}{chapter}{Index}
+\printindex
+\setheader{{\it INDEX}}{}{}{}{}{{\it INDEX}}%
+\setfooter{\thepage}{}{}{}{}{\thepage}
+
+\end{document}
+

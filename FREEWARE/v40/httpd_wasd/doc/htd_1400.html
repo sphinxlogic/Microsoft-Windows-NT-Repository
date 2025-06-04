@@ -1,0 +1,430 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2//EN">
+<HTML>
+<HEAD>
+<META NAME="generator" CONTENT="SDM2HTM AXP-1.7.0">
+<META NAME="source" CONTENT="HT_ROOT:[DOC.HTD]HTD.SDML">
+<META NAME="date" CONTENT="Tue, 08 Sep 1998 10:04:14">
+<!--
+WASD (HFRD) VMS Hypertext Services, Copyright (c) 1996-1998 Mark G.Daniel.
+This package (all associated programs), comes with ABSOLUTELY NO WARRANTY.
+This is free software, and you are welcome to redistribute it
+under the conditions of the GNU GENERAL PUBLIC LICENSE, version 2.
+-->
+<TITLE>Server Performance</TITLE>
+</HEAD>
+<BODY>
+<H1>WASD Hypertext Services - Technical Overview</H1>
+[<A HREF="HTD_1500.HTML" TARGET="_self">next</A>] [<A HREF="HTD_1300.HTML" TARGET="_self">previous</A>] [<A HREF="HTD_0001.HTML"TARGET="_top" >contents</A>] [<A HREF="HTD_1400.HTML"TARGET="_top" >full-page</A>]
+<HR>
+
+<A NAME="201">
+<H1>14 - Server Performance</H1>
+</A>
+
+<P>
+ The server has a single-process, multi-threaded, asynchronous I/O design.
+On a single-processor system this is the most efficient approach.  On a
+multi-processor system it is limited by the single process context (ignoring
+scripts which execute within their own context).  An obvious improvement would
+be to have multi-processor threading or a pool of server processes, one per
+CPU, servicing requests.  The latter may be the approach of future
+refinements.
+
+<P>
+ The server has been tested with up to 30 concurrent requests originating
+from 6 different systems and continues to provide an even distribution of data
+flow to each client (albeit more slowly :^)
+
+<P>
+ <B>Test results are all obtained using the native Digital TCP/IP
+Services executable.  The NETLIB image may provide very slightly lower results
+due to the additional NETLIB layer.  These results are indicative only!</B>
+
+<A NAME="202">
+<H3>Simple File Request Turn-Around</H3>
+</A>
+
+<P>
+ Two sets of data are now reported, one with caching disabled, the other
+enabled.
+
+<P>
+ A series of tests using batches of 200 accesses were made and the results
+averaged. The first test returned an empty file measuring response and file
+access time, without any actual transfer. The second and third requested files
+of 16K and 64K characters respectively, testing performance with more realistic
+scenarios. All were done using one and then ten concurrent requests.
+
+<P>
+ The test system was a lightly-loaded AlphaServer 2100, VMS v7.1 and
+DEC TCP/IP 4.2. No <I>Keep-Alive:</I> functionality was employed so each
+request required a complete TCP/IP  connection and disposal, although the
+WWWRKOUT utility (see <A HREF="htd_1600.html#218" TARGET="_self">16.6 - Server Workout <I>(stress-test)</I></A>) was used on the same system
+as the HTTP server, eliminating actual network transport. DNS (name
+resolution) was disabled. The command lines are show below.
+
+<PRE>  $ WWWRKOUT /SIM=1 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/ht_root/exercise/0k.txt"
+  $ WWWRKOUT /SIM=10 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/ht_root/exercise/0k.txt"
+  $ WWWRKOUT /SIM=1 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/ht_root/exercise/16k.txt"
+  $ WWWRKOUT /SIM=10 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/ht_root/exercise/16k.txt"
+  $ WWWRKOUT /SIM=1 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/ht_root/exercise/64k.txt"
+  $ WWWRKOUT /SIM=10 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/ht_root/exercise/64k.txt"
+</PRE>
+
+<P>
+ The following results were derived using the v5.2 server.
+
+<P>
+<CENTER><B>Cache Disabled</B></CENTER>
+
+<BR><CENTER><TABLE CELLPADDING=2 BORDER=1>
+<TH><TH>Concurrent<TH>Duration (seconds)<TH>Requests/Second</TH>
+<TR></TR>
+<TR><TD>0K<TD>1<TD>2.11<TD>95</TR>
+<TR><TD>0K<TD>10<TD>1.70<TD>117</TR>
+<TR></TR>
+<TR><TD>16K<TD>1<TD>3.04<TD>66</TR>
+<TR><TD>16K<TD>10<TD>2.50<TD>80</TR>
+<TR></TR>
+<TR><TD>64K<TD>1<TD>6.71<TD>30</TR>
+<TR><TD>64K<TD>10<TD>5.10<TD>39</TR>
+</TABLE></CENTER><BR>
+
+
+<P>
+<CENTER><B>Cache Enabled</B></CENTER>
+
+<BR><CENTER><TABLE CELLPADDING=2 BORDER=1>
+<TH><TH>Concurrent<TH>Duration (seconds)<TH>Requests/Second</TH>
+<TR></TR>
+<TR><TD>0KB<TD>1<TD>0.95<TD>210</TR>
+<TR><TD>0KB<TD>10<TD>0.82<TD>244</TR>
+<TR></TR>
+<TR><TD>16KB<TD>1<TD>1.86<TD>107</TR>
+<TR><TD>16KB<TD>10<TD>1.60<TD>125</TR>
+<TR></TR>
+<TR><TD>64KB<TD>1<TD>4.74<TD>43</TR>
+<TR><TD>64KB<TD>10<TD>4.25<TD>47</TR>
+</TABLE></CENTER><BR>
+
+
+<P>
+ Significantly, with both environments, <B>throughput actually
+improves</B> at ten concurrent requests (probably due to the latency of the
+serial TCP/IP connection/disconnection in one-by-one, compared to several
+happening concurrently).
+
+<P>
+ Note that the response and transfer benefits decline noticably with file
+size (transfer time).  The difference between cached and non-cached with the
+zero file size (no actual data transfer involved) gives some indication of the
+raw difference in response latency, some 220% improvement. This is a fairly
+crude analysis, but does give some indication of cache efficiencies.
+
+<A NAME="203">
+<H3>Simple File Request Transfer Rate</H3>
+</A>
+
+<P>
+ The simple text file request under similar conditions indicates a
+potential transfer rate <B>well in excess of 1 Mbyte per second</B>.
+(Remember, both client and server are on the same system, so the data, although
+being transported by TCP/IP networking, is not actually ending up out on a
+physical network.)  This serves to demonstrate that server architecture should
+not be the limiting factor in file throughput.
+
+<PRE>  $ WWWRKOUT /SIM=1 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=10 -
+  /PATH="/sys$common/sysexe/tnt$server.exe"
+  $ WWWRKOUT /SIM=10 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=10 - 
+  /PATH="/sys$common/sysexe/tnt$server.exe"
+  $ WWWRKOUT /SIM=1 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=10 -
+  /PATH="/sys$common/sysexe/cxx$compiler.exe"
+  $ WWWRKOUT /SIM=10 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=10 -
+  /PATH="/sys$common/sysexe/cxx$compiler.exe"
+</PRE>
+
+<P>
+ The following results were derived using the v5.2 server.
+
+<P>
+<CENTER><B>Transfer Rate</B></CENTER>
+
+<BR><CENTER><TABLE CELLPADDING=2 BORDER=1>
+<TH><TH>Concurrent<TH>Duration (seconds)<TH>Mbytes/Second</TH>
+<TR></TR>
+<TR><TD>2.4MB (4700 blocks)<TD>1<TD>6.4<TD>3.8</TR>
+<TR><TD>2.4MB (4700 blocks)<TD>10<TD>5.7<TD>4.2</TR>
+<TR></TR>
+<TR><TD>6.9MB (13442 blocks)<TD>1<TD>40<TD>1.7</TR>
+<TR><TD>6.9MB (13442 blocks)<TD>10<TD>17<TD>4.0</TR>
+</TABLE></CENTER><BR>
+
+
+<P>
+ Significantly, there were no dramatic drops in transfer rate between one
+and ten concurrent requests!  In fact an increase in throughput!
+
+<A NAME="204">
+<H2><BR><U>14.1 - File Record Format</U></H2>
+</A>
+
+<P>
+ The server can handle STREAM, STREAM_LF, STREAM_CR, FIXED and UNDEFINED
+record formats very much more efficiently than VARIABLE or VFC files.
+
+<P>
+ With STREAM, FIXED and UNDEFINED files the assumption is that HTTP
+carriage-control is within the file itself (i.e. at least the newline (LF),
+all that is required required by browsers), and does not require additional
+processing.  With VARIABLE record files the carriage-control is implied and
+therefore each record requires additional processing by the server to supply
+it.  Even with variable record files having multiple records buffered by the
+HTTPd before writing them collectively to the network improving efficiency,
+stream and binary file reads are by Virtual Block and are written to the
+network immediately making the transfer of these very efficient indeed!
+
+<P>
+ So significant is this efficiency improvement a module exists to
+automatically convert VARIABLE record files to STREAM-LF when detected by the
+file transfer module.  This is disabled by default but the user is strongly
+encouraged to enable it and to ensure that stream format files are provided
+to the server by other hypertext generating and processing utilitites.
+
+<A NAME="205">
+<H2><BR><U>14.2 - Subprocess-based Scripting</U></H2>
+</A>
+
+<P>
+ Persistant-subprocesses are probably the most efficient solution for
+child-process scripting under VMS. See
+<A HREF="htd_1200.html#147" TARGET="_self">12.2 - Scripting Environment</A>.  The I/O still needs to be on-served
+to the client by the server.
+
+<P>
+ A simple performance evaluation shows the relative merits of the three
+scripting environments available. Two results are provided here. Both were
+obtained using the WWWRKOUT utility (see <A HREF="htd_1600.html#218" TARGET="_self">16.6 - Server Workout <I>(stress-test)</I></A>) accessing
+the same CGI test utility script,
+
+<A TARGET="_top" HREF="/ht_root/src/CGIplus/CgiPlusTest.c">
+HT_ROOT:[SRC.CGIPLUS]CGIPLUSTEST.C</A>,
+which executes in both standard CGI and CGIplus environments. A series of 200
+access were made and the results averaged. The first test returned only the
+HTTP header, evaluating raw request turn-around time. The second test requested
+a body of 16K characters, again testing performance with a more realistic
+scenario. No <I>Keep-Alive:</I> functionality was employed so each request
+required a complete TCP/IP connection and disposal, although the WWWRKOUT
+utility was used on the same system as the HTTP server, eliminating actual
+network transport. DNSLookup (host name resolution) was disabled. The test
+system was a lightly-loaded AlphaServer 2100, VMS v7.1 and DEC TCP/IP 4.2.) The
+command lines are show below:
+
+<PRE>  $ WWWRKOUT /SIM=1 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/cgi-bin/cgiplustest?0"
+  $ WWWRKOUT /SIM=1 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/cgi-bin/cgiplustest?16"
+  $ WWWRKOUT /SIM=10 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/cgiplus-bin/cgiplustest?0"
+  $ WWWRKOUT /SIM=10 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/cgiplus-bin/cgiplustest?16"
+</PRE>
+
+<P>
+ The following results were derived using the v5.2 server. 
+
+<P>
+<CENTER><B>CGI Scripting</B></CENTER>
+
+<BR><CENTER><TABLE CELLPADDING=2 BORDER=1>
+<TH><TH>Concurrent<TH>Duration (seconds)<TH>Requests/Second</TH>
+<TR></TR>
+<TR><TD>0KB<TD>1<TD>14.7<TD>13.65</TR>
+<TR><TD>0KB<TD>10<TD>8.60<TD>23.3</TR>
+<TR></TR>
+<TR><TD>16KB<TD>1<TD>13.69<TD>14.6</TR>
+<TR><TD>16KB<TD>10<TD>8.68<TD>23.0</TR>
+</TABLE></CENTER><BR>
+
+
+<P>
+<CENTER><B>CGIplus Scripting</B></CENTER>
+
+<BR><CENTER><TABLE CELLPADDING=2 BORDER=1>
+<TH><TH>Concurrent<TH>Duration (seconds)<TH>Requests/Second</TH>
+<TR></TR>
+<TR><TD>0KB<TD>1<TD>4.20<TD>47.6</TR>
+<TR><TD>0KB<TD>10<TD>4.31<TD>46.4</TR>
+<TR></TR>
+<TR><TD>16KB<TD>1<TD>4.32<TD>46.3</TR>
+<TR><TD>16KB<TD>10<TD>4.39<TD>45.6</TR>
+</TABLE></CENTER><BR>
+
+ Again significantly, <B>throughput actually improved</B> at ten
+concurrent requests (probably due to the latency of the serial TCP/IP
+connection/disconnection in one-by-one, compared to several happening
+concurrently).
+
+<P>
+ Although these results are indicative only, they do show CGIplus to have
+a potential for improvement over standard CGI in the order of 200%,
+a not inconsiderable improvement. Of course this test generates
+the output stream very simply and efficiently and so excludes any actual
+processing time that may be required by a &quot;real&quot; application.
+<B>If the script/application has a large activation time the reduction
+in response latency could be even more significant</B> (e.g. Perl scripts
+and RDBS access languages).
+
+<A NAME="206">
+<H2><BR><U>14.3 - DECnet-based Scripting</U></H2>
+</A>
+
+<P>
+ Using the same environment as when testing subprocess-based CGI scripts
+(see above) this series of tests assesses the performance of the same script
+being executed using DECnet to manage the processes.  DECnet Phase-IV was in
+use on a VMS v7.1 AlphaServer 2100.
+
+<PRE>  $ WWWRKOUT /SIM=1 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/decnet/cgiplustest?0"
+  $ WWWRKOUT /SIM=1 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/decnet/cgiplustest?200"
+  $ WWWRKOUT /SIM=10 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/decnet/cgiplustest?0"
+  $ WWWRKOUT /SIM=10 /NOBREAK /NOVARY /NOHEAD /NOOUT /COUNT=200 -
+  /PATH="/decnet/cgiplustest?200"
+</PRE>
+
+<P>
+ The following results were derived using the v5.2 server, which now
+provides for DECnet connection reuse.
+
+<P>
+<CENTER><B>DECnet CGI Script - No Connection Reuse</B></CENTER>
+
+<BR><CENTER><TABLE CELLPADDING=2 BORDER=1>
+<TH><TH>Concurrent<TH>Duration (seconds)<TH>Requests/Second</TH>
+<TR></TR>
+<TR><TD>0KB<TD>1<TD>32.4<TD>6.2</TR>
+<TR><TD>0KB<TD>10<TD>50.0<TD>4.0</TR>
+<TR></TR>
+<TR><TD>16KB<TD>1<TD>25.8<TD>7.8</TR>
+<TR><TD>16KB<TD>10<TD>22.8<TD>8.8</TR>
+</TABLE></CENTER><BR>
+
+
+<P>
+<CENTER><B>DECnet CGI Script - With Connection Reuse</B></CENTER>
+
+<BR><CENTER><TABLE CELLPADDING=2 BORDER=1>
+<TH><TH>Concurrent<TH>Duration (seconds)<TH>Requests/Second</TH>
+<TR></TR>
+<TR><TD>0KB<TD>1<TD>17.8<TD>11.5</TR>
+<TR><TD>0KB<TD>10<TD>11.9<TD>16.8</TR>
+<TR></TR>
+<TR><TD>16KB<TD>1<TD>18.4<TD>10.9</TR>
+<TR><TD>16KB<TD>10<TD>12.2<TD>16.4</TR>
+</TABLE></CENTER><BR>
+
+
+<A NAME="207">
+<H3>Some Observations</H3>
+</A>
+ 
+
+<P>
+ This section comments on non-persistant scripts (i.e. those that must
+run-up and run-down with each request - general CGI behaviour). As may be seen
+from comparing the two tables connection reuse offers distinct benefits in
+reduced response times, consistency of response times and overall thoughput, 
+showing a difference of some 200% over non-reuse (similar improvements were
+reported with the OSU 3.3a server).
+
+<P>
+ With ten simultaneous and back-to-back scripts and no connection reuse many
+more network processes are generated than just ten. This is due to the
+NETSERVER maintenance tasks such as log creation and purging, activating and
+deactivating the task, etc., adding latency into this script environment. The
+throughput was generally still lower than with subprocess-based scripting (11.5
+against 14.7 for single requests, 16.8 against 23.3 for ten concurrent
+requests).
+
+<P>
+ While earlier versions cautioned on the use of DECnet-based scripting this
+has been relaxed somewhat through connection reuse.
+
+<A NAME="208">
+<H2><BR><U>14.4 - SSL</U></H2>
+</A>
+
+<P>
+ At this time there are no definitive measurements of SSL performance (see
+<A HREF="htd_1000.html#127" TARGET="_self">10 - Secure Sockets Layer</A>), as work on an SSL version of the WWWRKOUT utility
+has not yet been undertaken. One might expect that because of the
+CPU-intensive cryptography employed in SSL requests that performance,
+particularly where concurrent requests are in progress, would be significantly
+lower.  In practice SSL seems to provide more-than-acceptable responsiveness.
+
+<A NAME="209">
+<H2><BR><U>14.5 - Suggestions</U></H2>
+</A>
+
+<P>
+ Here are some suggestions for improving the performance of the server,
+listed in approximate order of significance. Note that these will have
+proportionally less impact on an otherwise heavily loaded system.
+<OL>
+<LI> Disable host name resolution (configuration parameter [DNSLookup]).
+This can slow processing significantly.  Most log analysis tools can convert
+numeric addresses so DNS resolution is often an unnecessary burden.
+
+<P>
+ <B>This can actually make a remarkable difference</B>.  The same
+test provided very different throughputs with DNS lookup enabled and disabled
+(v4.5 server, cache enabled).
+<P>
+
+<BR><CENTER><TABLE CELLPADDING=2 BORDER=1>
+<TH><TH>duration (seconds)<TH>requests/second</TH>
+<TR></TR>
+<TR><TD>DNSLookup ON<TD>6.30<TD>32</TR>
+<TR><TD>DNSLookup OFF<TD>0.95<TD>210</TR>
+</TABLE></CENTER><BR>
+
+<P>
+<LI> Ensure served files are not VARIABLE record format (see above). Enable
+STREAM-LF conversion using a value such as 250 (configuration parameter
+[StreamLF] and [StreamLFpaths]).
+<P>
+<LI> Use persistant-subprocess DCL/scripting (configuration parameter
+[ZombieLifeTime])
+<P>
+<LI> Use CGIplus-capable scripts whenever possible.
+<P>
+<LI> Enable caching (configuration parameter [Cache]).
+<P>
+<LI> Disable logging (configuration parameter [Logging]).
+<P>
+<LI> Set the HTTP server process priority higher, say to 6 (use startup
+qualifier /PRIORITY=).
+<P>
+<LI> Reduce to as few as possible the number of mapping rules.
+<P>
+<LI> Use a pre-defined log format (e.g. &quot;common&quot;, configuration
+parameter [LogFormat]).
+<P>
+<LI> Disable request history (configuration parameter [RequestHistory]).
+<P>
+<LI> Disable activity statistics (configuration parameter [ActivityDays]).
+</OL>
+
+<P>
+<HR>
+[<A HREF="HTD_1500.HTML" TARGET="_self">next</A>] [<A HREF="HTD_1300.HTML" TARGET="_self">previous</A>] [<A HREF="HTD_0001.HTML"TARGET="_top" >contents</A>] [<A HREF="HTD_1400.HTML"TARGET="_top" >full-page</A>]
+</BODY>
+</HTML>

@@ -1,0 +1,379 @@
+@(#)INSTALL.VMS	6.17 98/10/19
+
+INSTRUCTIONS FOR OPENVMS
+------------------------
+
+Please read through the following notes before attempting to compile and
+install xmcd on the Digital OpenVMS platform.
+
+Please note that only the xmcd (X11/Motif-based) CD player is supported
+under OpenVMS.  The command-line based cda utility, the wm2xmcd database
+translator and the cddbcmd utility are not currently supported.
+
+
+OS AND COMPILER MINIMUM VERSIONS
+--------------------------------
+
+Please see the PLATFORM file for minimum operating system version
+requirements.  Also, DEC C version 5.6 or later is required.
+
+If you are compiling on a OpenVMS 6.x system, you will need to set
+the logical names DECC$CRTLMAP and LNK$LIBRARY.
+
+
+BUILDING XMCD
+-------------
+
+To build xmcd for the OpenVMS operating system you need to first unpack
+the xmcd GZIPed file, then use VMSTAR to restore the directory tree for
+xmcd.  GUNZIP, and VMSTAR can be found at various location on the
+Internet. One such location is the Digital FTP site:
+
+	ftp://ftp.digital.com/pub/VMS
+
+If your system has TCP/IP and socket support, you may want to enable
+the remote CD database functionality.  See the MAKEVMS.COM file in
+the CDDB_D area for information.
+
+Set your default back to the top level of the xmcd source code tree.
+Execute the command file MAKEVMS.COM.  This initiates the compile
+and linking of all source files.  The executable binary that results
+is XMCD.EXE found in the [.XMCD_D] directory.  There will also be a
+foreign command XMCD that you can use to run the program.
+
+
+INSTALLING AND CONFIGURING XMCD
+-------------------------------
+
+1. Create an XMCD Library:
+
+    You need to set up an xmcd library directory which contains
+    COMMON.CFG and DEVICE.CFG, the help and documentation files,
+    and the CD database area. 
+
+    Example:
+
+	$ CRE/DIR SYS$COMMON:[XMCD]
+
+    Some users prefer not to install applications in a system
+    directory.  You can use a different directory than SYS$COMMON:[XMCD]
+    if you wish.  Substitute all occurrences of SYS$COMMON:[XMCD] in
+    the examples below with the actual directory you use.  Be sure
+    this directory is world-readable and the files in there are
+    world-readable and executable.
+
+2. Setting up the config file:
+
+    In the LIBDI_D area there are two configuration files COMMON.CFG,
+    and DEVICE.CFG.  The COMMON.CFG file contains general parameters,
+    whereas DEVICE.CFG defines device-specific parameters.
+
+    In the COMMON.CFG file there are a number of defaults, you must
+    change the line that specifies the name of the CD device you plan
+    to use.  The default looks like this:
+
+	device:		/dev/rcd0
+
+    Change this to the name of the CD device you are going to use.
+    For example:
+
+	device:		DKA500:
+
+    You may need to change some of the parameters in the DEVICE.CFG
+    file depending upon the specific model of CD-ROM you have.
+
+    Copy both the COMMON.CFG and DEVICE.CFG files (with the
+    change to the device name) to the xmcd library directory
+    (Created in step 1 above).  
+
+    If xmcd is to be used on a cluster, a node-specific version of these
+    files may be created in the same place by adding -NODENAME to the 
+    file names (e.g., COMMON.CFG-SNOOPY and DEVICE.CFG-SNOOPY).
+    These node-specific configuration files will take precedence over
+    the generic ones.
+
+    Each user on their stand-alone system can also customize the xmcd
+    default CD-ROM device and xmcd behavior by creating a subdirectory
+    named XMCDCFG.DIR off their top level user directory, and then
+    putting a copy of the COMMON.CFG and DEVICE.CFG files there.
+
+    Example:
+
+	$ CRE/DIR DISK1$:[RJONES.XMCDCFG]
+
+    If a user wishes to override any parameters in the COMMON.CFG and
+    DEVICE.CFG files then they can edit their local copy and make the
+    needed changes.  Note that some parameters are considered "privileged"
+    and will be ignored by xmcd in the local version of these files.
+    See the comments in the files for details.
+
+3. Setting up the help file area:
+
+    The help files need to be in a subdirectory of the xmcd library
+    called HELP.DIR.  The help files themselves come from the xmcd tar
+    file from the directory HLPFILES.DIR under the XMCD_D area.
+
+    Create the HELP area in the xmcd library and copy the help files to
+    it.
+
+	$ CRE/DIR SYS$COMMON:[XMCD.HELP]
+
+    Help under xmcd is context sensitive.  Using the right mouse button
+    on a part of xmcd that offers help will invoke that help screen.
+
+4. Setting up the documentation file area:
+
+    The documentation files need to be in a subdirectory of the xmcd
+    library called DOCS.DIR.  The documentation files themselves come
+    from the xmcd tar file from the directory under the DOCS_D area.
+
+    Create the DOCS area in the xmcd library and copy the documentation
+    files to it.
+
+	$ CRE/DIR SYS$COMMON:[XMCD.DOCS]
+
+    You can browse these documentation files using the xmcd help system.
+
+5. Setting up the CD database area:
+
+    If you have room on your disk there is a CD database which holds a
+    number of files with the names of albums, and song titles which
+    xmcd uses to display the appropriate informations for the CD you
+    are listing to.  Also if a CD is not part of the database you can
+    add the information to the database so that the next time you play
+    the CD xmcd has the information.  The CD database is also a
+    GZIPed/TARed file that you need to restore.  Restore this in the
+    top level of the library area.  Once done your library area should
+    look like this (from the example above):
+
+	$ DIR SYS$COMMON:[XMCD]
+
+	Directory SYS$COMMON:[XMCD]
+
+	CDDB.DIR;1		 1
+	COMMON.CFG;1		11
+	DEVICE.CFG;1		20
+	DOCS.DIR;1		 5
+	HELP.DIR;1		 5
+
+6. Pointing to the XMCD library:
+
+    You need to set up xmcd such that it can find the library directory.
+
+    There is a X resources file called XMCD.AD in the XMCD_D area.
+    This holds the definitions for window colors, fonts, messages,
+    labels, and other customizable items.  Amongst these is the
+    path to the xmcd library, and the mailing address of the CD database
+    mail site.  To allow xmcd to use this file copy the XMCD.AD file
+    to DECW$USER_DEFAULT:XMCD.DAT (or DECW$SYSTEM_DEFAULTS:XMCD.DAT if
+    you want to make it system-wide or cluster-wide).  If you do not
+    have the DECW$USER_DEFAULT logical defined you need to do that now
+    so DECWindows can locate the file.  For example, define
+    DECW$USER_DEFAULT to point to your top level directory:
+
+	$ define DECW$USER_DEFAULT SYS$LOGIN:
+
+    Then copy XMCD.AD to DECW$USER_DEFAULT:XMCD.DAT.  If you don't copy
+    XMCD.DAT file to DECW$SYSTEM_DEFAULTS: area then remember to define
+    the logical DECW$USER_DEFAULT in your LOGIN.COM file so that it
+    gets defined each time you log in.
+
+    Once done you need to edit the XMCD.DAT file to change the location
+    of the library, the mail command and any colors you want changed.
+
+    In the XMCD.DAT file there is a line to define the xmcd library that
+    looks like this:
+
+	XMcd.libdir:		/usr/lib/X11/xmcd
+
+    Change this line to point to the location of where you the xmcd
+    library is located.  From our example:
+
+	XMcd.libdir:		SYS$SYSDEVICE:[XMCD
+
+    Note that the right bracket is missing.  This is intentional.
+    The program will concatenate the directory names to form a path
+    name for library subdirectories.
+
+    Next, you will see the e-mail address of the CDDB mail site.  This
+    allows you to contribute to the xmcd public CD database just by
+    clicking a button.  If you do not have e-mail access to the Internet
+    then skip this step.
+
+    You will see two lines one for the site, and the other for the
+    command:
+
+	XMcd.cddbMailSite:	cddb-submit@submit.cddb.com
+	XMcd.cddbMailCmd:	mailx -s '%S' %A <%F >/dev/null 2>&1
+
+    If you have a gateway to the Internet, change the first line to
+    prefix the node name of the gateway to the address.  For example:
+
+	XMcd.cddbMailSite:	GATEWY::"""cddb-submit@submit.cddb.com"""
+
+    Note the number of quotation marks around the Internet
+    specification.
+
+    Next change the mail command to:
+
+	XMcd.cddbMailCmd:	mail /sub="%S" %F %A  
+
+    Note: The case and order of the "S", "F", and "A" parameters are
+    important.
+
+7. Set the database to world read/write access:
+
+    Make sure you set the file protection on the xmcd library and all
+    files under it to W:RWE.  You need write access to add titles to the 
+    database.  From our example:
+
+	$ SET FILE/PROT=W:RWE SYS$COMMON:[000000]XMCD.DIR
+	$ SET FILE/PROT=W:RWE SYS$COMMON:[XMCD...]*.*;*
+
+    If you copied xmcd.dat to the DECW$SYSTEM_DEFAULTS: area you also need
+    to make this file world readable.
+
+	$ SET FILE/PROT=W:RE DECW$SYSTEM_DEFAULTS:XMCD.DAT
+
+8. Set up xmcd to drive a web browser (optional):
+
+    Copy the INSTWEB.COM command file from the MISC_D area to the
+    xmcd library directory.  You may then execute INSTWEB.COM in that
+    directory.  This will ask you a number of questions and
+    then install wwwWarp support for xmcd.
+
+    If you wish to add wwwWarp support manually (i.e., not using the
+    INSTWEB.COM command), follow the instructions below.
+
+    - Make sure you have a copy of NETSCAPE.EXE or/and MOSAIC.EXE in 
+      SYS$SYSTEM: (e.g., SYS$COMMON:[SYSEXE]).
+
+    - Check whether you have the CMKRNL (Change Mode Kernel) privilege.
+      This is essential, because VMSWRAP.COM needs to make use of
+      ANALYZE/SYSTEM which requires this privilege.
+
+    - Copy the VMSWRAP.COM command procedure file to xmcd's library
+      directory.  This file is found in the MISC_D area.
+
+    - Modify your LOGIN.COM to add following lines:
+
+	$ IF F$MODE() .NES. "OTHER" THEN DEFINE/GROUP XMCD_BROWSER MOSAIC
+	$ VMSWRAP :== @disk:[dir]VMSWRAP.COM
+
+	First line:  If you prefer Mosaic as your default browser, just
+                     insert this line into your LOGIN.COM.
+                     If you prefer Netscape, exchange MOSAIC with NETSCAPE
+                     in this line. Of course you need to have the Mosaic
+                     and/or Netscape executable (see below).
+	Second line: 'disk:[dir]' is meant to be xmcd's library directory.
+
+      Restart your login session, or execute the above commands manually
+      so that they can take effect.
+
+    - Edit xmcd's COMMON.CFG and find the BrowserRemote parameter.
+      Change both the BrowserRemote and BrowserDirect commands as follows:
+
+	browserRemote:	VMSWRAP "-remote" "openURL(%U)"
+	browserDirect:	VMSWRAP "%U"
+  
+      Disregard the comments in the file regarding the different browsers
+      and their syntax - VMSWRAP.COM deals with this automatically.
+
+    Now you are done and should be able to use xmcd's wwwWarp features.
+
+    One more hint if you have the GRPPRV privilege:
+    -----------------------------------------------
+
+    If you have both Mosaic and Netscape handy, you can change the
+    browser for xmcd on the fly:
+
+    - Go to a text window where you can enter DCL commands.
+    - Enter
+      DEFINE/GROUP XMCD_BROWSER 'mybrowser'
+
+      Where 'mybrowser' is NETSCAPE or MOSAIC
+
+    - Go to xmcd's wwwWarp window and select a site - now the designated
+      browser will pop up.
+
+    This means you can use both browsers simultaneously or override the
+    default specified in your LOGIN.COM prior to starting xmcd.   You
+    can also go to a text window, change the browser as described above
+    and then start an alternate browser by simply clicking on some site
+    in xmcd's wwwWarp window.
+
+
+RUNNING XMCD
+------------
+
+You need to have the DIAGNOSE and PHY_IO privileges in order to run
+xmcd.
+
+	$ SET PROC/PRIV=(DIAGNOSE,PHY_IO)
+
+You can just enter $ RUN XMCD or use the XMCD foreign command at the
+DCL prompt to start xmcd.
+
+If you like to add xmcd to your Session Manager Application pull down
+menu do the following:
+
+1) Pull the Options Menu down in the Session Manager window, and
+   select the Menus... option.
+
+2) Select the the Item Name text box.  The Item Name text box is just
+   above where it says "DCL Command" and just left of "Options Qualifiers".
+   Add the name that you want to give to this application.  For example
+   CDPlayer.
+
+3) Select the DCL Command text box, and add the command 
+   @vue$library:vue$cdplayer.com.  This file tells DECwindows how to
+   run the application.
+
+4) Select the Up arrow button (just to the right of "Options Qualifiers")
+
+   The application name is now in the Item Names Menu, and it should be 
+   highlighted.  
+
+5) To the left of the Item Names menu there is a left arrow button.
+   Select this button and the application will be displayed in the
+   Applications Menu.
+
+6) Choose the Apply button then the Cancel button.
+
+7) Next cut the following DCL command file out of this file and 
+   copy it to vue$library:vue$cdplayer.com.
+
+This assumes that xmcd was copied to SYS$SYSTEM:.
+
+----------------X cut here X------------------
+$!
+$!  Command procedure to executive the CD application in DECwindows
+$!
+$! vue$suppress_output_popup
+$!
+$! See if we should skip the dialog box
+$!
+$    vue$get_symbol vue$show_hidden_dialogs
+$    vue$read show_hidden_dialogs
+$
+$    if show_hidden_dialogs then goto select_qualifiers
+$	vue$get_qualifiers
+$	goto do_cd
+$
+$select_qualifiers:
+$	vue$popup_qualifiers
+$
+$do_cd:
+$
+$ set proc/priv=(diagnose,phy_io)
+$ run sys$system:xmcd 
+$
+$ vue$check_verb_loop
+$ vue$read loop
+$ if "''loop'" .eqs. "TRUE" then goto select_qualifiers
+----------------X cut here X------------------
+
+Make sure that this file (VUE$LIBRARY:VUE$CDPLAYER.COM) is W:RE
+protected, and that xmcd.exe is W:RE in the SYS$SYSTEM: directory.
+
+

@@ -1,0 +1,164 @@
+/*
+ * @(#)Imakefile	6.18 98/09/26
+ *
+ * Imakefile for cda
+ *
+ *	cda - Command-line CD Audio Player
+ *
+ *   Copyright (C) 1993-1998  Ti Kan
+ *   E-mail: ti@amb.org
+ *
+ *   This program is free software; you can redistribute it and/or modify
+ *   it under the terms of the GNU General Public License as published by
+ *   the Free Software Foundation; either version 2 of the License, or
+ *   (at your option) any later version.
+ *
+ *   This program is distributed in the hope that it will be useful,
+ *   but WITHOUT ANY WARRANTY; without even the implied warranty of
+ *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *   GNU General Public License for more details.
+ *
+ *   You should have received a copy of the GNU General Public License
+ *   along with this program; if not, write to the Free Software
+ *   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ *
+ */
+
+
+/**** Optional defines:  Change as you see fit. *****************************
+ *
+ * -DBSDCOMPAT
+ *	Compiling under BSD-derived or BSD-like OS
+ *
+ * -DNO_STDLIB_H
+ *	The system does not support <stdlib.h>
+ *
+ * -DNOVISUAL
+ *	Build cda without the visual (curses) mode support
+ *
+ * -DUSE_TERMIOS
+ * -DUSE_TERMIO
+ * -DUSE_SGTTY
+ *	One of these should be defined for tty mode control
+ */
+#if defined(FreeBSDArchitecture) || defined(OpenBSDArchitecture) || \
+    defined(OsfArchitecture) || \
+    (defined(SunArchitecture) && OSMajorVersion == 4)
+DEFINES= -DBSDCOMPAT -DUSE_TERMIOS
+#else
+#if defined(NetBSDArchitecture) || defined(__bsdi__)
+DEFINES= -DBSDCOMPAT -DNOVISUAL -DUSE_TERMIOS
+#else
+#if defined(sony_news)
+DEFINES= -DBSDCOMPAT -DNOVISUAL -DUSE_SGTTY
+#else
+#if defined(SYSTYPE_BSD43) || defined(BSD43) || defined(BSD)
+DEFINES= -DBSDCOMPAT -DUSE_SGTTY
+#else
+#if defined(XmacIIServer)
+DEFINES= -DUSG -DUSE_TERMIO
+#else	/* all others */
+DEFINES= -DUSE_TERMIOS
+#endif	/* XmacIIServer */
+#endif	/* BSD */
+#endif	/* sony_news */
+#endif	/* NetBSDArchitecture __bsdi__ */
+#endif	/* FreeBSD OpenBSD OsfArchitecture SunArchitecture */
+
+
+/*
+ * Add standard and local include paths
+ */
+#if (defined(SunArchitecture) && OSMajorVersion == 4)
+STD_INCLUDES=-I/usr/5include
+#else
+#if defined(LinuxArchitecture)
+STD_INCLUDES=-I/usr/include/ncurses
+#else	/* all others */
+STD_INCLUDES=
+#endif	/* LinuxArchitecture */
+#endif	/* SunArchitecture */
+
+INCLUDES=-I..
+
+
+/*
+ * Add needed libraries
+ */
+#if (defined(SunArchitecture) && OSMajorVersion == 4)
+LOCAL_LIBRARIES=-L/usr/5lib -lcurses
+#else
+#if defined(LinuxArchitecture)
+LOCAL_LIBRARIES=-lncurses
+#else
+#if defined(FreeBSDArchitecture)
+LOCAL_LIBRARIES=-lncurses -lmytinfo
+.if exists(/usr/include/camlib.h)
+LOCAL_LIBRARIES+= -lcam
+.endif
+#else
+#if defined(NetBSDArchitecture) || defined(__bsdi__)
+LOCAL_LIBRARIES=
+#else
+#if defined(OpenBSDArchitecture)
+LOCAL_LIBRARIES=-lncurses -ltermlib
+#else
+#if defined(UltrixArchitecture)
+LOCAL_LIBRARIES=-lcursesX
+#else
+#if defined(SNIArchitecture) 
+LOCAL_LIBRARIES=/usr/ccs/lib/libcurses.a
+#else
+#if defined(__QNX__)
+LOCAL_LIBRARIES=-lncurses
+#else
+LOCAL_LIBRARIES=-lcurses
+#endif	/* __QNX__ */
+#endif	/* SINIX */
+#endif	/* ultrix */
+#endif	/* OpenBSDArchitecture */
+#endif	/* NetBSDArchitecture __bsdi__ */
+#endif	/* FreeBSDArchitecture */
+#endif	/* LinuxArchitecture OpenBSDArchitecture */
+#endif	/* SunArchitecture */
+
+
+/*
+ * C Source files
+ */
+SRCS=	cda.c \
+	visual.c
+
+
+/*
+ * Objects to build cda
+ */
+#if defined(__QNX__)
+OBJS=	cda.o \
+	visual.o \
+	../common_d/util3r.lib \
+	../cddb_d/cddb3r.lib \
+	../libdi_d/di3r.lib
+#else
+OBJS=	cda.o \
+	visual.o \
+	../common_d/libutil.a \
+	../cddb_d/libcddb.a \
+	../libdi_d/libdi.a
+#endif
+
+
+/*
+ * Build rule for cda
+ */
+#ifdef InstallProgram
+#undef InstallProgram
+#define InstallProgram(program, dest)
+#endif
+#ifdef InstallManPage
+#undef InstallManPage
+#define InstallManPage(program, dir)
+#endif
+ComplexProgramTarget(cda)
+
+

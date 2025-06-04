@@ -1,0 +1,531 @@
+;++
+; Copyright © 1992, 1994, 1996 by Brian Schenkenberger.  ALL RIGHTS RESERVED.
+;
+; This software is provided "AS IS" and is supplied for informational purpose
+; only.  No warranty is expressed or implied and no liability can be accepted
+; for any actions or circumstances incurred from the use of this software or 
+; from the information contained herein.  The author makes no claim as to the
+; suitablility or fitness of the software or information contain herein for a
+; particular purpose.
+;
+; Permission is hereby granted *ONLY* for the "not-for-profit" redistribution
+; of this software provided that ALL SOURCE and/or OBJECT CODE remains intact
+; and ALL COPYRIGHT NOTICES remain intact from its original distribution.  
+;
+;(!) NO TITLE TO AND/OR OWNERSHIP OF THIS SOFTWARE IS HEREBY TRANSFERRED. (!)
+;--
+	.TITLE	SSINTERCEPT		; template program demonstrating how
+	.IDENT	/V1.3 %6.233 LEI/ 	; to intercept Alpha system services
+
+;++
+.SBTTL	Macro library and macro include requisites
+;--
+	.LIBRARY	"SYS$LIBRARY:STARLET.MLB"	; look here for:
+
+	$EVAX_INSTRDEF	; Alpha instruction format codes
+	$EVX_OPCODESDEF	; Alpha (EVAX) opcodes definitions
+	$PDSCDEF	; procedure descriptor definitions
+	$SSDEF		; system status & completion codes
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"		; look here for:
+
+	$DISPDEF	; dispatch table entry definitions
+	$SSDESCRDEF	; system service descriptor table defs
+	$LDRIMGDEF	; loadable execlet image definitions
+	$INIRTNDEF	; execlet initialization definitions
+	$SSVECDEF	; system service transfer vector defs
+
+
+;++
+; The following includes are necessary for the particular mission of the
+; interception of the SYS$CREPRC and the SYS$DELPRC system services.
+;--
+	$PCBDEF		; process control block definitions
+
+
+;++
+;DEBUG;	Declare specified entry points and labels as global labels to 
+;DEBUG;	force their appearance in the linker map for verification.
+;--
+;;;	___MAP$DBUG = 0
+	.IF DF	___MAP$DBUG
+	.GLOBAL	SSINT$DOINIT	; should be equal to LIB$INITIALIZE
+	.GLOBAL	INIT_SSTBL_BASE	; should be equal to INI$A_BUILD_TABLE
+	.ENDC;	___MAP$DBUG
+
+
+;++
+.SBTTL	Macros to conditionally compile the code for 32 or 64 bit support
+;--
+	.MACRO	.IF_32 OPERATION
+	.IIF NDF,SS$_NORMAL,$SSDEF
+	.IIF NDF,SS$_ARG_GTR_32_BITS, OPERATION
+	.ENDM	.IF_32;OPERATION
+
+	.MACRO	.IF_64 OPERATION
+	.IIF NDF,SS$_NORMAL,$SSDEF
+	.IIF  DF,SS$_ARG_GTR_32_BITS, OPERATION
+	.ENDM	.IF_64;OPERATION
+
+
+;++
+.SBTTL	Macros to manipulate 64 bit register stack saves and restores
+;--
+	.MACRO	$PUSHR64,REGLST
+	.IRP	REG,<REGLST>
+	.IIF NB,REG, EVAX_STQ	REG,-(SP)
+	.ENDR
+	.ENDM	$PUSHR64
+
+	.MACRO	$POPR64,REGLST
+	.MACRO	...REV,A0,A1,A2,A3,A4,A5,A6,A7,A8,A9,A10,A11,A12,A13,A14,A15
+	.IRP	REG,<A15,A14,A13,A12,A11,A10,A9,A8,A7,A6,A5,A4,A3,A2,A1,A0>
+	.IIF NB,REG, EVAX_LDQ	REG,(SP)+
+	.ENDR
+	.ENDM	...REV
+	...REV	REGLST
+	.MDELETE ...REV
+	.ENDM	$POPR64
+
+
+;++
+.SBTTL	Macros to generate 64 bit argument list for EVAX_CALLG_64 built-in
+;--
+	.MACRO	$SETUP_CALLG_64	ARGCNT,ARGLST=R12
+	EVAX_SUBQ SP,#<ARGCNT+1>*8,SP
+	EVAX_LDAQ ARGLST,(SP)
+	_=0
+	.REPEAT ARGCNT+1
+	EVAX_STQ <_>(AP),(ARGLST)+
+	_=_+4
+	.ENDR
+	EVAX_LDAQ ARGLST,(SP)
+	.ENDM	$SETUP_CALLG_64
+
+
+;++
+.SBTTL	Macros to output information to the system console.
+;--
+	.MACRO	OUTPUT,MSGTEXT,?LBL
+	.SAVE_PSECT LOCAL_BLOCK
+	DECLARE_PSECT	EXEC$NONPAGED_DATA
+	.ALIGN	LONG
+MSG'LBL:.ASCIC	<13><10>"%SSintercept, MSGTEXT"<7><13>
+	.ALIGN	LONG
+	.RESTORE_PSECT
+	.IF_32	<PUSHR #^M<R0,R1,R2,R5>>
+	.IF_64	<$PUSHR64 <R0,R1,R2,R5>>
+	MOVL	G^OPA$AR_UCB0,R5
+	MOVAB	MSG'LBL,R2
+	MOVZBL	(R2)+,R1
+	JSB	G^IOC$BROADCAST
+	.IF_32	<POPR #^M<R0,R1,R2,R5>>
+	.IF_64	<$POPR64 <R0,R1,R2,R5>>
+	.ENDM	OUTPUT
+
+	.MACRO	OUTHEX,MSGTEXT,HEX,?LBL
+	.SAVE_PSECT LOCAL_BLOCK
+	DECLARE_PSECT	EXEC$NONPAGED_DATA
+	.ALIGN	LONG
+MSG'LBL:.ASCIC	<13><10>"%SSintercept, MSGTEXT' %x12345678"<7><13>
+END'LBL:
+	.RESTORE_PSECT
+	.IF_32	<PUSHR #^M<R0,R1,R2,R5>>
+	.IF_64	<$PUSHR64 <R0,R1,R2,R5>>
+	PUSHL	HEX
+	MOVL	#28,R0
+	MOVAB	END'LBL-10,R2	
+LBL:	EXTZV	R0,#4,(SP),R1
+	MOVB	G^EXE$AB_HEXTAB[R1],(R2)+
+	ACBL	#0,#-4,R0,LBL
+	POPL	R0
+	MOVL	G^OPA$AR_UCB0,R5
+	MOVAB	MSG'LBL,R2
+	MOVZBL	(R2)+,R1
+	JSB	G^IOC$BROADCAST
+	.IF_32	<POPR #^M<R0,R1,R2,R5>>
+	.IF_64	<$POPR64 <R0,R1,R2,R5>>
+	.ENDM	OUTHEX
+
+
+;++
+.SBTTL	Local program parameter definitions
+;--
+	ZERO = 0		; |_ 
+	BYTE = 1@0		; |_|_ 
+	WORD = 1@1		; |___|___ 
+	LONG = 1@2		; |_______|_______
+	QUAD = 1@3		; |_______________|_______________
+	OCTA = 1@4		; |_______________|_______________|
+	BLOCK= 1@9
+
+;++
+; The following definition will be used when invoking the Digital supplied 
+; routine INI$DOINIT with the arguments it requires.  Conceptually, anyway.
+;--
+	$OFFSET	0,POSITIVE,<-	;  _______
+		<ARGCNT,LONG>,- ; |______2|
+		<LDRIMG,LONG>,- ; |_______|
+		<USRBFR,LONG>,> ; |_______|
+
+
+;++
+.SBTTL	INTERCEPT_SERVICE Macro definition
+;--
+
+;++
+; The following macro builds the vectors for the system services which are
+; to be intercepted and the vectors which will maintain the system service
+; original service routine.  This macro will build tables which then, can 
+; be referenced by using the name of the system service without the prefix
+; and one of the following two symbols: SYSTEM_SERVICE and SERVICE_ROUTINE.
+;--
+	.MACRO	INTERCEPT_SERVICE,SSNAME
+	.IIF NDF,...SS.CTR,...SS.CTR = 0
+	...$ = %LOCATE(<$>,SSNAME) + 1
+	..._ = %LENGTH(SSNAME) - ...$
+	%EXTRACT(...$,..._,SSNAME) = ...SS.CTR
+	...SS.CTR = ...SS.CTR + <1@2>	
+	.SAVE_PSECT	LOCAL_BLOCK
+	.PSECT	EXEC$INIT_DATA_CONTRIB,5,PIC,CON,REL,LCL,NOSHR,EXE,RD,WRT
+	. = SYSTEM_SERVICE + %EXTRACT(...$,..._,SSNAME)
+	.ADDRESS	SSNAME,0
+	DECLARE_PSECT	EXEC$NONPAGED_DATA
+	. = SERVICE_ROUTINE + %EXTRACT(...$,..._,SSNAME)
+	.LONG	0
+	.RESTORE_PSECT
+	.ENDM			
+
+
+;++
+.SBTTL	Loadable execlet initialization code section
+;--
+	DECLARE_PSECT	EXEC$INIT_CODE	; def init code & linkage psects
+	.PSECT EXEC$INIT_LINKAGE	;   establish init linkage psect
+	.GLOBAL	LIB$INITIALIZE		; be sure it is declared global
+LIB$INITIALIZE:		.LONG	0[0]	; define LIB$INITIALIZE without
+					;   a contribution to the psect
+
+	DECLARE_PSECT	EXEC$INIT_CODE
+
+;++
+; This execlet is unique in that, it does not declare its initialization
+; routines in the normal fashion using the INITIALIZATION_ROUTINE macro.
+; Normally, an initialization routine would be declared using this macro
+; which in turn builds a table of vectors to the initialization routine.
+; This table is then used by the INI$DOINIT routine in module SYS$DOINIT
+; to call the execlet's initialization routines.  Unfortunately, this is
+; not an appropriate initialization senario in cases where an execlet is
+; required to perform some function prior to default functions performed 
+; as a consequence of the INI$DOINIT routine.
+; 
+; In this particular execlet, certain initialization functions need to be
+; performed before the INI$DOINIT routine invokes the INI$SYSTEM_SERVICE
+; procedure which, in turn, invokes the procedure EXE$CONNECT_SERVICES to 
+; define the replacement system service function.
+;
+; Therefore, the following routine, SSINT$DOINIT, is established as this
+; execlets transfer address thus, making the execlet loader invoke IT as
+; the initialization routine instead of the normal INI$DOINIT routine.
+; 
+; SSINT$DOINIT is declared as the execlet's transfer routine by declaring
+; the global label LIB$INITIALIZE within the initialization code linkage 
+; psect just prior to declaring the routine.  The linker holds a "special
+; place in its heart" for this label name and, if it encounters the label
+; within a program, it makes its address the first entry in the transfer
+; vector.  The image loader uses the first entry in the transfer vector
+; to invoke the initialization routine.
+;
+; After this initialization code is invoked, the INI$DOINIT routine must
+; be invoked.  Unfortunately, again, this routine is not defined global.
+; Playing a little game with the ordering of the initialization linkage,
+; a symbol can be defined in the EXEC$INIT_LINKAGE psect to establish the
+; location of the Procedure DeSCriptor (PDSC) of the INI$DOINIT routine.
+;--
+; The initialization routine in this execlet is used to obtain the PDSC
+; address of the original service routine for the system service that is
+; being intercepted.  A change mode system service is defined by a bound
+; procedure value procedure descriptor.  The address at PDSC$Q_ENTRY in
+; the system service's procedure descriptor is the address of the system
+; service transfer vector code.  For a change mode system service, this
+; vector will contain the following code thread:
+; 
+; SYS$<SS-name>_C+00: LDL  R1,(SP)		; A03E0000  ; TOUCH_STACK
+; SYS$<SS-name>_C+04: BIS  SP,R31,R28		; 47DF041C  ; SAVESP
+; SYS$<SS-name>_C+08: LDA  R0,#<chm-code>(R31)	; 201Fxxxx  ; LDA_CODE
+; SYS$<SS-name>_C+0C: CHMx			; 0000008x  ; CHMX 
+;						; (x: 2=E/3=K) 
+;
+; Note: The format of the system service transfer vector under OpenVMS
+;	Alpha version prior to V6.1 differ from the above and therefore,
+;	this execlet will not function without making necessary changes.
+;	The above instruction sequence is defined in the macro $SSVECDEF.
+;
+; The initialization code looks through the vector to determine the mode
+; of the system service and the assigned change mode code of the system
+; service.  After obtaining these values, the address of the change mode
+; dispatch vector is calculated and the service routine's PDSC address
+; is stored for transfer to later in the intercept (replacement) system 
+; service routine.  The dispatch table entry vector format is depicted 
+; below and is defined in the macro $DISPDEF.
+;
+; +-----+-----+-----+-----+
+; | DISP_A_SERVICE_ROUTINE|:CMOD$AR_<mode>_DISPATCH_VECTOR+10(16)*chm-code
+; +-----+-----+-----+-----+ 
+; |   DISP_A_ENTRY_POINT  |
+; +-----+-----+-----+-----+ 
+; |   <reserved>    |FLAGS|
+; +-----+-----+-----+-----+ 
+; |      <reserved>       |
+; +-----+-----+-----+-----+ 
+;-- 
+
+SSINT$DOINIT:	.CALL_ENTRY	PRESERVE=<R2,R3,R4>
+
+	MOVAL	SYSTEM_SERVICE,R2	; get base of system service vector
+	MOVAL	SERVICE_ROUTINE,R3	; get base of service routine vector
+	MOVAL	INIT_SSTBL_BASE,R4	; get base of SS build table vector
+
+10$:	MOVL	#SS$_IVSSRQ,R0		; assume invalid system service
+	MOVL	(R2)+,R1		; get the address of SS's BPV PDSC
+	BEQL	20$			; zero marks the end of the vector
+	CMPV	#PDSC$V_KIND,-		; if this is a change mode system
+		#PDSC$S_KIND,-		; service it will be defined by a
+		(R1),#PDSC$K_KIND_BOUND	; Bound Procedure Value (BPV) PDSC
+	BNEQ	30$			; not a BPV PDSC! give up and exit
+
+	MOVL	PDSC$Q_ENTRY(R1),R0	; get adr of SS's transfer routine
+
+	BICL3	#<<EVX$OPC_LDA@EIF$V_OPCODE>!-	; LDA is the Alpha opcode
+		  <EVX$K_R0@EIF$V_Ra>!-		; Ra = R0 destination reg
+                  <EVX$K_R31@EIF$V_Rb>>,-	; Rb = R31 = RAZ base reg
+		SSVEC_L_LDA_CODE(R0),R1	; get the SS's change mode value
+
+	MOVL	SSVEC_L_CHMX(R0),R0	; get the SS's CHMx opcode value
+
+	ASSUME	EVX$PAL_CHMK EQ EVX$PAL_CHME+1	; assumption about opcodes
+	SUBL2	#EVX$PAL_CHME,R0	; normalize the CHMx opcode value
+
+	MOVL	DISPATCH_VECTORS[R0],R0	; get appropriate dispatch vector
+	MOVL	(R0),R0			; get the dispatch vector's base
+
+	ASSUME	DISP_K_LENGTH EQ 16	; assumption for next instruction
+	ASHL	#4,R1,R1		; multiply by dispatch entry size 
+
+	MOVAB	(R0)[R1],R0		; get SS's dispatch vector address
+	MOVL	DISP_A_SERVICE_ROUTINE(R0),-	; put SS's service routine
+		(R3)+				; PDSC in SERVICE_ROUTINE
+
+	MOVB	DISP_B_FLAGS(R0),-	; get SS's dispatch vector flags
+		SSDESCR_B_FLAGS(R4)	; put into the init vector flags
+	ADDL2	#SSDESCR_K_LENGTH,R4	; update to point to next vector
+	BRB	10$
+
+20$:	PUSHL	USRBFR(AP)		; address of optional user buffer
+	PUSHL	LDRIMG(AP)		; address of execlet LDRIMG block
+	CALLS	#2,@DEC.INI$DOINIT	; invoke Digital supplied DOINIT	
+
+30$:	RET				; ... history
+
+
+;++
+; Conventional loadable execlet initialization routine code.
+; (if necessary)
+;--
+	INITIALIZATION_ROUTINE	SSINTERCEPT_INIT_ROUTINE
+
+SSINTERCEPT_INIT_ROUTINE:	.CALL_ENTRY
+	MOVL	4(AP),R4		; address of LDRIMG block
+	MOVL	8(AP),R5		; address of INIRTN flags
+	OUTHEX	<successfully loaded at>,LDRIMG$L_BASE(R4)
+	MOVL	#SS$_NORMAL,R0
+	RET
+
+
+;++
+.SBTTL	Loadable execlet initialization data section
+;--
+
+;++
+; Note: On Alpha, a PSECT is not permitted to contain both code and data.
+;	Therefore, initialization routine data which is to be discarded
+;	along with the initialization routine code is defined in a PSECT
+;	being called EXEC$INIT_DATA_CONTRIB.  This PSECT is defined with
+;	the same PSECT attributes as PSECT EXEC$INIT_CODE so that it can
+;	be collected into the initialization code image section.
+;--
+	.PSECT	EXEC$INIT_DATA_CONTRIB,5,PIC,CON,REL,LCL,NOSHR,EXE,RD,WRT
+DISPATCH_VECTORS:
+CHME_DISP_VECTOR:	.ADDRESS	PMS$GL_EXEC_DISPATCH_VECTOR
+CHMK_DISP_VECTOR:	.ADDRESS	PMS$GL_KERNEL_DISPATCH_VECTOR
+
+DEC.INI$DOINIT:		.ADDRESS	INI$DOINIT
+
+			.ALIGN	QUAD
+;++
+; The vector of system services to be intercepted begins here.  Use of the
+; INTERCEPT_SERVICE macro will insure that this vector is built correctly.
+;--
+SYSTEM_SERVICE:		.LONG	0[0]	; save system service vectors here
+
+
+;++
+.SBTTL	Execlet nonpaged resident data section
+;--
+	DECLARE_PSECT	EXEC$NONPAGED_DATA
+;++
+; The vector of the intercepted system service original service routines 
+; begins here.  Use of the INTERCEPT_SERVICE macro will insure that this 
+; vector is built correctly.
+;--
+SERVICE_ROUTINE:	.LONG	0[0]	; save service routine PDSCs here
+
+
+;++
+; Declare the system services that will be intercepted in this execlet.
+; Note:  This is important.  The macros OUTPUT and OUTHEX make contrib-
+; utions to the EXEC$NONPAGED_DATA program section.  To insure that the
+; service routine vector is proper and contiguous, the INTERCEPT_SERVICE
+; macro should be used to declare *all* the routines to be intercepted
+; in one area at the same time.  The INTERCEPT_SERVICE macro should only
+; be used after the psect EXEC$INIT_DATA_CONTRIB and EXEC$NONPAGED_DATA
+; have been declared.  Also, the definitions of vectors, SYSTEM_SERVICE
+; and SERVICE_ROUTINE should be the last labels defined in these psects
+; prior to invoking the INTERCEPT_SERVICE macro.
+;--
+	INTERCEPT_SERVICE	SSNAME=SYS$CREPRC
+	INTERCEPT_SERVICE	SSNAME=SYS$DELPRC
+
+;++
+; The following assigns an address to the base of the EXEC$INIT_SSTBL_001
+; program section which is subsequently used by the SYSTEM_SERVICE macro.
+; It is *imperitive* that the macros INTERCEPT_SERVICE and SYSTEM_SERVICE
+; delclare the system service names in the same relative order.  Normally
+; this address would and/or should be equivalent to INI$A_BUILD_TABLE.
+;--
+	DECLARE_PSECT	EXEC$INIT_SSTBL_001
+INIT_SSTBL_BASE:	.LONG	0[0]
+
+
+;++
+.SBTTL	Execlet nonpaged resident code section
+;--
+	DECLARE_PSECT	EXEC$NONPAGED_CODE
+
+;++
+; Intercept SYS$CREPRC and report caller's PID and completion status
+;--
+	$CREPRCDEF	; SYS$CREPRC argument definitions
+
+	.IF NDF	SS$_ARG_GTR_32_BITS
+	.IF_TRUE
+	SYSTEM_SERVICE	NAME=CREPRC,-			; $CREPRC
+			MODE=KERNEL,-			; kernel mode
+			NARG=CREPRC$_NARGS,-		; max call args
+			MARG=12,-			; min call args
+			HOME_ARGS=TRUE,-		; home arguments
+			MAX_ARGS=CREPRC$_NARGS		; max homed args
+	.IF_FALSE
+	SYSTEM_SERVICE	NAME=CREPRC,-			; $CREPRC
+			MODE=KERNEL,-			; kernel mode
+			NARG=CREPRC$_NARGS,-		; max call args
+			MARG=12,-			; min call args
+			QUAD_ARGS=TRUE			; max homed args
+	
+	$SETUP_CALLG_64	ARGCNT=CREPRC$_NARGS,ARGLST=R12	; make 64 bit arglst
+	.ENDC
+	
+	;++
+	; Do the things you want done before invoking the original
+	; system service routine here.  Remember, you're executing
+	; at the mode of the system service at this point.
+	;
+	; If this is kernel mode, you must restore IPL to zero and
+	; release all spinlocks before you transfer control to the
+	; the original service routine!
+	;-- 
+
+	MOVL	G^CTL$GL_PCB,R0
+	OUTHEX	<SYS$CREPRC requested by PID:>,PCB$L_EPID(R0)	
+
+	;++
+	; Now, invoke the original service routine.  The arguments
+	; have been homed by the SYSTEM_SERVICE macro so that the
+	; original service routine can be invoked using the CALLG.
+	;-- 
+
+	MOVAL	SERVICE_ROUTINE,R0	; use R0 since it's trashed
+					;   by return status anyway
+	.IF_32	<CALLG (AP),@CREPRC(R0)>
+	.IF_64	<EVAX_CALLG_64 (R12),@CREPRC(R0)>
+
+	;++
+	; Do the things you want done after invoking the original
+	; system service routine here.  Remember, you're executing
+	; at the mode of the system service at this point.
+	;-- 
+
+	BLBS	R0,10$
+	OUTHEX	<SYS$CREPRC request failed, reason:>R0
+	RET
+10$:	OUTPUT	<SYS$CREPRC request was successful>
+	RET
+
+;++
+; Intercept SYS$DELPRC and report caller's PID and completion status
+;--
+	$DELPRCDEF	; SYS$DELPRC argument definitions
+
+	.IF NDF	SS$_ARG_GTR_32_BITS
+	.IF_TRUE
+	SYSTEM_SERVICE	NAME=DELPRC,-			; $DELPRC
+			MODE=KERNEL,-			; kernel mode
+			NARG=DELPRC$_NARGS,-		; max call args
+			HOME_ARGS=TRUE,-		; home arguments
+			MAX_ARGS=DELPRC$_NARGS		; max homed args
+	.IF_FALSE
+	SYSTEM_SERVICE	NAME=DELPRC,-			; $DELPRC
+			MODE=KERNEL,-			; kernel mode
+			NARG=DELPRC$_NARGS,-		; max call args
+			QUAD_ARGS=TRUE			; max homed args
+
+	$SETUP_CALLG_64	ARGCNT=DELPRC$_NARGS,ARGLST=R12	; make 64 bit arglst
+	.ENDC
+
+	;++
+	; Do the things you want done before invoking the original
+	; system service routine here.  Remember, you're executing
+	; at the mode of the system service at this point.
+	;
+	; If this is kernel mode, you must restore IPL to zero and
+	; release all spinlocks before you transfer control to the
+	; the original service routine!
+	;-- 
+
+	MOVL	G^CTL$GL_PCB,R0
+	OUTHEX	<SYS$DELPRC requested by PID:>,PCB$L_EPID(R0)	
+
+	;++
+	; Now, invoke the original service routine.  The arguments
+	; have been homed by the SYSTEM_SERVICE macro so that the
+	; original service routine can be invoked using the CALLG.
+	;-- 
+
+	MOVAL	SERVICE_ROUTINE,R0	; use R0 since it's trashed
+					;   by return status anyway
+	.IF_32	<CALLG (AP),@DELPRC(R0)>
+	.IF_64	<EVAX_CALLG_64 (R12),@DELPRC(R0)>
+
+	;++
+	; Do the things you want done after invoking the original
+	; system service routine here.  Remember, you're executing
+	; at the mode of the system service at this point.
+	;-- 
+
+	BLBS	R0,10$
+	OUTHEX	<SYS$DELPRC request failed, reason:>R0
+	RET
+10$:	OUTPUT	<SYS$DELPRC request was successful>
+	RET
+
+	.END	;SSINT$DOINIT

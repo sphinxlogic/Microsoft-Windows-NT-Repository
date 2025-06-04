@@ -1,0 +1,739 @@
+%title 'nm$reportio'
+module nm$reportio (
+                   ident='80',
+    		   addressing_mode(external=general)
+    	           ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1985, 1986, 1987, 1988, 1989, 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	18-Mar-1985
+!
+! Revision history:
+!
+!   01	03-Dec-1985
+!	Add NM$WRITE_RPT_FAO and rework NM$WRITE_RPT_VEC to take
+! 	a message vector as argument. These changes are intended
+!	to allow report generation and the 'show' command to be
+!	similar.
+!
+!   02	10-Apr-1986
+!	Force channel to be assigned in user mode. 
+!	Also, all NM$GT_xxx quantities are now counted strings.
+!
+!   03	20-Apr-1986
+!	Allow specification of output filespec for NM$CREATE_RPTSHO_FILE
+!
+!   04	19-Nov-1986
+!	Add NM$CCO_RPT to cancel ctrl/O
+!
+!   05	12-Feb-1989
+!	Add routines to support block I/O, needed to allow
+!	daemon to return foreign documents to sender
+!
+!   06	1-Jul-1992
+!	Change RPT_FILENAME to own storage; it might need
+!	be survive a stack unwind
+!
+!   07	4-Oct-1993
+!	Use new ALIAS attribute where appropriate
+!
+!   08	3-Dec-1993
+!	Tweak interface to NM$UNIQUE_NAME
+!--
+
+
+!
+! Library declarations
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+!
+! Module-wide data
+!
+own
+    rpt_fab 	 : $fab_decl alias,			! FAB for report file
+    rpt_rab 	 : $rab_decl,				! RAB, ditto
+    rpt_nam 	 : $nam_decl alias,			! NAM block, ditto
+    rpt_xabpro 	 : $xabpro_decl alias,			! Protection XAB, ditto
+    rpt_filename : vector[nm$s_filename+1,byte] alias,	! Filename
+    rpt_exp_buf  : vector[nm$s_filespec,byte] alias;	! Expanded filespec
+
+
+%sbttl 'create report file'
+global routine nm$create_rpt_file (fileid) : novalue =
+
+!++
+! Functional description:
+!
+! Opens a report file for output.  A unique filename
+! is generated.
+!
+! Formal parameters:
+! 
+! fileid.wr.r = 28-byte file identification for created file
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local 
+	status;
+
+    !
+    ! Generate a unique filename
+    !
+    nm$unique_name(rpt_filename);
+
+    !
+    ! Initialise RMS data structures for opening the report file.
+    !
+    $fab_init(
+	     fab=rpt_fab,
+             fns=.rpt_filename[0],
+    	     fna=rpt_filename[1],
+             dns=.nm$gt_work_def[0],
+    	     dna=nm$gt_work_def[1],
+	     lnm_mode=psl$c_exec,
+	     chan_mode=psl$c_user,
+	     fac=(bro,put,get,upd),
+	     nam=rpt_nam,
+             xab=rpt_xabpro,
+    	     rat=cr,
+    	     rfm=var
+	     );
+    $nam_init(
+	     nam=rpt_nam,
+	     esa=rpt_exp_buf,
+	     ess=nm$s_filespec,
+	     rsa=rpt_exp_buf,
+	     rss=nm$s_filespec
+	     );
+    $xabpro_init(
+    	     xab=rpt_xabpro,
+    	     pro=(rwd,rwd,,),
+    	     uic=(1,4)
+    	     );
+    $rab_init(
+	     rab=rpt_rab,
+	     fab=rpt_fab
+	     );
+
+    !
+    ! Open the report file
+    !
+    status = $create(fab=rpt_fab);
+    if not .status 
+    then 
+    	nm$rms_error(nm$_open, rpt_fab);
+
+    !
+    ! Connect the RAB
+    !
+    status = $connect(rab=rpt_rab);
+    if not .status 
+    then 
+	nm$rms_error(nm$_rms, rpt_rab);
+
+    !
+    ! Return the ID for the open file
+    !
+    ch$move(nm$s_fileid, rpt_nam[nam$t_dvi], .fileid);
+
+    !
+    ! Delete XAB chain so that $CLOSE doesn't use it.
+    !
+    rpt_fab[fab$l_xab] = 0;
+
+    end;
+
+%sbttl 'create report file, SHOW variant'
+global routine nm$create_rptsho_file (fileid, output : ref descrip) : novalue =
+
+!++
+! Functional description:
+!
+! Opens a file to receive the output from the SHOW command.
+! This is essentially similar to the normal report file, 
+! differing only in details of file naming and ownership.
+!
+! This routine is only called in user mode, otherwise we 
+! wouldn't be allowing the caller the freedom to name the 
+! file anything he wishes.
+!
+! Formal parameters:
+! 
+! fileid.wr.r  = 28-byte file identification for created file
+! output.rt.dx = output filespec
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local 
+	status;
+
+    !
+    ! Initialise RMS data structures for opening the report file.
+    !
+    $fab_init(
+	     fab=rpt_fab,
+             fns=.output[dsc$w_length],
+    	     fna=.output[dsc$a_pointer],
+             dns=.nm$gt_show_def[0],
+    	     dna=nm$gt_show_def[1],
+	     fac=put,
+	     fop=sqo,
+	     nam=rpt_nam,
+    	     rat=cr,
+    	     rfm=var
+	     );
+    $nam_init(
+	     nam=rpt_nam,
+	     esa=rpt_exp_buf,
+	     ess=nm$s_filespec,
+	     rsa=rpt_exp_buf,
+	     rss=nm$s_filespec
+	     );
+    $rab_init(
+	     rab=rpt_rab,
+	     fab=rpt_fab
+	     );
+
+    !
+    ! If no output file was specified, default it (this is 'SYS$OUTPUT',
+    ! and the defaulting can't be done through the default filespec as
+    ! we wish to cope with redefinition of the logical name)
+    !
+    if .rpt_fab[fab$b_fns] eql 0
+    then
+	begin
+	rpt_fab[fab$b_fns] = .nm$gt_show_fspec[0];
+	rpt_fab[fab$l_fna] = nm$gt_show_fspec[1];
+	end;
+
+    !
+    ! Open the report file
+    !
+    status = $create(fab=rpt_fab);
+    if not .status 
+    then 
+    	nm$rms_error(nm$_open, rpt_fab);
+
+    !
+    ! Connect the RAB
+    !
+    status = $connect(rab=rpt_rab);
+    if not .status 
+    then 
+	nm$rms_error(nm$_rms, rpt_rab);
+
+    !
+    ! Return the ID for the open file
+    !
+    ch$move(nm$s_fileid, rpt_nam[nam$t_dvi], .fileid);
+
+    end;
+
+%sbttl 'close report file'
+global routine nm$close_rpt_file (del) : novalue =
+
+!++
+! Functional description:
+!
+! Closes the report file, optionally deleting it.
+!
+! Formal parameters:
+!
+! del.wl.v = true if file to be deleted
+!	     false otherwise
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+    	status;
+
+    rpt_fab[fab$v_dlt] = .del;
+    status = $close(fab=rpt_fab);
+    if not .status then nm$rms_error(nm$_close, rpt_fab);
+
+    end;
+
+%sbttl 'close report file on error'
+global routine nm$rundown_rpt : novalue =
+
+!++
+! Functional description:
+!
+! Closes the report file in case of error.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    rpt_fab[fab$v_dlt] = false;
+    $close(fab=rpt_fab);
+
+    end;
+
+%sbttl 'read next record'
+global routine nm$read_rpt : novalue =
+
+!++
+! Functional description:
+!
+! Reads next record from the report file.  This is used to
+! re-read the control record, prior to final update.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    !
+    ! Read record
+    !
+    rpt_rab[rab$w_usz] = nm$s_ctl_buf;
+    status = $get(rab=rpt_rab);
+    if not .status then nm$rms_error(nm$_read, rpt_rab);
+
+    !
+    ! Return length of data to caller
+    !
+    .rpt_rab[rab$l_ctx] = .rpt_rab[rab$w_rsz];
+    
+    end;
+
+%sbttl 'update record on disk'
+global routine nm$update_rpt : novalue = 
+
+!++
+! Functional description:
+!
+! Rewrites the current record to the report file.
+! The record is assumed to have been modified in-place,
+! so that RAB$L_RBF and RAB$W_RSZ are still valid.
+!
+! Formal parameters:
+!
+! none
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    !
+    ! Rewrite record
+    !
+    status = $update(rab=rpt_rab);
+    if not .status
+    then
+	nm$rms_error(nm$_write, rpt_rab);
+
+    end;
+
+%sbttl 'write record to report file'
+global routine nm$write_rpt (ptr, len) : novalue =
+
+!++
+! Functional description:
+!
+! Writes a record to the report file.
+!
+! Formal parameters:
+!
+! ptr.ra.v = address of data to write
+! len.rl.v = length of data to write
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    !
+    ! Stuff address and length into RAB
+    !
+    rpt_rab[rab$l_rbf] = .ptr;
+    rpt_rab[rab$w_rsz] = .len;
+
+    !
+    ! Write record
+    !
+    status = $put(rab=rpt_rab);
+    if not .status
+    then
+	nm$rms_error(nm$_write, rpt_rab);
+
+    !
+    ! Ensure cancel-ctrl/O is one-shot
+    !
+    rpt_rab[rab$v_cco] = false;
+
+    end;
+
+%sbttl 'write to report file with FAO processing'
+global routine nm$write_rpt_fao (str : ref descrip, arg1, arg2) : novalue =
+
+!++
+! Functional description:
+!
+! Displays a single line of output, given as a text string.
+! FAO may be called to process the string.
+!
+! Formal parameters:
+!
+! str.rt.dx = string to display
+! arg1.xy.z = first FAO parameter (optional)
+! arg2.xy.z = next FAO parameter (optional)
+!	:
+!	: 
+!
+! Routine values:
+!
+! none
+!
+!--
+
+    begin
+
+    builtin 
+	argptr,
+    	actualcount;
+
+    !
+    ! Call FAO to process string if need be
+    !
+    if actualcount() gtr 1
+    then
+	begin
+	bind
+	    fparms = argptr() + 2*%upval : vector;
+	local
+	    fbuff : vector[nm$s_sho_buf] alias,
+	    fdesc : descrip initial(nm$s_sho_buf,fbuff),
+            flen  : word,
+	    sts;
+        sts = $faol(ctrstr=.str, outbuf=fdesc, outlen=flen, prmlst=fparms);
+	if not .sts then signal_stop(nm$_fao, 0, .sts);
+	nm$write_rpt(fbuff, .flen);
+	end
+
+    !
+    ! Otherwise, simply output the string as-is
+    !
+    else
+        nm$write_rpt(.str[dsc$a_pointer], .str[dsc$w_length]);
+
+    end;
+
+%sbttl 'write to report file from message vector'
+global routine nm$write_rpt_vec (msgvec : ref vector) : novalue =
+
+!++
+! Functional description:
+!
+! Writes one or more lines to the report file, as specified
+! by the supplied message vector
+!
+! Formal parameters:
+!
+! msgvec.rr.r = putmsg vector
+!
+! Routine values:
+!
+! none
+!
+!--
+
+    begin
+
+    !
+    ! Internal routine to add one line to the report
+    ! file; called as putmsg action routine
+    !
+    routine put1line(str : ref descrip) =
+	begin
+        nm$write_rpt(.str[dsc$a_pointer], .str[dsc$w_length]);
+	false
+	end;
+
+    ! 
+    ! Expand the message, calling an action routine to
+    ! write to the report file
+    !
+    $putmsg(msgvec=.msgvec, actrtn=put1line);
+
+    end;
+
+%sbttl 'write block to report file'
+global routine nm$write_rpt_blk (ptr, len) : novalue =
+
+!++
+! Functional description:
+!
+! Writes data to the report file in block mode
+!
+! Formal parameters:
+!
+! ptr.ra.v = address of data to write
+! len.rl.v = length of data to write
+!
+! Completion codes:
+!
+! always true
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    !
+    ! Stuff address and length into RAB
+    !
+    rpt_rab[rab$l_rbf] = .ptr;
+    rpt_rab[rab$w_rsz] = .len;
+
+    !
+    ! Write record
+    !
+    status = $write(rab=rpt_rab);
+    if not .status
+    then
+	nm$rms_error(nm$_write, rpt_rab);
+
+    end;
+
+%sbttl 'rewind to beginning of file'
+global routine nm$rewind_rpt (buff, bufsz) : novalue =
+
+!++
+! Functional description:
+!
+! Positions file at beginning. Next read will
+! get the first record.
+!
+! Formal parameters:
+!
+! buff.ra.v   = address of I/O buffer 
+! bufsz.ra.v  = address to return length of data read
+!
+! Routine value:
+!
+! none
+!
+!--
+
+    begin
+
+    local
+	status;
+
+    !
+    ! Save new pointers to buffer and return length 
+    !
+    rpt_rab[rab$l_ctx] = .bufsz;
+    rpt_rab[rab$l_ubf] = .buff;
+
+    !
+    ! Rewind stream
+    !
+    status = $rewind(rab=rpt_rab);
+    if not .status then nm$rms_error(nm$_rms, rpt_rab);
+
+    end;
+
+%sbttl 'cancel ctrl/o on next write'
+global routine nm$cco_rpt : novalue =
+
+!++
+! Functional description:
+!
+! Sets up to cancel ctrl/O on the next write to the
+! report file (only meaningful for terminal output)
+!
+! Formal parameters:
+!
+! none
+!
+! Routine values:
+!
+! none
+!
+!--
+
+    rpt_rab[rab$v_cco] = true;
+
+%sbttl 'pad out to end of block'
+global routine nm$pad_blk_rpt(reqd) : novalue =
+
+!++
+! Functional description:
+!
+! Writes a record with a size calculated such that
+! the following record will start on a block boundary.
+!
+! Formal parameters:
+!
+! reqd.rl.v = if true, the record is always required
+!	      if false, the record may be omitted if
+!	      alignment is already correct
+!
+! Routine value:
+!
+! None
+!
+!--
+
+    begin
+
+    local 
+        ffb,
+        len,
+        pad : vector[512,byte];
+    	
+
+    !
+    ! The RAB contains the RFA for the last-written record. The
+    ! high-order word is in fact the byte offset for that record.
+    ! By getting this offset, and adding the size of the written
+    ! record, plus 2 for the record length word, we arrive at the
+    ! offset to the first free byte.  Round up to next even value
+    ! and discard any complete blocks.
+    !
+    ffb = .rpt_rab[rab$w_rfa4] + .rpt_rab[rab$w_rsz] + 2;
+    ffb = (.ffb + 1) and 510;
+
+    !
+    ! If we're already aligned, and the record isn't always
+    ! required, then return immediately.
+    !
+    if .ffb eql 0 and not .reqd then return;
+
+    !
+    ! Now, figure out the length of the record we need to write to
+    ! bring us up to a block boundary, allowing 2 bytes for the length
+    ! word. (Since ffb is in the range 0 to 510, len will be in the
+    ! range 0 to 510).
+    !
+    len = 512 - (.ffb + 2);
+
+    !
+    ! Write a pad record, filled with nulls
+    !
+    ch$fill(0, .len, pad);
+    nm$write_rpt(pad, .len);
+
+    !
+    ! Sanity check. Repeat first free byte calculations, and it
+    ! had better come out as zero.
+    !
+    ffb = .rpt_rab[rab$w_rfa4] + .rpt_rab[rab$w_rsz] + 2;
+    ffb = (.ffb + 1) and 510;
+    if .ffb neq 0 then signal(nm$_badalg);
+
+    end;
+
+%sbttl 'return VBN and offset of record just written'
+global routine nm$get_vbn_rpt (vbn : ref vector, offs : ref vector[,word]) =
+
+!++
+! Functional description:
+!
+! Returns the Virtual Block Number and offset-in-block
+! for the record or block just written.
+!
+! Formal parameters:
+!
+! vbn.wl.r  = virtual block number    (optional  )
+! offs.ww.r = offset in block         (parameters)
+!
+! Routine values:
+!
+! vbn.wl.r = virtual block number
+!
+!--
+
+    begin
+
+    builtin
+	actualcount;
+
+    if actualcount() neq 0
+    then
+	begin
+        offs[0] = .rpt_rab[rab$w_rfa4];	! high word is offset
+        vbn[0]  = .rpt_rab[rab$l_rfa0];	! low longword is vbn
+	end;
+
+    .rpt_rab[rab$l_rfa0]
+
+    end;
+
+end
+eludom

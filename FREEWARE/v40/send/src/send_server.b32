@@ -1,0 +1,1467 @@
+%TITLE	'SEND_SERVER'
+MODULE send_server(
+	MAIN		= main,
+	IDENT		= 'V1.0',
+	ADDRESSING_MODE(EXTERNAL	= GENERAL,
+			NONEXTERNAL	= WORD_RELATIVE)) =
+BEGIN
+!++
+!
+! Facility:	SEND_SERVER
+! Author:	Darrell Burkhead
+!		COPYRIGHT © 1994, MADGOAT SOFTWARE.  ALL RIGHTS RESERVED.
+! Date:		March 22, 1994
+!
+! Abstract:
+!
+!	This program is a multi-threaded DECnet server for SEND requests.
+!	It forwards $BRKTHRU requests from other nodes and returns the
+!	IOSB information for that request.
+!
+! Revision History:
+!
+!	V1.0		Darrell Burkhead	22-MAR-1994 15:20
+!		Creation.
+!--
+LIBRARY 'SYS$LIBRARY:LIB';
+LIBRARY 'SEND_SERVER_DEFS';
+LIBRARY 'SEND_COMM_DEFS';
+
+!
+! Table of contents.
+!
+FORWARD ROUTINE
+	main,				!Main entry point
+	declare_object,			!Declare the network object
+	read_mailbox,			!Read the command mailbox
+	read_mailbox_ast,		!Completion of command mbx reads
+	shutdown,			!Close all of the connections
+	link_failure_ast,		!Handle a disconnect
+	start_connect_ast,		!Reply to a connection attempt
+	read_network,			!Read from a client's network device
+	read_network_ast,		!Completion of network read
+	write_network,			!Write to a client's network device
+	write_network_ast,		!Completion of network write
+	send_message,			!Call $BRKTHRU
+	send_message_ast,		!Completion of $BRKTHRU call
+	find_client,			!Find a client entry by unit number
+	find_to,			!Find a to-queue entry by ident
+	alloc_ior,			!Allocate an IOR
+	dealloc_ior,			!Deallocate an IOR
+	alloc_client,			!Allocate an client-queue entry
+	dealloc_client,			!Deallocate an client-queue entry
+	alloc_to,			!Allocate a to-queue entry
+	dealloc_to;			!Deallocate a to-queue entry
+
+EXTERNAL ROUTINE
+	LIB$CREATE_VM_ZONE,
+	LIB$FREE_VM,
+	LIB$GETDVI,
+	LIB$GET_VM,
+	LIB$SYS_FAO,
+	STR$COPY_DX,
+	STR$COPY_R,
+	STR$FREE1_DX,
+!
+	get_reqid;
+
+EXTERNAL
+	LIB$_INSVIRMEM;
+
+BIND
+	mbx_lognam	= %ASCID'SEND_SERVER_MBX',
+	net_devnam	= %ASCID'_NET:';
+
+OWN
+	reqid,					!$BRKTHRU reqid
+	ior_zone	: INITIAL(0),		!Zone ID for IOR blocks
+	client_zone	: INITIAL(0),		!Zone ID for client blocks
+	to_zone		: INITIAL(0),		!Zone ID for "to" blocks
+	final_status	: INITIAL(SS$_NORMAL),	!Set for fatal errors
+	proxy_status,
+	retry_mbx_read	: INITIAL(0),
+	mbx_chan	: WORD,
+	net_chan	: WORD,
+	client_queue	: VECTOR[2,LONG]	!Set up an empty queue
+			  INITIAL(client_queue,client_queue);
+
+MACRO	check_for_retry=			!Do we need to retry the
+	BEGIN					!...mbx read.  If so, retry it
+	IF .retry_mbx_read
+	THEN BEGIN
+	    REGISTER tmp_status;
+
+	    tmp_status = read_mailbox();	!Retry the read
+	    retry_mbx_read = NOT .tmp_status;	!Retry again later if this retry
+						!...failed.
+	    END;
+	END%;
+
+
+%SBTTL	'MAIN'
+ROUTINE main=
+BEGIN
+!+
+!
+!  Routine:	MAIN
+!
+!  Functional Description:
+!
+!	This routine is the main entry point for SEND_SERVER.  It sets up
+!	the DECnet object an prepares to accept connections.
+!
+!  Implicit Inputs:
+!
+!	proxy_status	- a flag to be set to indicate whether an account on
+!			  this system is required to connect.  It is controlled
+!			  by the SEND_REQUIRE_PROXY logical name.
+!	reqid		- a longword to be filled in with the broadcast class
+!			  to use.
+!
+!  Returns:
+!
+!	R0	- the image exit status.
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+    proxy_status = $TRNLNM(			!Check for proxy lognam
+			TABNAM	= %ASCID'LNM$SYSTEM_TABLE',
+			LOGNAM	= %ASCID'SEND_REQUIRE_PROXY',
+			ACMODE	= %REF(PSL$C_EXEC));
+    status = get_reqid(reqid);			!Get the broadcast class
+    IF .status
+    THEN status = declare_object();		!Declare the network object
+    IF .status
+    THEN status = read_mailbox();		!Start a read on the cmd mbx
+    IF .status
+    THEN BEGIN					!Everything else is handled
+	$HIBER;					!...via ASTs
+	status = .final_status;			!If we reach this point, then
+						!...a fatal error occurred
+	shutdown();				!Close all of the connections
+	END;					!End of wait for a fatal error
+
+    RETURN .status;				!Return image exit status
+END;						!End of main
+
+
+%SBTTL	'DECLARE_OBJECT'
+ROUTINE declare_object=
+BEGIN
+!+
+!
+!  Routine:	DECLARE_OBJECT
+!
+!  Functional Description:
+!
+!	This routine creates a network device and mailbox and associates them
+!	with the SEND_SERVER task.
+!
+!  Implicit Inputs:
+!
+!	mbx_chan	- receives the channel number for the mailbox
+!	net_chan	- receives the channel number for the network device
+!	mbx_lognam	- a descriptor containing the logical name to set for
+!			  the mailbox
+!	net_devnam	- a descriptor containing _NET:
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+MACRO
+	nfb_string	= %STRING(%CHAR(NFB$C_DECLNAME), %CHAR(0),
+				  %CHAR(0), %CHAR(0), %CHAR(0))%;
+
+BIND
+	object	= UPLIT(%ASCII object_name_string),
+	nfb	= UPLIT(%ASCII nfb_string);
+
+LOCAL
+	iosb		: IOSBDEF,
+	object_buf	: $BBLOCK[%CHARCOUNT(object_name_string)],
+	object_desc	: $BBLOCK[DSC$C_S_BLN] PRESET(
+			[DSC$W_LENGTH]	= %CHARCOUNT(object_name_string),
+			[DSC$B_CLASS]	= DSC$K_CLASS_S,
+			[DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			[DSC$A_POINTER]	= object_buf),
+	nfb_buf		: $BBLOCK[%CHARCOUNT(nfb_string)],
+	nfb_desc	: $BBLOCK[DSC$C_S_BLN] PRESET(
+			[DSC$W_LENGTH]	= %CHARCOUNT(nfb_string),
+			[DSC$B_CLASS]	= DSC$K_CLASS_S,
+			[DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			[DSC$A_POINTER]	= nfb_buf);
+
+    status = $CREMBX(				!Create the mailbox
+		CHAN	= mbx_chan,
+		MAXMSG	= max_mbx_msg,
+		BUFQUO	= 4*max_mbx_msg,
+		LOGNAM	= mbx_lognam);
+    IF .status
+    THEN status = $ASSIGN(			!Assign a network channel
+		DEVNAM	= net_devnam,
+		CHAN	= net_chan,
+		MBXNAM	= mbx_lognam);
+    IF .status
+    THEN BEGIN
+    !
+    ! Copy the object name and NFB to read/write storage.
+    !
+	CH$MOVE(%CHARCOUNT(object_name_string),
+		object, object_buf);
+	CH$MOVE(%CHARCOUNT(nfb_string),
+		nfb, nfb_buf);
+	status = $QIOW(			!Associate with the task
+		CHAN	= .net_chan,
+		FUNC	= IO$_ACPCONTROL,
+		IOSB	= iosb,
+		P1	= nfb_desc,
+		P2	= object_desc);
+	END;
+    IF .status
+    THEN status = .iosb[IOSB_W_STATUS];
+
+    RETURN .status;				!Return status to the caller
+END;						!End of declare_object
+
+
+%SBTTL	'READ_MAILBOX'
+ROUTINE read_mailbox=
+BEGIN
+!+
+!
+!  Routine:	READ_MAILBOX
+!
+!  Functional Description:
+!
+!	This routine starts up another read on the command mailbox.
+!
+!  Implicit Inputs:
+!
+!	mbx_chan	- receives the channel number for the mailbox
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+LOCAL
+	ior	: REF IORDEF;
+
+    status = alloc_ior(ior);			!Allocate an I/O request block
+    IF .status
+    THEN BEGIN
+	status = $QIO(				!Read the command mailbox
+		CHAN	= .mbx_chan,
+		FUNC	= IO$_READVBLK,
+		IOSB	= ior[IOR_Q_IOSB],
+		ASTADR	= read_mailbox_ast,
+		ASTPRM	= .ior,
+		P1	= ior[IOR_T_BUFFER],
+		P2	= max_mbx_msg);
+	IF NOT .status
+	THEN dealloc_ior(ior);			!Error, free the IOR
+	END;
+
+    RETURN .status;				!Return status to the caller
+END;						!End of read_mailbox
+
+
+%SBTTL	'READ_MAILBOX_AST'
+ROUTINE read_mailbox_ast(ior_a)=
+BEGIN
+!+
+!
+!  Routine:	READ_MAILBOX_AST
+!
+!  Functional Description:
+!
+!	This routine is called upon completion of a command-mailbox read.
+!
+!  Parameters:
+!
+!	ior_a	- the address of the I/O request block associated with this
+!		  read.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status	: INITIAL(SS$_NORMAL);
+
+BIND
+	ior	= .ior_a		: IORDEF,
+	iosb	= ior[IOR_Q_IOSB]	: IOSBDEF;
+
+    status = .iosb[IOSB_W_STATUS];
+    IF .status EQL SS$_ABORT OR .status EQL SS$_CANCEL
+    THEN RETURN SS$_NORMAL;			!Shutting down, get out
+
+    IF .status
+    THEN SELECTONE .ior[IOR_W_MSGTYP] OF
+	  SET
+	    [MSG$_ABORT, MSG$_DISCON, MSG$_EXIT,
+	     MSG$_PATHLOST, MSG$_PROTOCOL, MSG$_THIRDPARTY,
+	     MSG$_TIMEOUT]	: BEGIN
+				  status = $DCLAST(
+						ASTADR = link_failure_ast,
+						ASTPRM = .ior[IOR_W_MSGUNT]);
+				  dealloc_ior(ior_a);
+				  END;
+	    [MSG$_CONNECT]	: status = $DCLAST(
+						ASTADR = start_connect_ast,
+						ASTPRM = ior);
+	    [MSG$_NETSHUT]	: status = SS$_SHUT;
+	    [OTHERWISE]		: dealloc_ior(ior_a);
+	  TES;
+
+    IF .status
+    THEN BEGIN
+	status = read_mailbox();		!Start up another read
+	IF .status EQL SS$_EXQUOTA OR		!If this is an error that might
+	   .status EQL SS$_INSFMEM OR		!...clear up after a few ASTs
+	   .status EQL LIB$_INSVIRMEM		!...complete, retry the read
+	THEN BEGIN				!...later
+	    status = SS$_NORMAL;		!Don't return the error
+	    retry_mbx_read = 1;
+	    END;				!End of schedule retry
+	END;					!End of read mailbox
+
+    IF NOT .status
+    THEN BEGIN
+	final_status = .status;			!Save the error status
+	$WAKE();				!Wake up an exit w/this status
+	END;
+
+    SS$_NORMAL
+END;						!End of read_mailbox_ast
+
+
+%SBTTL	'SHUTDOWN'
+ROUTINE shutdown=
+BEGIN
+!+
+!
+!  Routine:	SHUTDOWN
+!
+!  Functional Description:
+!
+!	This routine is called when we are ready to exit the server.  It closes
+!	all of the connections.
+!
+!  Implicit Inputs:
+!
+!	mbx_chan	- receives the channel number for the mailbox
+!	net_chan	- receives the channel number for the network device
+!	client_queue	- the queue of active clients
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!-
+REGISTER
+	status,		!holds the return values of RTL and SS routines.
+	ast_stat;
+
+LOCAL
+	client_ptr	: REF CLIENTDEF;
+
+    ast_stat = $SETAST(ENBFLG = 0);		!Turn off interrupts
+    $CANCEL(CHAN = .mbx_chan);			!Don't establish any more
+						!...connections
+    $CANCEL(CHAN = .net_chan);
+    WHILE .client_queue[0] NEQA client_queue	!Loop through the client queue
+    DO BEGIN					!...closing connections
+	client_ptr = .client_queue[0];
+	dealloc_client(client_ptr);
+	END;					!End of client disc loop
+    IF .ast_stat EQL SS$_WASSET
+    THEN $SETAST(ENBFLG = 1);			!Turn interrupts back on
+
+    SS$_NORMAL					!Return status to the caller
+END;						!End of shutdown
+
+
+%SBTTL	'LINK_FAILURE_AST'
+ROUTINE link_failure_ast(unit)=
+BEGIN
+!+
+!
+!  Routine:	LINK_FAILURE_AST
+!
+!  Functional Description:
+!
+!	This routine is called when a connection to a client is lost.  It
+!	removes the client from the queue and cleans up.
+!
+!	This routine is assumed to have been called at AST level.
+!
+!  Parameters:
+!
+!	unit	- the network unit number identifying the disconnected client.
+!
+!  Implicit Inputs:
+!
+!	client_queue	- the queue of clients.
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+LOCAL
+	client		: REF CLIENTDEF;
+
+    client = find_client(.unit);		!Search the queue for this
+						!...client
+    IF .client NEQA 0
+    THEN dealloc_client(client);		!Clean up
+
+    check_for_retry;				!Retry mbx read if neccessary
+    SS$_NORMAL					!Return status to the caller
+END;						!End of link_failure_ast
+
+
+%SBTTL	'START_CONNECT_AST'
+ROUTINE start_connect_ast(ior_a)=
+BEGIN
+!+
+!
+!  Routine:	START_CONNECT_AST
+!
+!  Functional Description:
+!
+!	This routine is called in response to a connection attempt by a client.
+!	It attempts to complete the connection by connecting back to the NCB
+!	from the mailbox message.
+!
+!	This routine is assumed to have been called at AST level.
+!
+!  Parameters:
+!
+!	ior_a		- the address of the I/O request block for the mailbox
+!			  read that called this routine.  It includes the
+!			  mailbox message.
+!
+!  Implicit Inputs:
+!
+!	client_queue	- the queue of clients.
+!	proxy_status	- a flag indicating whether to require an account on
+!			  this system before allowing messages to be sent.
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!-
+REGISTER
+	status,		!holds the return values of RTL and SS routines.
+	start_pos	: REF $BBLOCK,
+	end_pos		: REF $BBLOCK,
+	tot_len,
+	temp_len;
+
+BIND
+	ior	= .ior_a		: IORDEF,
+	iosb	= ior[IOR_Q_IOSB]	: IOSBDEF,
+	ncb_ac	= ior[IOR_T_NAMBUF]+.ior[IOR_B_NAMLEN]
+					: $BBLOCK;	!ASCIC string
+
+BUILTIN	INSQUE;
+
+LOCAL
+	unit	: LONG VOLATILE,
+	client	: REF CLIENTDEF,
+	dvi_list: $ITMLST_DECL(ITEMS = 1),
+	ncb_desc: $BBLOCK[DSC$C_S_BLN]
+		  PRESET([DSC$W_LENGTH]	= .ncb_ac[0,0,8,0],
+			 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+			 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			 [DSC$A_POINTER]= ncb_ac[1,0,0,0]);
+
+    status = alloc_client(client);		!Allocate a client block
+    IF .status
+    THEN BEGIN
+	BIND
+	    user	= client[CLIENT_Q_USER]	: $BBLOCK,
+	    node	= client[CLIENT_Q_NODE]	: $BBLOCK,
+	    ncb		= client[CLIENT_Q_NCB]	: $BBLOCK;
+
+	client[CLIENT_L_FLINK] = client[CLIENT_L_BLINK] = client;
+	client[CLIENT_L_FLAGS] = 0;
+	client[CLIENT_W_CHAN] = 0;
+	client[CLIENT_L_TOHEAD] = client[CLIENT_L_TOTAIL] =
+		client[CLIENT_Q_TOQUE];
+	$INIT_DYNDESC(ncb);
+	$INIT_DYNDESC(client[CLIENT_Q_MSGPREFIX]);
+	user[DSC$B_CLASS] = node[DSC$B_CLASS] = DSC$K_CLASS_S;
+	user[DSC$B_DTYPE] = node[DSC$B_DTYPE] = DSC$K_DTYPE_T;
+	status = STR$COPY_DX(ncb, ncb_desc);	!Save the NCB
+	IF .status
+	THEN BEGIN
+	    tot_len = .ncb[DSC$W_LENGTH];
+	    node[DSC$A_POINTER] = start_pos = .ncb[DSC$A_POINTER];
+	    end_pos = CH$FIND_CH(.tot_len, .start_pos, %C':');
+	    IF CH$FAIL(.end_pos)
+	    THEN status = SS$_NOSUCHNODE	!No ::
+	    ELSE BEGIN
+		temp_len = CH$DIFF(.end_pos, .start_pos);
+		IF .temp_len EQL 0 OR .temp_len GTRU max_decnode_len
+		THEN status = SS$_NOSUCHNODE	!Bad node length
+		ELSE BEGIN
+		    tot_len = .tot_len-.temp_len;
+		    node[DSC$W_LENGTH] = .temp_len;
+		    start_pos = CH$FIND_CH(.tot_len, .end_pos, %C'=');
+		    IF CH$FAIL(.start_pos)
+		    THEN status = SS$_NOSUCHUSER !No =
+		    ELSE BEGIN
+			start_pos = .start_pos+1;
+			tot_len = .tot_len-CH$DIFF(.start_pos, .end_pos);
+			temp_len = 0;
+			INCRA i FROM 0 TO max_user_len
+			DO IF .start_pos[.i,0,8,0] EQL %C'"' OR
+				.start_pos[.i,0,8,0] EQL %C'/'
+			   THEN BEGIN
+				temp_len = .i;
+				EXITLOOP;
+				END;
+			IF .temp_len EQL 0
+			THEN SS$_NOSUCHUSER	!Bad user len or no delimiter
+			ELSE BEGIN
+			    user[DSC$A_POINTER] = .start_pos;
+			    user[DSC$W_LENGTH] = .temp_len;
+			    END;		!End of got a username
+			END;			!End of found the =
+		    END;			!End of got a node name
+		END;				!End of found the :
+	    END;				!End of get node and user
+	IF .status
+	THEN BEGIN				!Check for CMRKNL, assumes that
+	    LOCAL				!...an account of the same name
+		privs	: $BBLOCK[8] VOLATILE,	!...acts as a proxy
+		uai_list: $ITMLST_DECL(ITEMS = 1);
+
+	    $ITMLST_INIT(ITMLST = uai_list,
+		(ITMCOD	= UAI$_PRIV,
+		 BUFADR	= privs,
+		 BUFSIZ	= %ALLOCATION(privs)));
+	    status = $GETUAI(			!Get the authorized privs for
+			USRNAM	= user,		!...this user
+			ITMLST	= uai_list);
+	    client[CLIENT_V_CMKRNL] =		!Test for CMKRNL
+	    (IF .status
+	     THEN .privs[PRV$V_CMKRNL] OR .privs[PRV$V_SETPRV]
+	     ELSE 0);				!No account, assume no CMRKNL
+	    IF NOT .status AND NOT .proxy_status
+	    THEN status = SS$_NORMAL;		!Account not required, ignore
+						!...the error
+	    END;				!End of check for CMKRNL
+	IF .status
+	THEN status = $ASSIGN(			!Assign a network device for
+			DEVNAM	= net_devnam,	!...this client
+			CHAN	= client[CLIENT_W_CHAN],
+			MBXNAM	= mbx_lognam);
+	IF .status
+	THEN BEGIN
+	    $ITMLST_INIT(ITMLST = dvi_list,
+		(ITMCOD	= DVI$_UNIT,
+		 BUFADR	= unit,
+		 BUFSIZ	= %ALLOCATION(unit)));
+	    status = $GETDVIW(			!Save the unit number
+			CHAN	= .client[CLIENT_W_CHAN],
+			ITMLST	= dvi_list,
+			IOSB	= iosb);
+	    IF .status THEN status = .iosb[IOSB_W_STATUS];
+	    IF .status
+	    THEN BEGIN
+		ior[IOR_L_ASTPRM] = client[CLIENT_W_UNIT] = .unit;
+		status = $QIO(			!Complete the connection
+			CHAN	= .client[CLIENT_W_CHAN],
+			FUNC	= IO$_ACCESS,
+			IOSB	= iosb,
+			ASTADR	= read_network_ast,
+			ASTPRM	= ior,
+			P2	= ncb);
+		IF .status
+		THEN INSQUE(.client, .client_queue[1]);
+		END;
+
+	    IF NOT .status
+	    THEN $DASSGN(CHAN	= .client[CLIENT_W_CHAN]);			
+	    END;				!End of assigned a net chan
+
+	IF NOT .status
+	THEN dealloc_client(client);		!Error, deallocate client mem
+	END;					!End of allocated a client
+
+    IF NOT .status
+    THEN BEGIN
+	$QIOW(					!Error, reject this connection
+		CHAN	= .net_chan,
+		FUNC	= IO$_ACCESS OR IO$M_ABORT,
+		P2	= ncb_desc);
+	dealloc_ior(ior_a);			!Dealloc mem for IOR
+	END;
+
+    check_for_retry;				!Retry mbx read if neccessary
+    SS$_NORMAL					!Return status to the caller
+END;						!End of start_connect_ast
+
+
+%SBTTL	'READ_NETWORK'
+ROUTINE read_network(client_a)=
+BEGIN
+!+
+!
+!  Routine:	READ_NETWORK
+!
+!  Functional Description:
+!
+!	This routine starts up another read on a client's network channel.
+!
+!  Parameters:
+!
+!	client_a	- the address of the client block
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	client	= .client_a : CLIENTDEF;
+
+LOCAL
+	ior	: REF IORDEF;
+
+    status = alloc_ior(ior);			!Allocate an I/O request block
+    IF .status
+    THEN BEGIN
+	ior[IOR_L_ASTPRM] = .client[CLIENT_W_UNIT];
+	status = $QIO(				!Read the network device
+		CHAN	= .client[CLIENT_W_CHAN],
+		FUNC	= IO$_READVBLK,
+		IOSB	= ior[IOR_Q_IOSB],
+		ASTADR	= read_network_ast,
+		ASTPRM	= .ior,
+		P1	= ior[IOR_T_BUFFER],
+		P2	= max_buffer);
+	IF NOT .status
+	THEN dealloc_ior(ior);			!Error, free the IOR
+	END;
+
+    RETURN .status;				!Return status to the caller
+END;						!End of read_network
+
+
+%SBTTL	'READ_NETWORK_AST'
+ROUTINE read_network_ast(ior_a)=
+BEGIN
+!+
+!
+!  Routine:	READ_NETWORK_AST
+!
+!  Functional Description:
+!
+!	This routine is called upon completion of a network-device read.
+!
+!  Parameters:
+!
+!	ior_a	- the address of the I/O request block associated with this
+!		  read.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	ior	= .ior_a		: IORDEF,
+	iosb	= ior[IOR_Q_IOSB]	: IOSBDEF,
+	request = ior[IOR_T_BUFFER] 	: CLIMSGDEF,
+	reply	= ior[IOR_T_BUFFER]	: SRVMSGDEF,
+	repiosb	= reply[SRVMSG_Q_IOSB]	: IOSBDEF;
+
+BUILTIN	INSQUE,
+	REMQUE;
+
+LOCAL
+	send_reply	: INITIAL(1),
+	rep_sts		: INITIAL(1),
+	client		: REF CLIENTDEF,
+	to_ptr		: REF TOENTDEF;
+
+    status = .iosb[IOSB_W_STATUS];
+    IF .status EQL SS$_ABORT OR .status EQL SS$_CANCEL
+    THEN RETURN SS$_NORMAL;			!Shutting down, get out
+
+    client = find_client(.ior[IOR_L_ASTPRM]);
+    IF .client EQLA 0				!Make sure this client hasn't
+    THEN RETURN SS$_NORMAL;			!...already been deleted
+
+    IF .status
+    THEN BEGIN
+	IF .client[CLIENT_V_CONNECTED]
+	THEN IF .iosb[IOSB_W_COUNT] NEQ .request[CLIMSG_W_MSGLEN]
+	    THEN rep_sts = msg_protocol		!Invalid message format
+	    ELSE SELECTONE .request[CLIMSG_W_MSGTYP] OF
+		  SET
+		    [msg_init]:
+			BEGIN			!Set up common message stuff
+			BIND
+			    user	= client[CLIENT_Q_USER] : $BBLOCK,
+			    node	= client[CLIENT_Q_NODE] : $BBLOCK,
+			    prefix_fao	= %ASCID'(!AC)!AC - ';
+
+			IF .request[CLIMSG_B_USERLEN] GTRU max_user_len OR
+			   .request[CLIMSG_B_NODELEN] GTRU max_decnode_len
+			THEN rep_sts = msg_protocol
+			ELSE IF NOT .client[CLIENT_V_CMKRNL]
+			THEN BEGIN		!Make sure user and node match
+			    IF CH$FAIL(CH$EQL(	!Compare usernames
+				.request[CLIMSG_B_USERLEN],
+				request[CLIMSG_T_USERBUF],
+				.user[DSC$W_LENGTH],
+				.user[DSC$A_POINTER]))
+			    THEN rep_sts = msg_cmkrnl
+			    ELSE IF CH$FAIL(CH$EQL(!Compare node names
+				.request[CLIMSG_B_NODELEN],
+				request[CLIMSG_T_NODEBUF],
+				.node[DSC$W_LENGTH],
+				.node[DSC$A_POINTER]))
+			    THEN rep_sts = msg_cmkrnl;
+			    END;		!End of check for false id
+			IF .rep_sts
+			THEN BEGIN
+			    status = LIB$SYS_FAO(
+				prefix_fao, 0,	!Format the prefix string
+				client[CLIENT_Q_MSGPREFIX],
+				request[CLIMSG_B_NODELEN],
+				request[CLIMSG_B_USERLEN]);
+			    rep_sts =
+			    (IF .status
+			     THEN BEGIN
+				client[CLIENT_V_READY] = 1;
+				client[CLIENT_L_BRKFLGS] =
+					.request[CLIMSG_L_BRKFLGS];
+				client[CLIENT_L_TIMEOUT] =
+					.request[CLIMSG_L_TIMEOUT];
+				msg_normal
+				END
+			     ELSE msg_local);
+			    END;		!End of format prefix string
+			END;			!End of msg_init
+		    [msg_adddest]:		!Add a destination
+			rep_sts =
+			(IF .request[CLIMSG_L_IDENT] EQL 0 OR
+				find_to(client[CLIENT_Q_TOQUE], 
+					.request[CLIMSG_L_IDENT]) NEQA 0
+			 THEN msg_ident
+			 ELSE IF .request[CLIMSG_B_DESTLEN] EQL 0 OR
+				.request[CLIMSG_B_DESTLEN] GTRU max_devnam_len
+			 THEN msg_protocol
+			 ELSE BEGIN
+			    status = alloc_to(	!Allocate and fill in a dest
+					.request[CLIMSG_L_IDENT],
+					request[CLIMSG_B_DESTLEN],
+					to_ptr);
+			    IF .status
+			    THEN BEGIN
+				INSQUE(.to_ptr, .client[CLIENT_L_TOTAIL]);
+				repiosb[IOSB_V_TERMINAL] =
+					.to_ptr[TOENT_V_TERMINAL];
+				msg_normal	!Success
+				END
+			    ELSE msg_local	!Local processing error
+			    END);		!End of message format OK
+		    [msg_donedest]:
+			BEGIN			!Remove a destination
+			to_ptr = find_to(	!Find the entry to remove
+					client[CLIENT_Q_TOQUE],
+					.request[CLIMSG_L_IDENT]);
+			rep_sts =
+			(IF .to_ptr EQLA 0
+			 THEN msg_unkident	!Unknown ident
+			 ELSE BEGIN
+			    REMQUE(.to_ptr, to_ptr);
+			    dealloc_to(to_ptr);
+			    msg_normal		!Success
+			    END);		!End of able to find dest
+			END;			!End of msg_donedest
+		    [msg_send]:
+			BEGIN			!Send a message
+			send_reply = 0;		!Error replies are handled in
+						!...the loop below
+			to_ptr = .client[CLIENT_L_TOHEAD];
+			WHILE .to_ptr NEQA client[CLIENT_Q_TOQUE]
+			DO BEGIN		!$BRKTHRU to each of the dests
+			    status = send_message(.client, .to_ptr, ior);
+			    IF NOT .status
+			    THEN BEGIN		!Serious error, abort and
+				send_reply = 1;	!...report it
+				rep_sts = msg_local;
+				reply[SRVMSG_L_IDENT] = 0;
+				EXITLOOP;
+				END
+			    ELSE to_ptr = .to_ptr[TOENT_L_FLINK];
+			    END;		!End of destination loop
+			END;			!End of msg_send
+		  TES				!End of cases
+	ELSE BEGIN				!Called from start_connect_ast
+	    client[CLIENT_V_CONNECTED] = 1;	!...successful connect
+	    send_reply = 0;			!Don't send a reply message
+	    END;
+
+	IF .send_reply
+	THEN BEGIN
+	    reply[SRVMSG_W_MSGLEN] = SRVMSG_S_SRVMSGDEF;
+	    repiosb[IOSB_W_STATUS] = .rep_sts;	!Fill in the status
+	    status = write_network(		!Send reply
+				.client, ior);
+	    END;				!End of send reply message
+	END;					!End of iosb status OK
+
+    IF NOT .status
+    THEN dealloc_ior(ior_a)			!Finished with this IOR
+    ELSE status = read_network(.client);	!Start up another read
+
+    IF NOT .status
+    THEN dealloc_client(client);		!Clean up
+
+    check_for_retry;				!Retry mbx read if neccessary
+    SS$_NORMAL
+END;						!End of read_network_ast
+
+
+%SBTTL	'WRITE_NETWORK'
+ROUTINE write_network(client_a, ior_a)=
+BEGIN
+!+
+!
+!  Routine:	WRITE_NETWORK
+!
+!  Functional Description:
+!
+!	This routine starts up a write on a client's network channel.
+!
+!  Parameters:
+!
+!	client_a	- the address of the client block
+!	ior_a		- the I/O request block containing the reply to write
+!
+!  Returns:
+!
+!	R0	- status
+!-
+BIND
+	client	= .client_a		: CLIENTDEF,
+	ior	= .ior_a		: IORDEF,
+	message	= ior[IOR_T_BUFFER]	: SRVMSGDEF;
+
+    $QIO(					!Write to the network device
+	CHAN	= .client[CLIENT_W_CHAN],
+	FUNC	= IO$_WRITEVBLK,
+	IOSB	= ior[IOR_Q_IOSB],
+	ASTADR	= write_network_ast,
+	ASTPRM	= ior,
+	P1	= message,
+	P2	= .message[SRVMSG_W_MSGLEN])
+END;						!End of write_network
+
+
+%SBTTL	'WRITE_NETWORK_AST'
+ROUTINE write_network_ast(ior_a)=
+BEGIN
+!+
+!
+!  Routine:	WRITE_NETWORK_AST
+!
+!  Functional Description:
+!
+!	This routine is called upon completion of a network-device write.
+!
+!  Parameters:
+!
+!	ior_a	- the address of the I/O request block associated with this
+!		  write.
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	ior	= .ior_a		: IORDEF,
+	iosb	= ior[IOR_Q_IOSB]	: IOSBDEF;
+
+LOCAL
+	client		: REF CLIENTDEF;
+
+    status = .iosb[IOSB_W_STATUS];
+    dealloc_ior(ior_a);				!Finished with this IOR
+    IF .status EQL SS$_ABORT OR .status EQL SS$_CANCEL
+    THEN RETURN SS$_NORMAL;			!Shutting down, get out
+
+    client = find_client(.ior[IOR_L_ASTPRM]);
+    IF .client EQLA 0				!Make sure this client hasn't
+    THEN RETURN SS$_NORMAL;			!...already been deleted
+
+    IF NOT .status				!Error writing, close this
+    THEN dealloc_client(client);		!...connection
+
+    check_for_retry;				!Retry mbx read if neccessary
+    SS$_NORMAL
+END;						!End of write_network_ast
+
+
+%SBTTL	'SEND_MESSAGE'
+ROUTINE send_message(client_a, dest_a, ior_a)=
+BEGIN
+!+
+!
+!  Routine:	SEND_MESSAGE
+!
+!  Functional Description:
+!
+!	This routine attempts to do $BRKTHRU to a particular destination.
+!
+!  Parameters:
+!
+!	client_a	- the address of the client block
+!	to_a		- the address of the destination block
+!	ior_a		- the I/O request block containing the message
+!
+!  Implicit Inputs:
+!
+!	reqid		- a longword containing the broadcast class to use.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	client	= .client_a			: CLIENTDEF,
+	dest	= .dest_a			: TOENTDEF,
+	ior	= .ior_a			: IORDEF,
+	msg	= ior[IOR_T_BUFFER]		: CLIMSGDEF,
+	iosb	= ior[IOR_Q_IOSB]		: IOSBDEF,
+	prefix	= client[CLIENT_Q_MSGPREFIX]	: $BBLOCK;
+	
+LOCAL
+	brk_ior	: REF IORDEF;
+
+    status = alloc_ior(brk_ior);		!Allocate an IOR for the
+						!...$BRKTHRU
+    IF .status
+    THEN BEGIN
+	REGISTER src_len;
+	LOCAL
+	    out_msg	: $BBLOCK[DSC$C_S_BLN]
+			  PRESET([DSC$W_LENGTH]	= max_buffer,
+				 [DSC$B_CLASS]	= DSC$K_CLASS_S,
+				 [DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+				 [DSC$A_POINTER]= brk_ior[IOR_T_BUFFER]);
+	
+	CH$MOVE(.prefix[DSC$W_LENGTH],		!Copy the prefix to the message
+		.prefix[DSC$A_POINTER],
+		brk_ior[IOR_T_BUFFER]);
+	src_len = .iosb[IOSB_W_COUNT]-4;	!Trim off the header
+	CH$MOVE(.src_len,			!Copy the message text
+		msg[CLIMSG_T_MSGTXT],
+		CH$PLUS(brk_ior[IOR_T_BUFFER],.prefix[DSC$W_LENGTH]));
+	out_msg[DSC$W_LENGTH] = .prefix[DSC$W_LENGTH]+.src_len;
+	brk_ior[IOR_L_ASTPRM] = .client[CLIENT_W_UNIT];
+	brk_ior[IOR_L_ASTPRM2] = .dest[TOENT_L_IDENT];
+	status = $BRKTHRU(			!Send the message
+			MSGBUF	= out_msg,
+			SENDTO	= dest[TOENT_Q_NAME],
+			SNDTYP	= IF .dest[TOENT_V_TERMINAL]
+				  THEN BRK$C_DEVICE
+				  ELSE BRK$C_USERNAME,
+			IOSB	= brk_ior[IOR_Q_IOSB],
+			FLAGS	= .client[CLIENT_L_BRKFLGS],
+			REQID	= .reqid,
+			TIMOUT	= .client[CLIENT_L_TIMEOUT],
+			ASTADR	= send_message_ast,
+			ASTPRM	= .brk_ior);
+	IF NOT .status
+	THEN BEGIN
+	    BIND
+		reply	= brk_ior[IOR_T_BUFFER]	: SRVMSGDEF,
+		repiosb	= reply[SRVMSG_Q_IOSB]	: IOSBDEF;
+
+	    reply[SRVMSG_W_MSGLEN] = SRVMSG_S_SRVMSGDEF;
+	    repiosb[IOSB_W_STATUS] = msg_local;	!Local processing error
+	    status = write_network(		!Send reply
+				.client, .brk_ior);
+	    IF NOT .status
+	    THEN dealloc_ior(brk_ior);		!Error, free the IOR memory
+	    END;				!End of error calling $BRKTHRU
+	END;					!End of allocated the IOR
+
+    .status					!Return status to the caller
+END;						!End of send_message
+
+
+%SBTTL	'SEND_MESSAGE_AST'
+ROUTINE send_message_ast(ior_a)=
+BEGIN
+!+
+!
+!  Routine:	SEND_MESSAGE_AST
+!
+!  Functional Description:
+!
+!	This routine is called upon completion of a $BRKTHRU.
+!
+!  Parameters:
+!
+!	ior_a	- the address of the I/O request block associated with this
+!		  write.
+!
+!  Returns:
+!
+!	R0	- SS$_NORMAL
+!-
+REGISTER
+	status;		!holds the return values of RTL and SS routines.
+
+BIND
+	ior	= .ior_a		: IORDEF,
+	iosb	= ior[IOR_Q_IOSB]	: IOSBDEF,
+	reply	= ior[IOR_T_BUFFER]	: SRVMSGDEF,
+	repiosb	= reply[SRVMSG_Q_IOSB]	: IOSBDEF;
+
+LOCAL
+	client		: REF CLIENTDEF;
+
+    client = find_client(.ior[IOR_L_ASTPRM]);
+    IF .client EQLA 0				!Make sure this client hasn't
+    THEN BEGIN					!...already been deleted
+	dealloc_ior(ior_a);
+	RETURN SS$_NORMAL;
+	END;					!End of client already deleted
+
+    reply[SRVMSG_W_MSGLEN] = SRVMSG_S_SRVMSGDEF;
+    reply[SRVMSG_W_MSGTYP] = msg_send;
+    reply[SRVMSG_L_IDENT] = .ior[IOR_L_ASTPRM2];
+    repiosb[IOSB_W_STATUS] = msg_normal;	!Success, copy the iosb
+    repiosb[IOSB_W_SNTCNT] = .iosb[IOSB_W_SNTCNT];
+    repiosb[IOSB_W_TMOCNT] = .iosb[IOSB_W_TMOCNT];
+    repiosb[IOSB_W_REJCNT] = .iosb[IOSB_W_REJCNT];
+
+    status = write_network(.client, ior);	!Send a reply message
+    IF NOT .status				!Error writing, close this
+    THEN BEGIN					!...connection
+	dealloc_client(client);
+	dealloc_ior(ior_a);
+	END;
+
+    check_for_retry;				!Retry mbx read if neccessary
+    SS$_NORMAL
+END;						!End of send_message_ast
+
+
+%SBTTL	'FIND_CLIENT'
+ROUTINE find_client(unit)=
+BEGIN
+!+
+!
+!  Routine:	FIND_CLIENT
+!
+!  Functional Description:
+!
+!	This routine searches the client queue for a client with a particular
+!	network unit number.
+!
+!	This routine is assumed to have been called at AST level (or with
+!	user-mode ASTs turned off), so we don't have to worry about a client
+!	being deallocated between the time it is returned by this routine
+!	and the time it is used.
+!
+!  Parameters:
+!
+!	unit	- the network unit number identifying the disconnected client.
+!
+!  Implicit Inputs:
+!
+!	client_queue	- the queue of clients.
+!
+!  Returns:
+!
+!	R0	- 0, if the client is not in the queue.
+!		  Otherwise, a pointer to the client.
+!-
+REGISTER
+	cur_client	: REF CLIENTDEF;
+
+    cur_client = .client_queue[0];		!Point to the first entry
+    WHILE .cur_client NEQA client_queue DO	!Loop through the clients
+	IF .cur_client[CLIENT_W_UNIT] EQL .unit
+	THEN RETURN .cur_client			!Found a match, return it
+	ELSE cur_client = .cur_client[CLIENT_L_FLINK];
+
+    RETURN 0;					!No match found, return 0
+END;						!End of find_client
+
+
+%SBTTL	'FIND_TO'
+ROUTINE find_to(to_que_a, ident)=
+BEGIN
+!+
+!
+!  Routine:	FIND_TO
+!
+!  Functional Description:
+!
+!	This routine searches a to queue for a particular destination.
+!
+!	This routine is assumed to have been called at AST level (or with
+!	user-mode ASTs turned off), so we don't have to worry about a client
+!	being deallocated between the time it is returned by this routine
+!	and the time it is used.
+!
+!  Parameters:
+!
+!	to_que_a	- the address of the head of the to queue
+!	ident		- a longword identifying the destination to find
+!
+!  Returns:
+!
+!	R0	- 0, if the dest is not in the queue.
+!		  Otherwise, a pointer to the dest.
+!-
+REGISTER
+	cur_to	: REF TOENTDEF;
+
+BIND
+	to_que	= .to_que_a	: TOENTDEF;
+
+    cur_to = .to_que[TOENT_L_FLINK];		!Point to the first entry
+    WHILE .cur_to NEQA to_que DO		!Loop through the clients
+	IF .cur_to[TOENT_L_IDENT] EQL .ident
+	THEN RETURN .cur_to			!Found a match, return it
+	ELSE cur_to = .cur_to[TOENT_L_FLINK];
+
+    RETURN 0;					!No match found, return 0
+END;						!End of find_to
+
+
+%SBTTL	'ALLOC_IOR'
+ROUTINE alloc_ior(ior_a_a)=
+BEGIN
+!+
+!
+!  Routine:	ALLOC_IOR
+!
+!  Functional Description:
+!
+!	This routine allocates an I/O request block.
+!
+!  Parameters:
+!
+!	ior_a_a		- the address of a longword to receive the address of
+!			  the IOR block.
+!  Implicit Inputs:
+!
+!	ior_zone	- the address of a longword containing the zone id
+!			  for the IOR zone (or 0 if a zone has not yet been
+!			  created).
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	aststat,	!holds the current user-mode AST state
+	status	: INITIAL(SS$_NORMAL);
+
+    IF .ior_zone EQL 0
+    THEN BEGIN
+    	aststat = $SETAST(ENBFLG=0);	!Double check when non-interruptible
+    	IF .ior_zone EQL 0
+	THEN status = LIB$CREATE_VM_ZONE(
+		ior_zone,		!Create a zone for IOR blocks
+		%REF(LIB$K_VM_FIXED),
+    	    	%REF(IOR_S_IORDEF),
+    	    	%REF(LIB$M_VM_EXTEND_AREA));
+    	IF .aststat EQL SS$_WASSET THEN $SETAST(ENBFLG=1);
+	END;
+
+    IF .status
+    THEN status = LIB$GET_VM(			!Allocate the IOR
+		%REF(IOR_S_IORDEF), .ior_a_a, ior_zone);
+
+    RETURN .status;				!Return status to the caller
+END;						!End of alloc_ior
+
+
+%SBTTL	'DEALLOC_IOR'
+ROUTINE dealloc_ior(ior_a_a)=
+BEGIN
+!+
+!
+!  Routine:	DEALLOC_IOR
+!
+!  Functional Description:
+!
+!	This routine deallocates an I/O request block.
+!
+!  Parameters:
+!
+!	ior_a_a		- the address of a longword to containing the address
+!			  of the IOR block.
+!
+!  Implicit Inputs:
+!
+!	ior_zone	- the address of a longword containing the zone id
+!			  for the IOR zone.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+    LIB$FREE_VM(%REF(IOR_S_IORDEF), .ior_a_a,	!Deallocate this IOR
+		ior_zone)
+END;						!End of dealloc_ior
+
+
+%SBTTL	'ALLOC_CLIENT'
+ROUTINE alloc_client(client_a_a)=
+BEGIN
+!+
+!
+!  Routine:	ALLOC_CLIENT
+!
+!  Functional Description:
+!
+!	This routine allocates a client-queue entry.
+!
+!  Parameters:
+!
+!	client_a_a	- the address of a longword to receive the address of
+!			  the client block.
+!  Implicit Inputs:
+!
+!	client_zone	- the address of a longword containing the zone id
+!			  for the client zone (or 0 if a zone has not yet been
+!			  created).
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	aststat,	!holds the current user-mode AST state
+	status	: INITIAL(SS$_NORMAL);
+
+    IF .client_zone EQL 0
+    THEN BEGIN
+    	aststat = $SETAST(ENBFLG=0);	!Double check when non-interruptible
+    	IF .client_zone EQL 0
+	THEN status = LIB$CREATE_VM_ZONE(
+		client_zone,		!Create a zone for client blocks
+		%REF(LIB$K_VM_FIXED),
+    	    	%REF(CLIENT_S_CLIENTDEF),
+    	    	%REF(LIB$M_VM_EXTEND_AREA));
+    	IF .aststat EQL SS$_WASSET THEN $SETAST(ENBFLG=1);
+	END;
+
+    IF .status
+    THEN status = LIB$GET_VM(			!Allocate the client block
+		%REF(CLIENT_S_CLIENTDEF), .client_a_a, client_zone);
+
+    RETURN .status;				!Return status to the caller
+END;						!End of alloc_client
+
+
+%SBTTL	'DEALLOC_CLIENT'
+ROUTINE dealloc_client(client_a_a)=
+BEGIN
+!+
+!
+!  Routine:	DEALLOC_CLIENT
+!
+!  Functional Description:
+!
+!	This routine deallocates a client queue entry.
+!
+!  Parameters:
+!
+!	client_a_a	- the address of a longword to containing the address
+!			  of the CLIENT block.
+!
+!  Implicit Inputs:
+!
+!	client_zone	- the address of a longword containing the zone id
+!			  for the client zone.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+BIND
+	client	= .client_a_a	: REF CLIENTDEF;
+
+LOCAL
+	next_to	: REF TOENTDEF,
+	cur_to	: REF TOENTDEF;
+
+BUILTIN	REMQUE;
+
+    REMQUE(.client, client);			!Remove from the client queue
+
+    cur_to = .client[CLIENT_L_TOHEAD];		!Point to the first entry
+    WHILE .cur_to NEQA client[CLIENT_Q_TOQUE]	!Loop through the "to" entries
+    DO BEGIN
+	next_to = .cur_to[TOENT_L_FLINK];	!Point to the next entry
+	REMQUE(.cur_to, cur_to);		!Remove from the queue
+	dealloc_to(cur_to);			!Deallocate the memory
+	cur_to = .next_to;			!Point to the next entry
+	END;					!End of "to" delete loop
+
+    IF .client[CLIENT_V_CONNECTED]
+    THEN BEGIN
+	$CANCEL(CHAN = .client[CLIENT_W_CHAN]);	!Cancel outstanding I/O
+	$QIOW(					!Disconnect from this client
+		CHAN	= .client[CLIENT_W_CHAN],
+		FUNC	= IO$_DEACCESS OR IO$M_SYNCH);
+	END;					!End of client connected
+    IF .client[CLIENT_W_CHAN] NEQ 0
+    THEN $DASSGN(CHAN = .client[CLIENT_W_CHAN]);!Deassign the network device
+
+    STR$FREE1_DX(client[CLIENT_Q_NCB]);		!Deallocate the NCB
+    STR$FREE1_DX(client[CLIENT_Q_MSGPREFIX]);	!Deallocate the msg prefix
+    LIB$FREE_VM(				!Deallocate this client
+		%REF(CLIENT_S_CLIENTDEF), client, client_zone)
+END;						!End of dealloc_client
+
+
+%SBTTL	'ALLOC_TO'
+ROUTINE alloc_to(ident, dest_ac_a, dest_a_a)=
+BEGIN
+!+
+!
+!  Routine:	ALLOC_TO
+!
+!  Functional Description:
+!
+!	This routine allocates a to-queue entry and fills it in with the
+!	values passed in.
+!
+!  Parameters:
+!
+!	ident		- a longword containing the user-supplied id #
+!	dest_ac_a	- the address of an ASCIC string containing the name
+!	dest_a_a	- the address of a longword to receive the address of
+!			  the to block.
+!  Implicit Inputs:
+!
+!	to_zone		- the address of a longword containing the zone id
+!			  for the to zone (or 0 if a zone has not yet been
+!			  created).
+!
+!  Returns:
+!
+!	R0	- status
+!-
+REGISTER
+	aststat,	!holds the current user-mode AST state
+	status	: INITIAL(SS$_NORMAL);
+
+    IF .to_zone EQL 0
+    THEN BEGIN
+    	aststat = $SETAST(ENBFLG=0);	!Double check when non-interruptible
+    	IF .to_zone EQL 0
+	THEN status = LIB$CREATE_VM_ZONE(
+		to_zone,		!Create a zone for to blocks
+		%REF(LIB$K_VM_FIXED),
+    	    	%REF(TOENT_S_TOENTDEF),
+    	    	%REF(LIB$M_VM_EXTEND_AREA));
+    	IF .aststat EQL SS$_WASSET THEN $SETAST(ENBFLG=1);
+	END;
+
+    IF .status
+    THEN status = LIB$GET_VM(			!Allocate the to block
+		%REF(TOENT_S_TOENTDEF), .dest_a_a, to_zone);
+    IF .status
+    THEN BEGIN
+	BIND
+	    dest	= ..dest_a_a	: TOENTDEF,
+	    dest_ac	= .dest_ac_a	: $BBLOCK;
+
+	$INIT_DYNDESC(dest[TOENT_Q_NAME]);
+	status = STR$COPY_R(			!Copy the destination name
+		dest[TOENT_Q_NAME], %REF(.dest_ac[0,0,8,0]),
+		dest_ac[1,0,0,0]);
+	IF NOT .status
+	THEN LIB$FREE_VM(			!Error, deallocate the block
+		%REF(TOENT_S_TOENTDEF), .dest_a_a, to_zone)
+	ELSE BEGIN
+	    LOCAL devclass;
+
+	    dest[TOENT_L_IDENT] = .ident;	!Save the id #
+	    dest[TOENT_V_TERMINAL] =		!Check for terminal name
+	    (IF LIB$GETDVI(%REF(DVI$_DEVCLASS), 0,
+			dest[TOENT_Q_NAME], devclass)
+	     THEN .devclass EQL DC$_TERM
+	     ELSE 0);
+	    END;				!End of copied name
+	END;					!End of allocated block
+
+    RETURN .status;				!Return status to the caller
+END;						!End of alloc_to
+
+
+%SBTTL	'DEALLOC_TO'
+ROUTINE dealloc_to(dest_a_a)=
+BEGIN
+!+
+!
+!  Routine:	DEALLOC_TO
+!
+!  Functional Description:
+!
+!	This routine deallocates a to queue entry.
+!
+!  Parameters:
+!
+!	dest_a_a	- the address of a longword to containing the address
+!			  of the TO block.
+!
+!  Implicit Inputs:
+!
+!	to_zone		- the address of a longword containing the zone id
+!			  for the to zone.
+!
+!  Returns:
+!
+!	R0	- status
+!-
+BIND
+	dest	= .dest_a_a	: REF TOENTDEF;
+
+    STR$FREE1_DX(dest[TOENT_Q_NAME]);		!Deallocate the name
+    LIB$FREE_VM(				!Deallocate this client
+		%REF(TOENT_S_TOENTDEF), dest, to_zone)
+END;						!End of dealloc_to
+
+END						!End of module begin
+ELUDOM

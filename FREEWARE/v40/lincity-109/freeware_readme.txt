@@ -1,0 +1,96 @@
+LINCITY-109, GAMES, A free SimCity game for X11
+
+Copyright (c) I J Peters 1995,1997. Please read the file 'COPYRIGHT'.
+
+
+WHAT IS LinCity?
+================
+
+LinCity is an SVGALIB (Linux only) and X based city/country simulation game
+for Linux and other Unix platforms - Solaris, FreeBSD, HP_UX, AIX, SCO and
+IRIX. There is also a Win32 version (win95 and NT) available as a separate
+package at
+
+    www.winsite.com/info/pc/win95/games/lc108.zip/index.html
+
+or follow the Win32 link from the LinCity home page
+
+    www.floot.demon.co.uk/lincity.html
+
+XLin City V 1.09 port under OpenVMS                       December 1997
+===================================
+
+Xlincity is a city simulation game, very similar to Simcity, available for
+Linux and various Unix systems, and now for OpenVMS VAX & Alpha.
+
+Installation:
+------------
+
+To load and save scenes (cities), you need gzip installed on your VMS system
+(however, without gzip you can play with xlincity but you cannot save your
+cities). Scene files are very big (near 1 Mbyte each, and the compression
+is very efficient on such files).
+
+Xlincity needs some logical names to work:
+
+LINCITY_DIR, a system wide rooted logical name pointing the location where
+Xlincity data files are located.
+
+LINCITY_SAVE_DIR and LINCITY_SAVE_OLD, two user logical names in the process
+table. You need to define them at login time.
+
+SETUP_VMS.COM DCL procedure gives you an example of an automatic definition
+of these logical names (if you invoke this procedure, you can use Xlincity
+using the provided distribution, the save directories are located under your
+SYS$LOGI directory).
+
+To make a regular installation of Xlincity, you must copy the four
+subdirectories [.HELP], [.ICONS], [.MESSAGES] and [.OPENING] under
+LINCITY_DIR:[000000] and also copy the colour table file:
+
+Example (you are located into the lincity distribution):
+
+$ define/sys/trans=conc lincity_dir disk:[toto.lincity.]
+$ backup/log [.help]*.* lincity_dir:[help]*
+$ backup/log [.icons]*.* lincity_dir:[icons]*
+$ backup/log [.messages]*.* lincity_dir:[messages]*
+$ backup/log [.opening]*.* lincity_dir:[opening]*
+$ copy colour.pal lincity_dir:[000000]*
+$ set prot=(w:re) lincity_dir:[000000...]*.*
+
+Example of definition of user logical names under the home directory
+(put the code in LOGIN.COM or SYLOGIN.COM):
+
+$ mydir = f$trnlnm("SYS$LOGIN")
+$ mydir = f$extract(0,f$locate("]",mydir),mydir)
+$ def LINCITY_SAVE_DIR 'mydir.LINCITY]
+$ def LINCITY_SAVE_OLD 'mydir.LINCITY_OLD]
+
+Rebuild:
+-------
+
+You need DEC C++ 5.2 and DEC C 5.2 to rebuild Xlincity under OpenVms 6.2 or
+higher. It is probably possible to build under previous versions of VMS and
+previous versions of DEC C and DEC C++ (at least 5.0) but you need to provide
+some unix functions not available with these prehistoric versions (at least
+getopt). You recompile with COMPILE_DECCXX.COM procedure.
+
+Object files are provided for these who just want to relink (use
+LINK_{VAX|AXP}.COM procedure.
+
+Running:
+-------
+The standard screen is rather small and not easy to read. You can double the
+size (in X and Y) to fill a 1280x1024 screen with -d option:
+
+$ xlincity -d
+
+When running xlincity for the first time, you are prompted for the creation of
+the LINCITY_SAVE_DIR directory.
+
+Enjoy !!
+
+Patrick Moreau
+pmoreau@cena.dgac.fr
+moreau_p@decus.fr
+http://www2.cenaath.cena.dgac.fr/~pmoreau/

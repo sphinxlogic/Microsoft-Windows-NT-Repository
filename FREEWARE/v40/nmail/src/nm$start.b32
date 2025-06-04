@@ -1,0 +1,154 @@
+%title 'Nmail queue starter'
+module nm$start(
+    	       ident='04',
+    	       addressing_mode(external=general)
+               ) =
+
+begin
+
+!++
+! 									 
+! Copyright (c) 1987, 1988, 1989, 1992, 1993
+! by Digital Equipment Corporation, Maynard, Mass.			 
+! 									 
+! Facility:	NMAIL
+!
+! Abstract:	Network mailer
+!
+! Environment:	VMS
+!
+! Author:	Dave Porter  (Mu::Porter)
+!		Networks and Communications
+!
+! Created:	26-Aug-1987
+!
+! Revision history:
+!
+!   01	25-Jan-1989
+!	Include job controller status in 'failed to start' error
+!
+!   02	17-Feb-1989
+!	Use same queue order as STOP QUEUE does.
+!
+!   03	24-Feb-1989
+!	Ensure dynamic strings are freed on unwinds
+!
+!   04	10-Dec-1993
+!	For errors NM$_EXTNF, NM$_EXTNT, and NM$_EXTBAD, supply the
+!	translation of NM$EXTENSION as an FAO parameter
+!
+!--
+
+ 
+!
+! Library calls
+!
+library 'sys$library:starlet';
+library 'nm$library';
+
+!
+! Define program sections
+!
+$nmail_psects;
+
+%sbttl 'start all queues'
+global routine nm$start_queues (flags : block[,byte]) =
+
+!++
+! Functional description:
+!
+! This routine starts all Nmail queues (based on whatever
+! the generic queue NM$QUEUE points to)
+!
+! Formal parameters:
+!
+! flags.rl.v = flags word
+!		str$v_log  -> be chatty
+!
+! Routine value:
+!
+! status.wlc.v = true if it worked
+!		 false otherwise
+!
+!--
+
+    begin
+
+    !
+    ! The queue names that we're playing with.
+    !
+    local
+	master_queue  : descrip initial(.nm$gt_queue[0], nm$gt_queue[1]),
+	queue_list    : descrip initial($dynamic) volatile,
+	start_queue   : $itemlist(sjc$_queue, 0, 0, 0);
+
+    !
+    ! Other scratch bits and pieces
+    !
+    local 
+	status;
+
+    !
+    ! Ensure dynamic strings are freed on unwind
+    !
+    enable nm$freestr (queue_list);
+
+    !
+    ! Take a peek at the generic queue to see what it maps onto
+    !
+    status = nm$get_que_list(master_queue, queue_list, true);
+    if not .status 
+    then 
+	if .status neq jbc$_nosuchque 
+	then 
+	    signal_stop(nm$_jbc, 0, .status)
+	else
+	    begin
+	    signal(nm$_nonxque);
+   	    return nm$_nonxque
+	    end;
+	
+    !
+    ! Process each queue in turn. We always attempt to start the
+    ! queue, and examine the status to decide whether it was already
+    ! running anyway.
+    !
+    while nm$next_queue(queue_list, start_queue) do
+	begin
+	status = nm$sndjbc(sjc$_start_queue, start_queue);
+       	if  not .status 
+	then
+	    selectone .status of
+		set
+		[jbc$_started]:
+		    signal(nm$_qrun, 1, start_queue);
+		[nm$_extnf, nm$_extnt, nm$_extbad]:
+		    begin
+		    local extn : descrip initial($dynamic);
+		    nm$trnlnm(nm$gt_lnm_extn, extn, psl$c_exec);
+		    signal(nm$_quefail, 1, start_queue, .status, 1, extn);
+		    str$free1_dx(extn);
+		    end;
+	     	[otherwise]:
+		    signal(nm$_quefail, 1, start_queue, .status);
+		tes
+        else
+	    if .flags[str$v_log] then signal(nm$_qstart, 1, start_queue);
+	end;
+
+    !
+    ! Tell job controller it can tidy up
+    !
+    status = nm$getqui(qui$_cancel_operation, %ref(0));
+    if not .status then signal_stop(nm$_jbc, 0, .status);
+
+    !
+    ! Other tidying up
+    !
+    str$free1_dx(queue_list);
+    ss$_normal
+
+    end;
+
+end
+eludom

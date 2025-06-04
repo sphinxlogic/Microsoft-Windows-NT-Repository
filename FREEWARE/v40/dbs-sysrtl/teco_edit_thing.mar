@@ -1,0 +1,168 @@
+	.title	teco_edit_thing
+	.ident	/X1-002/
+
+;+
+; Version:	X1-002
+;
+; Facility:	Library routines.
+;
+; Abstract:	Allow the use of callable Teco to edit a string.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	21-Dec-1990, DBS, Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS, Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;	status = teco_edit_thing (destination, source)
+;		-or-
+;	status = teco_edit_thing (string_to_modify)
+;		-or-
+;	pushaq	source
+;	pushaq	destination
+;	calls	#2, g^teco_edit_thing
+;	blbc	r0, error
+;		-or-
+;	pushaq	string_to_modify
+;	calls	#1, g^teco_edit_thing
+;	blbc	r0, error
+;
+; Formal Argument(s):
+;   2 Argument form:
+;	destination.rt.ds  Address of the descriptor of the string that will
+;			contain the edited characters.
+;	source.rt.ds	Address of the descriptor of the string to be edited.
+;   1 Argument form:
+;	string.mt.ds	Address of the descriptor of the string to modify.
+;			Modification is done in situ.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_badparam	A null argument was passed
+;	ss$_insfarg	No arguments were passed
+;	ss$_ivbuflen	A zero length string was passed
+;	ss$_normal	Successful completion
+;	ss$_ovrmaxarg	Too many arguments were passed
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SHARE:TECOSHR.EXE" /shareable
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	.external lib$put_output
+	.external teco$init
+	.external teco$do_command
+	.external teco$load_q_reg
+	.external teco$load_text
+	.external teco$start
+	.external teco$get_text
+
+	$ssdef
+
+one_arg=1				; to see if only one argument
+two_args=2				; to see if we have two arguments
+p1=4					; offset to argument 1, destination
+p2=8					; offset to argument 2, source
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+esc=27
+cr=13
+lf=10
+teco_start_flag:.long	1		; exit commands return immediately
+teco_init_com:	.ascid	"0,2#8192ET"	; set scope, surrogate escape
+teco_qreg_x$:	.ascid	"X"
+teco_qreg_com:	.ascid	"0J6,7:W"<esc>"-1W"
+teco_instr:	.ascid	"use MX`` to invoke the screen edit function"<cr><lf>
+
+	reset_psect
+
+	set_psect _sys_code
+
+        .entry -
+teco_edit_thing ,^m<r2,r3>
+
+	cmpw	(ap), #one_arg		; do we have one argument ?
+	beql	10$			; yes, check it
+	cmpw	(ap), #two_args		; do we have two arguments ?
+	bgtr	toomany			; too many, bail out
+	bneq	toofew			; nope, we have none, go away
+	tstl	p2(ap)			; check address of arg 2
+	beql	badparam		; no good, bail out
+	movq	@p2(ap), r2		; get the descriptor of the source
+	movzwl	r2, r2			; get rid of the class stuff
+	beql	badlength		; zero length string, forget it
+10$:	tstl	p1(ap)			; check address of arg 1
+	beql	badparam		; no good, bail out
+	movq	@p1(ap), r2		; get the descriptor of the destination
+	movzwl	r2, r2			; get rid of the class stuff
+	beql	badlength		; zero length string, forget it
+	brb	do_edit
+
+toofew:
+	movl	#ss$_insfarg, r0
+	brb	return
+toomany:
+	movl	#ss$_ovrmaxarg, r0
+	brb	return
+badlength:
+	movl	#ss$_ivbuflen, r0
+	brb	return
+badparam:
+	movl	#ss$_badparam, r0
+	brb	return
+do_edit:
+	calls	#0, g^teco$init
+
+	pushaq	teco_qreg_com
+	pushl	#0
+	pushaq	teco_qreg_x$
+	calls	#3, g^teco$load_q_reg
+
+	pushal	teco_instr
+	calls	#1, g^lib$put_output
+
+	pushaq	teco_init_com
+	calls	#1, g^teco$do_command
+
+	movl	(ap), r2
+	pushl	(ap)[r2]
+	calls	#1, g^teco$load_text
+
+	pushal	teco_start_flag
+	calls	#1, g^teco$start
+
+	pushl	p1(ap)
+	calls	#1, g^teco$get_text
+
+return:
+	ret
+
+	.end

@@ -1,0 +1,1373 @@
+;
+; This software is COPYRIGHT © 1989-1997, Stephane Germain. ALL RIGHTS RESERVED.
+; Permission is granted for not-for-profit redistribution, provided all source
+; and object code remain unchanged from the original distribution, and that all
+; copyright notices remain intact.
+;
+; This software is provided "AS IS". The author makes no representations or
+; warranties with respect to the software and specifically disclaim any implied
+; warranties of merchantability or fitness for any particular purpose.
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+; This is SYS_PROBE:ACQ.MAR
+; Creator S.Germain p.eng
+; Using   VMS 5.2-5.5/6.0-6.2
+; History V1.0      Dec 89 : imbedded with PROBE
+;         V2.0      Jun 91 : full-function (logging) except collision detection
+;         V2.1      Feb 94 : improved IEEE format determination/handling
+;                            size now reflects significant data portion
+;	  V2.2      Dec 94 : adjusted log_it.type3 for protocol 0 skip
+;                            updated log_it.type0 for new flags & data logging
+;                            (size no longer bounded, IEEE overhead now valid)
+;                            added log_it.type2 and log_it.type6
+;			     changed intro.block layout: not backward compatible
+;	  V2.2B     Aug 96 : added dual-architecture subroutine entry support
+;			     completely revamped collision/line tracking code
+;	  V2.3      May 97 : added log_it.type3 vendor subtype and log_on code
+;			     added resilience to network overflow errors
+;			     updated frame size process (envelop:overhead:data)
+;			     updated default recording file name
+;	  V2.3B     Jul 97 : no code changed (updated version library id)
+;
+;; CONCEPT ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;  This image is run as a subprocess spawned from PROBE when in "record" mode.
+;  The image initialization data is through the "control" global section created
+;  and set-up by PROBE. Operational input is obtained from the Ethernet port
+;  driver. Packet decomposition (envelop striping) is channeled to either (or
+;  both) the "buffer" global section for the DMS process or to a log file.
+;  Internal and external synchronizations are performed using event flags.
+;  Collision computing is done independantly through timer AST's although file
+;  logging is synchronous with recorded traffic.
+;
+;; NOTES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+;  1. Messages vectored by ACQ are contained in PROBE.MSG for PROBE's handling.
+;  Initialisation and runtime errors are signaled via the CTL global section.
+;  Assembling and linking is done as follows:
+;
+;     $ MACRO/NODEBUG ACQ
+;     $ MESSAGE/OBJECT=MSG PROBE
+;     $ LINK/NODEBUG/NOTRACEBACK ACQ,MSG
+;
+;  2. This image, by the (promiscuous) nature of its interface to the network
+;  driver is NOT shareable. This implies that at most one PROBE session can be
+;  active per node/adapter at a given time.
+;
+;  3. The Ethernet device driver does not echo back frames emitted from the
+;  node on which this image runs. Therefore, some network traffic cannot be
+;  seen by this program. To minimize the impact of this, it is advisable to
+;  use PROBE on a quiet node (for example a standalone workstation). This
+;  problem will be corrected in a future dual-listener release of PROBE.
+;
+;; CONSTANTS ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.TITLE	ACQ	NETWORK LISTENER
+	.IDENT	/2.3B/
+;
+	.LIBRARY "SYS$LIBRARY:LIB.MLB"	; alternate system macro library
+	.LIBRARY "SYS_PROBE:PROBELIB"	; application macro library
+	$IODEF				; 
+	$NMADEF				; 
+	$PSLDEF				; 
+	$SECDEF				; 
+	V23B$GBLDEF			; global constants definitions
+	V23$CTLDEF			; control section definitions
+	V23$BUFDEF			; buffer entry & section definitions
+	V23$LOGDEF			; logfile section definitions
+;
+	.PSECT	FIXDATA,NOEXE,NOWRT,NOSHR,QUAD
+;
+K_ALLOCBUF	= 16			; driver/port packet queue length ~BYTLM
+K_NETBUFSIZ	= 1500			; driver default buffer size
+K_LINBUFSIZ	= 128			; DECnet line counters (~) buffer size
+;
+; The following values are used to compute the logger data storage requirements.
+; (With a log entry size of 48 bytes, a segment of 60 blocks can store 640 log
+;  entries. Given a 100 msec logger IO turnaround time, 2 segments can sustain
+;  a nominal arrival rate of 6400 ethernet frame/sec).
+;
+K_MINBIO	= 3			; minimum aligned IO fragments (blocks)
+K_MULTIPLE	= 20			; number of fragments per segment
+K_SEGMBLCK	= K_MULTIPLE*K_MINBIO	; logger segment size (blocks)
+K_SEGMBYTE	= 512*K_SEGMBLCK	; logger segment size (bytes)
+;+++ V2.3 : Segments increased from 2 to 6 to better handle long traffic bursts
+;           Include vendor array size into introductory block computations
+K_SEGMENTS	= 6			; number of logger segments (<V_LOGFULL)
+K_INTRO		= <<<1+GK_PTCLS+GK_VENDORS+GK_NODES>*GLNTRY_SIZE>+511>/512
+;---
+K_IFILE		= <<K_INTRO+K_MINBIO-1>/K_MINBIO>*K_MINBIO
+K_XFILE		= <K_SEGMENTS+1>*K_SEGMBLCK ; file extent quantities (blocks)
+;
+; Named values & descripted values
+;
+D_LINE:		.LONG	K_LINBUFSIZ	; CD report line buffer size
+		.ADDRESS AB_LINE_COUNTS	; CD report line buffer location
+D_CDTIME:	.ASCID	/0 0:0:01/	; 1 second base CD report (ASCII format)
+D_LOGNAME:	.ASCID	/ACQ_LOG/	; log global section name
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	FILEDATA,NOEXE,WRT,NOSHR,QUAD
+;
+T_FILE:		$FAB	ALQ=K_IFILE,-		; file creation allocated space
+			DEQ=K_XFILE,-		; automatic extension size
+			DNM=<NETWORK.PRB>,-	; default file name
+			FAC=<BIO,PUT>,-		; block output only
+			FOP=<CBT,MXV,SQO,TEF>,-	; seq trunc try-contig *.*;+1
+			MRS=GLNTRY_SIZE,-	; record is single log entry
+			ORG=<SEQ>,-		; sequential organisation
+			RFM=<FIX>,-		; fixed record format
+			SHR=<MSE,UPI>		; unlocked multistream sharing
+T_STR0:
+;
+; Define one record access block per segments
+; (cannot use automatic RMS next-block-pointer... asynchronous set later)
+;
+		.REPEAT	K_SEGMENTS
+		$RAB	FAB=T_FILE	; pointer to output file access block
+		.ENDR
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	SCRATCH,NOEXE,WRT,NOSHR,PAGE
+;
+AB_NETBUF:	.BLKB	K_NETBUFSIZ	; network frame data (block aligned)
+AB_NETENV:	.BLKB	20		; network frame envelop (QIO P5 buffer)
+AB_LINE_COUNTS:	.BLKB	K_LINBUFSIZ	; line counters buffer
+AB_L4_BLOCK:	.BLKB	GLNTRY_SIZE	; collision report logging block
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	WORKDATA,NOEXE,WRT,NOSHR,QUAD
+;
+AL_CTL:		.LONG	0		; control section start address
+		.LONG	0		; control section end address
+AL_BUF:		.LONG	0		; buffer section start address
+		.LONG	0		; buffer section end address
+AL_LOG:		.LONG	0		; log section start address
+		.LONG	0		; log section end address
+AL_CODE:	.ADDRESS ACQ		; program low address
+		.ADDRESS BYE		; program high address
+AL_EXIT:	.LONG	0		; (VMS reserved usage) forward link
+		.ADDRESS SHUTDOWN	; exit handler address
+		.LONG	1		; number of arguments
+		.ADDRESS L_VMSSTATUS	; argument # 1 (VMS filled status)
+Q_NETIOSB:	.QUAD	0		; network I/O status block
+Q_LINIOSB:	.QUAD	0		; collision (line) I/O status block
+Q_CDTIME:	.QUAD	0		; collision reporter repeat interval
+Q_TIME:		.QUAD	0		; frame reception binary interval
+L_DBS:		.LONG	0		; interval data blocks sent
+L_MBS:		.LONG	0		; interval multicast blocks sent
+L_BSN:		.LONG	0		; interval bytes sent
+L_MSN:		.LONG	0		; interval multicast bytes sent
+L_BID:		.LONG	0		; interval blocks initially deferred
+L_BS1:		.LONG	0		; interval blocks with single collision
+L_BSM:		.LONG	0		; interval blocks with many collisions
+L_SBU:		.LONG	0		; interval system buffer unavailable
+L_UBU:		.LONG	0		; interval user buffer unavailable
+L_SFL:		.LONG	0		; send failures count[31:16]mask[15:0]
+L_CDC:		.LONG	0		;*DSD*Word CD check fails: FFFF is ovfl
+L_ALLFRAMES:	.LONG	0		; network frame counter (absolute total)
+L_DATALEFT:	.LONG	1		; network data (size) outstanding (log)
+L_DATAPTR:	.LONG	1		; network data (pointer) (log)
+L_DBS_LAST:	.LONG	0		; previous data blocks sent
+L_MBS_LAST:	.LONG	0		; previous multicast blocks sent
+L_BSN_LAST:	.LONG	0		; previous bytes sent
+L_MSN_LAST:	.LONG	0		; previous multicast bytes sent
+L_BID_LAST:	.LONG	0		; previous blocks initially deferred
+L_BS1_LAST:	.LONG	0		; previous blocks with single collision
+L_BSM_LAST:	.LONG	0		; previous blocks with many collisions
+L_SBU_LAST:	.LONG	0		; previous system buffer unavailable
+L_UBU_LAST:	.LONG	0		; previous user buffer unavailable
+L_VMSSTATUS:	.LONG	0		; VMS-written exit status (exit handler)
+AL_DATA:	.BLKL	K_SEGMENTS	; pointers to stream control [0..segm-1]
+L_STREAM:	.LONG	0		; currently loading stream RAB address
+L_NEXTBLK:	.LONG	1		; overall next block pointer (IO VBN)
+L_TIME_OP:	.LONG	<LIB$K_DELTA_SECONDS_F>	; binary to floating time factor
+F_DELTA:	.FLOAT	0.0		; frame arrival interval fractional time
+B_SEQUENCE:	.BYTE	1		; network data block sequence number
+;
+setfunc	=	<IO$_SETMODE!IO$M_CTRL!IO$M_STARTUP>
+getfunc	=	<IO$_READVBLK>
+linfunc =	<IO$_SENSEMODE!IO$M_CTRL!IO$M_RD_COUNT>
+;
+		.ALIGN	QUAD
+AL_NET:		$QIO	-		; network driver I/O arguments
+		iosb=  Q_NETIOSB,-	; >status block address
+		func=  0,-		; >program filled :requested operation
+		chan=  0,-		; >program filled :input network channel
+		efn=   GV_ACQCATCH,-	; >IO completion event
+		p1=    0,-		; >program filled :input buffer address
+		p2=    0,-		; >program filled :frame/buffer size
+		p5=    0		; >program filled :frame header info
+;
+AL_LIN:		$QIO	-		; network driver I/O line arguments
+		astadr=COUNTERS,-	; >line counter scanning routine
+		iosb=  Q_LINIOSB,-	; >status block address
+		func=  LINFUNC,-	; >requested counter retrieval operation
+		chan=  0,-		; >program filled :input network channel
+		p2=    D_LINE		; >line buffer descriptor
+;
+AL_SYNC:	$WAITFR	-		; network frame arrival wait argument
+		efn=   GV_ACQCATCH	; >IO completion event synch
+;
+AL_TIM:		$SETIMR	-		; collision reporter sleep arguments
+		astadr=SCHEDULE,-	; >executing procedure
+		daytim=Q_CDTIME,-	; >program filled :interval (fixed)
+		efn=   GV_ACQCDPASS	; >timer expiry indicator
+;
+AL_CVT:		.LONG	3		; time conversion argument list (size)
+		.ADDRESS L_TIME_OP	; >operation to perform (scaling factor)
+		.ADDRESS F_DELTA	; >target (converted) time
+		.ADDRESS Q_TIME		; >source binary interval time
+;
+AB_NET_SETUP:	.WORD	NMA$C_PCLI_BFN
+		.LONG	K_ALLOCBUF	; preallocated driver buffer
+		.WORD	NMA$C_PCLI_BUS
+		.LONG	K_NETBUFSIZ	; 1500 byte is driver default
+		.WORD	NMA$C_PCLI_PRM
+		.LONG	NMA$C_STATE_ON	; promiscuous mode
+		.WORD	NMA$C_PCLI_RES
+		.LONG	NMA$C_LINRES_ENA; automatic adapter restart
+;
+D_NET_SETUP:	.LONG	D_NET_SETUP-AB_NET_SETUP
+		.ADDRESS AB_NET_SETUP
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	CODE,EXE,NOWRT,NOSHR
+;
+	get_platform			; for conditional VAX/AXP code (alpha=?)
+;
+	.ENTRY	ACQ,^M<>		; entry point, no registers saved
+					; integer overflow trap is disabled
+;
+; Associate with common event cluster - communication with PROBE parent
+;
+	$ascefc_s -			; associate common event flag cluster
+		efn= #GK_BASE,-		; >temporary event flag cluster id
+		name=GS_CEFNAME,-	; >event flag cluster name
+		prot=#1			; >access granted to creator UIC only
+	blbc	R0,NOWAY		; validate success
+	$setef_s -			; notify parent process of progress
+		efn=#GV_ACQCONTACT	; >contact established flag
+	blbs	R0,DO_MAP		; upon incorrect status
+NOWAY:	ret				; drop out... parent will time out
+DO_MAP:
+;
+; Map CONTROL and BUFFER global sections - data was locked down by parent
+; (Pages are writable, first fit into virtual space)
+; Lock down code & define master reference pointers to sections
+;
+gsmask	=	<SEC$M_EXPREG!SEC$M_WRT>
+;
+	$mgblsc_s -			; map the existing group global section
+		inadr= AL_CTL,-		; >proposed virtual address array (P0)
+		retadr=AL_CTL,-		; >actual virtual address array
+		gsdnam=GS_CTL_NAME,-	; >global section name
+		ident= GQ_CTL_IDENT,-	; >version identification
+		acmode=#PSL$C_USER,-	; >user access mode (3)
+		flags= #GSMASK		; >attribute mask
+	blbc	R0,NOMAP		; validate success
+	$mgblsc_s -			; map the existing group global section
+		inadr= AL_BUF,-		; >proposed virtual address array (P0)
+		retadr=AL_BUF,-		; >actual virtual address array
+		gsdnam=GS_BUF_NAME,-	; >global section name
+		ident= GQ_BUF_IDENT,-	; >version identification
+		acmode=#PSL$C_USER,-	; >user access mode (3)
+		flags= #GSMASK		; >attribute mask
+	blbs	R0,MAPPED		; validate success
+NOMAP:	$setef_s -			; notify parent process of problem
+		efn=#GV_ACQFINISH	; >failure flag
+	ret				; quit
+MAPPED:	$lckpag_s -			; code lockdown
+		inadr= AL_CODE,-	; >code boundary array
+		acmode=#PSL$C_USER	; >user access mode (3)
+;	signal	abnormal status
+	movl	AL_CTL,R11		; load control section starting address
+	movl	AL_BUF,R10		; load buffer section starting address
+;
+; Perform logging selection & validation followed by network adapter setup
+;
+	bbc	#V_LOG,GL_CSR(R11),CONX	; if traffic recording is selected then
+;
+	jsb	LOG_ON			;  prepare logging file & log streams
+;
+CONX:	jsb	CONNECT			; prepare network interface
+;
+; Complete data structure & automatic collision factor computation timer setup
+; or fixed collision report block as required (logging performed later; zero
+; sequence for differentiation)
+;
+	bbc	#V_TRACK, -		; if line tracking enabled
+		GL_CSR(R11),FIXCD	; then
+	$bintim_s -			;  convert time from ASCII to VMS binary
+		timbuf=D_CDTIME, -	;  >base collision interval
+		timadr=Q_CDTIME		;  >resulting binary delta time
+	blbs	R0,PURSUE		;  if conversion unsuccessful then
+	bicl2	#M_TRACK,GL_CSR(R11)	;   disable line tracking
+	movl	R0,GL_ACQ_VMS(R11)	;   save error condition code
+	moval	PRB_ACQOTOCD, -		;   mark no collision detection warning
+		GL_ACQSTATUS(R11)	;   
+	brb	MINMAX			; else (user specified collision factor)
+FIXCD:	bbc	#V_LOG,GL_CSR(R11),-	;  if traffic recording is selected
+		MINMAX			;  then
+	$gettim_s -			;   (fill-in only meaningful attributes)
+		timadr=AB_L4_BLOCK+GQ_L4_ABSTIME; obtain system time reference
+	movl	#1000,AB_L4_BLOCK+GL_L4_FXMITTED; hardcode factor scale
+	movzwl	GW_COLLISION(R11), -		; hardcode scaled user value
+		AB_L4_BLOCK+GL_L4_SINGLE	; (precomputed ratio)
+	bisl2	#M_COLLRPT,GL_CSR(R11)	;   mark collision report ready
+MINMAX:	movw	GW_COLLISION(R11),-	; fix invariant minimum
+		GW_MINCOLL(R11)		; 
+	movw	GW_COLLISION(R11),-	; fix invariant maximum
+		GW_MAXCOLL(R11)		; 
+PURSUE:
+;
+; Declare exit handler (disregard failure)
+;
+	$dclexh_s -			; establish exit handler routine
+		desblk=AL_EXIT		; >exit handler control block
+READY:
+;
+; Main control loop origin & PROBE handshaking
+; Process indefinitely while parent is holding standby active.
+;
+	bbs	#V_STANDBY, -		; if parent continuation flag absent
+		GL_CSR(R11),RESET	; then
+	ret				;  rundown the program... (normal END)
+RESET:					; else
+;
+; Reset cyclic data structures before every new iteration
+;
+;; (none required in this release)
+;
+; Indicate readiness and wait for parent's synchronization signal...
+; Once triggered, as required, start line monitoring & log start of activity
+;
+	$setef_s -			; notify parent process back
+		efn=#GV_ACQREADY	; >setup complete... in gear
+	$waitfr_s -			; synchronize with parent command
+		efn=#GV_TRIGGER		; >slave wait... release clutch
+	$clref_s -			; drop ready synch
+		efn=#GV_ACQREADY	; >processing... drive
+;
+	bbc	#V_TRACK,GL_CSR(R11),MARK;if line tracking enabled then
+	clrl	GL_SBU(R11)		;  initialize system buffer drops
+	clrl	GL_UBU(R11)		;  initialize user buffer drops
+	movw	#999,GW_MINCOLL(R11)	;  reverse bias min collision factor
+	clrw	GW_MAXCOLL(R11)		;  reverse bias max collision factor
+	calls	#0,SCHEDULE		;  start line monitoring
+;
+MARK:	bbc	#V_LOG,GL_CSR(R11),INCYC; if recording to file then
+	movzbl	#GK_GO_ID,R8		; set Start_Cycle type block
+;
+	jsb	LOG_IT			;  transfer start block to log stream
+;
+	clrl	R8			;*DSD* set default data block type
+	bbc	#V_COLLRPT, -		;  if collision report outstanding
+		GL_CSR(R11),INCYC	;  then
+	movzbl	#GK_CD_ID,R8		;   collision report block type
+;
+	jsb	LOG_IT			;   put collision report in log stream
+INCYC:					; endif
+;
+; Listen for network traffic & wait for a catch...
+; Process frames as long as within cycle and no errors are reported
+;
+	$qio_g	AL_NET			; capture next frame
+	blbs	R0,WAIT			; if service submission failed then
+	movl	R0,GL_ACQ_VMS(R11)	;  save error condition code
+	moval	PRB_NET_IO, -		;  user message vector
+		GL_ACQSTATUS(R11)	;  
+	ret				;  quit
+WAIT:	$waitfr_g -			; wait until arrival detected
+		AL_SYNC			; >synchronisation flag list
+	bbs	#V_GO,GL_CSR(R11),GREEN	; if activity is prevented then
+;
+; Process stopping state indicated by parent or failure
+; As required, indicate end of cycle in log stream... cleanup
+;
+	bbc	#V_LOG,GL_CSR(R11),CLOSE; if logging is active then
+;	COOP frame check & processing
+	bbc	#V_COLLRPT, -		;  if collision report outstanding
+		GL_CSR(R11),NOOCD	;  then
+	movzbl	#GK_CD_ID,R8		;   collision report block type
+;
+	jsb	LOG_IT			;   put collision report in log stream
+;
+NOOCD:	movzbl	#GK_STOP_ID,R8		;  set Stop_Cycle type block
+	insv	#1,#8,#8,R8		;*DSD* don't flush stream (normal)
+;
+	jsb	LOG_IT			;  transfer stop block to log stream
+CLOSE:					; endif
+; 	cancel outstanding network IO's
+; 	wake parent as required
+	brw	READY			; back to top of synchronization loop
+GREEN:
+;
+; Process running state... validate consistency & time
+; Construct a frame entry from the packet envelop and store into DMS buffer
+; queue and/or recording (log file) stream
+;
+	blbs	Q_NETIOSB,OK1		; if network IO resulted in problem then
+	movzwl	Q_NETIOSB,GL_ACQ_VMS(R11); save error condition code
+	cmpzv	#1,#2,Q_NETIOSB,#0	;  check extended severity
+	beql	OK0			;  disregard warning (overrun...)
+	moval	PRB_NET_IO, -		;  user message vector
+		GL_ACQSTATUS(R11)	;  
+;+++ V2.3 : Allow to continue on error (was 'ret')...
+;           On some (IPX ?) networks, the ethernet driver attempts to read
+;           more than 1500 bytes into the input buffer, causing an overflow.
+;           Such frames are handled later (see FRAME label)
+	brb	OK1			;  continue on error
+;---
+OK0:	moval	PRB_NET_FLG, -		;  user message vector
+		GL_ACQSTATUS(R11)	;  
+OK1:	bitl	#<M_LOG!M_STATISTICS!-	; check that some work is to be done
+		M_DISPLAY>,GL_CSR(R11)	; (for DMS or logger)
+	bneq	OK2			; otherwise
+	moval	PRB_NOWORK, -		;  declare abnormal end
+		GL_ACQSTATUS(R11)	; 
+	ret				;  and leave
+OK2:	incl	L_ALLFRAMES		; update frame acquisition count
+	bcc	OK3			; if beyond maximum permitted (4G) then
+	moval	PRB_MAXPACIN, -		;  prevent overflow
+		GL_ACQSTATUS(R11)	; 
+	ret				;  must terminate here
+OK3:	$gettim_s -			; get current system time
+		timadr=Q_TIME		; >resulting binary VMS reference
+	blbs	R0,DELTA		; if unsuccessful then
+	movl	R0,GL_ACQ_VMS(R11)	;  save error condition code
+	moval	PRB_NOTIME, -		;  declare abnormal end
+		GL_ACQSTATUS(R11)	; 
+	ret				;  and leave
+DELTA:	movq	GQ_GOTIME(R11),R4	; load cycle reference time
+	subl2	Q_TIME,R4		; compute (low) delta time
+	sbwc	<Q_TIME+4>,R5		; update (high) delta time
+	movq	R4,Q_TIME		; store binary interval
+	bneq	TIME			; make sure interval time is not zero
+	movl	#<-10>,Q_TIME		; otherwise, set at 1 micro-sec minimum
+	movl	#<-1>,<Q_TIME+4>	; negative required for deltatime
+TIME:	callg	AL_CVT,-		; convert interval to floating format
+		G^LIB$CVTF_FROM_INTERNAL_TIME ; 
+	blbs	R0,FRAME		; validate service success else
+	movl	R0,GL_ACQ_VMS(R11)	;  save error condition code
+	moval	PRB_NOTIME, -		;  declare abnormal end
+		GL_ACQSTATUS(R11)	; 
+	ret				;  and leave
+FRAME:	cmpw	#1500,<Q_NETIOSB+2>	; if acquired size exceed ethernet max
+	bgequ	OPTION			; then (primary bound checking)
+	movw	#1500,<Q_NETIOSB+2>	;  limit to ethernet max
+	bicw2	#1,Q_NETIOSB		;  mark overflow in IOSB (lsb=0)
+OPTION:	bbc	#V_LOG,GL_CSR(R11), -	; if logger active
+		NOFILE			; then
+	bbc	#V_COLLRPT, -		;  if collision report outstanding
+		GL_CSR(R11),RECORD	;  then
+	movzbl	#GK_CD_ID,R8		;   collision report block type
+;
+	jsb	LOG_IT			;   put collision report in log stream
+;
+RECORD:	jsb	LOG_IT			;  put frame/data block in log stream
+;
+	tstl	R8			;  repeat log for multi-block data
+	bneq	RECORD			;   (may result in single stream switch)
+;
+	bitl	#<M_STATISTICS! -	;  if DMS is present
+		M_DISPLAY>,GL_CSR(R11)	;  then
+	beql	DONE			;
+	remqhi	GAL_EQFREE(R10),R9	;   grab free slot
+	bvs	NOSLOT			;   if successful then
+	movc3	#<GQNTRY_SIZE-GB_QFLAGS>,-;  transfer frame block information
+		(R7),GB_QFLAGS(R9)	;     from stream into slot and insert
+	brw	INSERT			;   else
+NOSLOT:	bisw2	#M_ACQRAF,GW_EFLAGS(R10);    mark remove failure for diagnostics
+FAILS:	incl	GL_EACQDROP(R10)	;    update failure count
+DONE:	brw	INCYC			; else (DMS queueing only)
+;
+NOFILE:	remqhi	GAL_EQFREE(R10),R9	;  grab free slot
+	bvs	NOSLOT			;  if successful then
+	clrw	GB_QFLAGS(R9)		;*DSD* initialize flags (& tag)
+	movw	<Q_NETIOSB+2>, -	;   transfer frame size
+		GW_QSIZE(R9)		;
+	movl	F_DELTA,GF_QTIME(R9)	;   mark frame interval time
+	movc5	#6,AB_NETENV,#0,#8,-	;
+		GQ_QDESTIN(R9)		;   transfer destination information
+	movc5	#6,<AB_NETENV+6>,#0,#8,-;
+		GQ_QSOURCE(R9)		;   transfer source information
+	movw	<AB_NETENV+12>, -	;
+		GW_QPTCL(R9)		;   transfer protocol information
+	movl	<AB_NETENV+14>,R0	;   if frame is 802.3 (CTL defined)
+	beql	INSERT			;   then
+	bisb2	#GM_LE_FRAMETYPE, -	;    mark block appropriately
+		GB_QTAG(R9)		;
+	movl	#8,R2			;    assume extended IEEE -- overhead=8
+	cmpw	#^XAAAA,<AB_NETENV+12>	;    if not extended IEEE (non SNAP)
+	beql	HEAD			;    then
+	movl	#3,R2			;     assume single-CTL -- overhead=3
+	bicb2	#^B11111100,R0		;     disregard all bits except 2 lsb
+	cmpb	R0,R2			;     check xxxxxx11 (class 1)
+	beql	HEAD			;     if not matched then (dual-CTL)
+	incl	R2			;      adjust overhead=4
+HEAD:	insv	R2,#GV_LE_802OVERHEAD,-	;    transfer IEEE headers size
+		#4,GB_QTAG(R9)		;     (3, 4 or 8)
+	subw3	R2,#1500,R1		;    compute maximum data size
+	cmpw	GW_QSIZE(R9),R1		;    if data size exceed maximum allowed
+	blequ	ZAP802			;    then
+	movw	R1,GW_QSIZE(R9)		;     limit data size
+ZAP802:	clrl	<AB_NETENV+14>		;    dismiss IEEE potential for next frm
+INSERT:	insqti	(R9),GAL_EQITEM(R10)	;  replace item into common queue
+	bcs	LOST			;  if successful then
+	adawi	#1,GW_ECOUNT(R10)	;   update item queue size
+	brw	INCYC			;   all done... next packet
+LOST:	bisw2	#M_ACQIAF,GW_EFLAGS(R10);  else mark insert fail for diagnostics
+	brw	FAILS			; endif
+;
+;; SUBROUTINES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine LOG_ON
+;
+; This routine is activated when logging is specified by the user. It creates
+; and initializes a new traffic data file and associated buffers & controls.
+; Called from: MAIN
+; Subroutines: SYS$CONNECT , SYS$CREATE , SYS$CRMPSC , SYS$GETTIM , SYS$LCKPAG
+;	       LOG_IT	
+; Register allocation:
+; R0  - L -  /W - system calls status
+; R1  - L -  /W - (affected by system calls)
+; R2  - L -  /W - subroutine scratch
+; R3  - L -  /W - subroutine scratch
+; R4  - L -  /W - scratch (segment ID)
+; R5  - L -  /W - scratch (segment pointer)
+; R6  - L -  /W - stream control (RAB) pointer
+; R7  - L -  /W - log parameter
+; R8  - L -  /W - log entry type (& subtype as applicable)
+; R9  - L -  /W - protocol definition/extraction mask
+; R10 - L - R/  - buffer section pointer
+; R11 - L - R/  - control section pointer
+;
+; Create, map & lock LOG global section (used as buffer for file I/O)
+; (Pages are initialized to zero, first-fit in virtual space, writable and
+;  allocated from pagefile)
+;
+gsmask	=	<SEC$M_GBL!SEC$M_DZRO!SEC$M_EXPREG!SEC$M_WRT!SEC$M_PAGFIL>
+gssize	=	<K_SEGMENTS*K_SEGMBLCK>
+;
+	$crmpsc_s -			; create and map Control global section
+		inadr= AL_LOG,-		; >proposed virtual address array (P0)
+		retadr=AL_LOG,-		; >actual virtual address array
+		gsdnam=D_LOGNAME,-	; >global section name - hardcoded
+		acmode=#PSL$C_USER,-	; >user access mode (3)
+		pagcnt=#GSSIZE,-	; >size to fit all segments (blocks)
+		flags= #GSMASK,-	; >creation attribute mask
+		prot=  #<^XFFFFF888>	; >protection (S:RWE,O:RWE,G:RWE,W)
+	blbs	R0,LOCK			; validate section creation
+	movl	R0,GL_ACQ_VMS(R11)	;  save error code for diagnostics
+	moval	PRB_ACQFILE, -		;  set unrecoverable logging vector code
+		GL_ACQSTATUS(R11)	; 
+	bicl2	#M_LOG,GL_CSR(R11)	;  cancel logging operations
+	rsb				;  return to caller
+LOCK:	$lckpag_s -			; lock global pages in memory
+                inadr= AL_LOG, -	; >actual virtual address array
+                acmode=#PSL$C_USER	; >user access mode (3)
+; 	disregard potential error processing
+;
+; Initialize stream array RAB pointers and corresponding streams
+;
+	movb	GW_LOGSIZE(R11),-	; set log file string size
+		T_FILE+FAB$B_FNS	;  into control block
+	movab	GS_LOGFILE(R11),-	; set log file string address
+		T_FILE+FAB$L_FNA	;  into control block
+	$create	fab=T_FILE		; attempt to create a new empty file
+	blbs	R0,STREAM		; if unsuccessful then
+	moval	PRB_ACQFILE, -		;  identify error
+		GL_ACQSTATUS(R11)	; 
+	movl	T_FILE+FAB$L_STS, -	;  store RMS/R0 status for diagnostics
+		GL_ACQ_VMS(R11)		; 
+	movl	T_FILE+FAB$L_STV, -	;  store extended information
+		GL_ACQ_EXT(R11)		; 
+	bicl2	#M_LOG,GL_CSR(R11)	;  cancel logging operations
+	rsb				;  return to caller
+STREAM:	moval	T_STR0,R6		; point to stream 0 control
+	movl	R6,L_STREAM		; stream 0 is default initial stream
+	movl	AL_LOG,R5		; point to log buffer
+	clrl	R4			; initialize stream ID
+IN_STR:	movl	R4,RAB$L_CTX(R6)	; place ID into stream user context
+	movl	R6,AL_DATA[R4]		; point stream directory item to control
+	movl	R5,RAB$L_RBF(R6)	; point stream control to log buffer
+	$connect -			; establish this stream
+		rab=(R6)		; 
+	blbs	R0,NX_STR		; if unsuccessful then
+	moval	PRB_ACQFILE, -		;  identify error
+		GL_ACQSTATUS(R11)	; 
+	movl	RAB$L_STS(R6), -	;  store RMS/R0 status for diagnostics
+		GL_ACQ_VMS(R11)		; 
+	movl	RAB$L_STV(R6), -	;  store extended information
+		GL_ACQ_EXT(R11)		; 
+	bicl2	#M_LOG,GL_CSR(R11)	;  cancel logging operations
+	rsb				;  return to caller
+NX_STR:	bisl2	#RAB$M_ASY,RAB$L_ROP(R6); stream operations async from now on
+	addl2	#RAB$C_BLN,R6		; advance stream control to next RAB
+	addl2	#K_SEGMBYTE,R5		; advance log buffer to next stream
+	acbl	#<K_SEGMENTS-1>, -	; repeat
+		#1,R4,IN_STR		;  until all streams are ready
+;
+; Prepare Preamble (introduction) block
+;
+	movl	L_STREAM,R6		; point to stream control
+	bicl2	#RAB$M_ASY,RAB$L_ROP(R6); make stream 0 synchronous for preamble
+	movzbl	#GK_INTRO_ID,R8		; set Introduction type (raw)
+;
+	jsb	LOG_IT			; transfer intro block to logger buffer
+;
+; Prepare Filler blocks... can contain protocol, vendor and/or node definitions
+;
+	movzbl	#GK_FILL_ID,R8		; set generic filler block type
+	movzwl	GW_DEFPTCL(R11),R9	; if protocols are defined
+	beql	VEND			; then
+	insv	#GK_PTCL_ID,#8,#8,R8	;  set protocol filler subtype
+	clrl	R7			;  initialize protocol ID below range
+PTCL:	incl	R7			;  first/next protocol ID
+	ashl	#-1,R9,R9		;  scan for defined protocol
+	beql	VEND			;  if some left then
+	blbc	R9,PTCL			;   if current is defined then
+;
+	jsb	LOG_IT			;    transfer protocol block to logger
+;
+	brb	PTCL			;  repeat until no more protocols
+VEND:	movzwl	GW_VENDORCOUNT(R11),R7	; if vendors prefix are defined
+	beql	NODE			; then
+	insv	#GK_VEND_ID,#8,#8,R8	;  set vendor filler subtype
+VSCAN:
+	jsb	LOG_IT			;  transfer vendor block to logger
+;
+	sobgtr	R7,VSCAN		; repeat until no more vendors
+NODE:	movzwl	GW_NODECOUNT(R11),R7	; if nodes are defined
+	beql	FILL			; then
+	insv	#GK_NODE_ID,#8,#8,R8	;  set node filler subtype
+NSCAN:
+	jsb	LOG_IT			;  transfer node block to logger
+;
+	sobgtr	R7,NSCAN		; repeat until no more nodes
+FILL:	insv	#GK_ALIGN_ID,#8,#8,R8	; set generic filler block type
+;
+; Force the stream to be block aligned (multiple of logging unit to prevent
+; data gaps) and output synchronously to guarantee preamble presence at the
+; beginning of file.
+;
+	jsb	LOG_IT			;  add one filling block to stream
+;
+	bisl2	#RAB$M_ASY,RAB$L_ROP(R6); resume async stream 0 operations
+;
+	rsb				; all done... back to caller
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine LOG_IT
+;
+; This routine creates a log entry into a log stream.
+; The stream is automatically written out to the recording file when full and
+; a stream switch is carried out while operations are asynchronous.
+; Called from: LOG_ON , MAIN , SHUTDOWN
+; Subroutines: SYS$WRITE
+; Register allocation:
+; R0  - L -  /W - system calls status
+; R1  - L -  /W - (affected by system calls)
+; R2  - L -  /W - scratch (implicit thru MOVCx)
+; R3  - L -  /W - stream pointer (implicit thru MOVCx)
+; R4  - L -  /W - filler scratch (implicit thru MOVCx)
+; R5  - L -  /W - filler scratch (implicit thru MOVCx)
+; R6  - L - R/W - stream control (RAB) pointer (modified only on async IO)
+; R7  - L - R/W - optional logger parameter (type 0 returns pointer)
+; R8  - W - R/W - block type & subtype -> unmodified except:
+;		  (type 4 returns 0; type 0 may return 2; type 2 returns 0)
+; R9  - * - */* - not referenced
+; R10 - L - R/  - buffer section pointer
+; R11 - L - R/  - control section pointer
+;
+	movzwl	RAB$W_RSZ(R6),R2	; load current segment size
+	movab	@RAB$L_RBF(R6)[R2],R3	; load stream current pointer
+	caseb	R8,#0,#7		; execute one of following types [0..7]
+SELECT:	.WORD	TYPE0-SELECT		; 0 : frame block
+	.WORD	TYPE1-SELECT		; 1 : introduction block
+	.WORD	TYPE2-SELECT		; 2 : payload termination block
+	.WORD	TYPE3-SELECT		; 3 : filler block
+	.WORD	TYPE4-SELECT		; 4 : collision report block
+	.WORD	TYPE5-SELECT		; 5 : start cycle block
+	.WORD	OTHER-SELECT		; 6 : RESERVED (payload spanning block)
+	.WORD	TYPE7-SELECT		; 7 : stop cycle block
+OTHER:	rsb				; reserved or out-of-bound... do nothing
+TYPE0:
+;
+; Type 0 - data block
+;          (uses implicitely adjusted pointer... filled in non-symbolic order)
+;
+	movl	R3,R7			; save block stream position
+	clrw	(R3)+			;*DSD* mark default data block & tag
+	blbs	Q_NETIOSB,T0_A		; if warning was reported by QIO
+	bisb2	#GM_LE_FRAMESTATUS, -	; then
+		GB_LE_TAG(R7)		;  mark block[tag] appropriately
+T0_A:	movw	<Q_NETIOSB+2>,(R3)+	;*DSD* transfer frame data size
+	movl	F_DELTA,(R3)+		;*DSD* transfer frame interval time
+	movc5	#6,<AB_NETENV+6>,#0, -	;*DSD* transfer source information
+		#8,(R3)			; 
+	movc5	#6,AB_NETENV,#0,#8,(R3)	;*DSD* transfer target info
+	movl	#2,R2			; assume Ethernet -- protocol size=2
+	movl	<AB_NETENV+14>,R0	; if packet is 802.3 type (CTL defined)
+	beql	T0_C			; then
+	bisb2	#GM_LE_FRAMETYPE, -	;  mark block[tag] appropriately
+		GB_LE_TAG(R7)		; 
+	movl	#8,R2			;  assume extended IEEE -- overhead=8
+	cmpw	#^XAAAA,<AB_NETENV+12>	;  if not extended IEEE (i.e. non SNAP)
+	beql	T0_B			;  then
+	movl	#3,R2			;   assume single-CTL -- overhead=3
+	cmpb	R0,R2			;   check 00000011 (UI)
+	beql	T0_B			;   if not matched then
+	bicb2	#^B00010000,R0		;    disregard bit 5
+	cmpb	#^B10101111,R0		;    check 101x1111 (XID)
+	beql	T0_B			;    if not matched then
+	cmpb	#^B11100011,R0		;     check 111x0011 (TEST)
+	beql	T0_B			;     if not matched then (dual-CTL)
+	incl	R2			;      adjust overhead=4
+T0_B:	insv	R2,#GV_LE_802OVERHEAD,-	;  transfer IEEE headers size
+		#4,GB_LE_TAG(R7)	;   (3, 4 or 8)
+	subw3	R2,#1500,R1		;  compute maximum data size
+	cmpw	GW_LE_SIZE(R7),R1	;  if data size exceed maximum allowed
+	blequ	T0_C			;  then
+	movw	R1,GW_LE_SIZE(R7)	;   limit data size
+T0_C:	movc5	R2,<AB_NETENV+12>,#0, -	;*DSD* transfer (Ethernet) protocol
+		#8,(R3)			;  or (IEEE) sap/headers + fill (& R2=0)
+	clrl	<AB_NETENV+14>		; dismiss IEEE potential for next frame
+	bbc	#V_DATA,GL_CSR(R11),T0_D; if data from frame requested then
+	bisb2	#GM_LE_FRAMEDATA, -	;  mark block[tag] appropriately
+		GB_LE_TAG(R7)		;
+	movzwl	GW_LE_SIZE(R7),R2	;  load actual frame data length
+	cmpw	R2,GW_FDATA(R11)	;  limit data transfer quantity
+	bleq	T0_D			;   as required
+	movzwl	GW_FDATA(R11),R2	;   to the user-requested size
+T0_D:	movc5	R2,AB_NETBUF,#0, -	;*DSD* transfer frame data as required
+		#GK_LOGDATA,(R3)	; (or initialize that space)
+	movl	R0,L_DATALEFT		; if data transfer is not complete
+	beql	T0_E			; then
+	bisb2	#GM_LE_MOREDATA, -	;  mark block[tag] appropriately
+		GB_LE_TAG(R7)		; 
+	movl	R1,L_DATAPTR		;  remind input buffer location
+	clrb	B_SEQUENCE		;  initialize follow-on block sequencing
+	movl	#2,R8			;*DSD* set follow-on data block type
+T0_E:	brw	ADJUST			; block complete... go check stream
+TYPE1:
+;
+; Type 1 - intro block
+;          (end filling not required... stream already ok from demand-0 section)
+;
+	movb	R8,GB_LTYPE(R3)		; mark introduction block
+	movb	#GLNTRY_SIZE, -		; register fixed record size (<256)
+		GB_L1_RECORD(R3)	; 
+	movw	GW_FDATA(R11), -	; register maximum significant payload
+		GW_L1_PAYLOAD(R3)	; 
+	bisb2	#GM_L1_VAXF, -		; mark data as VAX type (quad+float)
+		GB_L1_FLAGS(R3)		; 
+	.IF	NE,alpha		;V22B ++ architecture-specific
+	bisb2	#GM_L1_ARCH, -		;V22B mark origin platform = AXP
+		GB_L1_FLAGS(R3)		; 
+	.ENDC				;V22B -- end of change section
+	movl	#GK_VERSION, -		; load section structure level
+		GL_L1_VERSION(R3)	; 
+	$gettim_s -			; obtain system time reference
+		timadr=GQ_L1_ABSTIME(R3); >use as initial creation time
+	movl	GL_CSR(R11), -		; load startup control state
+		GL_L1_CSR(R3)		; 
+	movl	GL_PID(R11), -		; load parent process ID
+		GL_L1_PID(R3)		; 
+	movw	GW_CHRONO(R11), -	; load activity schedule
+		GW_L1_ACTIVE(R3)	; 
+	movw	GW_STANDBY(R11), -	; load standby schedule
+		GW_L1_STANDBY(R3)	; 
+	movw	GW_MAXCYCLE(R11), -	; load cycle repetitions
+		GW_L1_CYCLE(R3)		; 
+	movb	GW_ADAPSIZE(R11), -	;*DSD* load adapter name string size
+		GB_L1_ASIZE(R3)		; 
+	movb	GW_NODESIZE(R11), -	;*DSD* load node name string size
+		GB_L1_NSIZE(R3)		; 
+	movc5	GW_ADAPSIZE(R11), -	; load adapter name
+		GS_ADAPTER(R11), -	; 
+		#^A/ /, -		;  & blank fill
+		#GK_ADAPSIZE_MAX, -	; 
+		GS_L1_ADAPTER(R3)	; 
+	movc5	GW_NODESIZE(R11), -	;*DSD* load node name
+		GS_NODENAME(R11), -	; 
+		#^A/ /, -		;  & blank fill
+		#GK_NODESIZE_MAX, -	; 
+		(R3)			;  (non symbolic because previous MOVC5)
+	brw	ADJUST			; block complete... go check stream
+TYPE2:
+;
+; Type 2 - data continuation block
+;
+	movb	R8,GB_LTYPE(R3)		; mark data block (assume last)
+	addb3	#1,B_SEQUENCE, -	; mark updated sequence number
+		GB_L2_SEQ(R3)		; 
+	movl	L_DATALEFT,R0		; reload transfer size context
+	cmpl	#GX_L2_SIZE,R0		; if payload exceed block capacity
+	bgeq	T2_A			; then
+	bisb2	#GM_LE_MOREDATA, -	;*DSD* convert to block 6 (data span)
+		GB_LTYPE(R3)		; 
+	movc5	R0,@L_DATAPTR,#0, -	;*DSD* transfer continuation data
+		#GX_L2_SIZE,GS_L2_DATA(R3); and blank fill as required
+	movl	R0,L_DATALEFT		;  remind transfer size context
+	movl	R1,L_DATAPTR		;  remind input buffer location
+	incb	B_SEQUENCE		;  remind block sequence
+	brw	ADJUST			; else (last pass)
+T2_A:	movc5	R0,@L_DATAPTR,#0, -	;*DSD* transfer remaining data
+		#GX_L2_SIZE,GS_L2_DATA(R3); and blank fill as required
+	clrl	R8			;*DSD* reset default data block type
+	brw	ADJUST			; block complete... go check stream
+TYPE3:
+;
+; Type 3 - filler block
+;
+	extzv	#8,#8,R8,R2		; extract subtype
+	beql	T3_0			; if not filler
+	cmpb	#2,R2			; then case on subtype
+	bgtr	T3_1			;  1: protocol
+	beql	T3_2			;  2: node
+	brw	T3_3			;  3: vendor
+T3_0:	cmpzv	#0,#9,RAB$W_RSZ(R6),#0	; else
+	beql	T3_Z			;  while logger buffer not block aligned
+	movb	R8,(R3)+		;*DSD* mark generic filler block
+	movc5	#0,(R3),#0, -		; 
+		#GX_L30_FILL,(R3)	;   erase the block
+	addl2	#GLNTRY_SIZE, -		;   compute new stream size
+		RAB$W_RSZ(R6)		; 
+	brb	T3_0			;  end while
+T3_Z:	brw	IO			;  force output
+T3_1:
+;
+; Type 3 / Subtype 1 - protocol definition block
+;
+	movab	GAE_P_SLOT(R11),R4	; load protocol table base
+	emul	#GPNTRY_SIZE,R7,R4,R4	; compute protocol entry base address
+	movw	R8,GB_LTYPE(R3)		; mark protocol type
+	movw	R7,GW_L3$1_ID(R3)	; load protocol ID
+	movw	GW_ACTPTCL(R11), -	; 
+		GW_L3$1_ACTPTCL(R3)	; load protocol activity mask
+	movw	GW_PROTOCOL(R4), -	; 
+		GW_L3$1_VALUE(R3)	; load protocol value
+	movw	GW_PSIZE(R4), -		; 
+		GW_L3$1_SIZE(R3)	; load protocol name string size
+	movc5	GW_PSIZE(R4), -		; 
+		GS_PNAME(R4),#^A/ /, -	; load protocol name string
+		#GK_PSIZE_MAX, -	; & blank fill
+		GS_L3$1_NAME(R3)	; 
+	movc5	#0,(R3),#0, -		;*DSD* erase remainder of log block
+		#GX_L3$1_FILL,2(R3)	; 
+	brw	ADJUST			; block complete... go check stream
+T3_2:
+;
+; Type 3 / Subtype 2 - node definition block
+;
+	movab	GAE_N_SLOT(R11),R4	; load protocol table base
+	emul	#GNNTRY_SIZE,R7,R4,R4	; compute protocol entry base address
+	movw	R8,GB_LTYPE(R3)		; mark node type
+	movw	R7,GW_L3$2_INDEX(R3)	; load last/previous node index
+	movq	GQ_NADDRESS(R4), -	; 
+		GQ_L3$2_ADDRESS(R3)	; load node ethernet address
+	movw	GW_NCONTROL(R4), -	; 
+		GW_L3$2_CONTROL(R3)	; load node control flags
+	movw	GW_NSIZE(R4), -		; 
+		GW_L3$2_SIZE(R3)	; load node name string size
+	movc5	GW_NSIZE(R4), -		; 
+		GS_NNAME(R4),#^A/ /, -	; load node name string
+		#GK_NSIZE_MAX, -	; & blank fill
+		GS_L3$2_NAME(R3)	; 
+	movc5	#0,(R3),#0, -		;*DSD* erase remainder of log block
+		#GX_L3$2_FILL,8(R3)	; 
+	brw	ADJUST			; block complete... go check stream
+T3_3:
+;
+; Type 3 / Subtype 3 - vendor definition block
+;
+	movab	GAE_V_SLOT(R11),R4	; load vendor table base
+	emul	#GVNTRY_SIZE,R7,R4,R4	; compute vendor entry base address
+	movw	R8,GB_LTYPE(R3)		; mark vendor type
+	movzwl	R7,GW_L3$3_INDEX(R3)	;*DSD* load last/previous vendor index
+	movl	GL_VPREFIX(R4), -	; 
+		GL_L3$3_PREFIX(R3)	; load vendor ethernet OUI
+	movw	GW_VCOUNT(R4), -	; 
+		GW_L3$3_COUNT(R3)	; load vendor node references
+	movw	GW_VSIZE(R4), -		; 
+		GW_L3$3_SIZE(R3)	; load vendor name string size
+	movc5	GW_VSIZE(R4), -		; 
+		GS_VNAME(R4),#^A/ /, -	; load node name string
+		#GK_VSIZE_MAX, -	; & blank fill
+		GS_L3$3_NAME(R3)	; 
+	movc5	#0,(R3),#0, -		;*DSD* erase remainder of log block
+		#GX_L3$3_FILL,6(R3)	; 
+	brw	ADJUST			; block complete... go check stream
+TYPE4:
+;
+; Type 4 - collision report block
+;
+	clrl	R8			;*DSD* reset default data block type
+	bbssi	#V_L4MTX, -		;*DSD* reserve block access mutex
+		AB_L4_BLOCK,T4_Z	;  (& mark block type)
+	movc3	#GLNTRY_SIZE, -		; transfer static storage block
+		AB_L4_BLOCK,(R3)	;  to log stream
+	bicl2	#M_COLLRPT,GL_CSR(R11)	; dismiss report-required flag
+	bicw2	#M_L4MTX,AB_L4_BLOCK	; release block access mutex
+	brw	ADJUST			; block complete... go check stream
+T4_Z:	bisw2	#M_ACQCMTX,-		; if mutex acquisition failed
+		GW_EFLAGS(R10)		;  then mark hit for diagnostics
+	rsb				; interlock failed... reporter busy
+TYPE5:
+;
+; Type 5 - cycle start block
+;
+	movzwl	R8,GB_LTYPE(R3)		; mark begin cycle type
+	movzwl	GW_CURCYCLE(R11), -	; 
+		GL_L5_SEQUENCE(R3)	; load cycle number
+	movq	GQ_GOTIME(R11), -	; 
+		GQ_L5_GOTIME(R3)	; load cycle termination time
+	movl	GL_CSR(R11), -		; 
+		GL_L5_CSR(R3)		; load master control state
+	movc5	#0,(R3),#0, -		; 
+		#GX_L5_FILL, -		; erase remainder of log block space
+		GX_L5_SIZE(R3)		; 
+	brw	ADJUST			; block complete... go check stream
+TYPE7:
+;
+; Type 7 - cycle stop block
+;
+	movzwl	R8,GB_LTYPE(R3)		; mark end cycle type
+	movzwl	GW_CURCYCLE(R11), -	; 
+		GL_L7_SEQUENCE(R3)	; load cycle number
+	movq	GQ_STOPTIME(R11), -	; 
+		GQ_L7_STOPTIME(R3)	; load cycle termination time
+	movl	GL_CSR(R11), -		; 
+		GL_L7_CSR(R3)		; load master control state
+	movw	GW_EFLAGS(R10), -	; 
+		GW_L7_STATE(R3)		; load secondary control state
+	movw	GW_NODECOUNT(R11), -	; 
+		GW_L7_NODES(R3)		; load node list size
+	movl	L_ALLFRAMES, -		; 
+		GL_L7_FRAMES(R3)	; load total processed frames
+	movl	GL_EACQDROP(R10), -	; 
+		GL_L7_DROPS(R3)		; load total dropped frames
+	movl	GL_LOGIOS(R11), -	; 
+		GL_L7_IOS(R3)		; load total logger IO's
+	movc5	#0,(R3),#0, -		; 
+		#GX_L7_FILL, -		; erase remainder of log block space
+		GX_L7_SIZE(R3)		; 
+	bbs	#8,R8,ADJUST		;*DSD* if forced termination then
+	addw2	#GLNTRY_SIZE, -		;  (last file entry)
+		RAB$W_RSZ(R6)		;  compute new stream size
+	brb	IO			;  force output
+ADJUST:
+;
+; Output stream if full or forced....
+;
+	addw2	#GLNTRY_SIZE, -		; compute new stream size
+		RAB$W_RSZ(R6)		; 
+	cmpw	#K_SEGMBYTE,RAB$W_RSZ(R6);if stream not yet full then
+	bleq	IO			;  all done... back to caller
+	rsb				; else (stream full)
+IO:	extzv	#9,#7,RAB$W_RSZ(R6),R2	;  extract stream size in blocks
+	addl2	R2,L_NEXTBLK		;  compute file next VBN slot
+	bbc	#RAB$V_ASY, -		;  if stream operations are asynchronous
+		RAB$L_ROP(R6),SYNCH	;  then
+	insv	#1,RAB$L_CTX(R6),#1, -	;*DSD*
+		GW_EFLAGS(R10)		;   mark current stream busy
+	$write	rab=(R6), -		;   initiate IO to log file
+		suc=STREAM_OK, -	;   >success AST routine
+		err=STREAM_ERROR	;   >failure AST routine
+	blbc	R0,IOBUG		;   if launch successful then
+	ffc	#V_LOGSEGM,#K_SEGMENTS,-;*DSD*
+		GW_EFLAGS(R10),R2	;    search for next available stream
+	beql	IOFULL			;    if one found then
+	movl	AL_DATA[R2],R6		;     load stream control block (RAB)
+IOOK:	clrw	RAB$W_RSZ(R6)		;     initialize stream size
+	movl	L_NEXTBLK,RAB$L_BKT(R6)	;     corresponding file VBN slot
+	movl	R6,L_STREAM		;     make this stream current
+	rsb				;     all done... back to caller
+SYNCH:	$write	rab=(R6)		;  else initiate IO to log file
+	blbs	R0,IOOK			;   if operation failed then
+	movl	RAB$L_STV(R6), -	;    load failure status
+		GL_ACQ_EXT(R11)		; 
+IOBUG:	movl	R0,GL_ACQ_VMS(R11)	;    load completion code
+	moval	PRB_LOG_IO, -		;    mark user notification message
+		GL_ACQSTATUS(R11)	; 
+	bicl2	#M_LOG,GL_CSR(R11)	;    drop logging
+	rsb				;    nothing else to do... return
+IOFULL:	moval	PRB_ACQOVFL, -		;  when no empty stream exist
+		GL_ACQSTATUS(R11)	;  advise user of problem
+	bicl2	#M_LOG,GL_CSR(R11)	;  drop logging
+	bisw2	#M_LOGFULL,GW_EFLAGS(R10);*DIAG* mark condition
+	rsb				;  nothing else to do... return
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	subroutine CONNECT
+;
+; This routine opens a port on the ethernet adapter described in the control
+; section and attempts to start promiscuous mode.
+; Called from: MAIN
+; Subroutines: SYS$ASSIGN , SYS$QIOW
+; Register allocation:
+; R0  - L -  /W - system calls status
+; R1  - L -  /W - (affected by system calls)
+; R2  - * - */* - not referenced
+; R3  - * - */* - not referenced
+; R4  - L -  /W - heap pointer
+; R5  - L -  /W - original (saved) stack pointer
+; R6  - * - */* - not referenced
+; R7  - * - */* - not referenced
+; R8  - * - */* - not referenced
+; R9  - * - */* - not referenced
+; R10 - L - R/  - buffer section pointer
+; R11 - L - R/  - control section pointer
+;
+	movl	SP,R5			; preserve stack state
+	subl2	#8,SP			; open heap storage area (1 quadword)
+	movl	SP,R4			; point to heap
+	movzwl	GW_ADAPSIZE(R11),(R4)	; construct descriptor
+	movab	GS_ADAPTER(R11),4(R4)	;  for adapter name string in control
+	$assign_s -			; open a channel to the ethernet
+		devnam=(R4),-		; >input device name
+		acmode=#PSL$C_USER,-	; >input access mode
+		chan=  AL_NET+QIO$_CHAN	; >returned channel into QIO arglist
+	movl	R5,SP			; discard heap... recover stack
+	blbs	R0,PORT			; if service unsuccessful then
+	movl	R0,GL_ACQ_VMS(R11)	;  save error condition code
+	moval	PRB_NOIO, -		;  declare abnormal end
+		GL_ACQSTATUS(R11)	; 
+	ret				;  and leave
+PORT:	movl	AL_NET+QIO$_CHAN, -	; else
+		AL_LIN+QIO$_CHAN	;  share channel with CD report routine
+;
+; Network port open... start universal read mode
+;
+	movl	#SETFUNC, -		; command controller startup
+		AL_NET+QIO$_FUNC	;  into QIO arglist
+	movaq	D_NET_SETUP, -		; extended characteristics descriptor
+		AL_NET+QIO$_P2		;  into QIO arglist
+	callg	AL_NET,G^SYS$QIOW	; start the ethernet port
+	blbc	R0,FERME		; if either submission or
+	blbs	Q_NETIOSB,SET		;  service unsuccessful then
+	movzwl	Q_NETIOSB,R0		;  
+FERME:	movl	R0,GL_ACQ_VMS(R11)	;  save error condition code
+	moval	PRB_ACQPORT, -		;  declare abnormal end
+		GL_ACQSTATUS(R11)	; 
+	ret				;  and leave
+SET:
+;
+; Prepare network read QIO argument list
+;
+	movl	#GETFUNC, -		; read virtual block
+		AL_NET+QIO$_FUNC	;  is new IO function
+	movab	AB_NETBUF, -		; network buffer
+		AL_NET+QIO$_P1		;  is IO storage location
+	movl	#K_NETBUFSIZ, -		; network buffer size
+		AL_NET+QIO$_P2		;  is IO maximum transfer
+	movab	AB_NETENV,AL_NET+QIO$_P5; frame parameters buffer location
+	rsb				; all done... return to caller
+;
+;; MODULES ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.PSECT	HANDLE,EXE,NOWRT,NOSHR
+;
+; Asynchronous system trap code - invoked automatically by RMS (executive mode)
+;
+	.ENTRY	STREAM_OK,^M<R10,R11>	; 
+;
+; This module is for logging success post-processing. It frees the returning
+; stream buffer for further storage by the logger code.
+;
+	movl	AL_CTL,R11		; point to control section
+	movl	AL_BUF,R10		; point to buffer section
+	incl	GL_LOGIOS(R11)		;*DIAG* count all IO's
+	movl	4(AP),R1		; point to RAB (for stream ID)
+	insv	#0,RAB$L_CTX(R1),#1, -	; free stream from usage bit map
+		GW_EFLAGS(R10)		; 
+	ret				; continue interrupted processing
+;
+	.ENTRY	STREAM_ERROR,^M<R11>	; 
+;
+; This module is for logging failure post-processing. It puts an error message
+; in the control section and cancels further logging.
+;
+	movl	AL_CTL,R11		; point to control section
+	bicl2	#M_LOG,GL_CSR(R11)	; drop logging
+	movl	4(AP),R1		; point to RAB (for status codes)
+	moval	PRB_ACQFILE, -		; user error message
+		GL_ACQSTATUS(R11)	; 
+	movl	RAB$L_STS(R1), -	; RMS status code
+		GL_ACQ_VMS(R11)		; 
+	movl	RAB$L_STV(R1), -	; RMS status value
+		GL_ACQ_EXT(R11)		; 
+	ret				; continue interrupted processing
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.ENTRY	SCHEDULE,^M<R11>	; 
+;
+; Asynchronous system trap code - invoked automatically by preset VMS timer.
+; This module is responsible for submitting the line counter retrieval QIO at
+; fixed interval. When the end of a cycle is indicated, a final retrieval is
+; attempted so that the last interval values can be computed.
+; 
+	movl	AL_CTL,R11		; point to control section
+	bbc	#V_GO,GL_CSR(R11),QUERY	; if cycle in progress
+	$setimr_g -			; then set timer (will callback)
+		AL_TIM			;  >for prescribed interval
+	blbc	R0,CDFAIL		; if successful then
+QUERY:	$qio_g	AL_LIN			;  get ethernet line counters
+	blbs	R0,CDOK			;  if unsuccessful operation queuing
+CDFAIL:	movl	R0,GL_ACQ_VMS(R11)	;   save error condition code
+	moval	PRB_ACQOTOCD, -		;   mark no collision detection warning
+		GL_ACQSTATUS(R11)	;
+	bicl2	#M_TRACK,GL_CSR(R11)	;   disable further line tracking
+CDOK:	ret				; endif
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.ENTRY	COUNTERS,^M<R2,R3,R4,R11>	;
+;
+; Asynchronous system trap code - invoked automatically by VMS IO completion.
+; This module is responsible for parsing line counters, computing the collision
+; factor and preparing a collision report block for eventual logging.
+;
+	movl	AL_CTL,R11		; point to control section
+	incl	GL_LINERPT(R11)		;*DIAG*update line tracking passes
+	blbs	Q_LINIOSB,ZVAL		; if line I/O didn't complete correctly
+	movl	R0,GL_ACQ_VMS(R11)	;  save error condition code
+	moval	PRB_ACQOTOCD, -		;  mark no collision detection warning
+		GL_ACQSTATUS(R11)	;
+	bicl2	#M_TRACK,GL_CSR(R11)	;  disable further line tracking
+ZVAL:
+;
+; Initialize new/interval line values
+;
+	clrq	L_DBS			;*DSD* L_DBS:L_MBS
+	clrq	L_BSN			;*DSD* L_BSN:L_MSN
+	clrq	L_BID			;*DSD* L_BID:L_BS1
+	clrq	L_BSM			;*DSD* L_BSM:L_SBU
+	clrq	L_UBU			;*DSD* L_UBU:L_SFL
+	clrl	L_CDC			; 
+;
+; Scan the buffer containing line counters and extract interesting values
+; (value-array position is significant because of pointer indexing)
+;
+	movab	AB_LINE_COUNTS,R2	; point to line counter buffer
+	movzwl	<Q_LINIOSB+2>,R0	; retrieve effective buffer length
+	movab	(R2)[R0],R4		; set end-of-buffer pointer
+CHKN:	cmpl	R4,R2			; while pointer is within buffer
+	bgtru	PARSE			; do
+	brw	NPARSE			; 
+PARSE:	movw	(R2)+,R1		;  get control word flag[4]type[12]
+	extzv	#NMA$V_CNT_TYP,-	;  extract type field
+		#NMA$S_CNT_TYP,R1,R0	; 
+	cmpzv	#NMA$V_CNT_MAP,-	;  case flag[COUNT:WID<2>:MAP] of
+		#4,R1,#^XC		;   0xxx : invalid
+	bgtr	GETL			;   10xx : invalid
+	beql	GETW			;   1100 : type is word
+	brw	NPARSE			;   1101 : type is word + word
+GETL:	movl	(R2)+,R1		;   1110 : type is longword
+	brb	CHECK			;   1111 : invalid
+GETW:	movzwl	(R2)+,R1		;  extract value, advance pointer
+CHECK:	clrl	R3			;  index of first target parameter
+	cmpw	#NMA$C_CTLIN_DBS,R0	;  if type does not match parameter
+	beql	FOUND			;  then continue scan
+	incl	R3			;  index of next target parameter
+	cmpw	#NMA$C_CTLIN_MBS,R0	;  if type does not match parameter
+	beql	FOUND			;  then continue scan
+	incl	R3			;  index of next target parameter
+	cmpw	#NMA$C_CTLIN_BSN,R0	;  if type does not match parameter
+	beql	FOUND			;  then continue scan
+	incl	R3			;  index of next target parameter
+	cmpw	#NMA$C_CTLIN_MSN,R0	;  if type does not match parameter
+	beql	FOUND			;  then continue scan
+	incl	R3			;  index of next target parameter
+	cmpw	#NMA$C_CTLIN_BID,R0	;  if type does not match parameter
+	beql	FOUND			;  then continue scan
+	incl	R3			;  index of next target parameter
+	cmpw	#NMA$C_CTLIN_BS1,R0	;  if type does not match parameter
+	beql	FOUND			;  then continue scan
+	incl	R3			;  index of next target parameter
+	cmpw	#NMA$C_CTLIN_BSM,R0	;  if type does not match parameter
+	beql	FOUND			;  then continue scan
+	incl	R3			;  index of next target parameter
+	cmpw	#NMA$C_CTLIN_SBU,R0	;  if type does not match parameter
+	beql	FOUND			;  then continue scan
+	incl	R3			;  index of next target parameter
+	cmpw	#NMA$C_CTLIN_UBU,R0	;  if type does not match parameter
+	beql	FOUND			;  then continue scan
+	incl	R3			;  index of next target parameter
+	cmpw	#NMA$C_CTLIN_SFL,R0	;  if type does not match parameter
+	beql	FOUND			;  then continue scan
+	incl	R3			;  index of next target parameter
+	cmpw	#NMA$C_CTLIN_CDC,R0	;  if type does not match parameter
+	bneq	NCHECK			;  then continue scan
+FOUND:	movl	R1,L_DBS[R3]		;  else store value @ index
+NCHECK:	brw	CHKN			; enddo
+NPARSE:
+;
+; Compare current and previous values to determine what kind of pass to do
+;
+	clrl	R3			; flag values as absolute (default)
+	movl	L_DBS_LAST,R2		; if (previous.fxmit = 0)
+	beql	BASE			;    or 
+	movl	L_DBS,R1		;    (new.fxmit < previous.fxmit)
+	subl3	R2,R1,R2		; then
+	blss	BASE			;  (first pass in cycle or
+	bgtr	RELCNT			;   counters have been zeroed in cycle)
+	brw	VAL1			;  establish baseline values
+BASE:	movl	L_DBS,L_DBS_LAST	;  
+	movl	L_MBS,L_MBS_LAST	; 
+	movl	L_BSN,L_BSN_LAST	; 
+	movl	L_MSN,L_MSN_LAST	; 
+	movl	L_BID,L_BID_LAST	; 
+	movl	L_BS1,L_BS1_LAST	; 
+	movl	L_BSM,L_BSM_LAST	; 
+	movl	L_SBU,L_SBU_LAST	; 
+	movl	L_UBU,L_UBU_LAST	; 
+	brw	VAL0			; else if (new.fxmit > previous.fxmit)
+RELCNT:	movl	R2,L_DBS		;  then (normal increments)
+	subl2	L_MBS_LAST,L_MBS	;   compute relative change
+	subl2	L_BSN_LAST,L_BSN	; 
+	subl2	L_MSN_LAST,L_MSN	; 
+	subl2	L_BID_LAST,L_BID	; 
+	subl2	L_BS1_LAST,L_BS1	; 
+	subl2	L_BSM_LAST,L_BSM	; 
+	cmpl	#100,R2			;  if 100 frames minimum spread
+	bgtr	VAL2			;  then (consider collision numbers)
+	addl2	L_DBS,L_DBS_LAST	;   update base values for next cycle
+	addl2	L_MBS,L_MBS_LAST	; 
+	addl2	L_BSN,L_BSN_LAST	;      LOG? L_values
+	addl2	L_MSN,L_MSN_LAST	; R3=0  Y     abs    new baseline
+	addl2	L_BID,L_BID_LAST	; R3=1  N     abs    no interval change
+	addl2	L_BS1,L_BS1_LAST	; R3=2  N     rel    < 100 xmit
+	addl2	L_BSM,L_BSM_LAST	; R3=3  Y     rel    >=100 xmit
+	incl	R3			; 
+VAL2:	incl	R3			; 
+VAL1:	incl	R3			; else (new.fxmit = previous.fxmit)
+VAL0:					; endif
+;
+; Compute reception-failures (system and user buffer exhaustions) every pass
+;
+	subl3	L_SBU_LAST,L_SBU,R0	; calculate system buffer change
+	bleq	UBUA			; if positive
+	addl2	R0,GL_SBU(R11)		; then update global counter
+	movl	L_SBU,L_SBU_LAST	;  update baseline for next pass
+UBUA:	subl3	L_UBU_LAST,L_UBU,R0	; calculate user buffer change
+	bleq	EOC			; if positive
+	addl2	R0,GL_UBU(R11)		; then update global counter
+	movl	L_UBU,L_UBU_LAST	;  update baseline for next pass
+EOC:
+;
+; For last cycle pass, reinitialize baseline for next cycle and exit
+;
+	bbs	#V_GO,GL_CSR(R11),UPDATE
+	clrl	L_DBS_LAST
+	clrl	L_MBS_LAST
+	clrl	L_BSN_LAST
+	clrl	L_MSN_LAST
+	clrl	L_BID_LAST
+	clrl	L_BS1_LAST
+	clrl	L_BSM_LAST
+	clrl	L_SBU_LAST
+	clrl	L_UBU_LAST
+	brw	EXCNT
+UPDATE:
+;
+; Otherwise (within cycle), compute new collision factor when values are either
+; absolute (beginning of cycle) or relative and large enough. If recording is
+; taking place then update collision report block and mark for logger action.
+;
+	cmpl	#2,R3			; if flag
+	blss	CDF			;    is greater than 2 (valid relative)
+	tstl	R3			;    or
+	beql	CDF			;    is 0 (valid absolute)
+	brw	EXCNT			; then
+CDF:	cvtlf	L_DBS,R2		;  if blocks sent not null
+	beql	CDS			;  then
+	cvtlf	L_BS1,R1		;   take single collisions
+	cvtlf	L_BSM,R0		;   multiple collision range 2..15
+	mulf2	#2.5,R0			;   2(2/3)+3(2/9)+4(2/27)...15(2/3^14)
+	addf2	R0,R1			;   calculate effective collisions
+					;    (add 16*excessive.collisions.count)
+	mulf2	#1000.0,R1		;   express collisions in units of 1000s
+	divf3	R2,R1,R2		;   compute relative to total frames
+	cvtfw	R2,R1			;   round (truncate) off
+	cmpw	#1000,R1		;   limit check below max
+	bgtr	LIMLO			;   else
+	movw	#999,R1			;    maximize value
+LIMLO:	cmpw	GW_MINCOLL(R11),R1	;   if current value below recorded low
+	bleq	LIMHI			;   then
+	movw	R1,GW_MINCOLL(R11)	;    update low value
+LIMHI:	cmpw	GW_MAXCOLL(R11),R1	;   if current value above recorded high
+	bgeq	LIMOK			;   then
+	movw	R1,GW_MAXCOLL(R11)	;    update high value
+LIMOK:	movw	R1,GW_COLLISION(R11)	;   update collision factor
+CDS:	bbc	#V_LOG,GL_CSR(R11),EXCNT;  else if <log>
+	movab	AB_L4_BLOCK,R4		;   then prepare CDreport block pointer
+	bbssi	#V_L4MTX,(R4),BADMTX	;   acquire mutex, else mark failure
+	insv	R3,#0,#1,GB_L4_FLAGS(R4);*DSD* set absolute/relative contents
+	movw	L_CDC,GW_L4_CDCF(R4)	;*DSD* store total CD check failures
+	incl	GL_L4_SEQUENCE(R4)	;   update report number
+	$gettim_s -			;
+		timadr=GQ_L4_ABSTIME(R4);   obtain system time reference
+	movl	L_DBS,GL_L4_FXMITTED(R4);   update frames transmitted
+	movl	L_MBS,GL_L4_FXMLTCST(R4);   update multicat frames transmitted
+	movl	L_BSN,GL_L4_BXMITTED(R4);   update bytes transmitted
+	movl	L_MSN,GL_L4_BXMLTCST(R4);   update multicast bytes transmitted
+	movl	L_BID,GL_L4_FDEFERRED(R4);  update frames initially deferred
+	movl	L_BS1,GL_L4_SINGLE(R4)	;   update frames with single collision
+	movl	L_BSM,GL_L4_MULTIPLE(R4);   update frames with many collisions
+	movl	L_SFL,GL_L4_SENDFAIL(R4);   total send failure mask & count
+	incl	GL_COLLRPT(R11)		;*DIAG*update collision report passes
+	bisl2	#M_COLLRPT,GL_CSR(R11)	;   notify logger of new CD report block
+	bicw2	#M_L4MTX,(R4)		;   release mutex
+EXCNT:	ret				; endif
+BADMTX:	bisw2	#M_ACQCMTX,-		;  if mutex acquisition failed
+		GW_EFLAGS(R10)		;  then mark hit for diagnostics
+	brb	EXCNT			; endif
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.ENTRY	SHUTDOWN,^M<>
+;
+; This module is called automatically by VMS upon image rundown after being
+; declared as an exit handler.
+; This module performs necessary steps to...
+;
+	movl	AL_CTL,R11		; recover pointer to control section
+	movl	AL_BUF,R10		; recover pointer to buffer section
+;
+; cancel collision processing timer as required
+;
+	bbc	#V_LOG,GL_CSR(R11),BYE	; if logging is active then
+;
+; check the stream... reissue uncertain last stream IO
+; switch to new stream as required... make sure no outstanding IO's
+;
+	movl	L_STREAM,R6		;  point to stream control
+	bicl2	#RAB$M_ASY,RAB$L_ROP(R6);  make stream synchronous for fade-out
+	movzbl	#GK_STOP_ID,R8		;  set (forced) Stop_Cycle type block
+;
+	jsb	LOG_IT			;  flush stream
+;
+	$truncate -			;  truncate the file
+		rab=(R6)		;   to prevent excessive over-allocation
+;
+BYE:	$setef_s -			; notify parent process of termination
+		efn=#GV_ACQFINISH	; >signing off event flag
+	bbcci	#V_SLEEP,GL_CSR(R11),-	; if parent currently sleeping
+		ADIOS			; then
+	$wake_s	pidadr=GL_PID(R11)	;  wake it up
+ADIOS:	ret				; complete rundown (normal END)
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+	.END	ACQ

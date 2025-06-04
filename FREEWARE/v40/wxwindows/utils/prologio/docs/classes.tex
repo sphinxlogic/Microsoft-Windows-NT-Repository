@@ -1,0 +1,650 @@
+\chapter{Class reference}
+\setheader{{\it CHAPTER \thechapter}}{}{}{}{}{{\it CHAPTER \thechapter}}%
+\setfooter{\thepage}{}{}{}{}{\thepage}
+
+These are the main PROLOGIO classes.
+
+\section{\class{ClipsTemplate}: wxObject}
+
+A {\bf ClipsTemplate} object represents a simplified representation of a
+CLIPS deftemplate. ClipsTemplates can be added to a list stored with the
+\rtfsp{\bf PrologDatabase} to be written out along with the deffacts contained
+in the database.  They may optionally be used to filter out unwanted
+slots when the facts are being written out.
+
+\membersection{ClipsTemplate::ClipsTemplate}
+
+\func{void}{ClipsTemplate}{\param{char *}{name}}
+
+Construct a new template.
+
+\membersection{ClipsTemplate::AddSlot}
+
+\func{void}{AddSlot}{\param{char *}{slot\_name},
+  \param{char *}{default = NULL}, \param{Bool}{ multi=FALSE}}
+
+Add a slot to a CLIPS template definition, with optional default and
+multislot flag (currently only one multislot allowed per template).
+
+\membersection{ClipsTemplate::SlotExists}
+
+\func{ClipsTemplateSlot *}{SlotExists}{\param{char *}{slot\_name}}
+
+Returns a template slot if it exists.
+
+\membersection{ClipsTemplate::Write}
+
+\func{void}{Write}{\param{ostream\&}{ stream}}
+
+Write the template to the given stream.
+
+\section{\class{PrologDatabase}: wxList}
+
+The {\bf PrologDatabase} class represents a database, or list,
+of Prolog-like expressions.  Instances of this class are used for reading,
+writing and creating data files.
+
+\membersection{PrologDatabase::PrologDatabase}
+
+\func{void}{PrologDatabase}{\param{proioErrorHandler}{ handler = 0}}
+
+Construct a new, unhashed database, with an optional error handler. The
+error handler must be a function returning a Bool and taking an integer and a string
+argument. When an error occurs when reading or writing a database, this function is
+called. The error is given as the first argument (currently one of PROIO\_ERROR\_GENERAL,
+PROIO\_ERROR\_SYNTAX) and an error message is given as the second argument. If FALSE
+is returned by the error handler, processing of the PROLOGIO operation stops.
+
+Another way of handling errors is simply to call \helpref{GetErrorCount}{geterrorcount} after
+the operation, to check whether errors have occurred, instead of installing an error handler.
+If the error count is more than zero, \helpref{WriteProlog}{databasewriteprolog} and \helpref{ReadProlog}{databasereadprolog} will return FALSE to
+the application.
+
+For example:
+
+\begin{verbatim}
+Bool myErrorHandler(int err, chat *msg)
+{
+  if (err == PROIO_ERROR_SYNTAX)
+  {
+    wxMessageBox(msg, "Syntax error");
+  }
+  return FALSE;
+}
+
+PrologDatabase database(myErrorHandler);
+\end{verbatim}
+
+
+\func{void}{PrologDatabase}{\param{PrologType}{ type}, \param{char *}{attribute},\\
+ \param{int}{ size = 500}, \param{proioErrorHandler}{ handler = 0}}
+
+Construct a new database hashed on a combination of the clause functor and
+a named attribute (often an integer identification).
+
+See above for an explanation of the error handler.
+
+\membersection{PrologDatabase::\destruct{PrologDatabase}}
+
+\func{void}{\destruct{PrologDatabase}}{\void}
+
+Delete the database and contents.
+
+\membersection{PrologDatabase::AddTemplate}
+
+\func{void}{AddTemplate}{\param{ClipsTemplate *}{temp}}
+
+Add a CLIPS template definition to the template list associated with the
+database.
+
+
+\membersection{PrologDatabase::Append}
+
+\func{void}{Append}{\param{PrologExpr *}{clause}}
+
+Append a clause to the end of the database. If the database is hashing,
+the functor and a user-specified attribute will be hashed upon, giving the
+option of random access in addition to linear traversal of the database.
+
+\membersection{PrologDatabase::BeginFind}
+
+\func{void}{BeginFind}{\void}
+
+Reset the current position to the start of the database. Subsequent
+\rtfsp{\it FindClause}\/ calls will move the pointer.
+
+\membersection{PrologDatabase::ClearDatabase}
+
+\func{void}{ClearDatabase}{\void}
+
+Clears the contents of the database.
+
+\membersection{PrologDatabase::FindClause}
+
+Various ways of retrieving clauses from the database. A return
+value of NULL indicates no (more) clauses matching the given criteria.
+Calling the functions repeatedly retrieves more matching clauses, if any.
+
+\func{PrologExpr *}{FindClause}{\param{long}{ id}}
+
+Find a clause based on the special ``id'' attribute.
+
+\func{PrologExpr *}{FindClause}{\param{char *}{attribute}, \param{char *}{value}}
+
+Find a clause which has the given attribute set to the given string or word value.
+
+\func{PrologExpr *}{FindClause}{\param{char *}{attribute}, \param{long}{ value}}
+
+Find a clause which has the given attribute set to the given integer value.
+
+\func{PrologExpr *}{FindClause}{\param{char *}{attribute}, \param{float}{ value}}
+
+Find a clause which has the given attribute set to the given floating point value.
+
+\membersection{PrologDatabase::FindClauseByFunctor}
+
+\func{PrologExpr *}{FindClauseByFunctor}{\param{char *}{ functor}}
+
+Find the next clause with the specified functor.
+
+\membersection{PrologDatabase::FindTemplate}
+
+\func{ClipsTemplate *}{FindTemplate}{\param{char *}{template\_name}}
+
+Finds a named CLIPS template definition associated with the database.
+
+\membersection{PrologDatabase::GetErrorCount}\label{geterrorcount}
+
+\func{int}{GetErrorCount}{\void}
+
+Returns the number of errors encountered during the last read or write operation.
+
+\membersection{PrologDatabase::HashFind}
+
+\func{PrologExpr *}{HashFind}{\param{char *}{ functor}, \param{long}{ value}}
+
+Finds the clause with the given functor and with the attribute specified
+in the database constructor having the given integer value.
+
+For example,
+
+\begin{verbatim}
+// Hash on a combination of functor and integer "id" attribute when reading in
+PrologDatabase db(PrologInteger, "id");
+
+// Read it in
+db.ReadProlog("data");
+
+// Retrieve a clause with specified functor and id
+PrologExpr *clause = db.HashFind("node", 24);
+\end{verbatim}
+
+This would retrieve a clause which is written: {\tt node(id = 24, ..., )}.
+
+\func{PrologExpr *}{HashFind}{\param{char *}{ functor}, \param{char *}{value}}
+
+Finds the clause with the given functor and with the attribute specified
+in the database constructor having the given string value.
+
+\membersection{PrologDatabase::ReadProlog}\label{databasereadprolog}
+
+\func{Bool}{ReadProlog}{\param{char *}{ filename}}
+
+Reads in the given file, returning TRUE if successful.
+
+\membersection{PrologDatabase::ReadPrologFromString}
+
+\func{Bool}{ReadPrologFromString}{\param{char *}{ buffer}}
+
+Reads a Prolog database from the given string buffer, returning TRUE if
+successful.
+
+\membersection{PrologDatabase::WriteClips}
+
+\func{void}{WriteClips}{\param{ostream\& }{stream}}
+
+Writes the database as a CLIPS deftemplate and deffacts file.
+
+\membersection{PrologDatabase::WriteClipsFiltering}
+
+\func{void}{WriteClipsFiltering}{\param{ostream\& }{stream}}
+
+Writes the database as a CLIPS deftemplate and deffacts file, filtering
+slots in the facts according to the template definitions (e.g. to reduce
+the size of the output file by not including irrelevant slots).
+
+\membersection{PrologDatabase::WriteLisp}
+
+\func{void}{WriteLisp}{\param{ostream\& }{stream}}
+
+Writes the database as a LISP-format file.
+
+\membersection{PrologDatabase::WriteProlog}\label{databasewriteprolog}
+
+\func{void}{WriteProlog}{\param{ostream\& }{stream}}
+
+Writes the database as a Prolog-format file.
+
+\section{\class{PrologExpr}}
+
+The {\bf PrologExpr} class is the building brick of Prolog expressions.
+It can represent both a clause, and any subexpression (long integer, float, string, word,
+or list).
+
+\membersection{PrologExpr::PrologExpr}
+
+\func{void}{PrologExpr}{\param{char *}{functor}}
+
+Construct a new clause with this form, supplying the functor name.
+
+\func{void}{PrologExpr}{\param{PrologType}{ type}, \param{char *}{word\_or\_string},\\
+\param{Bool }{allocate = TRUE}}
+
+Construct a new empty list, word (will be output with no quotes) or a string, depending on the
+value of {\it type} ({\bf PrologList}, {\bf PrologWord}, {\bf PrologString}).
+
+If a word or string, the {\bf allocate} parameter determines whether a new copy of the
+value is allocated, the default being TRUE.
+
+\func{void}{PrologExpr}{\param{long}{ the\_int}}
+
+Construct an integer expression.
+
+\func{void}{PrologExpr}{\param{float}{ the\_float}}
+
+Construct a floating point expression.
+
+\func{void}{PrologExpr}{\param{wxList *}{the\_list}}
+
+Construct a list expression. The list's nodes' data should
+themselves be {\bf PrologExpr}s.
+
+The current version of this library no longer uses the {\bf wxList}
+internally, so this constructor turns the list into its internal
+format (assuming a non-nested list) and then deletes the supplied
+list.
+
+\membersection{PrologExpr::\destruct{PrologExpr}}
+
+\func{void}{\destruct{PrologExpr}}{\void}
+
+Destructor.
+
+\membersection{PrologExpr::AddAttributeValue}
+
+Use these on clauses ONLY. Note that the functions for adding strings
+and words must be differentiated by function name which is why
+they are missing from this group (see {\it AddAttributeValueString} and
+{\it AddAttributeValueWord}).
+
+\func{void}{AddAttributeValue}{\param{char *}{attribute}, \param{float }{value}}
+
+Adds an attribute and floating point value pair to the clause.
+
+\func{void}{AddAttributeValue}{\param{char *}{attribute}, \param{long }{value}}
+
+Adds an attribute and long integer value pair to the clause.
+
+\func{void}{AddAttributeValue}{\param{char *}{attribute}, \param{wxList *}{value}}
+
+Adds an attribute and list value pair to the clause, converting the list into
+internal form and then deleting {\bf value}. Note that the list should not contain
+nested lists (except if in internal {\bf PrologExpr} form.)
+
+\func{void}{AddAttributeValue}{\param{char *}{attribute}, \param{PrologExpr **}{value}}
+
+Adds an attribute and PrologExpr value pair to the clause. Do not delete\rtfsp
+{\it value} once this function has been called.
+
+\membersection{PrologExpr::AddAttributeValueString}
+
+\func{void}{AddAttributeValueString}{\param{char *}{attribute}, \param{char *}{value}}
+
+Adds an attribute and string value pair to the clause.
+
+\membersection{PrologExpr::AddAttributeValueStringList}
+
+\func{void}{AddAttributeValueStringList}{\param{char *}{attribute}, \param{wxList *}{value}}
+
+Adds an attribute and string list value pair to the clause.
+
+Note that the list passed to this function is a list of strings, NOT a list
+of {\bf PrologExpr}s; it gets turned into a list of {\bf PrologExpr}s
+automatically. This is a convenience function, since lists of strings
+are often manipulated in C++.
+
+\membersection{PrologExpr::AddAttributeValueWord}
+
+\func{void}{AddAttributeValueWord}{\param{char *}{attribute}, \param{char *}{value}}
+
+Adds an attribute and word value pair to the clause.
+
+\membersection{PrologExpr::Append}
+
+\func{void}{Append}{\param{PrologExpr *}{value}}
+
+Append the {\bf value} to the end of the list. The {\bf PrologExpr}\rtfsp
+must be a list.
+
+\membersection{PrologExpr::Arg}\label{arg}
+
+\func{PrologExpr *}{Arg}{\param{PrologType}{ typ}, \param{int}{ n}}
+
+Get nth arg of the given clause (starting from 1). NULL is returned if
+the expression is not a clause, or {\it n} is invalid, or the given type
+does not match the actual type. See also \helpref{Nth}{nth}.
+
+\membersection{PrologExpr::Insert}
+
+\func{void}{Insert}{\param{PrologExpr *}{value}}
+
+Insert the {\bf value} at the start of the list. The {\bf PrologExpr}\rtfsp 
+must be a list.
+
+\membersection{PrologExpr::AssignAttributeValue}
+
+These functions are the easiest way to retrieve attribute values, by
+passing a pointer to variable. If the attribute is present, the
+variable will be filled with the appropriate value.  If not, the
+existing value is left alone.  This style of retrieving attributes
+makes it easy to set variables to default values before calling these
+functions; no code is necessary to check whether the attribute is
+present or not.
+
+\func{void}{AssignAttributeValue}{\param{char *}{attribute}, \param{char **}{value}}
+
+Retrieve a string (or word) value.
+
+\func{void}{AssignAttributeValue}{\param{char *}{attribute}, \param{float *}{value}}
+
+Retrieve a floating point value.
+
+\func{void}{AssignAttributeValue}{\param{char *}{attribute}, \param{int *}{value}}
+
+Retrieve an integer value.
+
+\func{void}{AssignAttributeValue}{\param{char *}{attribute}, \param{long *}{value}}
+
+Retrieve a long integer value.
+
+\func{void}{AssignAttributeValue}{\param{char *}{attribute}, \param{PrologExpr **}{value}}
+
+Retrieve a PrologExpr pointer.
+
+\membersection{PrologExpr::AssignAttributeValueStringList}
+
+\func{void}{AssignAttributeValueStringList}{\param{char *}{attribute},
+ \param{wxList *}{value}}
+
+Use this on clauses ONLY. See above for comments on this style of
+attribute value retrieval. This function expects to receive a pointer to
+a new list (created by the calling application); it will append strings
+to the list if the attribute is present in the clause.
+
+\membersection{PrologExpr::AttributeValue}
+
+\func{PrologExpr *}{AttributeValue}{\param{char *}{word}}
+
+Use this on clauses ONLY. Searches the clause for an attribute
+matching {\it word}, and returns the value associated with it.
+
+\membersection{PrologExpr::Copy}
+
+\func{PrologExpr *}{Copy}{\void}
+
+Recursively copies the expression, allocating new storage space.
+
+\membersection{PrologExpr::DeleteAttributeValue}
+
+\func{void}{DeleteAttributeValue}{\param{char *}{attribute}}
+
+Use this on clauses ONLY. Deletes the attribute and its value (if any) from the
+clause.
+
+\membersection{PrologExpr::Functor}
+
+\func{char *}{Functor}{\void}
+
+Use this on clauses ONLY. Returns the clause's functor (object name).
+
+\membersection{PrologExpr::GetClientData}
+
+\func{wxObject *}{GetClientData}{\void}
+
+Retrieve arbitrary data stored with this clause. This can be useful when
+reading in data for storing a pointer to the C++ object, so when another
+clause makes a reference to this clause, its C++ object can be retrieved.
+See {\it SetClientData}.
+
+\membersection{PrologExpr::GetFirst}\label{getfirst}
+
+\func{PrologExpr *}{GetFirst}{\void}
+
+If this is a list expression (or clause), gets the first element in the list.
+
+See also \helpref{GetLast}{getlast}, \helpref{GetNext}{getnext}, \helpref{Nth}{nth}.
+
+\membersection{PrologExpr::GetLast}\label{getlast}
+
+\func{PrologExpr *}{GetLast}{\void}
+
+If this is a list expression (or clause), gets the last element in the list.
+
+See also \helpref{GetFirst}{getfirst}, \helpref{GetNext}{getnext}, \helpref{Nth}{nth}.
+
+\membersection{PrologExpr::GetNext}\label{getnext}
+
+\func{PrologExpr *}{GetNext}{\void}
+
+If this is a node in a list (any PrologExpr may be a node in a list), gets the
+next element in the list.
+
+See also \helpref{GetFirst}{getfirst}, \helpref{GetLast}{getlast}, \helpref{Nth}{nth}.
+
+\membersection{PrologExpr::IntegerValue}
+
+\func{long}{IntegerValue}{\void}
+
+Returns the integer value of the expression.
+
+\membersection{PrologExpr::Nth}\label{nth}
+
+\func{PrologExpr *}{Nth}{\param{int}{ n}}
+
+Get nth arg of the given list expression (starting from 0). NULL is returned if
+the expression is not a list expression, or {\it n} is invalid. See also \helpref{Arg}{arg}.
+
+Normally, you would use attribute-value pairs to add and retrieve data
+from objects (clauses) in a data file. However, if the data gets complex,
+you may need to store attribute values as lists, and pick them apart
+yourself.
+
+Here is an example of using lists.
+
+\begin{verbatim}
+  int regionNo = 1;
+  char regionNameBuf[20];
+
+  PrologExpr *regionExpr = NULL;
+  sprintf(regionNameBuf, "region%d", regionNo);
+
+  // Keep getting attribute values until no more regions.
+  while (regionExpr = clause->AttributeValue(regionNameBuf))
+  {
+    /*
+     * Get the region information
+     *
+     */
+
+    char *regionName = NULL;
+    char *formatString = NULL;
+    Bool formatMode = FORMAT_NONE;
+    int fontSize = 10;
+    int fontFamily = wxSWISS;
+    int fontStyle = wxNORMAL;
+    int fontWeight = wxNORMAL;
+    char *textColour = NULL;
+
+    if (regionExpr->Type() == PrologList)
+    {
+      PrologExpr *nameExpr = regionExpr->Nth(0);
+      PrologExpr *stringExpr = regionExpr->Nth(1);
+      PrologExpr *formatExpr = regionExpr->Nth(2);
+      PrologExpr *sizeExpr = regionExpr->Nth(3);
+      PrologExpr *familyExpr = regionExpr->Nth(4);
+      PrologExpr *styleExpr = regionExpr->Nth(5);
+      PrologExpr *weightExpr = regionExpr->Nth(6);
+      PrologExpr *colourExpr = regionExpr->Nth(7);
+
+      regionName = copystring(nameExpr->StringValue());
+      formatString = copystring(stringExpr->StringValue());
+      formatMode = (int)formatExpr->IntegerValue();
+      fontSize = (int)sizeExpr->IntegerValue();
+      fontFamily = (int)familyExpr->IntegerValue();
+      fontStyle = (int)styleExpr->IntegerValue();
+      fontWeight = (int)weightExpr->IntegerValue();
+      textColour = copystring(colourExpr->StringValue());
+    }
+    wxFont *font = wxTheFontList->FindOrCreateFont(fontSize, fontFamily, fontStyle, fontWeight);
+    ObjectRegion *region = new ObjectRegion;
+    region->regionName = regionName;
+    region->formatString = formatString;
+    region->formatMode = formatMode;
+    region->regionFont = font;
+    region->textColour = textColour;
+
+    regions.Append(region);
+
+    regionNo ++;
+    sprintf(regionNameBuf, "region%d", regionNo);
+  }
+\end{verbatim}
+
+\membersection{PrologExpr::RealValue}
+
+\func{float}{RealValue}{\void}
+
+Returns the floating point value of the expression.
+
+\membersection{PrologExpr::SetClientData}
+
+\func{void}{SetClientData}{\param{wxObject *}{data}}
+
+Associate arbitrary data with this clause. This can be useful when
+reading in data for storing a pointer to the C++ object, so when another
+clause makes a reference to this clause, its C++ object can be retrieved.
+See {\it GetClientData}.
+
+\membersection{PrologExpr::StringValue}
+
+\func{char *}{StringValue}{\void}
+
+Returns the string value of the expression.
+
+\membersection{PrologExpr::Type}
+
+\func{PrologType}{Type}{\void}
+
+Returns the type of the expression. {\bf PrologType} is defined as follows:
+
+\begin{verbatim}
+typedef enum {
+    PrologNull,
+    PrologInteger,
+    PrologReal,
+    PrologWord,
+    PrologString,
+    PrologList
+} PrologType;
+\end{verbatim}
+
+\membersection{PrologExpr::WordValue}
+
+\func{char *}{WordValue}{\void}
+
+Returns the word value of the expression.
+
+\membersection{PrologExpr::WriteClipsClause}
+
+\func{void}{WriteClipsClause}{\param{ostream\&}{ stream},
+  \param{Bool}{ filtering=FALSE}, \param{PrologDatabase *}{database = NULL}}
+
+Writes the clause to the given stream in CLIPS `deffacts' format. If
+\rtfsp{\bf filtering} is TRUE, the deftemplates associated with {\bf database} are
+used to filter out slots which exist in the CLIPS facts but not in the
+deftemplates (see {\bf PrologDatabase::AddTemplate}).
+
+\membersection{PrologExpr::WriteLispExpr}
+
+\func{void}{WriteLispExpr}{\param{ostream\&}{ stream}}
+
+Writes the expression or clause to the given stream in LISP format.
+Not normally needed, since the whole {\bf PrologDatabase} will usually
+be written at once. Lists are enclosed in parentheses will no commas.
+
+\membersection{PrologExpr::WritePrologClause}
+
+\func{void}{WritePrologClause}{\param{ostream\&}{ stream}}
+
+Writes the clause to the given stream in Prolog format. Not normally needed, since
+the whole {\bf PrologDatabase} will usually be written at once. The format is:
+functor, open parenthesis, list of comma-separated expressions, close parenthesis,
+full stop.
+
+\membersection{PrologExpr::WritePrologExpr}
+
+\func{void}{WritePrologExpr}{\param{ostream\&}{ stream}}
+
+Writes the expression (not clause) to the given stream in Prolog
+format. Not normally needed, since the whole {\bf PrologDatabase} will
+usually be written at once. Lists are written in square bracketed,
+comma-delimited format.
+
+\section{Functions and Macros}
+
+Below are miscellaneous functions and macros associated with PrologExpr objects.
+
+\membersection{Functions}
+
+\func{PrologExpr *}{wxMakeCall}{\param{char *}{functor}, \param{...}{}}
+
+Make a PrologExpr clause from a functor and a list of PrologExpr
+objects {\it terminated with a zero (or NULL)}. Since this is normally
+used for making a procedure-call expression, the arguments will not be
+attribute-value pairs but straightforward data types.
+
+\func{char *}{wxCheckClauseTypes}{\param{PrologExpr *}{expr},
+\param{wxList *}{type\_list}}
+
+Compares the types of the arguments of {\it expr} (assumed to be a
+procedure call expression) against a list of types. Returns NULL if no error, or an error string if there is a
+type error.
+
+\func{char *}{wxCheckTypes}{\param{PrologExpr *}{expr}, \param{...}{}}
+
+Compares the types of the arguments of {\it expr} (assumed to be a
+procedure call expression) against the remaining arguments, terminated
+with a NULL. Returns NULL if no error, or an error string if there is a
+type error.
+
+\begin{verbatim}
+char *s = wxCheckTypes(expr, PrologInteger, PrologReal, 0);
+\end{verbatim}
+
+\func{Bool}{wxIsFunctor}{\param{PrologExpr *}{expr}, \param{char *}{functor}}
+
+Checks that the functor of {\it expr} is {\it functor}.
+
+\membersection{Macros}
+
+The following macros have been defined to make constructing PrologExpr
+objects slightly easier:
+
+\begin{verbatim}
+#define wxMakeInteger(x) (new PrologExpr((long)x))
+#define wxMakeReal(x)    (new PrologExpr((float)x))
+#define wxMakeString(x)  (new PrologExpr(PrologString, x))
+#define wxMakeWord(x)    (new PrologExpr(PrologWord, x))
+#define wxMake(x)        (new PrologExpr(x))
+\end{verbatim}
+

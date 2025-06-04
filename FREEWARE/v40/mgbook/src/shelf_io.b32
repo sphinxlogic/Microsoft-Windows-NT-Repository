@@ -1,0 +1,407 @@
+%TITLE 'SHELF_IO'
+MODULE shelf_io(IDENT = 'V1.0',
+    	ADDRESSING_MODE(EXTERNAL=LONG_RELATIVE, NONEXTERNAL=LONG_RELATIVE)) =
+BEGIN
+!++
+! FACILITY: 	MGBOOK
+!
+! MODULE DESCRIPTION:
+!
+!	This module contains routines to read and write .DECW$BOOKSHELF files.
+!
+! AUTHOR:		Darrell Burkhead
+!			Copyright © 1995, MadGoat Software.
+!			ALL RIGHTS RESERVED.
+!
+! CREATION DATE:	December 6, 1994
+!
+! MODIFICATION HISTORY:
+!
+!	V1.0		Darrell Burkhead	 6-DEC-1994 15:34
+!		Original version.
+!--
+LIBRARY 'SYS$LIBRARY:STARLET';
+LIBRARY 'MGBOOK';
+LIBRARY 'FIELDS';
+
+FORWARD ROUTINE
+	open_shelf_file,
+	close_shelf_file : NOVALUE,
+	read_shelf_file,
+	write_shelf_file;
+
+BIND
+	title_ad	= %ASCID'TITLE',
+	shelf_ad	= %ASCID'SHELF',
+	book_ad		= %ASCID'BOOK';
+
+LITERAL
+	max_shelf_line	= 255;
+
+_DEF(sfctx)
+    sfctx_l_flags		= _LONG,
+    _OVERLAY(sfctx_l_flags)
+	sfctx_v_write		= _BIT,
+    _ENDOVERLAY
+    sfctx_t_fab			= _BYTES(FAB$C_BLN),
+    sfctx_t_rab			= _BYTES(RAB$C_BLN),
+    sfctx_t_nam			= _BYTES(NAM$C_BLN),
+    sfctx_t_esbuf		= _BYTES(NAM$C_MAXRSS),
+    _ALIGN(LONG)
+    sfctx_t_rsbuf		= _BYTES(NAM$C_MAXRSS),
+    _ALIGN(LONG)
+    sfctx_t_buffer		= _BYTES(max_shelf_line)
+_ENDDEF(sfctx);
+
+
+%SBTTL 'OPEN_SHELF_FILE'
+GLOBAL ROUTINE open_shelf_file(filename_a, context_a_a, defname_a, resfile_a,
+				open_mode) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine opens a shelf file for the specified access.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	filename	= .filename_a	: $BBLOCK,
+	context		= .context_a_a	: REF SFCTXDEF,
+	defname		= .defname_a	: $BBLOCK,
+	resfile		= .resfile_a	: $BBLOCK;
+
+BUILTIN
+	NULLPARAMETER;
+
+LOCAL
+	temp_dna	: INITIAL(0),
+	temp_dns	: INITIAL(0),
+	mode		: INITIAL(IF NULLPARAMETER(open_mode)
+				  THEN shelf_read ELSE .open_mode),
+	err_filebuf	: $BBLOCK[NAM$C_MAXRSS],
+	err_filedsc	: $BBLOCK[DSC$C_S_BLN] PRESET(
+			[DSC$B_CLASS]	= DSC$K_CLASS_S,
+			[DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			[DSC$A_POINTER]	= err_filebuf),
+	out_addr	: REF $BBLOCK,
+	out_len		: WORD,
+	status,
+	statusv		: INITIAL(0);
+
+EXTERNAL ROUTINE
+	g_hat(LIB$GET_VM, STR$ANALYZE_SDESC, STR$COPY_R);
+!
+! Set up the filename to be used in case of an error.
+!
+    STR$ANALYZE_SDESC(filename, out_len, out_addr);
+    CH$MOVE(.out_len, .out_addr,		!Copy the filename
+		err_filebuf);
+    err_filedsc[DSC$W_LENGTH] = .out_len;	!Save the length
+
+    status = LIB$GET_VM(%REF(SFCTX_S_SFCTXDEF), context);
+    IF .status
+    THEN BEGIN
+	BIND
+	    fab = context[SFCTX_T_FAB]	: $BBLOCK,
+	    rab = context[SFCTX_T_RAB]	: $BBLOCK,
+	    nam = context[SFCTX_T_NAM]	: $BBLOCK;
+
+	context[SFCTX_L_FLAGS] = 0;
+	context[SFCTX_V_WRITE] = .mode EQL shelf_write OR
+				 .mode EQL shelf_append;
+
+	IF NOT NULLPARAMETER(defname_a)
+	THEN BEGIN
+	    temp_dna = .defname[DSC$A_POINTER];	!Save the default name info
+	    temp_dns = .defname[DSC$W_LENGTH];
+	    END;				!End of default name provided
+	
+	$FAB_INIT(				!Initialize the FAB
+		FAB = fab,
+		FNS = .filename[DSC$W_LENGTH],
+		FNA = .filename[DSC$A_POINTER],
+		DNS = .temp_dns,
+		DNA = .temp_dna,
+		NAM = nam);
+	$NAM_INIT(				!Initialize the NAM
+		NAM = nam,
+		ESA = context[SFCTX_T_ESBUF],
+		ESS = NAM$C_MAXRSS,
+		RSA = context[SFCTX_T_RSBUF],
+		RSS = NAM$C_MAXRSS);
+
+	IF .mode EQL shelf_read
+	THEN BEGIN
+	    fab[FAB$B_FAC] = FAB$M_GET;		!Open for reading
+	    fab[FAB$B_SHR] = FAB$M_SHRGET;
+	    status = $OPEN(FAB = fab);		!Open the shelf file
+	    IF .status EQL RMS$_FNF
+	    THEN BEGIN
+		EXTERNAL shelf_dnm : $BBLOCK;
+
+		fab[FAB$L_DNA] = .shelf_dnm[DSC$A_POINTER];
+		fab[FAB$B_DNS] = .shelf_dnm[DSC$W_LENGTH];
+		status = $OPEN(FAB = fab);	!Try again w/a new default
+		END;				!End of switch defaults
+	    END					!End of open for reading
+	ELSE BEGIN
+	    fab[FAB$B_FAC] = FAB$M_PUT;		!Open for writing
+	    fab[FAB$V_CR] = 1;			!Carriage-return record attr.
+	    fab[FAB$V_MXV] = 1;			!Maximize version #
+	    IF .mode EQL shelf_append
+	    THEN fab[FAB$V_CIF] = 1;		!Create if it doesn't exist
+
+	    status = $CREATE(FAB = fab)		!Create (or open) the shelf file
+	    END;				!End of open for writing
+
+	IF NOT .status
+	THEN statusv = .fab[FAB$L_STV]
+	ELSE BEGIN
+	    CH$MOVE(.nam[NAM$B_RSL],		!Copy the filename
+			.nam[NAM$L_RSA], err_filebuf);
+	    err_filedsc[DSC$W_LENGTH] = .nam[NAM$B_RSL];
+
+	    $RAB_INIT(				!Initialize the RAB
+		RAB = rab,
+		FAB = fab);
+	    IF .mode EQL shelf_append
+	    THEN rab[RAB$V_EOF] = 1;		!Position at EOF
+	    IF .context[SFCTX_V_WRITE]
+	    THEN rab[RAB$L_RBF] = context[SFCTX_T_BUFFER]
+	    ELSE BEGIN
+		rab[RAB$L_UBF] = context[SFCTX_T_BUFFER];
+		rab[RAB$W_USZ] = max_shelf_line;
+		END;				!End of set up for reading
+
+	    status = $CONNECT(RAB = rab);
+	    IF NOT .status
+	    THEN statusv = .rab[RAB$L_STV]
+	    ELSE IF NOT NULLPARAMETER(resfile_a)
+	    THEN status = STR$COPY_R(resfile,	!Save the resultant filename
+			%REF(.nam[NAM$B_NODE]+.nam[NAM$B_DEV]+
+				.nam[NAM$B_DIR]+.nam[NAM$B_NAME]),
+			context[SFCTX_T_RSBUF]);
+	    END;				!End of opened shelf file
+	
+	IF NOT .status
+	THEN close_shelf_file(context);		!Error, clean up
+	END;					!End of context allocated
+
+    IF NOT .status
+    THEN SIGNAL(MGBOOK__OPENIN, 1, err_filedsc, .status, .statusv);
+
+    .status OR STS$M_INHIB_MSG
+END;						!End of open_shelf_file
+
+
+%SBTTL 'CLOSE_SHELF_FILE'
+GLOBAL ROUTINE close_shelf_file(context_a_a) : NOVALUE =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine closes the shelf file specified.
+!
+! RETURNS:	None.
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context	= .context_a_a		: REF SFCTXDEF,
+	fab	= context[SFCTX_T_FAB]	: $BBLOCK;
+
+EXTERNAL ROUTINE
+	g_hat(LIB$FREE_VM);
+
+    IF .fab[FAB$W_IFI] NEQ 0
+    THEN $CLOSE(FAB = fab);
+
+    LIB$FREE_VM(%REF(SFCTX_S_SFCTXDEF), context);
+END;						!End of close_shelf_file
+
+
+%SBTTL 'READ_SHELF_FILE'
+GLOBAL ROUTINE read_shelf_file(context_a_a, type_a, title_a, filename_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine reads a line from the specfied shelf file.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a_a		: REF SFCTXDEF,
+	type		= .type_a		: LONG,
+	title		= .title_a		: $BBLOCK,
+	filename	= .filename_a		: $BBLOCK,
+	rab		= context[SFCTX_T_RAB]	: $BBLOCK,
+	delim		= %ASCID'\';
+
+LOCAL
+	status,
+	statusv	: INITIAL(0);
+
+EXTERNAL ROUTINE
+	g_hat(STR$ELEMENT, STR$CASE_BLIND_COMPARE, STR$FREE1_DX);
+
+    status =
+    (IF .context[SFCTX_V_WRITE]
+     THEN MGBOOK__SHELFACC
+     ELSE SS$_NORMAL);
+
+    WHILE .status
+    DO BEGIN
+	status = $GET(RAB = rab);
+	IF .status
+	THEN BEGIN
+	    BIND first_char	= .rab[RAB$L_RBF]	: BYTE;
+
+	    IF NOT (.rab[RAB$W_RSZ] GEQ 1 AND
+			(.first_char EQL %C'!' OR .first_char EQL %C'#')) AND
+		(.rab [RAB$W_RSZ] NEQ 0)
+	    THEN EXITLOOP;			!Skip comment and blank lines
+	    END					!End of check for comment
+	ELSE statusv = .rab[RAB$L_STV];
+	END;
+
+    IF .status
+    THEN BEGIN
+	LOCAL
+	    line	: $BBLOCK[DSC$C_S_BLN] PRESET(
+			[DSC$W_LENGTH]	= .rab[RAB$W_RSZ],
+			[DSC$B_CLASS]	= DSC$K_CLASS_S,	
+			[DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			[DSC$A_POINTER]	= .rab[RAB$L_RBF]),
+	    type_str	: $BBLOCK[DSC$C_S_BLN];
+
+	$INIT_DYNDESC(type_str);
+	status = STR$ELEMENT(type_str, %REF(0), delim, line);
+	IF .status
+	THEN BEGIN
+	    IF STR$CASE_BLIND_COMPARE(type_str, title_ad) EQL 0
+	    THEN type = sfile_title
+	    ELSE IF STR$CASE_BLIND_COMPARE(type_str, shelf_ad) EQL 0
+	    THEN type = sfile_shelf
+	    ELSE IF STR$CASE_BLIND_COMPARE(type_str, book_ad) EQL 0
+	    THEN type = sfile_book
+	    ELSE status = MGBOOK__UNKTYPE;
+
+	    IF .status
+	    THEN status = STR$ELEMENT(filename, %REF(1), delim, line);
+	    IF .status
+	    THEN status = STR$ELEMENT(title, %REF(2), delim, line);
+
+	    STR$FREE1_DX(type_str);		!Clean up
+	    END;				!End of got the type
+
+	IF NOT .status
+	THEN SIGNAL(MGBOOK__BADENTRY, 1, line, .status);
+	END					!End of read a line
+    ELSE IF .status NEQ RMS$_EOF
+    THEN BEGIN
+	SIGNAL(MGBOOK__READERR, 0, .status, .statusv);
+	status = .status OR STS$M_INHIB_MSG;
+	END;					!Not EOF, need to signal
+
+    .status
+END;						!End of read_shelf_file
+
+
+%SBTTL 'WRITE_SHELF_FILE'
+GLOBAL ROUTINE write_shelf_file(context_a_a, type, title_a, filename_a) =
+BEGIN
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	This routine writes a line to the specified shelf file.
+!
+! RETURNS:  	cond_value, longword(unsigned), write only, by value
+!
+! IMPLICIT INPUTS:	
+!
+! IMPLICIT OUTPUTS:	
+!
+! COMPLETION CODES:
+!
+!   SS$_NORMAL:	    	normal successful completion.
+!
+! SIDE EFFECTS:
+!
+!   None.
+!--
+BIND
+	context		= .context_a_a		: REF SFCTXDEF,
+	title		= .title_a		: $BBLOCK,
+	filename	= .filename_a		: $BBLOCK,
+	rab		= context[SFCTX_T_RAB]	: $BBLOCK;
+
+LOCAL
+	out_desc	: $BBLOCK[DSC$C_S_BLN] PRESET(
+			[DSC$W_LENGTH]	= max_shelf_line,
+			[DSC$B_CLASS]	= DSC$K_CLASS_S,
+			[DSC$B_DTYPE]	= DSC$K_DTYPE_T,
+			[DSC$A_POINTER]	= context[SFCTX_T_BUFFER]),
+	status,
+	statusv		: INITIAL(0);
+
+    status =
+    (IF NOT .context[SFCTX_V_WRITE]
+     THEN MGBOOK__SHELFACC
+     ELSE SS$_NORMAL);
+
+    IF .status
+    THEN status = $FAO(%ASCID'!AS\!AS\!AS',	!Format the output line
+		rab[RAB$W_RSZ], out_desc,
+		(IF .type EQL sfile_title
+		 THEN title_ad
+		 ELSE IF .type EQL sfile_shelf
+		 THEN shelf_ad
+		 ELSE book_ad),
+		filename, title);
+    IF .status
+    THEN BEGIN
+	status = $PUT(RAB = rab);		!Write the output line
+	IF NOT .status
+	THEN statusv = .rab[RAB$L_STV];		!Save secondary status
+	END;					!End of output line formatted
+
+    IF NOT .status
+    THEN SIGNAL(MGBOOK__WRITEERR, 0, .status, .statusv);
+
+    .status OR STS$M_INHIB_MSG
+END;						!End of write_shelf_file
+
+END
+ELUDOM

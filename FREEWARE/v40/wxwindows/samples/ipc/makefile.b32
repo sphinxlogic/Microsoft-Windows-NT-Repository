@@ -1,0 +1,88 @@
+#
+# File:		makefile.b32
+# Author:	Patrick Halke
+# Created:	1995
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds 32bit ipc example.
+
+# WXWIN and BCCDIR are set by parent make
+
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makeb32.env
+
+WXLIBDIR = $(WXDIR)\lib
+WXINC = $(WXDIR)\include\msw
+WXBASESRC = $(WXDIR)\src\base
+WXBASEINC = $(WXDIR)\include\base
+WXLIB = $(WXLIBDIR)\wx32.lib
+LIBS=$(WXLIB) cw32 import32
+
+CLIENT_TARGET=client
+SERVER_TARGET=server
+
+!if "$(FINAL)" == "0"
+LINKFLAGS=/v /Tpe /L$(WXLIBDIR);$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS= -v
+!else
+LINKFLAGS=/Tpe /L$(WXLIBDIR);$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS =
+!endif
+CPPFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+
+CLIENT_OBJECTS = client.obj
+SERVER_OBJECTS = server.obj
+
+.$(SRCSUFF).obj:
+	bcc32 $(CPPFLAGS) -c {$< }
+
+.c.obj:
+	bcc32 $(CPPFLAGS) -P- -c {$< }
+
+all:	$(CLIENT_TARGET).exe $(SERVER_TARGET).exe
+
+$(CLIENT_TARGET).exe:	$(CLIENT_OBJECTS) $(CLIENT_TARGET).def $(CLIENT_TARGET).res
+  tlink32 $(LINKFLAGS) @&&!
+c0w32.obj $(CLIENT_OBJECTS)
+$(CLIENT_TARGET)
+nul
+$(LIBS)
+$(CLIENT_TARGET).def
+!
+        brc32 -K $(CLIENT_TARGET).res
+
+client.obj:      client.$(SRCSUFF) client.h
+
+$(CLIENT_TARGET).res :      $(CLIENT_TARGET).rc $(WXDIR)\include\msw\wx.rc
+    brc32 -r /i$(BCCDIR)\include /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa $(CLIENT_TARGET)
+
+
+$(SERVER_TARGET).exe:	$(SERVER_OBJECTS) $(SERVER_TARGET).def $(SERVER_TARGET).res
+  tlink32 $(LINKFLAGS) @&&!
+c0w32.obj $(SERVER_OBJECTS)
+$(SERVER_TARGET)
+nul
+$(LIBS)
+$(SERVER_TARGET).def
+!
+        brc32 -K $(SERVER_TARGET).res
+
+server.obj:      server.$(SRCSUFF) server.h
+
+$(SERVER_TARGET).res :      $(SERVER_TARGET).rc $(WXDIR)\include\msw\wx.rc
+    brc32 -r /i$(BCCDIR)\include /i$(WXDIR)\include\msw /i$(WXDIR)\contrib\fafa $(SERVER_TARGET)
+
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.rws
+
+

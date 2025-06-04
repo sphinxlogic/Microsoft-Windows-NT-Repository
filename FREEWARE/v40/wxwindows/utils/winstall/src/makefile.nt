@@ -1,0 +1,108 @@
+#
+# File:		makefile.nt
+# Author:	Julian Smart
+# Created:	1993
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds Tex2RTF on Windows NT
+#
+
+EXTRALIBS=lz32.lib
+!include <..\..\..\src\ntwxwin.mak>
+
+TEX2RTFDIR = $(WXDIR)\utils\winstall
+TEX2RTFINC = $(TEX2RTFDIR)\src
+PROGRAM=install
+DOCDIR=$(WXDIR)\docs
+LOCALDOCDIR=$(WXDIR)\utils\winstall\docs
+LIBS = $(EXTRALIBS) $(WINLIBS)
+
+OBJECTS = install.obj utils.obj
+
+all:    install.exe
+
+wx:
+        cd $(WXDIR)\src
+        nmake -f makefile.nt
+        cd $(TEX2RTFDIR)\src
+
+$(PROGRAM).exe:      $(OBJECTS) $(PROGRAM).res
+	$(link) @<<
+-out:$(PROGRAM).exe
+$(LINKFLAGS)
+$(OBJECTS) $(PROGRAM).res
+$(LIBS)
+<<
+
+$(PROGRAM).res :      $(PROGRAM).rc
+    $(rc) -r -fo$@ $(PROGRAM).rc
+
+install.obj: install.$(SRCSUFF) install.h utils.h
+	cl @<<
+$(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+utils.obj: utils.$(SRCSUFF) install.h utils.h
+	cl @<<
+$(CPPFLAGS2) /c /Tp $*.$(SRCSUFF)
+<<
+
+clean:
+        -erase *.obj
+        -erase *.sbr
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.pdb
+
+cleanall:
+        erase *.exe *.obj *.pch *.res
+
+DOCSOURCES=$(LOCALDOCDIR)\install.tex
+
+html: $(DOCDIR)\html\winstall\inst.htm
+hlp: $(DOCDIR)\winhelp\install.hlp
+#ps: $(DOCDIR)\ps\winstall.ps
+ps:
+        @echo Not doing winstall.ps. Doesn't work.
+
+$(DOCDIR)\winhelp\install.hlp:         $(LOCALDOCDIR)\install.rtf $(LOCALDOCDIR)\install.hpj
+        cd $(LOCALDOCDIR)
+        -erase install.ph
+        hc install
+        move install.hlp $(DOCDIR)\winhelp\install.hlp
+        move install.cnt $(DOCDIR)\winhelp\install.cnt
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\install.rtf: $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -start /w tex2rtf $(LOCALDOCDIR)\install.tex $(LOCALDOCDIR)\install.rtf -twice -winhelp
+        cd $(THISDIR)
+
+$(DOCDIR)\html\winstall\inst.htm:         $(DOCSOURCES)
+        cd $(LOCALDOCDIR)
+        -mkdir $(DOCDIR)\html\winstall
+        -start /w tex2rtf $(LOCALDOCDIR)\install.tex $(DOCDIR)\html\winstall\inst.htm -twice -html
+        -erase $(DOCDIR)\html\winstall\*.con
+        -erase $(DOCDIR)\html\winstall\*.ref
+        cd $(THISDIR)
+
+$(LOCALDOCDIR)\install.dvi:	$(DOCSOURCES)
+	cd $(LOCALDOCDIR)
+        -latex install
+        -latex install
+        -makeindx install
+        -bibtex install
+        -latex install
+        -latex install
+        cd $(THISDIR)
+
+$(WXDIR)\docs\ps\winstall.ps:	$(LOCALDOCDIR)\install.dvi
+	cd $(LOCALDOCDIR)
+        -dvips32 -o winstall.ps install
+        move winstall.ps $(WXDIR)\docs\ps\winstall.ps
+        cd $(THISDIR)
+
+

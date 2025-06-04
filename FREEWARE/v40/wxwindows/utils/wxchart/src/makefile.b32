@@ -1,0 +1,81 @@
+#
+# File:		makefile.b32
+# Author:	Patrick Halke
+# Created:	1995
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds 32bit wxChart library for Windows 3.1
+# and Borland C++ 4.x
+
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makeb32.env
+
+WXLIB = $(WXDIR)\lib
+WXINC = $(WXDIR)\include\msw
+WXBASESRC = $(WXDIR)\src\base
+WXBASEINC = $(WXDIR)\include\base
+
+WXLIB = $(WXLIBDIR)\wx32.lib
+LIBTARGET= ..\lib\wxchart.lib
+
+LIBS=$(WXLIB) $(LIBTARGET) cw32 import32
+
+TARGET=test
+
+!ifndef DEBUG
+DEBUG=0
+!endif
+
+!if "$(FINAL)" == "0"
+LINKFLAGS=/v /Tpe /L$(WXLIBDIR);/L../lib;$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS= -v -DDEBUG=$(DEBUG)
+!else
+LINKFLAGS=/Tpe /L$(WXLIBDIR);/L../lib;$(BCCDIR)\lib
+OPT = -O2
+DEBUG_FLAGS = -DDEBUG=$(DEBUG)
+!endif
+
+CPPFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG)
+
+.$(SRCSUFF).obj:
+	bcc32 $(CPPFLAGS) -c {$< }
+
+.cpp.obj:
+	bcc32 $(CPPFLAGS) -c {$< }
+
+.c.obj:
+	bcc32 $(CPPFLAGS) -P- -c {$< }
+
+OBJECTS = lbchart.obj dataset.obj
+
+TESTOBJECTS = test.obj shapes.obj
+
+all:    $(LIBTARGET)
+
+$(LIBTARGET):	$(OBJECTS)
+	erase $(LIBTARGET)
+	tlib $(LIBTARGET) /P32 @&&!
++$(OBJECTS:.obj =.obj +)
+!
+
+$(TARGET).exe:	$(TESTOBJECTS) $(LIBTARGET) $(TARGET).def $(TARGET).res
+  tlink32 $(LINKFLAGS) @&&!
+c0w32.obj $(TESTOBJECTS)
+$(TARGET)
+nul
+$(LIBS)
+$(TARGET).def
+!
+        brc32 -K $(TARGET).res
+
+lbchart.obj:	lbchart.cpp
+dataset.obj:	dataset.cpp
+shapes.obj:	shapes.cpp
+test.obj:	test.cpp
+
+clean:
+        -erase *.obj $(LIBTARGET) *.exe *.res *.map *.rws

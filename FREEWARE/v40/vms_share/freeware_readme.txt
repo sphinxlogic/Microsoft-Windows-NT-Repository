@@ -1,0 +1,407 @@
+VMS_SHARE, UTILITIES, Pack multiple files into a form suitable for mailing
+
+			  A B S T R A C T
+
+
+  VMS_SHARE is designed to package a series of files into a multi-part
+  share file suitable for mailing across a network. Files are encoded to
+  be resistant to the corruption that many mailers and networks
+  generate.  When all parts of the share file are combined and run as a
+  command procedure, the packaged directory tree is recreated in its
+  original format.
+
+
+
+  This software is copyright (C) of the author and comes with no
+  warranties either expressed or implied.  It may be distributed free of
+  charge to anyone who may require a copy, provided that all copyright
+  notices remain intact. Any problems arising from its use are entirely
+  the responsibility of the user.
+
+
+  Andy Harper
+  Systems Manager
+  Computing Centre
+  Kings College London
+  The Strand
+  London WC2R 2LS
+  England
+
+  Tel:  +44 (0) 71 873 2347
+  E-mail:   UDAA055 @ UK.AC.KCL.CC.OAK (JANET)
+            UDAA055%OAK.CC.KCL.AC.UK @ NSFNET-RELAY.AC.UK (INTERNET)
+
+
+        	TECHNICAL INFORMATION ABOUT VMS_SHARE
+
+    								Version 8.4
+    								May 1993
+
+
+
+1. INTRODUCTION
+
+VMS_SHARE is designed to package a series of files into a form that can be 
+easily mailed across many different networks. Difficulties arise with doing 
+this because of the many and varied possibilities for corruption of data in 
+transit.  For example, line wrapping, case folding, transposition of key 
+characters etc.
+
+VMS_SHARE encodes files before transmission so that these things may be kept 
+under control and proper restoral effected at the receiving end.
+
+For a given series of files to be packaged, VMS_SHARE combines them into a 
+single large 'text archive' file that can be unpacked into its component files 
+simply by running it as a command procedure at the receiving end. For 
+convenience, VMS_SHARE will optionally split the result into multiple parts 
+that can be individually mailed and recombined at the receiving end.
+
+NOTE - VMS_SHARE is designed for Digital VAX or Alpha systems running the VMS
+operating system. It will not work on other operating systems/hardware, and
+minimum operating system versions must be observed.
+
+
+
+2. WHAT VMS_SHARE DOES NOT DO
+
+Because VMS_SHARE relies on electronic mail to ship the files, there are no 
+protocols that can be used to check the accuracy of the received file(s). 
+There is a reliance on the underlying mail system to get everything there in 
+one piece and unchanged.  VMS_SHARE is unable to ask for retransmission of 
+missing or damaged pieces.
+
+VMS_SHARE should therefore be used to send files only via essentially reliable 
+mail systems which can get files, whose characters fall within certain bounds, 
+there intact.
+
+VMS_SHARE is intended for sequential files only. Other file formats can be
+packaged into a backup saveset, whose file format is supported by VMS_SHARE
+
+
+
+3. LIMITATIONS OF MAILERS AND HOW VMS_SHARE GETS AROUND THEM
+
+Various mail systems have different limitations within them. For instance, 
+they will wrap or truncate lines that are too long, they may limit the size of 
+an individual mail message, they may transpose characters incorrectly if the 
+underlying character set is different from the transmitter (ASCII/EBCDIC is a
+good example of this). 
+
+VMS_SHARE encodes the files in different ways to get around the problems.
+Please note however, that the encoding techniques are NOT foolproof. We have
+merely tried to anticipate all possible corruptions and devise an encoding
+scheme which ensures that the conditions under which corruption occurs does not
+arise. If a form of corruption that has not been anticipated occurs, corruption
+to the transmitted files will be irreparable except through manual editing. 
+
+
+
+3.1 Maximum Size of a Mail Message
+
+Many mail systems cannot cope with single mail messages larger than a fixed 
+number of bytes and will truncate messages or maybe even fail to deliver them 
+altogether.
+
+This is a real problem if a large software package is being sent.  VMS_SHARE 
+tries to overcome this by splitting the packaged files into several parts, 
+each part being smaller than some fixed size. By default, a part size of 30
+blocks is chosen; this can be overriden by defining a logical name
+(SHARE_PART_SIZE) or by a qualifier on the command line (/PART_SIZE=nn). For
+example, we might send a  total of 300 blocks of code as 10 parts each of 30
+blocks or less. VMS_SHARE  will automatically split at the 30 block boundary.
+
+It should be noted that mail headers added on route can account for several
+blocks worth of extra space so this should be realised when setting the
+maximum part size.
+
+
+
+
+3.2 Maximum Line Length
+
+Many mail systems do not like lines longer than some fixed maximum length, a 
+maximum length of 80 characters is typical. This results in longer lines being
+wrapped or truncated at seemingly arbitrary positions. 
+
+VMS_SHARE tries to cope with this by wrapping long lines itself and inserting 
+markers to allow them to be rejoined at the receiving end. What VMS_SHARE does 
+is to prefix each line with a flag character. This flag character says EITHER 
+'this is the first part of a line' OR 'this line is a continuation of the 
+previous line'.
+
+The maximum line size is configured into the code as a global value and  can be
+easily changed if required. It is not intended that this value should  be
+altered by the average user however.
+
+
+
+
+3.3 Trailing Blanks
+
+Some mailers interfere with blanks at the start and end of lines. VMS_SHARE
+encodes blanks (and tabs) as if they were troublesome characters (see below)
+to get around this. During unpacking of an encoded file, any blank characters
+are ignored.
+
+
+
+
+3.4 Escaped Characters
+
+Undoubtedly the biggest problem is that a mail message moving through many 
+different systems on route to the destination may undergo character 
+conversions (for example - ASCII to EBCDIC if moving from VAX to an IBM). 
+Unfortunately, not all systems keep similar translation tables and characters 
+can get translated into something unexpected at the remote end. Culprits are 
+caret (^), tilde (~), square and curly brackets ( [ ] { } ) and a few others.
+
+VMS_SHARE deals with this problem by replacing each of the troublesome 
+characters - the ones mentioned above plus any non-printing character - by an
+escape sequence. The escape sequence is recognized at the receiving end and is 
+translated back to the original character.  Obviously, to work correctly, the 
+escape sequence itself must be immune from translation problems. 
+
+The escape technique used is to replace each character by a string of the form
+`xx   where the ` symbol flags the start of an escape sequence and 'xx' is a
+2-digit string which is the hexadecimal form of the ASCII code for the
+character. Naturally, the ` character itself must be escaped in this form to
+avoid confusion. For example, a space would be replaced by  `20   and a tab
+by  `09. 
+
+
+
+3.5 Additional Compression Techniques
+
+Two additional forms of character encoding can be optionally selected by the
+user to reduce the size of the packaged data - either run-length encoding or a
+modified form of Lempel-Ziv compression.
+
+A file compressed with one of these options will be automatically decompressed
+when unpacked. It is not necessary for the recipient to use external
+decompression tools.
+
+
+3.5.1 Run-Length Encoding
+
+A form of run length encoding is used to encode sequences of the same character
+into a 5 character sequence. In this instance, the generated sequence is:
+
+   &nnXX
+
+where & is the run length sequence flag, nn is the count (in hex) of
+characters, and ZZ is the hex code of the ascii character.  For example, a run
+of 15 spaces would be replaced by  &0F20 (`0F' = 15, `20' = hex code for
+space).
+
+The use of run length encoding dramatically increases the time spent on
+encoding the files. In many cases, it will be of no benefit. Because of this it
+is not active by default.
+
+
+3.5.2 Lempel-Ziv Compression
+
+The Lempel-Ziv algorithm scans for common substrings in a file and replaces
+them by a pointer back to a previous occurrence within the file. For this
+implementation, a number of changes have been made to the basic idea to fit the
+restrictions of the TPU utility, and the line wrapping and quoting schemes used
+for long lines and non-printable characters.
+
+The file is scanned for the longest previously occurring substring and is
+replaced by an escape sequence of the form:
+
+   \bbll
+
+where \ is the flag to indicate an lz encoded string, bb is a 2 digit hex
+encoded backwards count to the start of the original string, and ll is a two
+digit hex encoded length. Because of the 2 digit hex encoding, the maximum
+backwards search distance is 255 bytes and the maximum length is also 255
+bytes. Therefore up to 255 bytes can be compressed to a 5 char sequence in the
+optimal case. In practice, compression ratios are nothing like as dramatic.
+
+This form of compression is very slow in operation due to the repeated
+searching for substrings that have previously occurred. Some optimisations have
+been made to the searching but it should still be selected only if it is
+certain to be of some benefit.
+
+
+
+3.6 Detecting Damaged Files with Checksums
+
+In cases where some corruption occurs despite the encodings used by VMS_SHARE, 
+detection of damage (BUT NOT REPAIR!) should be possible because each file is 
+checked for accuracy using a checksum once it has been unpacked.
+
+VMS_SHARE uses the currently undocumented CHECKSUM command to produce a 
+checksum value for the source file. This checksum is carried across in the 
+packed share file and checked when the file is restored. A failed match causes 
+a message and the receiver can take action to try to locate and repair the 
+damage.
+
+The DCL command:
+
+     $ CHECKSUM filename
+
+writes the checksum value into a DCL symbol called CHECKSUM$CHECKSUM.
+
+The CHECKSUM command does not work with files that have certain types of
+records (specifically, those with an MRS value of 0 and records exceeding 2048
+bytes). Therefore, VMS_SHARE cannot verify such files. Unfortunately, for the
+same reason, VMS_SHARE is unable package such files at all, so an error message
+is issued and the file is skipped.
+
+
+4. VMS_SHARE IMPLEMENTATION
+
+VMS_SHARE is provided as a combination of DCL and TPU code in order to ensure 
+that it will run on any VMS system.  A specific program would be faster of 
+course but then portability is not guaranteed.
+
+The DCL part of the software is used merely to pick up parameters and
+qualifiers, and parse filenames, passing them to the TPU code in a scratch
+file.
+
+The TPU code does the hard work of packaging the files, wrapping lines, 
+escaping characters, compressing if requested,  and generating multiple parts.
+
+As distributed, the DCL and TPU code are bundled into a single large procedure 
+but there is no reason why the TPU code could not be extracted and made into a 
+section file for enhanced speed. The modifications required are quite 
+straightforward.
+
+
+4.1 Long Lines
+
+Because the code is based upon TPU, some limitations are imposed upon
+VMS_SHARE. In particular, early versions of TPU (pre-VMS 5.4 on VAX) do not
+allow records longer than 960 bytes so it is impossible to package them.
+Versions of TPU at VMS 5.4 and beyond (VAX) or any OpenVMS (Alpha) allow
+records up to 65535 bytes, so the problem virtually disappears. For
+compatibility, VMS_SHARE still uses the old record length unless requested by
+the user with the /LONGLINES qualifier. Use of this requires a minimum VMS of
+5.4 (VAX), or any OpenVMS (Alpha) and the generated share file will unpack only
+on VMS 5.4 or greater (VAX), or any OpenVMS (Alpha).
+
+TPU file handling is limited. Files can only be written with variable length
+records and CR carriage control. To allow other formats to be packaged,
+VMS_SHARE encodes selected file record attributes into the share file and uses
+the CONVERT utility to restore those attributes during the unpacking phase. In
+principle, this allows VMS_SHARE to package files of most types, including
+.EXE, .OBJ and .BCK files. In the case of .BCK files, this is subject to the
+BACKUP block length being compatible with the maximum record length selected by
+the user (960 or 65535 as appropriate). Allowing BACKUP savesets to be packaged
+allows files of all other types to be packaged, provided they are first stored
+in a saveset. BACKUP requires a minimum block length of 2048 bytes, so the long
+line support is a pre-requisite for this.
+
+
+4.2 Part Size Determination
+
+The size of a part is conceptually simple. Find the size of a buffer in bytes
+and divide by 512 to get the number of blocks it will occupy. However, this is
+complicated by several things.
+
+First, TPU does not count line ends when returning the `LENGTH' of a buffer.
+Second, when a buffer is written to disk, there is a 2 byte overhead on each
+record giving the length of the record. Finally, within a disk block, a record
+always starts on a word boundary so that some records may be padded with an
+additional null byte.
+
+To accurately determine how much disk space a buffer would occupy would involve
+some complex computations. However, since we know that each record has either a
+2 byte or a 3 byte overhead we can get a reasonably accurate approximation by
+taking the LENGTH of the buffer and adding 3 bytes for each record. We use 3
+bytes to allow for the worst case and ensure that the part, when written to
+disk, never exceeds the specified part size. In practice, this means that parts
+will sometimes be less than the part size - the discrepancy grows as the part
+size is increased.
+
+
+
+5. USING VMS_SHARE
+
+As distributed, VMS_SHARE is run as a command procedure (usually via a 
+suitable symbol set up to point to it) thus:-
+
+     $ @VMS_SHARE filespecs sharefile
+
+where 'filespecs' is a comma separated list of wildcarded filenames to be 
+packaged, and 'sharefile' is the name to be given to the packaged files. Each
+part of the sharefile will be suffixed by a part number in the form:
+
+    nnn-OF-mmm
+
+where nnn is the part number and mmm is the total number of parts.
+
+There are some restrictions on the filenames that can be used:
+
+     - Subdirectories may be used provided that they are beneath the current
+       directory. It is not permitted to package files in other directories.
+
+     - At least one valid file must be given in 'filespecs' or no sharefile
+       will be produced.
+
+
+6. UNPACKING A VMS_SHARE FILE
+
+In general, a package delivered using the VMS_SHARE software will arrive in a 
+number of parts, from 1 up to 'n'.  All parts should be concatenated together 
+in order. It is NOT necessary to remove superfluous mail headers from any part 
+other than part 1 prior to concatenation.
+
+The resulting combined file should then be executed as a command procedure in 
+order to unpack the resulting files.
+
+
+
+6.1 Typical Unpack Sequence
+
+A typical sequence of events goes like this:
+
+ - Set your default directory to a scratch directory which is empty.
+
+ - Go into MAIL and select the folder which contains the parts of the
+   package.
+
+ - Extract part 1 into a file, using the command 'EXTRACT/NOHEADER        file'
+   Extract part 2 into a file, using the command 'EXTRACT/NOHEADER/APPEND file'
+   ...
+   ...
+   Extract part n into a file, using the command 'EXTRACT/NOHEADER/APPEND file'
+
+ - Read warning below BEFORE proceeding!!!
+
+ - Execute as a command procedure, using the following command:
+      $ @file
+
+
+
+6.2 Warning
+
+It is strongly suggested that the generated command procedure ('file.SHAR' in 
+the above example) be carefully checked before execution. It is possible that 
+unscrupulous persons might tamper with the source before sending it and 
+introduce a virus into the VMS_SHARe'd code. There is nothing that VMS_SHARE 
+can do about this automatically. However, since all the files should be human 
+readable it should be possible to detect fraudulent code by manual checking.
+Certainly the lines starting with '$' symbols, and the TPU code near the
+start, should be checked carefully as these are most likely to be troublesome.
+
+
+
+
+7. DECLARATION AND DISCLAIMER
+
+This software is in the public domain and may be freely distributed without 
+charge as required. However, all copyright notices and references to the
+author in the source must be left intact. 
+
+Third party modifications may be made to the source but any errors arising 
+from their use are entirely the responsibility of the modifier.
+
+The author accepts no responsibility for the suitability of this software for
+any specific purpose. Any errors arising from its use are entirely the
+responsibility of the user. 
+
+
+Andy Harper
+Kings College London UK

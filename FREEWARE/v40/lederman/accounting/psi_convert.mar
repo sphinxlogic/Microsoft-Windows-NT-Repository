@@ -1,0 +1,494 @@
+ 	.TITLE	PSI_Convert - PSI Accounting record conversion.
+	.IDENT	/1.45/
+
+; This program converts VAX PSI accounting records to fixed format for
+; processing by Datatrieve (or other languages which would have a hard
+; time with the "screwy" un-normalized accounting file format).
+;
+; There are a few fields referenced here which the comments say
+; are always blank (based on information in the PSI manuals).  The
+; reason they are included is because they are not blank in
+; system accounting records, and I wanted the record layout to
+; match data which may be produced by a similar program acting
+; upon the system accounting records.
+;
+; B. Z. Lederman	14-Apr-1987
+;			15-Apr-1987	Add record type
+;					add selectable file names
+;			08-Sep-1987	Make names consistant
+;			03-May-1996	Conditionals for Alpha
+
+	.ENABLE	SUPPRESSION
+
+; Include:
+
+	.LIBRARY	'SYS$LIBRARY:PSILIB'
+
+;
+;  Define ALPHA if R22 is a register and not a symbol (from Hunter Goatley)
+;
+	.NTYPE	...IS_IT_ALPHA,R22		;Get the type of R22
+	...IS_IT_ALPHA = <...IS_IT_ALPHA@-4&^XF>-5
+	.IIF EQ,...IS_IT_ALPHA,	ALPHA=1
+
+; Macro library calls
+
+	$PSIDEF			; Define VAX PSI symbols
+	$SSDEF			; Define status codes
+	$ACRDEF			; Accounting record definitions
+	$NAMDEF			; RMS names defined.
+
+	.PSECT	RWDATA, WRT, NOEXE, LONG
+
+; RMS control blocks - these are first to make them longword aligned
+;
+; Input FAB
+;
+; The default input file is actually set by the Command Language
+;	Descriptor file.
+
+ACC_FAB:
+	$FAB	FAC = GET, -			; Only GETs are required
+		DNM = <PSIACCOUNTNG.DAT>, -	; default file name
+		SHR = <GET, PUT, UPI>, -	; shared
+		FOP = SQO			; Sequential access only
+
+; Input RAB
+
+ACC_RAB:
+	$RAB	FAB = ACC_FAB, -		; Associated FAB
+		ROP = RAH, -			; Read ahead
+		UBF = ACC_REC, -		; User buffer address
+		USZ = ACC_REC_LEN		; User buffer size
+
+; Output FAB
+;
+; The default output file is actually set by the CLD file.
+
+OUT_FAB:
+	$FAB	FAC = PUT, -			; Access for $PUTs
+		DNM = <PSIACCOUNTING.FIX>, -	; File name
+		FOP = <TEF, -			; Truncate at end of file
+			SQO>, -			; Sequential access only
+		RAT = CR, -			; CR carriage control
+		RFM = VAR			; Variable length records
+
+; Output RAB
+
+OUT_RAB:
+	$RAB	FAB = OUT_FAB, -		; Associated FAB
+		RBF = OUT_REC, -		; Output buffer
+		RSZ = OUT_REC_LEN, -		; Record size
+		ROP = WBH			; Write behind
+
+
+; Input file name stuff
+
+ACC_FSPEC:
+	.LONG	NAM$C_MAXRSS
+	.LONG	ACC_FSPEC_BUF
+ACC_FSPEC_BUF:
+	.BLKB	NAM$C_MAXRSS
+ACC_FSPEC_LEN:
+	.BLKW	1
+ACC_FILE_QUAL:
+	.ASCID	/INPUT_FILE/
+
+; Output file name stuff
+
+OUT_FSPEC:
+	.LONG	NAM$C_MAXRSS
+	.LONG	OUT_FSPEC_BUF
+OUT_FSPEC_BUF:
+	.BLKB	NAM$C_MAXRSS
+OUT_FSPEC_LEN:
+	.BLKW	1
+OUT_FILE_QUAL:
+	.ASCID	/OUTPUT_FILE/
+
+; Accounting record buffer
+
+ACC_REC_LEN == 	512
+ACC_REC:
+	.BLKB	ACC_REC_LEN
+
+; Output record buffer:
+;	fields are named to make moves easier and
+;	to make re-arraingement of fields easier.
+;	This version has the ID fields first,
+;	then PSI (termination) fields.
+
+OUT_REC:
+
+TYPE:	.BLKW	1		; Record Type
+SYSTIME:			; end time
+	.BLKQ	1
+
+PID:	.BLKL	1		; start ID packet
+PIDOWN:	.BLKL	1
+UIC:	.BLKL	1
+PRIV:	.BLKQ	1
+PRIO:	.BLKB	1
+USERNAME:
+	.BLKB	12
+ACCOUNT:
+	.BLKB	8
+NODE:	.BLKB	6
+TERMINAL:
+	.BLKB	6
+JOBNAME:
+	.BLKB	12
+JOBID:	.LONG	0
+QUEUE:	.BLKB	32
+NODEADDR:
+	.BLKW	1
+REMID:	.BLKB	16
+
+STARTIME:			; start PSI (termination) packet
+	.BLKQ	1		; start time (not always filled in)
+DEST:	.BLKB	32		; destination
+REMDTE:	.BLKB	14		; Remote DTE number called
+LOCDTE:	.BLKB	14		; Local DTE number calling
+NETWORK:
+	.BLKB	16
+PVC:	.BLKB	6		; perminent virtual circuit name
+LCN:	.BLKW	1		; Logical channel number
+B_OUT:	.BLKL	1
+B_IN:	.BLKL	1		; bytes in, out
+S_OUT:	.BLKL	1
+S_IN:	.BLKL	1		; segments in, out
+P_OUT:	.BLKL	1
+P_IN:	.BLKL	1		; packets in, out
+M_OUT:	.BLKL	1
+M_IN:	.BLKL	1		; messages in, out
+INCTHR:	.BLKW	1		; incomming throughput class
+OUTTHR:	.BLKW	1		; outgoing throughput class
+INCWIN:	.BLKW	1		; incomming window
+OUTWIN:	.BLKW	1
+INCPAK:	.BLKW	1
+OUTPAK:	.BLKW	1
+CUG:	.BLKW	1
+FACREQ:	.BLKW	1
+CLRFAC:	.BLKB	16
+CALFAC:	.BLKB	16
+ACCFAC:	.BLKB	16
+REASON:	.BLKB	1
+CAUSE:	.BLKB	1
+DIAG:	.BLKB	1
+UNIT:	.BLKB	6		; NV or NW unit used
+PROTO:	.BLKB	4
+
+OUT_REC_LEN ==  .-OUT_REC
+
+
+	.PSECT	CODE, NOWRT, EXE, LONG
+
+; The program opens the input and output files.
+; It then loops through each record moving the fields.
+;
+; Any error status returned from a system service or an RMS service
+; is emitted on exit, otherwise SS$_NORMAL
+
+	.ENTRY	PSI_CONVERT, ^M<>
+
+; See if the user specified an input file
+
+	PUSHAL	ACC_FILE_QUAL		; is there an input (P1) parameter?
+	CALLS	#1, G^CLI$PRESENT
+	BLBC	R0, 10$			; branch if not
+
+	PUSHAL	ACC_FSPEC		; get the file specification
+	PUSHAL	ACC_FILE_QUAL
+	CALLS	#2, G^CLI$GET_VALUE
+;					check and skip if error
+	PUSHAL	ACC_FSPEC_LEN
+	PUSHAL	ACC_FSPEC
+	PUSHAL	ACC_FSPEC
+	CALLS	#3, G^STR$TRIM		; trim off trailing blanks
+
+	$FAB_STORE -			; put real name into FAB
+		FAB = ACC_FAB, -
+		FNA = @ACC_FSPEC+4, -	; address
+		FNS = ACC_FSPEC_LEN	; real length
+10$:
+
+; Open accounting file
+
+	$OPEN	FAB = ACC_FAB
+	BSBW	ERROR
+
+	$CONNECT -
+		RAB = ACC_RAB
+	BSBW	ERROR
+
+; See if user specified an output file
+
+	PUSHAL	OUT_FILE_QUAL		; is there an /OUTPUT qualifier?
+	CALLS	#1, G^CLI$PRESENT
+	BLBC	R0, 20$			; branch if not
+
+	PUSHAL	OUT_FSPEC		; get the file specification
+	PUSHAL	OUT_FILE_QUAL
+	CALLS	#2, G^CLI$GET_VALUE
+;					check and skip if error
+	PUSHAL	OUT_FSPEC_LEN
+	PUSHAL	OUT_FSPEC
+	PUSHAL	OUT_FSPEC
+	CALLS	#3, G^STR$TRIM		; trim off trailing blanks
+
+	$FAB_STORE -			; put real name into FAB
+		FAB = OUT_FAB, -
+		FNA = @OUT_FSPEC+4, -	; address
+		FNS = OUT_FSPEC_LEN	; real length
+20$:
+
+; Open output file
+
+	$CREATE	FAB = OUT_FAB
+	BSBW	ERROR
+
+	$CONNECT -
+		RAB = OUT_RAB
+	BSBW	ERROR
+
+; Main loop
+
+
+NEXT_RECORD:
+	$GET	RAB = ACC_RAB			; Read record
+	BLBS	R0, 20$				; If LBS - read was ok
+	CMPL	R0, #RMS$_EOF			; Is it end of file ?
+	BNEQ	10$				; If EQL - all done
+	BRW	FINISH
+10$:
+	BSBW	ERROR				; Show the error
+
+20$:
+
+
+; Check if this is a PSI record
+
+	CMPZV	#ACR$V_VERSION, #ACR$S_VERSION, -
+		ACC_REC+ACR$W_TYPE, #ACR$K_VERSION3
+					; Is this a format I understand ?
+	BNEQ	NEXT_RECORD		; If NE - no
+
+	CMPZV	#ACR$V_TYPE, #ACR$S_TYPE, -
+		ACC_REC+ACR$W_TYPE, #ACR$K_PSI
+						; Is this a PSI record ?
+	BNEQ	NEXT_RECORD			; If NE - no
+
+	CMPZV	#ACR$V_SUBTYPE, #ACR$S_SUBTYPE, -
+		ACC_REC+ACR$W_TYPE, #ACR$K_PSI_VCT
+						; Is it a circuit termination ?
+	BNEQ	NEXT_RECORD			; If NE - no
+
+
+; It is a PSI circuit termination record
+;
+; Find the start of the PSI circuit termination packet
+
+	MOVZWL	ACC_REC+ACR$W_LENGTH, R8	; Length of record
+	ADDL2	#ACC_REC, R8			; End of the record
+	MOVAB	ACC_REC+ACR$K_HDRLEN, R7	; Start of the first packet
+
+30$:	CMPZV	#ACR$V_TYPE, #ACR$S_TYPE, -
+		ACR$W_TYPE(R7), #ACR$K_PSI	; PSI packet ?
+	BNEQ	40$				; If NE - no, try again
+	MOVAB	(R7), R9			; Save start of PSI packet
+	BRB	50$
+
+40$:	CMPZV	#ACR$V_TYPE, #ACR$S_TYPE, -
+		ACR$W_TYPE(R7), #ACR$K_ID
+					; ID packet ?
+	BNEQ	50$			; If NE - no, try again
+	MOVAB	(R7), R10		; Save start of ID packet
+50$:	MOVZWL	ACR$W_LENGTH(R7), R1	; Length of this packet
+	ADDL2	R1, R7			; Try next packet
+	CMPL	R7, R8			; End of record ?
+	BLSS	30$			; If LS - not end of record, try again
+
+	MOVAB	ACC_REC, R8		; Get start of record in register
+
+; R8 = start address of record
+; R9 = start address of PSI packet
+; R10 = start address of ID packet
+;
+; Move data from input to output area.
+
+
+MOVEIT:
+
+	MOVW	ACR$W_TYPE(R8), TYPE		; Record Type
+	MOVQ	ACR$Q_SYSTIME(R8), SYSTIME	; System (finish) time
+
+; Begin ID packet
+
+	MOVL	ACR$L_PID(R10), PID		; process ID
+	MOVL	ACR$L_OWNER(R10), PIDOWN	; owning process ID
+	MOVL	ACR$L_UIC(R10), UIC		; UIC
+	MOVQ	ACR$Q_PRIV(R10), PRIV		; privileges at termination
+	MOVB	ACR$B_PRI(R10), PRIO		; priority
+
+	MOVZWL	ACR$W_USERNAME(R10), R1		; Offset of username (ID packet)
+	ADDL2	R10, R1				; Add base of ID packet to
+						; obtain address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #12, USERNAME	; move characters blank fill
+
+	MOVZWL	ACR$W_ACCOUNT(R10), R1		; Offset of account
+	ADDL2	R10, R1				; Address of account
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #8, ACCOUNT	; move characters blank fill
+	MOVZWL	ACR$W_NODENAME(R10), R1		; Offset of nodename
+	ADDL2	R10, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #6, NODE		; move characters blank fill
+	MOVZWL	ACR$W_TERMINAL(R10), R1		; Offset of terminal
+	ADDL2	R10, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #6, TERMINAL	; move characters blank fill
+
+; Jobname is always blank for PSI
+
+	MOVZWL	ACR$W_JOBNAME(R10), R1		; Offset of jobname
+	ADDL2	R10, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #12, JOBNAME	; move characters blank fill
+	MOVL	ACR$L_JOBID(R10), JOBID		; always zero for PSI
+
+	MOVZWL	ACR$W_QUEUE(R10), R1		; Offset of queue (always blank)
+	ADDL2	R10, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #32, QUEUE	; move characters blank fill
+
+	MOVW	ACR$W_NODEADDR(R10), NODEADDR	; node address
+
+	MOVZWL	ACR$W_REMOTEID(R10), R1		; Offset of remote process
+	ADDL2	R10, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #16, REMID	; move characters blank fill
+
+; Begin Termination packet
+
+	MOVQ	ACR$Q_PSI_START_TIME(R9), STARTIME ; start time
+
+	MOVZWL	ACR$W_PSI_DESTINATION(R9), R1	; Offset of destination
+	ADDL2	R9, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #32, DEST	; move characters blank fill
+
+	MOVZWL	ACR$W_PSI_RDTE(R9), R1		; Offset of Remote DTE
+	ADDL2	R9, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #14, REMDTE	; move characters blank fill
+
+	MOVZWL	ACR$W_PSI_LDTE(R9), R1		; Offset of Local DTE
+	ADDL2	R9, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #14, LOCDTE	; move characters blank fill
+
+	MOVZWL	ACR$W_PSI_NETWORK(R9), R1	; Offset of Network name
+	ADDL2	R9, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #16, NETWORK	; move characters blank fill
+
+	MOVZWL	ACR$W_PSI_PVC_NAME(R9), R1	; Offset of PVC name
+	BEQL	10$				; (usually isn't any)
+	ADDL2	R9, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #6, PVC		; move characters blank fill
+
+10$:	MOVW	ACR$W_PSI_LCN(R9), LCN		; logical channel number
+	MOVL	ACR$L_PSI_BYTES_TX(R9), B_OUT
+	MOVL	ACR$L_PSI_BYTES_RX(R9), B_IN
+	MOVL	ACR$L_PSI_SEGMENTS_TX(R9), S_OUT
+	MOVL	ACR$L_PSI_SEGMENTS_RX(R9), S_IN
+	MOVL	ACR$L_PSI_PACKETS_TX(R9), P_OUT
+	MOVL	ACR$L_PSI_PACKETS_RX(R9), P_IN
+	MOVL	ACR$L_PSI_MESSAGES_TX(R9), M_OUT
+	MOVL	ACR$L_PSI_MESSAGES_RX(R9), M_IN
+
+	MOVW	ACR$W_PSI_INC_THRU(R9), INCTHR
+	MOVW	ACR$W_PSI_OUT_THRU(R9), OUTTHR
+	MOVW	ACR$W_PSI_INC_WINDOW(R9), INCWIN
+	MOVW	ACR$W_PSI_OUT_WINDOW(R9), OUTWIN
+	MOVW	ACR$W_PSI_INC_PSIZE(R9), INCPAK
+	MOVW	ACR$W_PSI_OUT_PSIZE(R9), OUTPAK
+	MOVW	ACR$W_PSI_CUG_NUMBER(R9), CUG
+	MOVW	ACR$W_PSI_FAC_REQ(R9), FACREQ
+
+	MOVZWL	ACR$W_PSI_CLEAR_FACS(R9), R1	; Offset of clearing fac.
+	ADDL2	R9, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #16, CLRFAC	; move characters blank fill
+	MOVZWL	ACR$W_PSI_CALL_FACS(R9), R1	; Offset of calling facs
+	ADDL2	R9, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #16, CALFAC	; move characters blank fill
+	MOVZWL	ACR$W_PSI_ACCEPT_FACS(R9), R1	; Offset of accepted facs
+	ADDL2	R9, R1				; Address
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #16, ACCFAC	; move characters blank fill
+
+	MOVB	ACR$B_PSI_REASON(R9), REASON
+	MOVB	ACR$B_PSI_CAUSE(R9), CAUSE
+	MOVB	ACR$B_PSI_DIAG(R9), DIAG
+
+	MOVZWL	ACR$W_PSI_UNIT(R9), R1		; Offset of unit (NV or NW)
+	ADDL2	R9, R1				; Address of account
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #6, UNIT		; move characters blank fill
+
+	MOVZWL	ACR$W_PSI_PROTOCOL(R9), R1	; Offset of protocol
+	ADDL2	R9, R1				; Address of account
+	MOVZBL	(R1)+, R0			; get length of string
+	MOVC5	R0, (R1), #32, #4, PROTO	; move characters blank fill
+
+
+	MOVAB	OUT_REC, OUT_RAB+RAB$L_RBF	; Fill in record buffer address
+	MOVW	#OUT_REC_LEN, OUT_RAB+RAB$W_RSZ	; and size
+
+
+; Output the record
+
+	$PUT	RAB = OUT_RAB
+	BSBW	ERROR
+
+	BRW	NEXT_RECORD		; get next record
+
+
+FINISH:
+	$CLOSE	FAB = ACC_FAB
+	BSBW	ERROR
+
+; Close the output file
+
+	$CLOSE	FAB = OUT_FAB
+	BSBW	ERROR
+
+	$EXIT_S	CODE = #SS$_NORMAL
+
+	RET				; needed for Alpha
+
+; If any errors occur, the program exits with the error status
+
+	.ALIGN	QUAD
+
+.IF DEFINED ALPHA
+
+ERROR:	.JSB32_ENTRY	PRESERVE=R0
+
+.IFF
+
+ERROR:					; Check system service status (in R0)
+
+.ENDC
+	BLBC	R0, ERR			; If low bit clear then error occurred
+	RSB				; No errors so return
+
+ERR:
+	$EXIT_S	-			; Error occurred so exit
+		CODE = R0		;  with status
+
+	.END	PSI_CONVERT		; Start of main routine

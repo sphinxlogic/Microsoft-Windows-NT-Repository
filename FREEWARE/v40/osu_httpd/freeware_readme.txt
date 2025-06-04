@@ -1,0 +1,41 @@
+HTTP_SERVER, Utilities, OSU HTTP server using DECthreads
+
+Version 2.0 of the OSU DECthreads HTTP server was made the official current
+release on 1-MAY-1996.  The software is distributed in source form in either
+tar file or zip file format and is available for HTTP download via links
+at URL http://kcgl1.eng.ohio-state.edu/www/doc/serverinfo.html or anonymous
+FTP to host osu.edu.
+
+Host system requirements:
+   OpenVMS 5.5 or higher or Digital Unix 3.2 (DECthreads bundled with OS)
+   DEC C or VAX C compiler
+   Digital TCP/IP services, Cisco Multinet, Wollongong Pathway,
+	Process Software, or CMUIP TCP/IP software.
+
+The major functional enhancments of 2.0 over 1.x are:
+
+   - POSIX 1003.1c compatible (VMS V7 DECthreads, which will eventualy support
+     kernel threads).
+
+   - Request keep-alive support (biggest impact on sites with pages containing
+     many images).  STATISTICS management request reports re-use statistics.
+
+   - Time limits on receipt of request or sending of response (configurable).
+
+   - PUT method supported with Netscape navigator gold.
+
+   - New option in CGI_SYMBOLS to save POST content to file, allowing improved
+     PERL support in WWWEXEC.COM.
+
+   - User directories supported under Digital Unix.
+
+--------------------------------------------------------------------------
+
+David L. Jones               |      Phone:    (614) 292-6929
+Ohio State Unviversity       |      Internet:
+2070 Neil Ave. Rm. 122       |               jonesd@kcgl1.eng.ohio-state.edu
+Columbus, OH 43210           |               vman+@osu.edu
+
+Disclaimer: Dogs can't tell it's not bacon.
+
+

@@ -1,0 +1,114 @@
+#
+# File:		makefile.bcc
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds PROLOGIO library
+
+# Change WXDIR to wherever wxWindows is found
+WXDIR = $(WXWIN)
+!include $(WXDIR)\src\makebcc.env
+
+WXLIB = $(WXDIR)\lib\wx.lib
+WXINC = $(WXDIR)\include
+CFG = $(WXWIN)\src\wxwin.cfg
+BCCDIR = d:\bc4
+
+PROLOGDIR = $(WXDIR)\utils\prologio
+PROLOGINC = $(PROLOGDIR)\src
+PROLOGLIB = $(PROLOGDIR)\lib\prologio.lib
+
+FAFALIB = $(WXDIR)\contrib\fafa\fafa.lib
+ITSYLIB = $(WXDIR)\contrib\itsybits\itsy.lib
+
+DOCDIR = $(PROLOGDIR)\docs
+DOCUTILSDIR = $(WXDIR)\utils\tex2rtf\src
+THISDIR = $(PROLOGDIR)\src
+
+# Default is to output RTF for WinHelp
+!ifndef WINHELP
+WINHELP=-winhelp
+!endif
+
+INC=/I$(WXDIR)\include\base /I$(WXDIR)\include\msw
+
+LIBS=$(PROLOGLIB) $(WXLIB) $(FAFALIB) $(ITSYLIB) cwl import mathwl \
+  $(WXDIR)\contrib\ctl3d\ctl3dv2.lib
+
+!if "$(FINAL)" == "0"
+LINKFLAGS=/v/Vt /Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+OPT = -Od
+DEBUG_FLAGS= -v
+!else
+LINKFLAGS=/Twe /L$(WXDIR)\lib;$(BCCDIR)\lib
+OPT = -O2
+DEBUG_FLAGS=
+!endif
+CFLAGS=$(DEBUG_FLAGS) $(OPT) /DUSE_DEFINE @$(CFG)
+CPPFLAGS=$(DEBUG_FLAGS) $(OPT) @$(CFG) /DUSE_DEFINE
+
+SOURCES = read.$(SRCSUFF) y_tab.c lex.yy.c
+HEADERS = read.h expr.h prorpc.h
+OBJECTS = read.obj y_tab.obj # prorpc.obj
+
+all:    $(PROLOGLIB) # test.exe
+
+.$(SRCSUFF).obj:
+	bcc $(CPPFLAGS) -c {$< }
+.c.obj:
+	bcc $(CPPFLAGS) -P- -c {$< }
+
+$(PROLOGLIB):      $(OBJECTS)
+        erase $(PROLOGLIB)
+        tlib /P128 @&&!
+$(PROLOGLIB) &
++$(OBJECTS:.obj =.obj +)
+!
+
+read.obj:	read.$(SRCSUFF) $(PROLOGINC)\read.h $(PROLOGINC)\expr.h
+prorpc.obj: prorpc.$(SRCSUFF) $(PROLOGINC)\read.h $(PROLOGINC)\expr.h
+y_tab.obj:	y_tab.c lex_yy.c $(PROLOGINC)\read.h $(PROLOGINC)\expr.h
+
+# *** These lines ensure you don't need
+# *** YACC or FLEX
+y_tab.c:    dosyacc.c
+    copy dosyacc.c y_tab.c
+
+lex_yy.c:    doslex.c
+    copy doslex.c lex_yy.c
+
+# *** This is how you would recreate the files
+# *** using the YACC and FLEX. Then you'd have to
+# edit out the malloc and free prototypes for Borland
+# because Borland don't like 'em one little bit
+#y_tab.c:	parser.y
+#	yacc parser.y
+
+#lex_yy.c:     lexer.l
+#        flex -8 -t lexer.l > lex_yy.c
+
+test.obj: test.$(SRCSUFF)
+
+test.res :      test.rc $(WXDIR)\include\msw\wx.rc
+    rc /i$(BCCDIR)\include /i$(WXDIR)\include\msw -r test
+
+test.exe:      test.obj test.def test.res $(HYPLIB)
+        tlink $(LINKFLAGS) @&&!
+c0wl.obj test.obj
+test
+nul
+$(LIBS)
+test.def
+!
+        rc -K test.res
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.res
+		-erase ..\lib\*.lib
+

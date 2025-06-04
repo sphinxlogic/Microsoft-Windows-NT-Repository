@@ -1,0 +1,95 @@
+/*
+*****************************************************************************
+*									    *
+*  Copyright (c) 1988							    *
+*  by DIGITAL Equipment Corporation, Maynard, Mass.			    *
+* 									    *
+*  This software is furnished under a license and may be used and  copied   *
+*  only  in  accordance  with  the  terms  of  such  license and with the   *
+*  inclusion of the above copyright notice.  This software or  any  other   *
+*  copies  thereof may not be provided or otherwise made available to any   *
+*  other person.  No title to and ownership of  the  software  is  hereby   *
+*  transferred.							 	    *
+* 									    *
+*  The information in this software is subject to change  without  notice   *
+*  and  should  not  be  construed  as  a commitment by DIGITAL Equipment   *
+*  Corporation.							   	    *
+* 									    *
+*  DIGITAL assumes no responsibility for the use or  reliability  of  its   *
+*  software on equipment which is not supplied by DIGITAL.		    *
+*									    *
+*****************************************************************************
+
+facility:
+
+	SDL (Structure Definition Language)
+
+
+author:
+	Jeff Goodenough
+
+*/
+
+/*			C H A N G E    L O G
+
+      Date	| Name	| Description
+________________|_______|______________________________________________________
+    22-Feb-1988	|  jg	| X3.2-0  Process a conditional node (created using
+		|	|	  DO_ENTRY as a model)
+________________|_______|______________________________________________________
+*/
+
+
+/****************************************************************/
+/*								*/
+/* DO_CONDITIONAL processes an conditional node.		*/
+/*								*/
+/****************************************************************/
+
+do_conditional: proc(cur_node,level);
+					    /********************/
+					    /*			*/
+					    /* DO_CONDITIONAL	*/
+					    /*			*/
+					    /********************/
+%include 'sdl$library:sdlnodef.in';
+
+%replace lang_name by 'BASIC';
+%replace true by '1'b;
+%replace false by '0'b;
+
+/* declare variables */
+declare
+    cur_node pointer,			    /* pointer to the current node  */
+    level fixed binary(31),		    /* level in the aggregate	    */
+    buf char(1024) var initial(''),	    /* output buffer		    */
+    p pointer,
+    process_conditional bit init(false);
+
+DCL OUTPUT_BUF ENTRY (
+	character(1024) VARYING );
+
+DCL ADD_COMMENTS ENTRY (
+	pointer,
+	character(1024) VARYING );
+
+DCL DO_CHILDREN ENTRY (
+	pointer,
+	fixed binary(31) );
+
+
+    /* Search for this language in the list */
+
+    p = cur_node->nod$a_typeinfo2->nod$a_flink;
+    do while (^process_conditional & p->nod$b_type = nod$k_objnode);
+	if p->nod$t_name = lang_name then process_conditional = true;
+	p = p->nod$a_flink;
+    end;
+
+    if process_conditional then do;
+	call add_comments(cur_node,buf);
+	call output_buf(buf);
+	call do_children(cur_node,level-1); /* process children at same level */
+	end;
+
+end do_conditional;

@@ -1,0 +1,87 @@
+#
+# makefile for xpmshow
+#
+# File:		makefile.unx
+# Author:	Julian Smart
+# Created:	1995
+# Updated:	
+# Copyright:	(c) 1995, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+
+WXDIR = ../../..
+
+# All common UNIX compiler flags and options are now in
+# this central makefile.
+include $(WXDIR)/src/make.env
+
+INC = -I$(WXDIR)/include/base -I$(WXDIR)/include/x
+OBJDIR=objects$(GUISUFFIX)
+
+XVIEWLDLIBS = -lwx_ol -lxview -lolgx -lX11 -lm $(COMPLIBS)
+MOTIFLDLIBS = -lwx_motif -lXm -lXt -lX11 -lm $(COMPLIBS)
+HPLDLIBS = -lwx_hp -lXm -lXt -lX11 -lm $(HPCOMPLIBS)
+
+# Default
+LDLIBS=$(XVIEWLDLIBS)
+
+CPPFLAGS = $(XINCLUDE) $(INC) $(OPTIONS) $(GUI) $(DEBUGFLAGS) -DDEBUG='$(DEBUG)' $(WARN) $(OPT) -L.
+
+OBJECTS = $(OBJDIR)/xpmshow.$(OBJSUFF)
+
+.SUFFIXES:
+
+all:    wx$(GUISUFFIX) $(OBJDIR) xpmshow$(GUISUFFIX)
+
+wx_ol:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx xview OPT='$(OPT)' DEBUG='$(DEBUG)'
+
+wx_motif:
+	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx motif OPT='$(OPT)' DEBUG='$(DEBUG)'
+
+linux_motif_sl:
+	#cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx motif OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx GUI='-Dwx_motif -D_LINUX_DLL' OPT='$(OPT)' DEBUG='$(DEBUG)' GUISUFFIX=_motif LDLIBS='$(MOTIFLDLIBS)' XVIEW_LINK=
+
+motif:
+	#cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx motif OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx all GUI=-Dwx_motif OPT='$(OPT)' DEBUG='$(DEBUG)' GUISUFFIX=_motif LDLIBS='$(MOTIFLDLIBS)' XVIEW_LINK=
+
+xview:
+	#	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx xview OPT='$(OPT)' DEBUG='$(DEBUG)'
+	$(MAKE) -f makefile.unx GUI=-Dwx_xview OPT='$(OPT)' GUISUFFIX=_ol DEBUG='$(DEBUG)'
+
+hp:
+	#	cd $(WXDIR)/src/x; $(MAKE) -f makefile.unx hp
+	$(MAKE) -f makefile.unx GUI=-Dwx_motif GUISUFFIX=_hp CC=CC DEBUG='$(DEBUG)' DEBUGFLAGS='' WARN='-w' \
+           XINCLUDE='-I/usr/include/Motif1.2 -I/usr/include/X11R5' \
+           XLIB='-L/usr/lib/Motif1.2 -L/usr/lib/X11R5' \
+           XVIEW_LINK='' \
+           LDLIBS='-lwx_hp -lXm -lXt -lX11 -lm'
+
+$(OBJDIR):
+	mkdir $(OBJDIR)
+
+xpmshow$(GUISUFFIX): $(OBJDIR)/xpmshow.$(OBJSUFF) $(OBJECTS_LIB) $(WXLIB)
+	$(CC) $(LDFLAGS) -o xpmshow$(GUISUFFIX) \
+			$(OBJDIR)/xpmshow.$(OBJSUFF) $(XVIEW_LINK) $(LDLIBS)
+
+$(OBJDIR)/xpmshow.$(OBJSUFF): xpmshow.$(SRCSUFF) xpmshow.h
+	$(CC) -c $(CPPFLAGS) -o $@ xpmshow.$(SRCSUFF)
+
+clean_motif:
+	$(MAKE) -f makefile.unx GUISUFFIX=_motif cleanany
+
+clean_ol:
+	$(MAKE) -f makefile.unx GUISUFFIX=_ol cleanany
+
+clean_ol:
+	$(MAKE) -f makefile.unx GUISUFFIX=_ol cleanany
+
+clean_hp:
+	$(MAKE) -f makefile.unx GUISUFFIX=_hp cleanany
+
+cleanany:
+	rm -f $(OBJECTS) xpmshow$(GUISUFFIX) core
+

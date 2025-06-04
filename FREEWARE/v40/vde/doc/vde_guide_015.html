@@ -1,0 +1,817 @@
+<!-- VDE_GUIDE_015.HTML continuation of VDED$:[VDE.VDEDOC.DOC]VDE_GUIDE.HTML -->
+<html>
+<head>
+<title>VDE</title>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">VDE<br>Guide to Using<br> VDE</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_014.html#bottom_014">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+
+<hr>
+
+<a name="db_defrag"><h1><font color=maroon>7.7 Defragmenting the CMS Library</font></h1></a>
+
+<p>
+This section contains a simple set of procedures used to defragment the 
+CMS portion of the VDE database using the OpenVMS 
+BACKUP utility, using the steps appropriate for a VDE 
+database located on a shadow set.
+<a name="index_x_581"></a>
+<a name="index_x_582"></a>
+
+<p>
+The following example assumes the VDE database is at 
+ddcu:[vde]VDE$DATABASE.RDB, and the CMS libraries are located on the 
+$11$DSA1: shadow set device, a shadow set comprised of $11$DUA10: and 
+$11$DUA11:. $11$DUA100: is assumed to be a scratch disk equivilent to 
+$11$DUA10: and $11$DUA11:.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ RMU/CLOSE/CLUSTER/ABORT=DELPRC ddcu:[vde]VDE$DATABASE.RDB 
+$ DISMOUNT/CLUSTER $11$DSA1: 
+$ MOUNT/OVER=(SHADOW,IDENT)/NOWRITE $11$DUA10: 
+$ MOUNT/OVER=(SHADOW,IDENT)/NOWRITE $11$DUA11: 
+$ MOUNT/FOREIGN $11$DUA100: 
+$ BACKUP/IMAGE $11$DUA10: $11$DUA100:/VERIFY/INITIALIZE 
+$ DISMOUNT/NOUNLOAD $11$DUA10: 
+$ MOUNT/FOREIGN $11$DUA10: 
+$ BACKUP/PHYSICAL $11$DUA100: $11$DUA10: 
+$ DISMOUNT/NOUNLOAD $11$DUA11: 
+$ MOUNT/FOREIGN $11$DUA11: 
+$ BACKUP/PHYSICAL $11$DUA100: $11$DUA11: 
+$ MOUNT $11$DSA1:/SHADOW=($11$DUA10:,$11$DUA11:) - 
+_$ VMSCMSMASTER DISK$VMSCMSMASTER 
+</pre>
+</font>
+</table>
+
+The above steps quickly bring the defragmented database shadow set 
+volumes into synchronization. While the shadow set copy operation could 
+also be used to resynchronize the defragmented volume, shadowing merge 
+performance is not tuned for this particular (infrequent) situation; it 
+is far slower than the double BACKUP/PHYSICAL shown above.
+
+<a name="db_reloc"><h1><font color=maroon>7.8 Relocating Rdb Components</font></h1></a>
+
+<p>
+It is normally best to use the Rdb RMU/BACKUP and RMU/RESORE 
+commands to relocate a database. As this is not always possible, the 
+following commands are used to close and then to relocate various 
+individual Rdb component files associated with the 
+VDE Rdb database:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ DEFINE/SYSTEM/EXECUTIVE VDE$OFFLINE "offline for move"
+$ RMU/CLOSE/CLUSTER/ABORT=DELPRC/WAIT -
+_$ VDE$:[ROOTDIR]VDE$DATABASE
+$  ! BACKUP or COPY the database files to the new location
+$  RMU/ALTER LIBDEV$:[PROJ]VDE$DATABASE.RDB
+RdbALTER&gt; deposit file RDB$SYSTEM SNAPSHOT -
+_RdbALTER&gt; SPECIFICATION="LIBDEV_SNAP$:[VDE$ROOT.DB_SNAPSHOT]VDE$DATABASE.SNP;1"
+RdbALTER&gt; deposit file RDB$SYSTEM -
+_RdbALTER&gt; SPECIFICATION="LIBDEV_AREA$:[VDE$ROOT.DB_STORAGE]VDE$DATABASE.RDA;1"
+RdbALTER&gt; deposit root specification="LIBDEV_ROOT$:[VDE$ROOT]VDE$DATABASE.RDB;1"
+RdbALTER&gt; commit
+RdbALTER&gt; ^Z
+$  ! Now adjust any VDE$SYSTARTUP.COM definitions associated
+$  ! with the database to reflect the new location, and also
+$  ! adjust the live logical name definitions on all cluster
+$  ! members as appropriate.
+$ DEASSIGN/SYSTEM/EXECUTIVE VDE$OFFLINE
+</pre>
+</font>
+</table>
+
+<a name="index_x_583"></a>
+<a name="index_x_584"></a>
+<a name="index_x_585"></a>
+<a name="index_x_586"></a>
+Note that RMU/ALTER does <em>not</em> currently support continuation 
+characters such as the hyphen; the hyphen in the above example is used 
+to strictly for readability.
+
+<a name="db_recreate"><h1><font color=maroon>7.9 Recreating Rdb Components</font></h1></a>
+
+<p>
+As part of the process described in <a href="vde_guide_015.html#db_reloc">Section 7.8</a>, you may sometimes 
+need to recreate the snapshot file and the after-image journal (AIJ) 
+file, via the following commands:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$  RMU/REPAIR/AREA=RDB$SYSTEM/INITIALIZE=SNAPSHOT  -
+_$  VDE$:[ROOTDIR]VDE$DATABASE.RDB
+$  RMU/SET AFTER_JOURNAL VDE$:[ROOTDIR]VDE$DATABASE.RDB;1 -
+_$  /DISABLE
+$  RMU/SET AFTER_JOURNAL VDE$:[ROOTDIR]VDE$DATABASE.RDB;1 -
+_$  /DROP=(NAME=RDB$JOURNAL) -
+$  RMU/SET AFTER_JOURNAL VDE$:[ROOTDIR]VDE$DATABASE.RDB;1 -
+_$  /ADD=(NAME=RDB$JOURNAL, -
+_$  FILE=LIBDEV_SNAP$:[VDE$ROOT.DB_JOURNAL]VDE$DATABASE.AIJ) 
+$  RMU/SET AFTER_JOURNAL VDE$:[ROOTDIR]VDE$DATABASE.RDB;1 -
+_$  /ENABLE
+</pre>
+</font>
+</table>
+
+<a name="index_x_587"></a>
+<a name="index_x_588"></a>
+<a name="index_x_589"></a>
+<a name="index_x_590"></a>
+<a name="index_x_591"></a>
+<a name="index_x_592"></a>
+<a name="index_x_593"></a>
+<a name="index_x_594"></a>
+
+<p>
+Also, the following command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$  RMU/REPAIR/ABM VDE$:[ROOTDIR]VDE$DATABASE.RDB;1
+</pre>
+</font>
+</table>
+
+can be of interest if the RMU/VERIFY command detects inconsistencies 
+among the ABM and SPAM pages in the database.
+<a name="index_x_595"></a>
+<a name="index_x_596"></a>
+<a name="index_x_597"></a>
+<a name="index_x_598"></a>
+<a name="index_x_599"></a>
+
+<p>
+The AIJTERMINATE error
+<a name="index_x_600"></a>
+ can arise when the journal file is inaccessable, or when it is 
+ corrupted. Typically, an AIJTERMINATE error is generated whenever any 
+ operation attempts to access a database after a journal file problem 
+ has been detected by Rdb.
+<a name="index_x_601"></a>
+<a name="index_x_602"></a>
+<a name="index_x_603"></a>
+<a name="index_x_604"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$  VDE
+$  SET LIBRARY libname
+%RDMS-F-AIJTERMINATE, inaccessible AIJ file forced image exit to protect database
+</pre>
+</font>
+</table>
+
+The following sequence of commands can be used to recreate the journal 
+file:
+<a name="index_x_605"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$  RMUE/SHOW AFTER VDE$DATABASE.RDB
+JOURNAL IS ENABLED -
+    RESERVE 1 -
+    ALLOCATION IS 512 -
+    EXTENT IS 512 -
+    OVERWRITE IS DISABLED -
+    SHUTDOWN_TIMEOUT IS 60 -
+    NOTIFY IS DISABLED -
+    BACKUPS ARE MANUAL -
+    CACHE IS DISABLED
+ADD JOURNAL RDB$JOURNAL -
+    FILE VDE$JOURNAL:VDE$DATABASE
+$  RMUE/SET AFTER VDE$DATABASE.RDB/DISABLE
+$  RMUE/SET AFTER VDE$DATABASE.RDB/DROP=NAME=RDB$JOURNAL
+$  RMUE/SET AFTER VDE$DATABASE.RDB -
+_$  /ADD=(NAME=RDB$JOURNAL,FILE=VDE$DATABASE.AIJ)
+%RMU-W-DOENBLAIJ, after-image journaling must be enabled to ensure recovery
+$   RMUE/SET AFTER VDE$DATABASE.RDB/ENABLE
+%RMU-W-DOFULLBCK, full database backup should be done to ensure future recovery
+$ ! backup both the journal file, and the database file, now...
+</pre>
+</font>
+</table>
+
+The names and locations of the database and the journal file will 
+typically need to be included in the above commands.
+
+<p>
+Also of interest may be the output from the command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$  RMU/DUMP/HEADER/OPTIONS=DEBUG VDE$DATABASE.RDB
+</pre>
+</font>
+</table>
+
+<a name="index_x_606"></a>
+<a name="index_x_607"></a>
+As the AIJ_STATUS value can indicate what happened with the journal 
+file. (Seeing AIJ_STATUS = 1. indicates that the journal file could not 
+be opened.) Also check for any RDSBUGCHK.DMP files.
+<a name="index_x_608"></a>
+
+<p>
+<hr size=5>
+<font color=maroon>
+<a name="build_sys"><h1>Chapter 8<br>Building your Software System</h1></a>
+</font>
+
+<p>
+<em>The software building capabilities described in this chapter have 
+not been completely debugged.</em>
+
+<p>
+<em>This chapter contains preliminary information. Large sections of 
+this chapter are currently under construction...</em>
+
+<p>
+This chapter describes how to use the VDE builder utility 
+to...
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Note</strong></font></center><hr size=1 noshade>
+<font color=black>
+The VDE utility and the VDE„ are shown in this 
+chapter. The VSC utility is intended to be used only with 
+the OpenVMS VAX source code library. </font>
+    </td>
+  </tr>
+</table>
+</center>
+
+<a name="build_sys_dep_graph"><h1><font color=maroon>8.1 Build Dependency Graphs</font></h1></a>
+
+<p>
+<em>Section under construction...</em>
+
+<p>
+<em>Section under construction...</em>
+
+<a name="build_sys_algo"><h1><font color=maroon>8.2 Central Build Algorithm</font></h1></a>
+
+<p>
+<em>Section under construction...</em>
+
+<a name="build_sys_crebld"><h1><font color=maroon>8.3 Creating Build Jobs</font></h1></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_609"></a>
+<a name="index_x_610"></a>
+<a name="index_x_611"></a>
+
+<a name="build_sys_runbld_show"><h1><font color=maroon>8.4 Displaying Build Jobs</font></h1></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_612"></a>
+<a name="index_x_613"></a>
+<a name="index_x_614"></a>
+
+<a name="build_sys_runbld"><h1><font color=maroon>8.5 Running Build Jobs</font></h1></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_615"></a>
+<a name="index_x_616"></a>
+<a name="index_x_617"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE„ START BUILD_JOB V2-BL5"
+</pre>
+</font>
+</table>
+
+<em>Section under construction...</em>
+
+<a name="build_sys_runbld_start"><h2>8.5.1 Starting Build Jobs</h2></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_618"></a>
+<a name="index_x_619"></a>
+<a name="index_x_620"></a>
+
+<a name="build_sys_runbld_stop"><h2>8.5.2 Stopping Build Jobs</h2></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_621"></a>
+<a name="index_x_622"></a>
+<a name="index_x_623"></a>
+
+<a name="build_sys_runbld_suspend"><h2>8.5.3 Suspending Build Jobs</h2></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_624"></a>
+<a name="index_x_625"></a>
+<a name="index_x_626"></a>
+
+<a name="build_sys_runbld_wait"><h2>8.5.4 Waiting for Build Jobs</h2></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_627"></a>
+<a name="index_x_628"></a>
+<a name="index_x_629"></a>
+
+<a name="build_sys_script"><h1><font color=maroon>8.6 Scripts for Build Step Execution</font></h1></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_630"></a>
+<a name="index_x_631"></a>
+<a name="index_x_632"></a>
+<a name="index_x_633"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE„ CREATE SCRIPT DEVD$:[DIR]FILENAME.VDESCRIPT
+</pre>
+</font>
+</table>
+
+<a name="build_sys_perf_step"><h1><font color=maroon>8.7 Performing Individual Build Steps</font></h1></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_634"></a>
+<a name="index_x_635"></a>
+<a name="index_x_636"></a>
+
+<a name="build_sys_perf_copy"><h2>8.7.1 Copy Steps</h2></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_637"></a>
+<a name="index_x_638"></a>
+<a name="index_x_639"></a>
+<a name="index_x_640"></a>
+<a name="index_x_641"></a>
+<a name="index_x_642"></a>
+To cancel a module reservation without replacing the module, use the
+
+<a name="build_sys_perf_comp"><h2>8.7.2 Compile Steps</h2></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_643"></a>
+<a name="index_x_644"></a>
+<a name="index_x_645"></a>
+<a name="index_x_646"></a>
+<a name="index_x_647"></a>
+<a name="index_x_648"></a>
+To cancel a module reservation without replacing the module, use the
+
+<a name="build_sys_perf_link"><h2>8.7.3 Link Steps</h2></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_649"></a>
+<a name="index_x_650"></a>
+<a name="index_x_651"></a>
+<a name="index_x_652"></a>
+<a name="index_x_653"></a>
+<a name="index_x_654"></a>
+To cancel a module reservation without replacing the module, use the
+
+<a name="build_sys_init_dep"><h1><font color=maroon>8.8 Initializing the Dependency Graph</font></h1></a>
+
+<p>
+<em>Section under construction...</em>
+<a name="index_x_655"></a>
+<a name="index_x_656"></a>
+<a name="index_x_657"></a>
+<a name="index_x_658"></a>
+<a name="index_x_659"></a>
+
+<p>
+<hr size=5>
+<font color=maroon>
+<a name="architectures"><h1>Chapter 9<br>Architecture Support</h1></a>
+</font>
+
+<p>
+This chapter provides an overview and a general description of how to 
+use the multiple-architecture support present within VDE
+
+<a name="arch_roots"><h1><font color=maroon>9.1 Architectures in the Source Code Library Roots</font></h1></a>
+
+<p>
+VDE architecture support adds the 
+<strong>arch-variant</strong>, the architecture variant. One
+<a name="index_x_660"></a>
+<a name="index_x_661"></a>
+<a name="index_x_662"></a>
+processor-independent root is present---&quot;VMS&quot; -- and zero or 
+more processor-dependent variants can be created. <em>Previous versions 
+of VDE included implicit support for arch-variants, and all 
+such versions use &quot;VMS&quot; as the name of the processor 
+architecture independent arch-variant.</em>
+
+<p>
+As a specific example of adding arch-variants, one can support both 
+OpenVMS Alpha and OpenVMS VAX development in parallel if the 
+OpenVMS source code libraries are logically reorganized as 
+follows:
+
+<ul>
+  <li>The VMS arch-variant directory contains the facility subdirectories 
+  for all architecture independent modules in OpenVMS. There is a 
+  CMS library within the
+<a name="index_x_663"></a>
+VMS arch-variant for each facility that contains at least one 
+architecture-independent module.
+  <li>Subdirectories within the VAX arch-variant directory contain CMS 
+  libraries for all facilities that contain at least one module specific 
+  to the VAX architecture. Likewise, subdirectories within the Alpha 
+  arch-variant directory contain CMS libraries for all facilities that 
+  contain at least one module specific to the Alpha architecture.
+  <li>If a module is architecture-independent, it is only represented in 
+  a CMS library within the VMS arch-variant. When a module becomes 
+  architecture-specific, it is turned into two modules so that a CMS 
+  element is created for it within both the VAX and the Alpha 
+  arch-variants. The CMS element within the VMS arch-variant remains 
+  since it contains the module's contents for all old development 
+  streams. In the VMS arch-variant, the stream (CMS class) in which the 
+  module was made architecture-specific is bound to a generation whose 
+  text says that the module is now architecture-specific. In the the VAX 
+  and Alpha arch-variants, this stream is bound to the initial 
+  generations of the new architecture-specific modules in those 
+  arch-variants. These new generations have the same contents as the 
+  latest generation in the VMS arch-variants before the module was made 
+  architecture-specific. Thereafter, the three modules (the VMS, VAX, and 
+  Alpha modules, all with the same module name) evolve separately as 
+  separate CMS elements.
+  <li>If a new module is specific to a single architecture, that module 
+  is only represented in a CMS library within the VAX or the Alpha 
+  arch-variant, whichever architecture applies. New modules specific to 
+  OpenVMS Alpha, for example, will only appear within the Alpha 
+  arch-variant.
+</ul>
+
+<p>
+The structure described here is not a proposed structure, but the 
+actual structure as it is presently implemented.
+
+<a name="arch_commands"><h1><font color=maroon>9.2 Commands to Specify Multiple Architectures</font></h1></a>
+
+<p>
+To support multiple architectures within a source code library 
+structure, the VDE source control system must represent the 
+concept of an architecture in its module-name syntax and in its 
+database. The module-name syntax we will use in this specification is 
+ARCH:[FAC]MOD.TYP. Here ARCH is the architecture of the module: VMS for 
+architecture-independent modules and VAX or Alpha for 
+architecture-specific modules. The remaining fields ([FAC]MOD.TYP) have 
+the normal meanings explained earlier in this document. The 
+architecture field is optional; if it is omitted, a user-settable 
+default architecture is supplied.
+
+<p>
+To set up architecture information in the source control database, the 
+VDE utility supports the following command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE„ CREATE ARCHITECTURE VAX
+</pre>
+</font>
+</table>
+
+<p>
+This command creates an architecture entry in the database and assigns 
+the architecture a name and a remark string. This command is only used 
+when the database is initially set up (and whenever we invent 
+additional architectures in the future). In addition, the VDE utility 
+supports a MODIFY ARCHITECTURE command (to change the remark string), a 
+DELETE ARCHITECTURE command (to correct mistakes in defining 
+architectures), and a SHOW ARCHITECTURE command. The SHOW ARCHITECTURE 
+command displays information about all defined architectures. The SHOW 
+DEFAULTS command shows the current default architecture, along with 
+other defaults.
+<a name="index_x_664"></a>
+<a name="index_x_665"></a>
+<a name="index_x_666"></a>
+<a name="index_x_667"></a>
+
+<p>
+A command that is of more interest to most developers is the command 
+that establishes a default architecture for the current VSC 
+or VDE session:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VSC„ SET ARCHITECTURE Alpha
+</pre>
+</font>
+</table>
+
+<a name="index_x_668"></a>
+
+<p>
+This example specifies that Alpha is the default architecture when the 
+architecture name is omitted from module names. This command also 
+resets the default facility to be the facility in the new architecture 
+that has the same name as the current default facility. If there is no 
+such facility, the default facility setting is cleared so that the 
+default facility becomes undefined.
+
+<a name="arch_dependencies"><h1><font color=maroon>9.3 Creating Architecture-Specific Modules</font></h1></a>
+
+<p>
+The VSC and VDE utilities provide a qualifier to 
+the MODIFY MODULE command that makes a module architecture-specific by 
+creating one or more single-architecture modules from an existing 
+architecture-independent module. This is the command syntax:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE„ MODIFY MODULE/ARCHITECTURE_SPECIFIC VMS:[FACIL]FOO.BAR
+</pre>
+</font>
+</table>
+
+<p>
+This command makes module VMS:[FACIL]FOO.BAR architecture-specific by 
+creating the two modules VAX:[FACIL]FOO.BAR and Alpha:[FACIL]FOO.BAR. 
+The command fetches out the latest generation of the module for the 
+default development stream and makes that the initial generation for 
+the two new modules. It also fetches out the latest generations of any 
+successor development streams (if different) and inserts those into the 
+new modules. The default stream and its successors are thus all defined 
+for the two new architecture-specific modules. In addition, this 
+command creates a new generation of the architecture-independent module 
+in the VMS arch-variant. This generation is bound to the default stream 
+and its successors and contains fixed text that indicates that the 
+module is now architecture-specific. The database record for this 
+generation contains a flag indicating that the module is obsolete 
+because it was made architecture-specific; hence the source control 
+system can determine that the module is obsolete without actually 
+examining the text of the module.
+
+<p>
+The /ARCHITECTURE_SPECIFIC qualifier can optionally take an 
+architecture name as a parameter. If this parameter is specified, the 
+MODIFY MODULE command creates a new module for that one architecture 
+only, and not for other architectures.
+<a name="index_x_669"></a>
+
+<p>
+To make an architecture-specific module architecture-independent again, 
+a developer must first insert the appropriate generations of the module 
+into the architecture-independent module (such as VMS:[FACIL]FOO.BAR). 
+This is done with a combination of FETCH, RESERVE, REPLACE, and INSERT 
+GENERATION commands, and it must be done for all active streams. 
+Merging two architecture-specific versions of a module into one 
+architecture-independent version is thus largely a manual operation. 
+Thereafter, the module must be marked as obsolete for each such stream 
+in the two single-architecture modules (for example, VAX:[FACIL]FOO.BAR 
+and Alpha:[FACIL]FOO.BAR).
+
+<p>
+To create a new module which is specific to a single architecture, a 
+user enters the CREATE MODULE command, specifying the architecture:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE„ CREATE MODULE Alpha:[FACIL]FOO.BAR
+</pre>
+</font>
+</table>
+
+<a name="index_x_670"></a>
+
+<p>
+This example creates a module for the Alpha architecture only. If the 
+module should be architecture-independent, the architecture must be 
+specified as VMS, explicitly or by default.
+
+<a name="arch_op_cmds"><h1><font color=maroon>9.4 Operation of Existing Commands</font></h1></a>
+
+<p>
+The presence of multiple architectures affects the look-up rules for 
+all commands that accept module names as parameters. Commands that 
+refer directly to modules behave a bit differently from commands that 
+refer to module generations.
+
+<p>
+Commands that refer directly to modules, such as the CREATE, MODIFY, 
+DELETE, and SHOW MODULE commands, only create or reference the module 
+in the architecture the user specified. If the architecture is not 
+specified explicitly on the module name, the command uses the default 
+architecture established by the most recent SET ARCHITECTURE command. 
+On any command where the module name may be wildcarded, the 
+architecture part may also be wildcarded. The following command thus 
+shows three modules if the module has forms that are both dependent and 
+independent of architecture:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+VDE„ SHOW MODULE *:[FACIL]FOO.BAR
+Module Alpha:[FACIL]FOO.BAR
+Module VAX:[FACIL]FOO.BAR
+Module VMS:[FACIL]FOO.BAR
+</pre>
+</font>
+</table>
+
+<p>
+Commands that refer to module generations need to look up a generation 
+of a module in a given development stream. Usually the latest 
+generation of the module in the given stream is requested. Whether such 
+a generation exists depends on the module's architecture as well as the 
+stream.
+
+<p>
+Given an architecture (specified explicitly or by default), a module, 
+and a development stream, the FETCH or RESERVE command looks up the the 
+module with the specified name in the specified architecture. If such a 
+module is found, the command looks up the latest generation of the 
+module in the requested development stream. If such a generation is 
+found and is not marked as obsolete because the module was made 
+architecture-specific, that is the generation that is fetched or 
+reserved. Otherwise, the command prints a message saying that the 
+module does not exist, is not defined in the given stream, or is 
+obsolete for the given stream. If the module was made 
+architecture-specific, the command prints the names of the 
+architectures in which the module is defined. It is then up to the user 
+to fetch or reserve the corresponding module for each desired 
+architecture.
+<a name="index_x_671"></a>
+<a name="index_x_672"></a>
+
+<p>
+A developer who primarily works on OpenVMS Alpha code may thus set his 
+or her default architecture to Alpha. He or she will get the instance 
+of the module specific to OpenVMS Alpha, if there is one, else a a 
+message indicating the module exists for the architecture VMS will be 
+displayed. A developer whose work is not focused on a specific 
+architecture could instead set his or her default architecture to VMS. 
+When fetching or reserving a module, such a developer will either get 
+the architecture-independent instance of the module or a message saying 
+that the module is defined for architecture VAX or Alpha, whichever 
+applies, or for both.
+
+<p>
+The REPLACE command does not look up generations in the same sense. It 
+looks up a reservation for a specified module and development stream on 
+the assumption that the module belongs to the architecture that the 
+user specifies, either explicitly or by default. If there is no such 
+reservation, the command prints an error message. The UNRESERVE command 
+uses the same procedure.
+<a name="index_x_673"></a>
+
+<p>
+The SHOW and MODIFY GENERATION commands only look up generations that 
+belong to the module in the architecture the user specifies (explicitly 
+or by default). Generations that have been made architecture-specific 
+are marked as such in the SHOW GENERATION output. When the SHOW 
+GENERATION command displays the list of generations that gave rise to 
+the latest generation of the module in a specified stream, it also 
+shows at what generation the module was converted from being 
+architecture-independent to being architecture-specific. The INSERT 
+GENERATION and DELETE GENERATION commands only work on the architecture 
+that the user specifies.
+<a name="index_x_674"></a>
+<a name="index_x_675"></a>
+<a name="index_x_676"></a>
+
+<a name="arch_propogations"><h1><font color=maroon>9.5 Change Propagation and Fold Records</font></h1></a>
+
+<p>
+When a module is replaced into the library, the source control system 
+may have to propagate the change from the specified development stream 
+to its successors. Change propagation and fold records have already 
+been explained for the one-architecture case. In the presence of 
+multiple architectures, the following additional rules apply:
+
+<ul>
+  <li>If the stream successor chain does not cross from the 
+  architecture-independent to the architecture-specific instance of the 
+  module being replaced, change propagation and fold record generation 
+  work as described earlier in this document.
+  <li>If the development stream successor chain crosses an architecture 
+  boundary for module [FACIL]FOO.BAR (for example, if VMS:[FACIL]FOO.BAR 
+  contains the generation in stream AETNA and VAX:[FACIL]FOO.BAR and 
+  Alpha:[FACIL]FOO.BAR contain the generations in stream PHOENIX), then 
+  the source control system generates fold records saying that the change 
+  to VMS:[FACIL]FOO.BAR must be manually propagated to modules 
+  VAX:[FACIL]FOO.BAR and Alpha:[FACIL]FOO.BAR. The same is true if the 
+  change must be propagated from an architecture-independent module to a 
+  single-architecture module.
+<a name="index_x_677"></a>
+<a name="index_x_678"></a>
+  <li>Source changes will not be propagated automatically across an 
+  architecture boundary in Version 1 of the new source control system. In 
+  general, a module will not be made architectures-specific unless its 
+  Alpha form is different from its architecture-independent form. The VAX 
+  form is more likely to be the same as the original 
+  architecture-independent form, which would make change propagation 
+  across architectures useful, but the implementation of such change 
+  propagation is difficult and will therefore be deferred. This means 
+  that change propagation across architectures must be done manually, 
+  just as folds are. Fold records will remind developers when such change 
+  propagation is required.
+  <li>If a module is architecture-specific, then a change to the Alpha 
+  module can optionally generate a fold record that reminds the user to 
+  make the same change to the VAX module, and vice versa. In this 
+  situation, the REPLACE command will ask the user whether to create such 
+  a fold record.
+<a name="index_x_679"></a>
+<a name="index_x_680"></a>
+</ul>
+
+<p>
+In summary, while VDE does include support multiple source 
+code architectures, there is no support automatic change propagation 
+across architectures. VDE does support fold records for 
+changes that span architectures.
+
+<a name="bottom_015"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_guide_014.html#bottom_014">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vde_guide_016.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_guide_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_guide_index.html">Index</a>
+</table>
+</body>
+</html>

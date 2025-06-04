@@ -1,0 +1,80 @@
+#
+# File:		makefile.dos
+# Author:	Julian Smart
+# Created:	1993
+# Updated:	
+# Copyright:	(c) 1993, AIAI, University of Edinburgh
+#
+# "%W% %G%"
+#
+# Makefile : Builds mdi example (DOS).
+# Use FINAL=1 argument to nmake to build final version with no debugging
+# info
+
+WXDIR = $(WXWIN)
+
+!include $(WXDIR)\src\makemsc.env
+
+THISDIR = $(WXDIR)\samples\mdi
+WXLIB = $(WXDIR)\lib\wx.lib
+LIBS=$(WXLIB) oldnames libw llibcew commdlg shell ddeml
+INC=/I$(WXDIR)\include\base /I$(WXDIR)\include\msw
+
+!ifndef FINAL
+FINAL=0
+!endif
+
+# Set this to nothing if using MS C++ 7
+ZOPTION=/Z7
+
+!if "$(FINAL)" == "0"
+CPPFLAGS=/AL /W3 /Zi $(ZOPTION) /G2sw /Od /YuWX_PREC.H $(INC) /Dwx_msw /Fp$(WXDIR)\src\msw\wx.pch
+LINKFLAGS=/NOD /CO /SEG:512 /ONERROR:NOEXE
+!else
+CPPFLAGS=/AL /W3 /G2sw /Ox /YuWX_PREC.H $(INC) /Dwx_msw /Fp$(WXDIR)\src\msw\wx.pch
+LINKFLAGS=/NOD /SEG:512 /ONERROR:NOEXE
+!endif
+
+HEADERS = mdi.h
+SOURCES = mdi.$(SRCSUFF)
+OBJECTS = mdi.obj
+
+all:    mdi.exe
+
+wx:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos
+        cd $(THISDIR)
+
+wxclean:
+        cd $(WXDIR)\src\msw
+        nmake -f makefile.dos clean
+        cd $(THISDIR)
+
+
+mdi.exe:      $(WXDIR)\src\msw\dummy.obj $(WXLIB) mdi.obj mdi.def mdi.res
+        link $(LINKFLAGS) @<<
+$(WXDIR)\src\msw\dummy.obj mdi.obj,
+mdi,
+NUL,
+$(LIBS),
+mdi.def
+;
+<<
+        rc -30 -K mdi.res
+
+mdi.obj:      mdi.h mdi.$(SRCSUFF)
+        cl @<<
+$(CPPFLAGS) /c /Tp $*.$(SRCSUFF)
+<<
+
+mdi.res :      mdi.rc $(WXDIR)\include\msw\wx.rc
+    rc -r /dFAFA_LIB /i$(WXDIR)\contrib\fafa /i$(WXDIR)\include\msw mdi
+
+clean:
+        -erase *.obj
+        -erase *.exe
+        -erase *.res
+        -erase *.map
+        -erase *.sbr
+        -erase *.pdb

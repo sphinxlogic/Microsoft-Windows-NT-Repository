@@ -1,0 +1,749 @@
+<!-- VDE_MANUAL_010.HTML continuation of VDED$:[VDE.VDEDOC.DOC]VDE_MANUAL.HTML -->
+<html>
+<head>
+<title>VDE</title>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">VDE<br>VDE<br> Reference Manual</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_manual_009.html#bottom_009">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_manual_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_manual_index.html">Index</a>
+</table>
+
+<hr>
+
+<hr>
+<a name="vde_cmd_cre_step"><h1><font color=maroon>CREATE STEP</font></h1></a>
+
+<p>
+<blockquote>
+<a name="index_x_266"></a>
+Defines a new build step in the VDE database. This command 
+lets you define a copy step or specify the input and output modules of 
+a compile or link step.
+
+<p>
+<strong>Requires CRESTEP privilege.</strong>
+<a name="index_x_267"></a>
+</blockquote>
+
+<hr>
+<h2>Format</h2>
+<blockquote>
+<h3>CREATE STEP step-mod-name = mod-name [, mod-name...] </h3>
+</blockquote>
+
+<hr>
+<h2>Parameters</h2>
+<blockquote>
+<h3>step-mod-name</h3>
+The name of the module that is compiled, copied, or linked by the build 
+step. This name consists of a module name and a type name separated by 
+a period (such as MOD1.PAS) and may include a facility name enclosed in 
+square brackets (such as [FACNAM]MOD1.PAS). The module name may not 
+contain wildcard characters. If no facility name is specified, the 
+current default facility is assumed.
+
+<p>
+If the step is a compile step, this module is recorded as an input to 
+the step. If the step is a link step, this module is recorded as an 
+output of the step. If the step is a copy step, this module is recorded 
+as the module that is copied (fetched out) by the step.
+<h3>mod-name</h3>
+The name of a module that you declare to be an input to or output from 
+the build step. This name consists of a module name and a type name 
+(for example, MOD1.OBJ) and may include a facility name enclosed in 
+square brackets (for example, [FACNAM]MOD1.OBJ). If no facility name is 
+specified, the current default facility is assumed.
+
+<p>
+You can declare many modules to be inputs to or outputs from the build 
+step by specifying wildcard characters in any of the three components 
+of the module name. The percent sign (%) in a name matches any single 
+character in the position it occupies and the asterisk (*) matches zero 
+or more characters in the position it occupies. Those modules whose 
+names match the wildcard pattern are recorded as inputs to or outputs 
+from the build step.
+
+<p>
+If an output module you specify does not already exist in the database, 
+the CREATE STEP command adds it to the database. Input modules must 
+already be defined in the database, however. Also, you cannot specify a 
+source module as an output of a build step.
+
+<p>
+If you specify the /COPY qualifier to create a copy step, you must omit 
+the <strong>mod-name</strong> parameters and the preceding equal sign 
+(=). A copy step fetches a module from its CMS library, but has no 
+inputs or outputs other than the module
+<a name="index_x_268"></a>
+given by the <strong>step-mod-name</strong> parameter.
+</blockquote>
+
+<hr>
+<h2>Description</h2>
+<blockquote>
+To be able to perform minimal system builds, VDE records all 
+inputs and outputs for each build step. This information is known as 
+&quot;build dependency information.&quot; The build dependency 
+information from all build steps is known collectively as the 
+&quot;build dependency graph.&quot; Normally, VDE collects 
+build dependency information automatically when you perform system 
+builds. However, for some build steps it is not possible to collect 
+this information automatically; some compilers and other tools do not 
+make this information available to VDE. For such build 
+steps, you must use the CREATE STEP command to enter the build 
+dependency information into the VDE database.
+
+<p>
+You can define three kinds of build steps with the CREATE STEP command: 
+compile steps, link steps, and copy steps. A <strong>compile 
+step</strong> processes the <strong>step-mod-name</strong> module and 
+possibly other input modules to produce one or more output modules. 
+Typically, a compile step runs a compiler of some sort on a source 
+module, but the exact semantics of the step are determined by the 
+VDE script that generates the DCL commands that perform the 
+step.
+
+<p>
+A <strong>link step</strong> produces the 
+<strong>step-mod-name</strong> module and possibly other output modules 
+from one or more input modules. Typically, a link step runs the linker 
+to produce a shareable or executable image, but again the exact 
+semantics are determined by the VDE script associated with 
+the step. Since a script can perform any action you want, a compile 
+step need not run a compiler and a link step need not run the linker. 
+To VDE, the only real difference between a compile step and 
+a link step is that a compile step is named for one of the input 
+modules while a link step is named for one of the output modules.
+
+<p>
+A <strong>copy step</strong> copies the <strong>step-mod-name</strong> 
+module from one place to another. Normally, a copy step is used to 
+fetch out a source module from its delta file (CMS element) into a 
+clear-copy file that can be used directly by subsequent build steps. 
+For example, C programs generally include various .H files in their 
+compile steps. A copy step is needed for each .H file to fetch it from 
+its CMS library
+<a name="index_x_269"></a>
+into a text file that subsequent compile steps can use. Likewise, 
+linker options files (.OPT files) must be fetched out before you can 
+use them for subsequent link steps. You must create a copy step for any 
+module that must be fetched into the VDE library's directory 
+tree during builds but which does not need any separate processing to 
+produce other output modules. For a copy step, the specified module can 
+be seen as both the input and the output of the step.
+
+<p>
+The CREATE STEP command deletes all dependency information for the 
+build step before recording the inputs and outputs you specify. Thus, 
+you can use the CREATE STEP command to completely replace the 
+dependency information for a build step. To change only some of the 
+dependency information for a step, use the MODIFY STEP command.
+
+<p>
+Build dependency information is always specific to the default 
+development stream. Different development streams in a software system 
+contain different versions of the code and generally have different 
+build dependency graphs.
+
+<p>
+To define the same build step for more than one development stream, you 
+must use the CREATE STEP command for each stream. For each stream, 
+first enter the SET STREAM command to set the development stream, then 
+enter the CREATE STEP command to enter the desired build-step 
+dependencies into the database.
+
+<p>
+When a new development stream is created, the build dependency graph 
+from the parent stream is copied to the child stream. The build 
+dependency graph then evolves independently in the two streams.
+</blockquote>
+
+<hr>
+<h2>Qualifiers</h2>
+<blockquote>
+<h3>/COMPILE (default)</h3>
+<h3>/COPY</h3>
+<h3>/LINK</h3>
+Specifies whether the build step is a compile step, copy step, or link 
+step. The /COMPILE qualifier causes VDE to mark the step as 
+a compile step and to record the <strong>step-mod-name</strong> 
+parameter as an input module to the compile step. The /COPY qualifier 
+causes VDE to mark the step as a copy step and to record the 
+<strong>step-mod-name</strong> parameter as the module that is copied 
+by the step. The /LINK qualifier causes VDE to mark the step 
+as a link step and to record the <strong>step-mod-name</strong> 
+parameter as an output module of the link step.
+
+<p>
+Of /COMPILE, /COPY and /LINK, /COMPILE is the default.
+<h3>/INPUT (default)</h3>
+<h3>/OUTPUT</h3>
+Specifies whether the <strong>mod-name</strong> parameters are recorded 
+as inputs to or outputs from the build step. The /INPUT qualifier 
+records modules as inputs to the build step and the /OUTPUT qualifier 
+records them as outputs of the step. If no qualifier is specified, all 
+modules are assumed to be inputs.
+
+<p>
+To set the default for the command as a whole, specify the qualifier 
+after the CREATE STEP keywords. To override that default for a single 
+module, specify the qualifier after the <strong>mod-name</strong> 
+parameter you choose to mark as an input or output.
+
+<p>
+Of /INPUT and /OUTPUT, /INPUT is the default.
+<h3>/LOG (default)</h3>
+<h3>/NOLOG</h3>
+Controls whether log messages are printed after the build step is 
+recorded in the database. The /LOG qualifier causes the messages to be 
+printed and the /NOLOG qualifier suppresses them. The messages indicate 
+that the build step has been created, that the specified modules are 
+inputs or outputs for the step, and that the database transaction has 
+committed successfully.
+</blockquote>
+
+<hr>
+<h2><h3>Examples</H3></h2>
+<blockquote>
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#1</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE STEP FOO.MAR = FOO.$OBJ/OUTPUT
+%VDE-I-COMSTEPADDED, compile step for [CODE]FOO.BAR added to database
+%VDE-I-MODINSTEP, module [CODE]FOO.MAR is an input to the build step
+%VDE-I-MODOUTSTEP, module [CODE]FOO.$OBJ is an output from the build step
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This command creates a build step definition for the compilation of 
+module FOO.MAR. The step is a compile step because the /COMPILE 
+qualifier is the default. FOO.MAR is recorded as an input to the step 
+and module FOO.$OBJ is recorded as an output from the step, as the log 
+messages show.
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#2</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE STEP/LINK MOD1.EXE = MOD1.$OBJ, MOD2.$OBJ, FOO.$OBJ
+%VDE-I-LNKSTEPADDED, link step for [CODE]MOD1.EXE added to database
+%VDE-I-MODOUTSTEP, module [CODE]MOD1.EXE is an output from the build step
+%VDE-I-MODINSTEP, module [CODE]MOD1.$OBJ is an input to the build step
+%VDE-I-MODINSTEP, module [CODE]MOD2.$OBJ is an input to the build step
+%VDE-I-MODINSTEP, module [CODE]FOO.$OBJ is an input to the build step
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This command creates the build dependency information for the build 
+step that links module MOD1.EXE. Module MOD1.EXE is the output of the 
+step and modules MOD1.$OBJ, MOD2.$OBJ, and FOO.$OBJ are the inputs.
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#3</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE STEP/COMPILE/OUTPUT [CODE]MOD4.FOR = MOD4.$OBJ, [CODE]MOD4.LIS
+%VDE-I-COMSTEPADDED, compile step for [CODE]MOD4.FOR added to database
+%VDE-I-MODINSTEP, module [CODE]MOD4.FOR is an input to the build step
+%VDE-I-MODOUTSTEP, module [CODE]MOD4.$OBJ is an output from the build step
+%VDE-I-MODOUTSTEP, module [CODE]MOD4.LIS is an output from the build step
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„ SHOW STEP/FULL MOD4.FOR
+Compile Step for module [CODE]MOD4.FOR
+   Dependency links for stream V2.1 follow
+   Inputs to the build step:
+      Module [CODE]MOD4.FOR
+   Outputs from the build step:
+      Module [CODE]MOD4.$OBJ
+      Module [CODE]MOD4.LIS
+   Build step has 1 inputs and 2 outputs
+ 
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+The CREATE STEP command defines the compile step for module MOD4.FOR in 
+facility CODE as having one input module (MOD4.FOR) and two output 
+modules (MOD4.$OBJ and MOD4.LIS). The SHOW STEP command confirms that 
+these build dependencies have been entered into the VDE 
+database.
+</blockquote>
+
+<table border=0>
+  <tr>
+    <th bgcolor=lightseagreen><strong>#4</strong></th>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue>
+<pre>
+VDE„ CREATE STEP/COPY [CODE]MOD5.H
+%VDE-I-COPSTEPADDED, copy step for [CODE]MOD5.H added to database
+%VDE-I-MODINSTEP, module [CODE]MOD5.H is an input to the build step
+%VDE-I-MODOUTSTEP, module [CODE]MOD5.H is an output from the build step
+%VDE-I-COMMIT, database transaction has successfully committed
+VDE„
+      </pre>
+      </font>
+    </td>
+  </tr>
+</table>
+
+<blockquote>
+<p>
+This example creates a copy step for module MOD5.H in facility CODE. 
+VDE records the specified module as both the input and the 
+output of the step since a copy step simply copies the specified module 
+from one form to another (normally from its delta-file form to 
+text-file form).
+</blockquote>
+
+<hr>
+<a name="vde_cmd_cre_stream"><h1><font color=maroon>CREATE STREAM</font></h1></a>
+
+<p>
+<blockquote>
+<a name="index_x_270"></a>
+Creates a development stream in the current VDE library.
+
+<p>
+<strong>Requires CRESTRM privilege.</strong>
+<a name="index_x_271"></a>
+</blockquote>
+
+<hr>
+<h2>Format</h2>
+<blockquote>
+<h3>CREATE STREAM stream-name [, stream-name...] </h3>
+</blockquote>
+
+<hr>
+<h2>Parameter</h2>
+<blockquote>
+<h3>stream-name</h3>
+The name of a stream to be created. This name can be up to 39 
+characters long. It must follow VDE name syntax. Unlike 
+other VDE names, the stream name can contain periods (.). 
+The use of the facility prefix <em>VDE$</em> is expressly prohibited.
+</blockquote>
+
+<hr>
+<h2>Description</h2>
+<blockquote>
+A development stream (or simply, a &quot;stream&quot;) is any 
+separately evolving version of your software system. A stream may 
+correspond to a previous or future version of your system or to a 
+base-level of the system. It may correspond to any instance of the 
+system that evolves separately from the rest of the system. Each stream 
+of your software system captures a different state of the system, and 
+that state may evolve independently for each stream.
+
+<p>
+Each stream of your software system contains its own versions of all 
+modules in the system, and you may change these modules independently 
+in each stream. Each stream also contains its own versions of various 
+database tables, such as group definitions and module dependency 
+information. This information may also evolve independently for each 
+stream.
+
+<p>
+When you create a stream, the CREATE STREAM command first creates an 
+entry for the new stream in the VDE database. It then copies 
+all stream-specific information from the parent stream (by default, the 
+default stream) to the new stream (the child stream). This information 
+includes directory-creation rules, group definitions, the build 
+dependency graph, and information about what module generations belong 
+to the parent stream. In addition, the CREATE STREAM command executes 
+scripts which may copy files from the parent stream's disk directories 
+to the child stream's directories.
+
+<p>
+There are several key attributes to VDE module propogation 
+controlled by the CREATE STREAM command, including the sequence of 
+streams on the various lines of descent, and the presence of the 
+particular stream on the main line of development or on a variant line 
+of descent. The former is controlled by the parentage and successor 
+settings, and the latter is controlled by the mainline setting.
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Note</strong></font></center><hr size=1 noshade>
+<font color=black>
+The CREATE STREAM command can and does perform specific and potentially 
+non-reversable modifications to the internal VDE data 
+associated with <em>other</em> streams present in the VDE 
+database, particularly around the /MAIN and /NOMAIN settings, and 
+around the /PARENT and /SUCCESSOR settings. The CREATE STREAM command 
+should be used with caution.
+
+<p>
+The explicit specification of the appropriate value for the /[NO]MAIN 
+qualifier (/MAIN or /NOMAIN) on a CREATE STREAM command is strongly 
+recommended. </font>
+    </td>
+  </tr>
+</table>
+</center>
+</blockquote>
+
+<hr>
+<h2>Qualifiers</h2>
+<blockquote>
+<h3>/CMS_CLASS</h3>
+<h3>/NOCMS_CLASS(default)</h3>
+Specifies whether a CMS class with the same name as the stream should 
+be maintained in each facility's CMS library. The /CMS_CLASS qualifier
+<a name="index_x_272"></a>
+causes VDE to create a CMS class for the stream in each 
+facility's CMS library and to then maintain that class when the REPLACE 
+command and certain other commands change what module generations 
+belong to the stream. The /NOCMS_CLASS qualifier causes VDE 
+to not maintain a CMS class for the stream.
+
+<p>
+The /CMS_CLASS qualifier interacts with the /INIT_CMS_CLASS and 
+/NOINIT_CMS_CLASS qualifiers; see the descriptions of these qualifiers 
+for details.
+<h3>/CONFERENCE=file-spec</h3>
+<h3>/NOCONFERENCE(default)</h3>
+<a name="index_x_273"></a>
+Specifies whether a OpenVMS Notes conference for replacement 
+information should be associated with the new stream. The /CONFERENCE 
+qualifier specifies that the notes conference file specification given 
+by the <strong>file-spec</strong> parameter should be used to record 
+all replacements into the stream. VDE then enters a new note 
+into the conference for each queued or immediate replacement and a 
+reply to that note when a queued replacement is actually performed. The
+<a name="index_x_274"></a>
+/NOCONFERENCE qualifier specifies that no such notes conference should 
+be used.
+
+<p>
+Under normal circumstances, just the file name should be specified in 
+the <strong>file-spec</strong> parameter. VDE applies 
+defaults to the notes conference file specification based on the 
+translation of the logical name VDE$NOTES_LIBRARY.
+<a name="index_x_275"></a>
+<a name="index_x_276"></a>
+If this logical name is not defined, the default file specification 
+&quot;NOTES$LIBRARY:.NOTE&quot; is applied to the 
+<strong>file-spec</strong> parameter.
+<h3>/DEFER</h3>
+<h3>/NODEFER (default)</h3>
+Specifies whether the creation of the disk directory structure for the 
+stream should be postponed. The /DEFER qualifier postpones creation of 
+the disk directory structure and the /NODEFER qualifier causes the disk 
+directory structure to be created immediately. Use the /DEFER qualifier 
+when the default directory structure is inappropriate for the new 
+stream.
+
+<p>
+If the /NODEFER qualifier is specified (or /DEFER is omitted), the 
+CREATE STREAM command creates the disk directory structure for the 
+stream. This structure includes a stream root directory, a root 
+directory for each facility, and facility subdirectories that hold the 
+files that are the contents of the facility in the new stream. The 
+directory structure is determined by the SET DIRECTORY commands entered 
+for the new stream (or inherited from the parent stream) or by 
+VDE default rules. Once VDE has created the new 
+stream's directory structure for a given facility, VDE runs 
+the stream's new-stream script for that facility, provided such a 
+script is defined. Depending on how it is defined, this script may 
+populate the directories for that facility with source modules and 
+other files.
+
+<p>
+If the /DEFER qualifier is specified, the CREATE STREAM command does 
+not create a directory structure for the new stream. If you use the 
+/DEFER qualifier, you can enter SET DIRECTORY commands to specify the 
+structure of the disk directories. Then use the CREATE DIRECTORY_TREE 
+command to create the directory structure on disk. The CREATE 
+DIRECTORY_TREE command uses VDE defaults and the rules you 
+specified with the SET DIRECTORY commands to create the new directory 
+structure.
+<h3>/DELETE</h3>
+<h3>/NODELETE</h3>
+Controls whether the <strong>delete</strong> attribute is set for the 
+new stream. This attribute allows the stream to be deleted with the 
+DELETE STREAM command. The /DELETE qualifier sets the delete attribute 
+so that the new stream can be deleted. The /NODELETE qualifier clears 
+the delete attribute so that the new stream cannot be deleted unless 
+you first reset this attribute with a MODIFY STREAM command. This makes 
+it harder to accidentally delete a stream. If you specify neither 
+qualifier, VDE uses the value of the allow-deletion library 
+attribute as the initial value of the stream's delete attribute. This 
+library attribute is set with the /ALLOW_DELETE qualifier to the CREATE 
+and MODIFY LIBRARY commands.
+<h3>/DIRECTORY=dir-spec</h3>
+Specifies the name of the root directory of the stream. The root 
+directory normally contains a subdirectory for each facility. Each 
+subdirectory has additional subdirectories for the sources and derived 
+files of the facility and stream. (To modify the default
+<a name="index_x_277"></a>
+directory structure, first use the CREATE STREAM command with the 
+/DEFER qualifier then use the SET DIRECTORY and CREATE DIRECTORY_TREE 
+commands to create the directory structure you want.) Use the 
+OpenVMS directory specification format to specify the 
+<strong>dir-spec</strong> parameter.
+<h3>/INIT_CMS_CLASS</h3>
+<h3>/NOINIT_CMS_CLASS</h3>
+Specifies whether VDE initializes the CMS class for the 
+stream in each facility's CMS library when the /CMS_CLASS qualifier 
+specifies that such
+<a name="index_x_278"></a>
+a class should be maintained. /INIT_CMS_CLASS causes the CREATE STREAM 
+or MODIFY STREAM command with the /CMS_CLASS qualifier to create and 
+populate a CMS class with the same name as the stream in each facility. 
+/NOINIT_CMS_CLASS causes these commands to not create or populate such 
+CMS classes. /NOINIT_CMS_CLASS is useful for very large VDE 
+libraries where the initialization of CMS classes take an excessively 
+long time. For such libraries, it is better to use a separate command 
+procedure to initialize the desired CMS classes; such a procedure can 
+process the facilities of your library in parallel for faster 
+completion.
+
+<p>
+If you specify neither of these qualifiers, VDE uses the 
+initialization attribute of the new stream's parent stream. By default, 
+the initial stream for the VDE library (stream MAIN) is 
+created with initialization enabled (in effect, /INIT_CMS_CLASS is the 
+default). All other streams will inherit this attribute unless you 
+change it with an explicit /NOINIT_CMS_CLASS qualifier.
+
+<p>
+Unless you have existing command procedures or programs that depend on 
+the presence of CMS classes, Digital recommends that you not maintain 
+CMS classes for the streams in your VDE library. Maintaining 
+CMS classes is quite slow, especially when creating new streams, and 
+VDE does not need CMS classes for any of its functions.
+<h3>/LOG (default)</h3>
+<h3>/NOLOG</h3>
+Controls whether log messages are printed after new streams are 
+created. The /LOG qualifier causes the messages to be printed and the 
+/NOLOG qualifier suppresses them. The messages indicate that each new 
+stream has been created, that its disk directory structure has been 
+created, and that the database transaction has successfully committed.
+<h3>/MAIN</h3>
+<h3>/NOMAIN (default)</h3>
+Specifies whether the new stream is part of the main development thread 
+for your project. The /MAIN qualifier says that the new stream is part 
+of the main development thread for the project and is expected to be in 
+use for a relatively long time, and is expected to be in use after the 
+parent stream has been closed. VDE assigns the shortest 
+possible CMS &quot;generation expressions&quot; to new generations in a 
+main stream. The /NOMAIN qualifier says that the new stream is not part 
+of the project's main development thread and is expected to have a 
+shorter future lifetime than the parent stream. In this case, 
+VDE may assign longer CMS generation expressions (using CMS 
+&quot;variant letters&quot;) to future module generations in the stream.
+
+<p>
+You normally use the /MAIN qualifier when you create a stream for your 
+project that will be the future continuation of the parent stream. 
+Creating stream V2.0 from stream V1.0 is an example since development 
+of Version 1.0 of your project will cease as Version 2.0 carries the 
+project into the future. You use the /NOMAIN qualifier when you create 
+base levels or other streams that are expected to have short lifetimes 
+compared to the parent stream.
+
+<p>
+If you specify the /MAIN qualifier, the new stream automatically 
+becomes a successor of the parent stream so that changes are propagated 
+from the parent to the new stream. If you specify the /MAIN qualifier 
+but you do not specify the /SUCCESSOR or /NOSUCCESSOR qualifier, the 
+main streams that are successors of the parent stream are removed as 
+successors of the parent stream and instead become successors of the 
+new stream. The effect is that the new stream is inserted into the 
+successor chain after the parent stream. If you specify the /NOMAIN 
+qualifier, no such insertion takes place.
+
+<p>
+For information on changing the main line of descent attribute specific 
+to a particular module generation, see the documentation on the MODIFY 
+GENERATION/MAIN_STREAM command in <a href="vde_manual_017.html#vde_cmd_mod_gen">MODIFY GENERATION</a>.
+
+<p>
+<center>
+<table bgcolor=lightskyblue border=0 width=75%>
+<tr>
+  <td><center><font size=+2 
+  color=black><strong>Specification</strong></font></center><hr size=1 
+  noshade>
+<font color=black>
+Explicit specification of /[NO]MAIN is not currently required, but 
+explicit specification of this qualifier may be required in a future 
+release of VDE. Explicit specification of this 
+qualifier---either as /MAIN or as /NOMAIN---is highly recommended. 
+</font>
+    </td>
+  </tr>
+</table>
+</center>
+<a name="index_x_279"></a>
+<a name="index_x_280"></a>
+<h3>/NOGENERATIONS</h3>
+Specifies that the new stream should not be populated with the latest 
+generations of the parent stream. If you use this qualifier, you get a 
+new stream containing no generations. If you omit this qualifier, 
+VDE populates the new stream with the latest generations of 
+the parent stream.
+<h3>/NOTIFY=(username [,username...])</h3>
+Specifies users to notify of all changes replaced into the new stream. 
+Each <strong>username</strong> parameter specifies the OpenVMS 
+username or mail address of a user who should be notified by mail 
+message each time a module is replaced into the stream, and each time a 
+new facility is created in the stream.
+<a name="index_x_281"></a>
+
+<p>
+Each <strong>username</strong> parameter can specify the username of a 
+user already recorded in the VDE database, a OpenVMS 
+mail address with one or more node names (such as NODE::SMITH), a mail 
+forwarding alias, or a defined logical name bound to a list of users to 
+notify. If you specify a logical name, keep in mind that the logical 
+name must be defined when it is later used to send notification 
+messages. It should thus be a group or system logical name or a logical 
+name that is in some other way defined for all users of the 
+VDE library.
+
+<p>
+If you specify only one <strong>username</strong> parameter, you may 
+omit the surrounding parentheses.
+<h3>/OPEN (default)</h3>
+<h3>/FROZEN</h3>
+<h3>/CLOSED</h3>
+Determines the status of the new stream: open, frozen, or permanently 
+closed. If you specify the /OPEN qualifier, all users can reserve and 
+replace source modules from the stream and thereby modify the contents 
+of the stream.
+
+<p>
+If you specify the /FROZEN qualifier, all users may reserve modules 
+from the stream. However, a user must have the FROZEN privilege to
+<a name="index_x_282"></a>
+replace modules into the stream; non-privileged users cannot change the 
+contents of the stream. You can later change the status to open with 
+the MODIFY STREAM command, so the stream is not permanently frozen.
+
+<p>
+If you specify the /CLOSED qualifier, modules cannot be reserved from 
+or replaced into the stream. This status cannot be changed with a 
+subsequent MODIFY STREAM command unless you have the UNCLOSE privilege.
+<a name="index_x_283"></a>
+Use the /CLOSED qualifier when you never want the contents of the 
+stream to change again, for example, when capturing a base-level of 
+your software system or when capturing the final state of a released 
+version of your software.
+
+<p>
+Of /OPEN, /FROZEN and /CLOSED, /OPEN is the default.
+<h3>/OWNER=username</h3>
+Specifies the owner of the new stream. The <strong>username</strong> 
+parameter specifies the OpenVMS username of a user who should be 
+considered to be the &quot;owner&quot; of the stream. VDE 
+assigns no special meaning to the owner of a stream, but the SHOW 
+STREAM command displays the owner. The owner could thus be the person 
+to contact with questions about the stream.
+
+<p>
+If you omit this qualifier, VDE records no owner for the 
+stream.
+<h3>/PARENT=stream-name</h3>
+Specifies the parent of the new stream. If this qualifier is specified, 
+the <strong>stream-name</strong> parameter gives the name of the 
+development stream that should be the parent of the new stream being 
+created. If this qualifier is omitted, the default stream becomes the 
+parent of the new stream.
+
+<p>
+Correct specification of this qualifier is of central importance when 
+uploading facilities and streams from an existing set of CMS libraries. 
+See the CREATE FACILITY/FROM_CMS_LIBRARY command.
+<a name="index_x_284"></a>
+
+<p>
+Specification of /PARENT is required.
+<h3>/POPULATE (default)</h3>
+<h3>/NOPOPULATE</h3>
+Specifies whether the stream is allowed to be populated with 
+generations from another stream using the POPULATE STREAM command. 
+/POPULATE allows subsequent use of the POPULATE STREAM command to 
+populate the stream and /NOPOPULATE disallows such use.
+<h3>/PROCESS_COUNT=proc-count</h3>
+Specifies the default number of processes to execute build jobs for the 
+new stream. This parameter determines the degree of parallelism for the 
+stream's build jobs. See the description of the BUILD command for a 
+detailed description of this qualifier.
+<h3>/QUEUE=(queue-name [,queue-name...])</h3>
+Specifies the default batch queues to which build jobs for the new 
+stream are submitted. See the description of the BUILD command for a 
+detailed description of this qualifier and for a description of its 
+interaction with the /PROCESS_COUNT qualifier.
+<a name="index_x_285"></a>
+<a name="index_x_286"></a>
+<h3>/REMARK="string"</h3>
+Specifies a remark string to be stored for the new stream. The quoted 
+remark string, which can be up to 132 characters long, may contain any 
+explanatory remark about the new stream that you want stored in the 
+VDE database. Typically the remark indicates the version or 
+base-level of your system.
+
+<a name="bottom_010"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vde_manual_009.html#bottom_009">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vde_manual_011.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vde_manual_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vde_manual_index.html">Index</a>
+</table>
+</body>
+</html>

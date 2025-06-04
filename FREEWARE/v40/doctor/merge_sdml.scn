@@ -1,0 +1,162 @@
+MODULE MERGEFILE;
+!
+!  Simple program to knit all DOCUMENT files into one large file
+!  Currently no provision is made for <includes_file> tags that
+!  allow different <include> logical names. But those aren't used
+!  anyway in real life.
+!
+!  Date:  92 08 07
+!  Author: Theo de Klerk
+!
+!  Modifications:
+!   93 03 15  Added <comment> and <literal> block detection to leave those
+!             embedded tags unmodified
+!
+DECLARE comment_block : BOOLEAN;  ! to ignore comment and literal blocks
+DECLARE literal_block : BOOLEAN;  
+
+DECLARE f : TREE (INTEGER) OF FILE;
+DECLARE out : FILE;
+DECLARE filefound : BOOLEAN;
+DECLARE level : INTEGER;
+declare file_spec : STRING;
+
+TOKEN include_token CASELESS { '<INCLUDE>' | '<ELEMENT>' | '<TABLE_FILE>'
+                 |  '<EXAMPLE_FILE>' };
+TOKEN filespec_token CASELESS {'<FILE_SPEC>' };
+TOKEN oparen ALIAS '(' {'('};
+TOKEN cparen ALIAS ')' {')'};
+TOKEN eol {s'eol'};
+TOKEN profile_token CASELESS { '<PROFILE>' | '<ENDPROFILE>'};
+TOKEN literal_token CASELESS { '<LITERAL>' };
+TOKEN endliteral_token CASELESS {'<ENDLITERAL>'};
+TOKEN comment_token CASELESS {'<COMMENT>'};
+TOKEN endcomment_token CASELESS {'<ENDCOMMENT>'};
+TOKEN white_space IGNORE {s'eol' | s'ht' | ' '};
+TOKEN eof_token {s'eos'};
+
+!  Detect <comment> and <literal> blocks and ignore any tags within those.
+!  
+MACRO enclosed SYNTAX EXPOSE 
+    { text : { { { NOTANY('()')...}  |
+		 { '(' [ enclosed ] ')' }
+	       }...
+	     }
+    };
+    ANSWER text;
+END MACRO;
+
+MACRO unexposed_enclosed SYNTAX 
+    { text : { { { NOTANY('(\)')...}  |
+		 { '(' [ enclosed ] ')' }
+	       }...
+	     }
+    };
+    ANSWER text;
+END MACRO;
+
+MACRO comment_macro TRIGGER
+     {text : { comment_token  [ t:{ '('  unexposed_enclosed ')'} ] } };
+  IF t = ''
+  THEN  comment_block = TRUE;
+  ELSE  comment_block = FALSE;
+  END IF;
+  ANSWER text;
+END MACRO;
+
+MACRO endcomment_macro TRIGGER {text : endcomment_token };
+  comment_block = FALSE;
+  ANSWER text;
+END MACRO;
+
+MACRO literal_macro TRIGGER
+     { text : {literal_token  [ t: {'(' unexposed_enclosed ')' }] } };
+
+  IF t = ''
+  THEN literal_block = TRUE;
+  ELSE literal_block = FALSE;
+  END IF;
+  ANSWER text;
+END MACRO;
+
+MACRO endliteral_macro TRIGGER { text : endliteral_token };
+  literal_block = FALSE;
+  ANSWER text;
+END MACRO;
+
+MACRO eof_m TRIGGER { t: eof_token };
+ ANSWER t;
+END MACRO;
+
+MACRO profile_m TRIGGER { tag : profile_token };
+  IF comment_block OR literal_block
+  THEN ANSWER tag;
+  ELSE ANSWER '<COMMENT>(** ', tag, ' **)';
+  END IF;
+END MACRO;
+
+MACRO include_m TRIGGER
+       {tag : { include_token '(' fspec : {NOTANY('()')...} ')'} };
+  IF comment_block OR literal_block
+  THEN ANSWER tag;
+  ELSE ANSWER '<COMMENT>(** ', tag, ' **)';
+       WRITE '-I- Inspecting ',fspec;
+       file_spec = fspec;
+       filefound = true;
+  END IF;
+END MACRO;
+
+FORWARD PROCEDURE read_file ( INTEGER, STRING);
+
+PROCEDURE scan_line (inline: STRING); 
+DECLARE outline : STRING;
+
+!     Look for tokens to include on the line and make it into a comment
+      filefound = false;
+      START SCAN
+      	  INPUT STRING inline
+	  OUTPUT STRING outline;
+      WRITE FILE (out) outline;	  
+      IF filefound
+      THEN level = level + 1;
+           filefound = FALSE;
+           CALL read_file (level, file_spec);           
+      END IF;           
+END PROCEDURE;
+
+PROCEDURE read_file (level : INTEGER, fspec : STRING);
+DECLARE inline, outline : STRING;
+
+  OPEN FILE( f(level) ) AS fspec FOR INPUT;  
+  WHILE NOT ENDFILE( f(level) );
+      inline = '';
+      outline = '';
+      READ FILE( f(level) ) inline;
+      CALL scan_line (inline);
+  END WHILE;
+  CLOSE FILE( f(level) );
+  level = level-1;
+END PROCEDURE;
+
+PROCEDURE doc_merge_sdml (infile : STRING, outfile : STRING);
+  filefound = false;  
+  level = 0;
+  OPEN FILE( out ) AS outfile FOR OUTPUT;
+  CALL read_file (0,infile);
+  CLOSE FILE( out );
+END PROCEDURE;
+
+  PROCEDURE doc_merge MAIN;
+  DECLARE inf, outf : STRING;
+
+!     Assume we do not start within a <comment> or <literal> block
+      comment_block = FALSE;
+      literal_block = FALSE;
+
+      READ PROMPT ('Main SDML filespec: '  ) inf;
+      READ PROMPT ('Output merged SDML filespec: '  ) outf;
+      CALL doc_merge_sdml (inf, outf);
+  END PROCEDURE /* doc_merge_sdml */;
+
+END MODULE /* MERGEFILE */;
+

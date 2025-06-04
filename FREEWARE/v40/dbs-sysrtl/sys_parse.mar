@@ -1,0 +1,132 @@
+	.title	sys_parse
+	.ident	/X1-002/
+
+;+
+; Version:	X1-002
+;
+; Facility:	General system routines.
+;
+; Abstract:	Parse a filename and fill in all the blanks.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	27-Sep-1990, DBS, Version X1-001
+; 001 -	Original version.
+;	19-Jan-1996, DBS, Version X1-002
+; 002 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	This routine uses the SYS$PARSE system service to parse a filespec
+;	but the arguments to this routine are strings.  This is somewhat
+;	easier than having to define and setup the FAB and NAM blocks from
+;	higher level languages.  It offers a subset of the F$PARSE() lexical
+;	function within DCL.
+;
+; Calling Sequence:
+;	status = sys_parse (resultant, input_spec, [default_spec])
+;		-or-
+;	pushaq	default_spec	; or 	push	#0
+;	pushaq	input_spec
+;	pushaq	resultant
+;	calls	#3, g^sys_parse
+;	blbc	r0, error
+;
+; Formal Argument(s):
+;	resultant.wt.ds	Address of a string descriptor into which we can load
+;			the resultant filespec when all the defaults are used.
+;	input_spec.rt.ds  Address of a string descriptor which points to the
+;			filespec we want to more fully qualify.
+;	[default_spec.rt.ds]  Address of a string descriptor to be used when
+;			all other defaults are exhausted.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Completion Codes:
+;	ss$_badparam	One of the arguments is invalid
+;	ss$_insfarg	Less than three arguments were given
+;	ss$_ovrmaxarg	More than three arguments were given
+;	Any other completion codes as returned by SYS$PARSE.
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	$fabdef
+	$namdef
+	$ssdef
+
+arg_count=3
+p1=4
+p2=8
+p3=12
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+parse_fab:	$fab	nam=parse_nam
+parse_nam:	$nam	nop=<SYNCHK>
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+sys_parse, ^m<r2,r3,r4,r5,r6,r7>
+
+	clrl	r0
+	cmpw	(ap), #arg_count	; check argument count
+	beql	10$			; ok, let's go
+	bgtr	toomany
+	brw	toofew
+10$:	tstl	p1(ap)			; we need a destination
+	beql	badparam		; if not there, go away
+	tstl	p2(ap)			; and we need an input
+	beql	badparam		; if not there, go away
+	movq	@p1(ap), r2		; copy the destination descriptor
+	movq	@p2(ap), r4		; and the input descriptor
+	clrq	r6			; assume no default, it's an option
+	tstl	p3(ap)			; now see if one is given
+	beql	20$			; if not, go and parse
+	movq	@p3(ap), r6		; else copy the default descriptor
+20$:	movb	r2, parse_nam+nam$b_ess	; we update the nam and fab to
+	movl	r3, parse_nam+nam$l_esa	; point to all the things they should
+	movb	r4, parse_fab+fab$b_fns
+	movl	r5, parse_fab+fab$l_fna
+	movb	r6, parse_fab+fab$b_dns
+	movl	r7, parse_fab+fab$l_dna
+	$parse	fab=parse_fab		; ...and now we do the job
+	brb	bail_out		; and pass any status to the caller
+toomany:
+	movl	#ss$_ovrmaxarg, r0
+	brb	bail_out
+toofew:
+	movl	#ss$_insfarg, r0
+	brb	bail_out
+badparam:
+	movl	#ss$_badparam, r0
+bail_out:
+	ret
+
+	.end

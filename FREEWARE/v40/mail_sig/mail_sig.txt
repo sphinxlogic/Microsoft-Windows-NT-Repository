@@ -1,0 +1,154 @@
+This file contains the direction on how to implement Internet style signature
+files on OpenVMS Mail.
+
+It also does automatic commenting (>) for replies/forwards. And it has a TPU
+routine to do rot-13 encryption!
+
+------------------------------------------------------------------------
+
+
+Using automatic signature files with OpenVMS Mail.
+--------------------------------------------------
+
+1: Create an empty subdirectory and create a logical name (in your login.com)
+   which points to it. (I will assume in the following that this logical name
+   is called MAIL_COM .)
+
+2: Copy the following file to MAIL_COM:MAILEDIT.COM :
+START------------------------------------------------------------------
+$ p1 = f$edit("''p1'","trim,collapse,upcase")
+$ p2 = f$edit("''p2'","trim,collapse,upcase")
+$ if "''p2'" .nes. "" then p2 = "/output=''p2'"
+$ deassign sys$input
+$ edit/tpu/comm=MAIL_COM:mail.tpu/init=MAIL_COM:mail.eve'p2' 'p1'
+$ exit
+STOP-------------------------------------------------------------------
+
+3: Define the logical name MAIL$EDIT in your login.com, let it
+   point to MAIL_COM:MAILEDIT.COM .
+
+4: Copy the following file to MAIL_COM:MAIL.TPU :
+START------------------------------------------------------------------
+procedure tpu$local_init;
+
+  eve$x_trimming:=1;
+
+endprocedure;
+
+procedure eve_exit;
+
+  position(end_of(current_buffer));
+  split_line;
+  eve_include_file("sys$login:mail.signature");
+
+  eve$exit_dispatch;
+
+endprocedure;
+
+procedure eve_rot13;
+
+ if eve$x_select_position=0 then
+   translate(current_buffer,
+     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+     "NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm");
+ else
+   translate(select_range,
+     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+     "NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm");
+   eve$x_select_position:=0;
+ endif;
+
+endprocedure;
+
+procedure eve_commentify;
+  local
+    comment_range,found_range;
+
+  on_error
+    [tpu$_controlc,tpu$_strnotfound]:
+      return;
+    [otherwise]:
+      abort;
+  endon_error;
+
+  if eve$x_select_position=0 then
+    comment_range:=create_range(beginning_of(current_buffer),
+                                end_of(current_buffer),none);
+    found_range:=create_range(beginning_of(current_buffer),
+                              beginning_of(current_buffer),none);
+  else
+    comment_range:=create_range(beginning_of(select_range),
+                                end_of(select_range),none);
+    found_range:=create_range(beginning_of(select_range),
+                              beginning_of(select_range),none);
+    eve$x_select_position:=0;
+  endif;
+
+  loop
+    comment_range:=create_range(end_of(found_range),
+				end_of(comment_range),none);
+    found_range:=search(line_begin,forward,no_exact,comment_range);
+    position(beginning_of(found_range));
+    copy_text(">");
+  endloop;  
+
+endprocedure;
+STOP-------------------------------------------------------------------
+
+5: Copy the following file to MAIL_COM:MAIL.EVE :
+START------------------------------------------------------------------
+eve_commentify
+! following commands are examples & optional
+set key edt			
+tpu set(mouse,off)		
+define key=gold/1 one		
+define key=gold/2 two		
+define key=gold/3 other		
+define key=f17 tpu set(mouse,on)      
+define key=gold/f17 tpu set(mouse,off)
+define key=f18 set left 5             
+define key=gold/f18 set left 1
+define key=f19 tpu eve_rot13          
+STOP-------------------------------------------------------------------
+
+6: Add the following line to your login.com:
+
+$ MAIL :== MAIL/EDIT=(SEND,REPLY=EXTRACT)
+
+
+7: Create a file called SYS$LOGIN:MAIL.SIGNATURE , containing your signature!
+   This file will be added whenever you use MAIL.
+
+8: Now over to Motif-MAIL. Create the following file MAIL_COM:DECMAIL.COM :
+START------------------------------------------------------------------
+$ delete/symbol/global/all
+$ mailtpu = f$parse("mail.tpu;",f$environment("procedure"))
+$ maileve = f$parse("mail.eve;",f$environment("procedure"))
+$ define/user tpu$command 'mailtpu'
+$ define/user eve$init 'maileve'
+$ if f$search("sys$login:*mail*.tmp").nes."" then delete/nolog sys$login:*mail*.tmp;*
+$ run sys$system:decw$mail
+$ exit
+STOP-------------------------------------------------------------------
+
+9: Enter Session Manager, select Options, select Menues,
+   Change the command for Mail to @MAIL_COM:DECMAIL.COM .
+   If your login.com isn't set up to define logicals in all kinds of processes
+   you might have to spell out the full directory specification.)
+
+10: Start Motif-Mail, select Options, select
+    Send Options and change editor to Decwindows EVE.
+
+11: Ready!
+
+!++
+! Lennart Boerjeson, System Manager Emeritus
+! (No longer at) School of Electrical Engineering
+! Royal Institute of Technology
+! S-100 44 Stockholm, Sweden
+! tel: int+46-8-7907814
+! Internet: lennartb@e.kth.se
+!--
+
+
+

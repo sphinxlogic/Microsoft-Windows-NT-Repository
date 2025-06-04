@@ -1,0 +1,128 @@
+!
+FN$INIT_TIMER	    ! Just for some extra information
+!
+! This procedure reads the data from a log file containing an
+! INSTALL /LIST/FULL command, and normalizes the data.
+!
+! B. Z. Lederman    29-Sep-1987	ITT World Communications
+!		    21-Oct-1990	Compensate for error messages in log
+!		    31-Dec-1990	handle install qualifiers on line after
+!				image name
+!
+READY INSTALL_IN
+!
+! clear out a new data file (remember to purge old ones)
+!
+DEFINE FILE FOR INSTALL_P ALLOCATION = 30;
+READY INSTALL_P WRITE
+!
+DECLARE OUT_PUT PIC X.		! decide when to store output
+OUT_PUT = "F"
+!
+DECLARE I USAGE LONG.		! character pointer
+!
+DECLARE T_DIRECTORY PIC X(64).	! temporary data fields.
+DECLARE T_IMAGE PIC X(32).
+DECLARE T_OPEN PIC X.
+DECLARE T_HDR PIC X.
+DECLARE T_SHAR PIC X.
+DECLARE T_PRV PIC X.
+DECLARE T_PROT PIC X.
+DECLARE T_LNKBL PIC X.
+DECLARE T_CMODE PIC X.
+DECLARE T_NOPURG PIC X.
+DECLARE T_ACNT PIC X.
+DECLARE T_ENTRY PIC X(6).
+DECLARE T_MAX_SHARED PIC X(6).
+DECLARE T_SHARED_WORK PIC X(32).
+DECLARE T_GLOBAL PIC X(6).
+!
+FOR INSTALL_IN WITH TEXT_IN NOT CONTAINING "%" BEGIN
+    IF TEXT_IN = "" BEGIN			! end of a data set
+	IF OUT_PUT = "T" BEGIN			! if we have something
+	    STORE INSTALL_P USING BEGIN		! store it
+		DIRECTORY = T_DIRECTORY
+		IMAGE = T_IMAGE
+		OPEN = T_OPEN
+		HDR = T_HDR
+		SHAR = T_SHAR
+		PRV = T_PRV
+		PROT = T_PROT
+		LNKBL = T_LNKBL
+		CMODE = T_CMODE
+		NOPURG = T_NOPURG
+		ACNT = T_ACNT
+		ENTRY = T_ENTRY
+		MAX_SHARED = T_MAX_SHARED
+		GLOBAL = T_GLOBAL
+		END
+!
+! clear out fields for next set of data
+!
+	    OUT_PUT = "F"
+	    T_IMAGE = "                                "
+	    T_OPEN = " "
+	    T_HDR = " "
+	    T_SHAR = " "
+	    T_PRV = " "
+	    T_PROT = " "
+	    T_LNKBL = " "
+	    T_CMODE = " "
+	    T_NOPURG = " "
+	    T_ACNT = " "
+	    T_ENTRY = "000000"
+	    T_MAX_SHARED = "000000"
+	    T_GLOBAL = "000000"
+	END
+    END ELSE BEGIN
+!
+! Pull out the information line-by-line by looking for unique
+!  identification for each line.
+!
+	IF DISK = "DIS" BEGIN
+	    I = FN$STR_LOC (TEXT_IN, " ") 		! find end of data
+	    T_DIRECTORY = FN$STR_EXTRACT(TEXT_IN, 1, I)
+	END ELSE IF TYPE = "Entry acce" BEGIN
+	    I = FN$STR_LOC (TEXT_IN, "=")			! find start of data
+	    T_ENTRY = FN$STR_EXTRACT (TEXT_IN, (I + 2), 6)	! get data
+	    OUT_PUT = "T"
+	END ELSE IF TYPE = "Current / " BEGIN
+	    I = FN$STR_LOC (TEXT_IN, "=")			! find start of numbers
+	    T_SHARED_WORK = FN$STR_EXTRACT(TEXT_IN, I, 32)	! get numbers
+	    I = FN$STR_LOC (T_SHARED_WORK, "/")		! find start of real data
+	    T_MAX_SHARED = FN$STR_EXTRACT(T_SHARED_WORK, (I + 1), 32) ! get real data
+	    OUT_PUT = "T"
+	END ELSE IF TYPE = "Global sec" BEGIN
+	    I = FN$STR_LOC (TEXT_IN, "=")			! find start of data
+	    T_GLOBAL = FN$STR_EXTRACT (TEXT_IN, (I + 2), 6)	! get data
+	    OUT_PUT = "T"
+	END ELSE IF BLANK2 = "                 " BEGIN	! qualifiers on line
+	    IF FN$STR_LOC (QUAL2, "Open")   > 0 THEN T_OPEN   = "O" ! following
+	    IF FN$STR_LOC (QUAL2, "Hdr")    > 0 THEN T_HDR    = "H" ! image
+	    IF FN$STR_LOC (QUAL2, "Shar")   > 0 THEN T_SHAR   = "S" ! name
+	    IF FN$STR_LOC (QUAL2, "Prv")    > 0 THEN T_PRV    = "V"
+	    IF FN$STR_LOC (QUAL2, "Prot")   > 0 THEN T_PROT   = "T"
+	    IF FN$STR_LOC (QUAL2, "Lnkbl")  > 0 THEN T_LNKBL  = "L"
+	    IF FN$STR_LOC (QUAL2, "Cmode")  > 0 THEN T_CMODE  = "C"
+	    IF FN$STR_LOC (QUAL2, "Nopurg") > 0 THEN T_NOPURG = "N"
+	    IF FN$STR_LOC (QUAL2, "Acnt")   > 0 THEN T_ACNT   = "A"
+	END ELSE BEGIN
+	    I = FN$STR_LOC (IMAGE, ";")			    ! look for semi-colon
+	    IF I > 0 BEGIN				    ! if there is one
+		T_IMAGE = FN$STR_EXTRACT(IMAGE, 1, (I - 1)) ! image name, no ";"
+		IF FN$STR_LOC (IMAGE, "Open")   > 0 THEN T_OPEN   = "O"
+		IF FN$STR_LOC (IMAGE, "Hdr")    > 0 THEN T_HDR    = "H"
+		IF FN$STR_LOC (IMAGE, "Shar")   > 0 THEN T_SHAR   = "S"
+		IF FN$STR_LOC (IMAGE, "Prv")    > 0 THEN T_PRV    = "V"
+		IF FN$STR_LOC (IMAGE, "Prot")   > 0 THEN T_PROT   = "T"
+		IF FN$STR_LOC (IMAGE, "Lnkbl")  > 0 THEN T_LNKBL  = "L"
+		IF FN$STR_LOC (IMAGE, "Cmode")  > 0 THEN T_CMODE  = "C"
+		IF FN$STR_LOC (IMAGE, "Nopurg") > 0 THEN T_NOPURG = "N"
+		IF FN$STR_LOC (IMAGE, "Acnt")   > 0 THEN T_ACNT   = "A"
+	    END
+	END
+    END
+END
+!
+FN$SHOW_TIMER	    ! just for some extra info.
+!

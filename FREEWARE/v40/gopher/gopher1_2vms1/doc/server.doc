@@ -1,0 +1,2913 @@
+		 VMS Internet Gopher Server Documentation
+		              21-October-1994
+
+
+I. Overview of the VMS Gopher Server
+=====================================================
+
+Gopher is a distributed document delivery service, working over the
+Internet.  It allows a neophyte user to access various types of data
+residing on multiple hosts in a seamless fashion.  This is accomplished by
+presenting the user a hierarchical arrangement of documents and by using a
+client-server communications model.  The Internet Gopher Server accepts
+simple queries, and responds by sending the client a document. 
+
+This document addresses only the VMS Gopher Server, version 1.2VMS. It
+includes imbedded characters which should in general be unobtrusive to the
+casual reader but serve as dividers between logical segments of the
+document, for ease in indexing using Bruce Tanner's build_index program
+(with local enhancements).  Editors should be aware of this.  The character
+used is X%01, which shouldn't be too obnoxious to readers. 
+
+The document types that are currently supported are:
+
+	* Generic Text Files.
+	* Directories/Links.
+	* Full Text Indexes (GREP searching)
+	* Telnet sessions. (client-based)
+	* VMS-specific CMD1 searching (directory since|before date, DCL
+						Search, server version)	
+	* SHELL searching
+	* Generic Text Files from script execution.
+	* CSO Phone Book Services. (client-based)
+	* FTP services.
+	* EXEC services.
+	* Info/Placeholder Menu items. (client-dependent, see Section X) 
+	* Digitized sounds.
+	* PC-DOS binary files.
+	* Binary files.
+	* GIF graphic files.
+	* Unspecified image files.
+	* TN3270-based Telnet sessions. (client-based)
+	* UUENCODEd files.
+	* MAC Hex files.
+	* HTML files.
+
+The document types that are currently unimplemented are:
+	* Duplicated servers.
+	* Unix mail spools.
+	* WAIS gateways.
+
+DISCLAIMERS:
+
+Some aspects of this software cannot be tested at any single site. Many of
+these aspects were implemented at multiple and diverse sites and
+modifications incorporated into this code.  In all cases, no warranty or
+guarantee is offered or implied.  This is use-at-your-own-risk code. 
+
+This software has been tested with the VAX C compiler.  It is believed 
+to substantially perform correctly using the DEC C compiler.  It has been 
+tested with one or more versions of TGV Multinet, Wollongong, and UCX as 
+TCP/IP transports.  Not all capabilities are available to all combinations 
+of compiler, operating system, and TCP/IP.
+
+SUPPORT:
+
+The VMS Gopher Server is supported via the electronic mailing list 
+VMSGopher-L@trln.lib.unc.edu, which has a bi-directional gateway with the 
+newsgroup vmsnet.infosystems.gopher.  
+
+All administration of the VMSGopher-L is handled at the address
+VMSGopher-L-Request@trln.lib.unc.edu.  To subscribe to the list, send
+a mail message with the single line:
+        SUBSCRIBE Your Name
+to the administrative address, substituting your first and
+last names for Your Name.
+
+There is a list of Frequently Asked Questions available.  Please read
+it before posting.  It may be retrieved by gopher at trln.lib.unc.edu,
+or by sending a message to archives@trln.lib.unc.edu with the single
+line
+        SEND VMSGOPHER-L.FAQ
+in the body of the message.
+
+DEVELOPERS:
+
+The VMS Gopher Server was originally ported from the Unix implementation, 
+version 1.2.1.6 dated 9-January-1993, by J.Lance Wilkinson
+<JLW@psulias.psu.edu> of Penn State University / Library Computing
+Services. 
+
+It has developed to its current state through the combined efforts of many
+users of VMS and Gopher in addition to Lance, notably Bruce Tanner
+<TANNER@cerritos.edu> (Cerritos College, Norwalk, California, USA) and
+Foteos Macrides <MACRIDES@sci.wfeb.edu> (Worcester Foundation for
+Experimental Biology, Shrewsbury, Massachusetts, USA). Thanks also to
+Dennis Sherman <dennis_sherman@unc.edu> (Triangle Research Libraries
+Network, Chapel Hill, North Carolina, USA) for founding the VMSGOPHER-L
+discussion list where this joint development has been progressing and to
+George Greenwade <bed_gdg@SHSU.EDU> (Sam Houston State University,
+Huntsville, Texas, USA) for quickly hosting a server where the source code
+could be archived for all to procure. Thanks to all the other readers and
+participating developers on VMSGOPHER-L for their valuable suggestions and
+input, and to the original GopherMeisters at the University of Minnesota
+for starting the whole Internet Gopher effort. 
+
+If you are inclined to customize the code, please modify the Name= and
+Ident= options in the file [.OPTFILES]IDENT.OPT prior to linking your
+production server.  This will allow others accessing your server's
+7$version "search" to view up-to-date documentation about the status of
+your server, its origins, and its revision level.  And, of course, if you
+customize the code please let others on the VMSGOPHER-L@trln.lib.unc.edu
+list know about it. We all benefit from this sharing of code and ideas. 
+
+J.Lance Wilkinson, <JLW@psulias.psu.edu> (814) 865-1818
+Systems Design Specialist - Lead
+Penn State University
+Computer & Information Systems
+Library Computing Services
+E8 Pattee Library		
+University Park, PA 16802
+
+Dennis R. Sherman <dennis_sherman@unc.edu> (919) 962-8022
+Applications Programmer
+Triangle Research Libraries Network
+CB #3940 Wilson Library
+University of North Carolina, Chapel Hill
+Chapel Hill, NC 27599
+
+
+II.  Setting Up Your Server
+===========================
+
+Beyond the initial efforts to make the Gopher Server work under VMS,
+primary effort in this port was to make setting up and managing the server
+as trivial as possible.  Section II of this document are instructions to
+aid in setting up your server. 
+
+
+II.a Prepare the Server executable and support programs
+-------------------------------------------------------
+First secure the source code and compile and link.  If you retrieve the 
+code as a .ZIP file from any of the standard distribution sites, unpacking 
+the file will create a directory tree.  Make the top level directory your 
+default, and execute
+	$ @MAKE
+
+You will be prompted to identify your TCP/IP transport, then this command
+file will compile and link all needed programs.  If you use DEC's Module
+Management System, the make procedure will make use of it, otherwise all
+files will be compiled and linked by .COM files. 
+
+The SERVER.DOC file (this document) may be indexed (or reindexed) for
+searching using Bruce Tanner's BUILD_INDEX/SEARCH.SHELL/QUERY.EXE engine 
+using [.DOC]INDEX_SERVER_DOC.COM.  You will need to modify that command 
+file to indicate where you want the resulting index files to reside.
+
+Remember that if you customize the source code prior to compilation and
+linking, please update the [.OPTFILES]IDENT.OPT linker options file to
+reflect your changes.  This can help others who might be inclined to secure
+changes you've made in evaluating those changes and their history. 
+
+
+II.b Set up the Data Directory
+------------------------------
+Now set up a Gopher data directory.  This and its subordinate
+subdirectories will be the primary location for documents and menus
+(pointer files to  documents, commonly know as .links).  Normally, only
+files and directories with null device specifications in their path names
+are honored by the server for display.  If a device specification is part
+of a client-supplied filespec, it must specify the Gopher data directory
+device.  The only information that is transmitted to the outside world is
+what's in the Gopher data directory and its subdirectories, unless you
+choose to point to a directory or file elsewhere by explicitly naming it in
+a menu specification.  Specification of a non-null device in a filespec,
+which does not exactly match the Gopher data directory's device, requires
+special handling discussed in section VI.c below.
+
+Create the directory, and protect it as you feel appropriate.  ACLs are
+recommended to allow users to maintain the root directory and its
+subdirectories, allowing management of the documents and menus by the
+appropriate data custodians.  There should be a general user with full and
+complete access, such as the designated system "Gopher Administrator," who
+maintains the root directory and can fix things the less privileged data
+custodians might have broken.
+
+Say that your Gopher data resides in a directory called DSA0:[GOPHER_DATA].
+Define a VMS Logical for this, say:
+
+	$ DEFINE/SYSTEM/EXEC/TRAN=CONCEAL/NAME=NO_ALIAS/NOLOG -
+				GOPHER_ROOT DSA0:[GOPHER_DATA.]
+
+In a VAX Cluster environment, this need only be done on the nodes where:
+	(1)	The Gopher Server daemon will be running
+	(2)	The data custodians will be managing the documents.
+
+The definition of this logical needs to be done during node startups.  To
+make this easier, modify SETUP_GOPHER.COM to create this logical, then call
+it from your system startup file where appropriate.  You will also need to
+define GOPHER_EXE for your site in SETUP_GOPHER.COM. 
+
+
+II.c Prepare the command files
+------------------------------
+The server may be run in one or both of two flavors; as a detached process
+started manually or under VMS system startup, and/or as an "INETD" process
+started upon reception, by the MULTINET_SERVER or the UCX AUX Server, of a 
+connection request for one or more TCP/IP ports.  It is legitimate to have
+one  or more servers running in either configuration.  Common sense
+customization  of command files and/or multiple configuration files will
+obviously be required if multiple servers are running concurrently.
+
+
+II.c.1 Running as a Detached Process
+------------------------------------
+Edit the command files [.EXE]START_GOPHER.COM and
+[.EXE]RUN_GOPHERD_DAEMON.COM as appropriate for your site.  If you are
+running a single server on port 70, and want to accept the default
+definitions and names for log files, you probably do not have to make any
+modifications to these files.  Notice in the example START_GOPHER.COM
+below, we use, but do not define, the GOPHER_ROOT logical cited in the
+example above. It is assumed this logical was defined earlier (normally
+during system startup). The primary function of the START_GOPHER.COM file
+is to start a detatched process, the Gopher Server daemon, after defining
+the one minimum logical which the VMS Gopher Server requires,
+GOPHER_CONFIG.  In the example, this logical uses the data directory
+defined earlier (GOPHER_ROOT). 
+
+The GOPHER_RESTART logical, if it exists, is deassigned.  This logical may
+be defined at any time after starting the daemon to cause it to shut down
+in a graceful manner.  The privileges established are the minimum required
+by the  daemon.  In the following examples, notice the "70" in filenames
+and logicals -- this is for convention only, but it identifies the use of
+port 70 for the server.  Servers intended to run on other ports might use a
+different value.
+
+In the example START_GOPHER.COM file, use is made of site-specific
+directories  and rooted logical devices (GOPHER_ROOT:[000000] and
+GOPHER_EXE).  You may of course place them wherever it is appropriate and
+edit the .COM files accordingly.  It is recommended, however, you make
+these modifications in SETUP_GOPHER.COM, if needed. 
+
+From START_GOPHER.COM --
+
+$ Define/system Gopher_Config Gopher_Root:[000000]_Gopher70
+$ set proc/priv=(detach, sysprv, tmpmbx, netmbx)
+$ if f$trnlnm("GOPHER_RESTART_70") .nes. "" then -
+	deassign/system GOPHER_RESTART_70
+$ run/detach/Proc="Gopher1_Server"-
+	/buffer_limit=140000-
+	/working_set=500/extent=2500/maximum_working_set=1500-
+	/input=  GOPHER_EXE:run_gopherd_daemon.com-
+	/output= GOPHER_ROOT:[000000]_output70-
+	/error=  GOPHER_ROOT:[000000]_error70 -
+	/priv=   (NOSAME, SYSPRV, TMPMBX, NETMBX) -
+    Sys$System:Loginout
+
+The DCL to run the Gopher Server daemon establishes privileges, cleans up
+the  log files produced by prior runs of the daemon, and then invokes the
+GopherD executable.  In the example RUN_GOPHERD_DAEMON.COM file, this
+executable has been located in a site-specific directory with the
+RUN_GOPHERD_DAEMON.COM file (GOPHER_EXE, defined in SETUP_GOPHER.COM).  You
+may of course place them wherever it is appropriate and edit the .COM files
+accordingly.  Add invocation of the editted command file START_GOPHER.COM
+to your system startup, on the node where the server daemon is going to
+run. 
+
+Invoke by a SUBMIT/USER=GOPHERD, where GOPHERD has been defined in your UAF
+as  a user with only batch access and the required privileges.  The daemon
+discards  sysprv as soon as it has bound to the TCP/IP port (sysprv is
+required by TGV Multinet for binding to ports < 100).  If desired, further
+analysis of the  logical GOPHER_RESTART_70 might be done after the daemon
+exits, perhaps causing  the procedure to loop back and start over again
+(see the example  RUN_GOPHERD_DAEMON.COM file supplied).
+
+From RUN_GOPHERD_DAEMON.COM --
+
+$restart_server:
+$ set noon
+$ set nover
+$ set proc/priv=(noall, sysprv, tmpmbx, netmbx)
+$ if f$search("GOPHER_ROOT:[000000]_output70.*") -
+        then purge/keep=3 GOPHER_ROOT:[000000]_output70.*
+$ if f$search("GOPHER_ROOT:[000000]_error70.*") -
+        then purge/keep=3 GOPHER_ROOT:[000000]_error70.*
+$ set ver
+$ show time
+$ run gopher_exe:GopherD.exe
+$ sts = $status
+$ show time
+$ ctrstr = "Gopherd_Daemon exit /!AS/ !AS
+$ line = f$fao(ctrstr,f$trnlnm("GOPHER_RESTART_70"),f$message(sts))
+$ request "''line'"
+$ mail NL: SYSTEM /noself /subj="''line'"
+$ if .not. sts
+$	then
+$	request "Restarting after abort..."
+$	goto restart_server
+$	endif
+$ restart := 'f$trnlnm("GOPHER_RESTART_70")
+$ show sym restart
+$ if restart .nes. ""
+$	then
+$	set proc/priv=(noall, sysprv)
+$	deassign/system GOPHER_RESTART_70
+$	if restart .eqs. "RESTART" then request "Restarting..."
+$	if restart .eqs. "RESTART" then goto restart_server
+$	endif
+
+
+II.c.2 Running from the MULTINET_SERVER
+---------------------------------------
+(Foteos Macrides, Worcester Foundation for Experimental Biology,
+	<MACRIDES@SCI.WFEB.EDU>)
+
+Define a system logical GOPHER_CONFIG, or GOPHER_CONFIG# where # is the
+port number (for a multiple server environment), to point to the server's
+configuration file.  For example:
+
+	$ DEFINE/SYSTEM/EXEC/TRAN=CONCEAL/NAME=NO_ALIAS/NOLOG -
+			GOPHER_CONFIG70 GOPHER_ROOT:[000000]_GOPHER70
+
+In the configuration file (or each configuration file for a server to be
+started by the MULTINET_SERVER), add or modify the following items.
+
+	Inetd:		TRUE
+	DataDirectory:	GOPHER_ROOT:[000000]
+	ScratchDir:	GOPHER_ROOT:[_SCRATCH]
+	SpawnInit:	GOPHER$ROOT:[v1216]:GOPHER_SPAWN_INIT.COM
+
+	Where
+		GOPHER_ROOT:[000000] is the root of the data directory
+			for the server; note that this *could* be different
+			for each server, but need not be.
+		GOPHER_ROOT:[_SCRATCH] is a directory which is fully
+                        accessible to the authorization under which the
+                        server using this configuration file will run
+                        (RWED).  The directory will receive temporary and
+                        scratch files for the server and any subprocesses
+                        it spawns.  Note that a server started by the
+                        MULTINET_SERVER will not have the system logical
+                        SYS$SCRATCH: defined, so a different value with an
+                        explicit device and directory path will be
+                        required. GOPHER$ROOT:[v1216]GOPHER_SPAWN_INIT.COM
+                        is a file in a directory to which the authorization
+                        running the server has read and execute access. 
+                        Whenever a server started by the MULTINET_SERVER
+                        spawns a subprocess, the sub- process will execute
+                        the file to define symbols and so forth. Note the
+                        use of GOPHER$ROOT:[v1216] is specific to the site
+                        psulias.psu.edu; in no way should you feel
+                        obligated to use the same device and directory tree
+                        specification.
+
+Customize, as needed, the GOPHER_SPAWN_INIT.COM file.  It should at minimum
+contain the following lines to insure appropriate operation of GREP
+searches (customize where your copy of EGREP resides, of course).  Since
+servers started by MULTINET_SERVER go through VMS LOGIN but do *NOT*
+perform the normal SYLOGIN.COM functions, this command file replaces the
+minimum features required there.  Note also that it is not sufficient to
+define SYS$SCRATCH in this file; the server requires scratch space prior to
+any spawned tasks, so the scratch directory must be defined in the
+configuration file.
+
+$ V = F$VERIFY(0)
+$ ON ERROR THEN CONTINUE
+$ EGREP  :== $x:EGREP
+$ EXIT
+
+Login to the SYSTEM account and add the Gopher Server as a service.  Note
+the use of GOPHER$ROOT:[v1216] is specific to the site psulias.psu.edu; in
+no way should you feel obligated to use the same device and directory tree
+specification.
+
+	$ multinet configure/servers
+	SERVER-CONFIG>add gopherd70
+	Protocol: [TCP] TCP
+	TCP Port number: 70
+	Program to run: GOPHER$ROOT:[v1216]GOPHERD.EXE
+	SERVER-CONFIG>SAVE
+	SERVER-CONFIG>RESTART
+	SERVER-CONFIG>EXIT
+
+When a client attempts to connect to the configured port, MULTINET_SERVER
+should start a fresh copy of the server to service that client's request. 
+Regardless of how long that copy of the server takes to process the request
+(and if the server survives the request ;-), other clients will not be
+obstructed.
+
+Note that servers started by the MULTINET_SERVER run under the SYSTEM auth-
+orization, and tend to be high-privileged users.  The server discards all
+the dangerous privileges it can after binding to the connected socket.
+
+
+II.c.3 Running from the UCX v2+ AUX Server
+------------------------------------------
+(David Harrold, Milwaukee School of Engineering,
+	<harrold@barcly.acsd.msoe.edu>)
+
+Define a system logical GOPHER_CONFIG, or GOPHER_CONFIG# where # is the
+port number (for a multiple server environment), to point to the server's
+configuration file.  For example:
+
+	$ DEFINE/SYSTEM/EXEC/TRAN=CONCEAL/NAME=NO_ALIAS/NOLOG -
+			GOPHER_CONFIG70 GOPHER_ROOT:[000000]_GOPHER70
+
+In the configuration file (or each configuration file for a server to be
+started by the UCX AUX Server), add or modify the following items.
+
+	Inetd:		TRUE
+	DataDirectory:	GOPHER_ROOT:[000000]
+	ScratchDir:	GOPHER_ROOT:[_SCRATCH]
+	SpawnInit:	GOPHER$ROOT:[v1216]GOPHER_SPAWN_INIT.COM
+
+	Where
+		GOPHER_ROOT:[000000] is the root of the data directory
+                        for the server; note that this *could* be different
+                        for each server, but need not be.
+		GOPHER_ROOT:[_SCRATCH] is a directory which is fully
+                        accessible to the authorization under which the
+                        server using this configuration file will run
+                        (RWED).  The directory will receive temporary and
+                        scratch files for the server and any subprocesses
+                        it spawns.  Note that a server started by the UCX
+                        AUX Server might not have the system logical
+                        SYS$SCRATCH: defined, so a different value with an
+                        explicit device and directory path will be
+                        required. GOPHER$ROOT:[v1216]GOPHER_SPAWN_INIT.COM
+                        is a file in a directory to which the authorization
+                        running the server has read and execute access. 
+                        Whenever a server started by the UCX AUX Server
+                        spawns a subprocess, the sub- process will execute
+                        the file to define symbols and so forth. Note the
+                        use of GOPHER$ROOT:[v1216] is specific to the site
+                        psulias.psu.edu; in no way should you feel
+                        obligated to use the same device and directory tree
+                        specification.
+
+Customize, as needed, the GOPHER_SPAWN_INIT.COM file.  It should at minimum
+contain the following lines to insure appropriate operation of GREP
+searches (customize where your copy of EGREP resides, of course).  Since
+servers started by the UCX AUX Server go through VMS LOGIN but do *NOT*
+perform the normal SYLOGIN.COM functions, this command file replaces the
+minimum features required there.  Note also that it is not sufficient to
+define SYS$SCRATCH in this file; the server requires scratch space prior to
+any spawned tasks, so the scratch directory must be defined in the
+configuration file.
+
+$ V = F$VERIFY(0)
+$ ON ERROR THEN CONTINUE
+$ EGREP  :== $x:EGREP
+$ EXIT
+
+Customize, as needed, the RUN_GOPHERD_UCX_INETD.COM file.  This file is 
+equivalent to RUN_GOPHERD_DAEMON.COM for a detached process server, and 
+similar changes may be made to it.
+
+$ set noon
+$ set proc/priv=(noall, tmpmbx, netmbx)
+$ if f$search("GOPHER_ROOT:[000000]_run_gopherd_ucx_inetd.log") -
+	then purge/keep=3 GOPHER_ROOT:[000000]run_gopherd_ucx_inetd.log
+$ run gopher_exe:GopherD.exe
+$ sts = $status
+$ ctrstr = "Gopherd_Daemon exit /!AS/ !AS
+$ line = f$fao(ctrstr,f$trnlnm("GOPHER_RESTART_70"),f$message(sts))
+$ if .not. sts
+$   then
+$	request "''line'"
+$	mail NL: SYSTEM /noself /subj="''line'"
+$   endif
+
+
+Create an authorization for the UCX INETD Gopher Server.  Customize
+Username,  UIC, Directory, etc. as needed for your site from this example:
+
+ Username: UCX$GOPHERD              Owner:  Gopher Server
+ Account:  UCX                      UIC:    [400,1100]
+                                                ([UCX$AUX,UCX$GOPHERD])
+ CLI:      DCL                      Tables: DCLTABLES
+ Default:  PRODUCTS:[GOPHERD]
+ LGICMD:   SYS$LOGIN:LOGIN.COM
+ Flags:  DisCtlY DefCLI Restricted DisPwdDic DisPwdHis
+ Primary days:   Mon Tue Wed Thu Fri        
+ Secondary days:                     Sat Sun
+ Primary   000000000011111111112222  Secondary 000000000011111111112222
+ Day Hours 012345678901234567890123  Day Hours 012345678901234567890123
+ Network:  ##### Full access ######            ##### Full access ######
+ Batch:    -----  No access  ------            -----  No access  ------
+ Local:    -----  No access  ------            -----  No access  ------
+ Dialup:   -----  No access  ------            -----  No access  ------
+ Remote:   -----  No access  ------            -----  No access  ------
+ Expiration:            (none)    Pwdminimum:  6   Login Fails:     0
+ Pwdlifetime:         90 00:00    Pwdchange:      (pre-expired) 
+ Last Login:            (none) (interactive), 16-SEP-1993 13:44 (non-
+							   interactive)
+ Maxjobs:         0  Fillm:      1024  Bytlm:       200000
+ Maxacctjobs:     0  Shrfillm:      0  Pbytlm:           0
+ Maxdetach:       0  BIOlm:       400  JTquota:       1024
+ Prclm:           2  DIOlm:       200  WSdef:          350
+ Prio:            8  ASTlm:       512  WSquo:        20000
+ Queprio:         0  TQElm:        10  WSextent:      4096
+ CPU:        (none)  Enqlm:      3000  Pgflquo:      20000
+ Authorized Privileges: 
+   CMKRNL TMPMBX WORLD OPER NETMBX SYSPRV SYSLCK
+ Default Privileges: 
+   TMPMBX NETMBX SYSPRV
+
+Create the file LOGIN.COM (may be empty) in the home directory of your 
+UCX$GOPHERD account.
+
+Login to the SYSTEM account and add the Gopher Server as a service.  Note
+the use of GOPHER$ROOT:[v1216] is specific to the site psulias.psu.edu; in
+no way should you feel obligated to use the same device and directory tree
+specification.
+
+	$UCX
+	UCX>set service gopherd/port=70 -
+		/user_name=ucx$gopherd -
+		/process_name=ucx$gopherd -
+		/limit=5 -
+		/inactivity=0 -
+		/file=gopher_exe:run_gopherd_ucx_inetd.com -
+		/socket_options=(receive:3000,send:3000)
+	UCX> EXIT
+
+Enable the Gopherd Service from the AUX Server
+
+	$UCX ENABLE SERVICE GOPHERD
+
+Note:  This must be done after every system reboot; make sure it's in your
+system startup file.
+
+When a client attempts to connect to the configured port, UCX's AUX Server 
+should start a fresh copy of the server to service that client's request.  
+Regardless of how long that copy of the server takes to process the request 
+(and if the server survives the request ;-), other clients will not be 
+obstructed.
+
+Note that servers started by the UCX AUX Server might tend to be high-
+privileged users.  The server discards all the dangerous privileges it can 
+after binding to the connected socket.
+
+
+II.c.4 Running from Wollongong's INET_SERVERS
+---------------------------------------
+(Chris Petroff, University of Oklahoma Computing Services, 
+	<CHRIS@UOKNOR.EDU>)
+
+Define a system logical GOPHER_CONFIG, or GOPHER_CONFIG# where # is the
+port number (for a multiple server environment), to point to the server's
+configuration file.  For example:
+
+	$ DEFINE/SYSTEM/EXEC/TRAN=CONCEAL/NAME=NO_ALIAS/NOLOG -
+			GOPHER_CONFIG70 GOPHER_ROOT:[_BIN]_GOPHER70
+
+In the configuration file (or each configuration file for a server to be
+started by the INET_SERVERS), add or modify the following items.
+
+	Inetd:		TRUE
+	DataDirectory:	GOPHER_ROOT:[000000]
+	ScratchDir:	GOPHER_ROOT:[_SCRATCH]
+	SpawnInit:	GOPHER$ROOT:[_BIN]GOPHER_SPAWN_INIT.COM
+
+	Where
+		GOPHER_ROOT:[000000] is the root of the data directory
+			for the server; note that this *could* be different
+			for each server, but need not be.
+		GOPHER_ROOT:[_SCRATCH] is a directory which is fully
+                        accessible to the authorization under which the
+                        server using this configuration file will run
+                        (RWED).  The directory will receive temporary and
+                        scratch files for the server and any subprocesses
+                        it spawns.  Note that a server started by the
+                        INET_SERVERS will not have the system logical
+                        SYS$SCRATCH: defined, so a different value with an
+                        explicit device and directory path will be
+                        required. GOPHER$ROOT:[_BIN]GOPHER_SPAWN_INIT.COM
+                        is a file in a directory to which the authorization
+                        running the server has read and execute access. 
+                        Whenever a server started by INET_SERVERS spawns a 
+                        subprocess, the sub-process will execute the file 
+                        to define symbols and so forth. Note the use of 
+                        GOPHER$ROOT:[_BIN] is specific to the site
+                        aardvark.ucs.uoknor.edu;  in no way should you feel
+                        obligated to use the same device and directory tree
+                        specification.
+
+Customize, as needed, the GOPHER_SPAWN_INIT.COM file.  It should at minimum
+contain the following lines to insure appropriate operation of GREP
+searches (customize where your copy of EGREP resides, of course).  Since
+servers started by INET_SERVERS go through VMS LOGIN but do *NOT* perform 
+the normal SYLOGIN.COM functions, this command file replaces the minimum 
+features required there.  Note also that it is not sufficient to define 
+SYS$SCRATCH in this file; the server requires scratch space prior to any 
+spawned tasks, so the scratch directory must be defined in the configuration 
+file.
+
+$ V = F$VERIFY(0)
+$ ON ERROR THEN CONTINUE
+$ EGREP  :== $x:EGREP
+$ EXIT
+
+Login to the SYSTEM account and perform the following steps:
+
+Note:  the use of GOPHER$ROOT:[_BIN] is specific to the site
+       aardvark.ucs.uoknor.edu;  in no way should you feel obligated to 
+       use the same device and directory tree specification.
+
+1.	Copy GOPHER$ROOT:[_BIN]GOPHERD.EXE to twg$tcp:[netdist.serv]
+
+2. 	Add the following block to twg$tcp:[netdist.etc]servers.dat
+
+    # GOPHERD   (VMSGopher-server)
+    service-name    GOPHER
+    program         TWG$TCP:[NETDIST.SERV]GOPHERD
+    socket-type     SOCK_STREAM
+    socket-options  SO_ACCEPTCONN | SO_KEEPALIVE
+    socket-address  AF_INET , 70
+    working-set     200
+    maxservers      10
+    INIT            TCP_Init
+    LISTEN          TCP_Listen
+    CONNECTED       TCP_Connected
+    SERVICE         Run_Program
+
+Note:  'maxservers 10' is only a suggested setting.  For conservative
+       systems, 'maxservers 5' might be more appropriate.
+
+3.	Add the following line to twg$tcp:[netdist.etc]services.
+
+    gopher    70/tcp    Gopher_Server
+
+4.	Stop/Id on the INET_SERVERS process and restart it by running  
+    @twg$tcp:[netdist.misc]inetserv
+
+NOTE:  Addendum for Wollongong's PATHWAYS 1.x 
+
+We are still using the archaic Wollongong TCP/IP Version 5.1 (!) due
+to the agony involved in updating local help files for 5.2 or Pathways 1.0.
+This should be corrected soon, but as a result of this wee have no working
+experience with Pathways.  The following information from Robert Jackson
+<JACKSON@CALL.TESC.EDU> for gottcha's under Pathways is all I am aware of 
+right now:
+
+ >Date: Wed, 17 Nov 93 14:22:15 EST
+ >From: JACKSON@CALL.TESC.EDU
+ >Subject: RE: test.
+ >To: CHRIS@barrister.ucs.uoknor.edu
+ >
+ >Hi Chris, let me thank you again for all the help the other day in trying 
+ >to get my VMS Gopher Server up. I found out a couple of things after we 
+ >talked
+ >1:  Wollongong forgot to send me the newest API's with this new version of 
+ >    TCP/IP(Pathway).  So they are sending them to me within the next day
+ >    or so.  But that is not what was keeping the port (70) from answering.
+ >2:  They also did not mention that in the default configuration of the 
+ >    Pathway software they impliment the Netcontrol routines and use the 
+ >    netcontrol.dat file for security for the different ports and services. 
+ >    Even though I saw the service listening on the port, the netcontrol did 
+ >    not have that port or service activated.  So I ran Netcontrol and 
+ >    issued the ADD/SERVICE command.  This added the service and allowed the
+ >    port to answer.  The server just needs to be re-compiled with the new 
+ >    API's. It now states in the log file that it can't bind the port 
+ >    because the address is being used by something else. Wollongong said 
+ >    that would be fixed after I upgrade (with the new API Saveset for 
+ >    Pathways). 
+ >
+ >So it look like the server will soon be a reality. I will drop you a note 
+ >when we are finaly up and running..
+ >
+ >Robert Jackson
+ >System Admin.
+ >Jackson@call.tesc.edu
+
+So added steps for Pathways:
+
+5.	run twg$tcp:[NETDIST.ETC]NETCONTROL and add the gopher service by:
+
+	ADD/SERVICES=gopher
+
+ Where 'gopher' matches the entry in the twg$tcp:[NETDIST.ETC]SERVICES. file
+ for the gopher server.
+
+6.	Make sure you have the new API Saveset Distribution installed and
+	compile (or recompile if nessesary) the gopher server.
+
+
+When a client attempts to connect to the configured port, INET_SERVERS
+should start a fresh copy of the server to service that client's request. 
+Regardless of how long that copy of the server takes to process the request
+(and if the server survives the request ;-), other clients will not be
+obstructed unless there are already 'maxservers' number of gopherd processes
+running where maxservers is defined in the twg$tcp:[NETDIST.ETC]SERVERS.DAT
+entry for the gopher server.
+
+Note that servers started by INET_SERVERS run under the SYSTEM authorization,
+and tend to be high-privileged users.  The server has access to all 
+privileges defined for the INET-SERVERS daemon process as defined in the
+twg$tcp:[netdist.misc]inetserv.com file but discards all the dangerous 
+privileges it can after binding to the connected socket.
+
+
+II.d Configure the Gopher Server
+--------------------------------
+The file named by the GOPHER_CONFIG logical will be read by the GOPHERD.EXE
+program during initialization.  The file allows you to specify overrides to
+compiled defaults and the GOPHER_DATADIR logical (if any), and is
+recommended  to be used over editing the CONF.H file prior to building the
+executable.  The  file can reside just about anywhere, but (see the Hidden
+specification below)  it is perfectly acceptable to put it in the root of
+the data directory.  An  example configuration file follows:
+
+HostAlias:	psulias.psu.edu
+Site:		Penn State University Libraries
+Admin:		J.Lance Wilkinson
+AdminEmail:	GopherAdmin@psulias.psu.edu
+Org:		Penn State University Libraries
+Loc:		E8 Pattee Library, University Park, PA 16802
+LogFile:	GOPHER_ROOT:[000000]_GOPHER.LOG
+BummerMsg:	Sorry, access denied at this time.
+Access:		default read browse search
+Access:		.stupid.domain !read !browse !search
+Access:		123.456. browse !read !search 
+Ignore:		.OBJ
+Ignore:		.EXE
+Ignore:		.COM
+Ignore:		.DAT
+Ignore:		.MAI
+Ext:		.BCK 9 9 VMS_Saveset
+Ext:		.BCK-2048 9 9 VMS_Saveset
+Ext:		.EXE 9 9 Executable
+Ext:		.HQX 4 4 Macintosh-BINHEX
+Ext:		.OBJ 9 9 Object
+Ext:		.TAR 9 9 TARred
+Ext:		.TAR_Z 9 9 TARred_COMPRESSed
+Ext:		.UU 6 6 UUENCODEd
+Ext:		.UUE 6 6 UUENCODEd
+Ext:		.Z 9 9 COMPRESSed
+Ext:		.ZIP 9 9 ZIP
+#	The following configuration options are
+#	Extensions for the VMS Gopher Server
+Inetd:		FALSE			!Set TRUE for INETD-started servers
+TimeZone:	EDT			!Eastern Time...	
+ReadTimeout:	300			!5*60 for 5 minute network timeout
+Cache:		FALSE			!UNIX only...
+DataDirectory:	GOPHER_ROOT:[000000]	!Base directory is here...
+Port:		70			!For production gophers only	
+Do_chroot:	FALSE			!UNIX only...
+Hidden:		_			!Kinda like prefixing logicals...
+Link:		.			!Kinda like Unix...
+LookAside:	_lookaside		!Where .cap/files go...
+DName:		%fn [%ts, %sz]
+DHead:		GOPHER_ROOT:[000000]_Standard_Disclaimer.txt
+DFoot:		-- standard disclaimers apply --
+MaxLoad:	5.0
+Restart:	GOPHER_RESTART_70	
+Rollover:	Daily
+ScratchDir:	GOPHER_ROOT:[_SCRATCH]
+SpawnInit:	GOPHER$ROOT:[v1216]GOPHER_SPAWN_INIT.COM
+FTPPort:	NONE
+EXECPort:	NONE
+SRCHPort:	7070
+SortDir:	TRUE
+SortGREP:	TRUE
+SortCMD1:	TRUE
+SortShell:	FALSE
+
+The syntax of a configuration file is as follows:
+
+	<config> := <line> CR-LF
+	<line> := <comment> | <specification>
+	<comment> := <null_line> | "#" [<any_text>]
+	<specification> := <keyword> ":" <text> ["!"<any_text>]
+
+The keywords and interpretation of the texts following them are:
+
+HostAlias:	The HostAlias keyword specifies the fully-qualified domain
+                name of your local host.  It is used by the server to
+                identify itself, and to substitute for "+" when found in a
+                Host=+ specification in a .link or lookaside file.  The
+                default resolves to the current host.
+
+Site:		Name of the local site.  No default is defined.
+
+Admin:		The name of the warm-bodied (?) individual responsible for
+                Gopher Server administration at the local site.  No default
+                is defined.
+
+AdminEmail:	The Email address of the individual named in the Admin
+		specification.  No default is defined.
+
+Org:		The name of the organization offering the Gopher Server to
+                the public, often the organization within which the
+                individual named in the Admin specification works.  No
+                default is defined.
+
+Loc:		The real-world address of the organization named in the Org
+		specification.  No default is defined.
+
+Geog:		The longitude/latitude coordinates for targeting missles at
+                the site or some other (hopefully more useful) geographic
+                information.  No default is defined.
+
+LogFile:	The name of the log file where the Gopher Server is to store
+                its event/transaction log.  The file named will be created
+                by the server if it does not exist, and appended to if it
+                does exist.  No default is defined.  The Rollover:
+                specification may modify the value of the LogFile name at
+                runtime.
+
+BummerMsg:	The text of a message to be displayed back to a client if
+                access is denied to a particular resource or document.  No
+                default is defined.
+
+Ext:		Specifies type of file by extension.  Multiple Ext
+                specifications may be made.  No defaults are defined. The
+                <text> for the Ext specification is formatted as follows:
+
+			<ext> <gt> <pfx> <g+>
+
+	<ext> is the extension itself, the last character(s) of the file
+                being  described.  This might be a complete filename or any
+                trailing  subset of its characters, like .OBJ, .EXE,
+                ME.TXT, etc.
+	<gt> is a single character specifying the Gopher type of any
+		document ending with the specified <ext> characters.  0 is
+                file, 1 is  directory, 7 is searchable index, and so on,
+                according to the standard Gopher capabilities in the
+                GOPHER_FYI_RFC.
+
+	<pfx> is a prefix to be applied to the path of files  matching <ext>.
+                <g+> is a text string naming a Gopher+ type.  Since this is
+                not a  Gopher+ server, this option is presently ignored.
+
+Access:		Specifies sites which are to be denied access or explicitly
+                granted access to the server.  Multiple Access
+                specifications may be made.  No defaults are defined.  The
+                <text> for the Access specification is formatted as
+                follows:
+
+			<site> [["!"]<acc>][,["!"]<acc>]...
+
+	<site> is the domain name or IP number of a site whose clients are
+                to  be granted or denied access. "default" may be specified
+                to  define a default set of access permissions.  Specifying
+                a site with a prefixing "." (e.g., Access:.psu.edu)
+                specifies that any host with a name ending in ".psu.edu"
+                should match the specification.  Similarly, specifying a
+                site in dotted decimal form with a suffixing "." (e.g.,
+                Access:128.118.) specifies that any host with an IP address
+                starting with "128.118." should match the specification.
+		
+	<acc> specifies "b" for browse, "r" for read and "s" for search
+                permissions.  "!" prefixing a permission denies the access, 
+                while omitting the "!" grants the access.  Note that
+                because of this syntax, inline commentary ("!" prefixing
+                any other text), allowed with all other configuration
+                lines, is not allowed with an Access specification.  Also
+                note that multiple permissions can be associated with a
+                site on a single line, if they are separated by commas or
+                spaces, e.g. Access:.unc.edu b,r,!s
+			
+Ignore:		Specifies default *exclusion* of files by extension.
+                Multiple Ignore specifications my be made.  No defaults are
+                defined. The <text> for the Ignore specification is exactly
+                the same as the <ext> subfield of the Ext specification's
+                <text>.  In fact, specifying "3" as the <gt> subfield on an
+                Ext specification has the same effect as the Ignore
+                specification.
+
+TimeZone:	A numeric specification of the local time zone, specified as 
+		an offset from Greenwich Mean Time (GMT).  For example,
+		   +0300 is GMT plus 3 hours (east of Greenwich)
+		   -0445 is GMT minus 4 hours, 45 minutes (west of
+						Greenwich).
+                Alternatively, any text string may be used.  No default is
+                assumed.  If a GMT offset is specified with less than 3
+                digits, it will be multiplied by 100 to assume 0 minutes.
+		
+ReadTimeout:	The number of seconds the server is to wait following a
+                client's connection for resolution of the client's IP
+                address and receipt of the client's request before giving
+                up and breaking the connection.  Default is 300, or five
+                minutes, as coded for the value of READTIMEOUT in the
+                CONF.H file.  Detached process servers might benefit from
+                shorter timeouts, such as 1 or 2 minutes (60 or 120
+                seconds).
+
+Inetd:		TRUE or FALSE, is server started automatically.  Specify
+                TRUE if the server will be started by MULTINET_SERVER, and
+                FALSE if the server will be started as a detached process.
+
+Cache:		TRUE or FALSE, is server caching directories.  FALSE until
+		implemented in the VMS server.
+
+DataDirectory:	The path to the root directory, overriding the
+		GOPHER_DATADIR logical.  The default is DATA_DIRECTORY as
+                defined in the CONF.H file (GOPHER_DATADIR by default).
+
+Port:		The numeric TCP/IP port, overriding the GOPHER_PORT defined
+		in the CONF.H file (70 by default).
+
+Do_chroot:	TRUE or FALSE, will program perform chroot() calls.  FALSE
+		since that isn't needed in the VMS implementation.
+
+Hidden:		The character string which prefixes files which the server
+                is not to detect when building directory menus.  Default is
+                "_". This is because there really aren't hidden files in
+                VMS like in Unix, and while we could prefix them with "."
+                like .links files, maybe there's something in one of them
+                that would be accepted as a .links entry, but we don't want
+                it to be treated as such.  Lots of files, including
+                SERVER_ERROR files, can be kept in the root data directory
+                and elsewhere, undetected by the server, in this manner.
+
+Link:		The character string which prefixes files which the server
+                is detect and treat as menu specification files (.LINKS)
+                when building directory menus.  Default is ".".  Everything
+                else got parameterized, why not this?
+
+LookAside:	The name of a subdirectory which is considered a lookaside
+                directory.  Default is ".cap".  In any given parent
+                directory, this subdirectory, if it exists, contains
+                lookaside files for other files in the parent directory. 
+                Such directories are always ignored when building menus.
+
+DName:		Specifies a default Name= equivalence for documents which
+                are not paired with a lookaside file.  This offers a way to
+                achieve the behavior of a Unix server with the "date+size"
+                patch, by specifying "%fn [%ts, %sz]" for a DName: option. 
+                Documents of types where the "date+size" patch is
+                inappropriate (directories, indexes, etc.) are not
+                subjected to the DName substitution; instead, only the
+                actual document name is offered.
+
+DHead:		Specifies a default line of text to prefix all Type=0
+                documents when the server delivers them to clients.  If a
+                valid filename (which exists) is specified, the entire
+                file's contents is prefixed before the documents.  This is
+                a method of adding standard disclaimers or copyright
+                notices.
+
+DFoot:		Specifies a default line of text to suffix all Type=0
+                documents when the server delivers them to clients. If a
+                valid filename (which exists) is specified, the entire
+                file's contents is suffixed after the documents.  This is a
+                method of adding standard disclaimers or copyright notices.
+
+MaxLoad:	System load maximum (15 minute average) beyond which the
+                server is to refuse client requests.  Specify as a floating
+                point number.  Default is 0.0, which indicates that no load
+                restrictions are to be imposed.
+
+Restart:	Specifies a LNM$SYSTEM_TABLE ($ define/system/exec) logical
+                name for which the server is to check prior to each
+                transaction read; if the logical exists, the server exits
+                cleanly.  If unspecified the default is the value of
+                RESTART in CONF.H (normally, this is GOPHER_RESTART).  A
+                tie-in to the port is advised (but not auto-matically
+                imposed by the server), such as GOPHER_RESTART_70 or
+                RESTART_GOPHER_ON_PORT_1075.
+
+Rollover:	Specifies a log file rollover period.  Valid keywords are
+                ANNUALLY, MONTHLY, WEEKLY, DAILY, HOURLY and NEVER.  Any 
+                unrecognized keywords are assumed to be NEVER; Default is
+                NEVER. Specifying a keyword appends additional text to the
+                Logfile: specified filename, if any.  The resultant
+                filename is the file actually written to by the server for
+                any given log entry; in the following examples, assume the
+                current timestamp is 1-Jul-1993:16:32 --
+
+		   ANNUALLY	append current year (e.g. "1993")
+		   MONTHLY	append current year and month
+					(e.g., "199307")
+		   WEEKLY	append current year, month and date
+					of last Sunday (or current date
+					if Sunday, e.g. "19930627")
+		   DAILY	append current year, month and date
+					(e.g., "19930701")
+		   HOURLY	append current year, month, date and
+					(24-) hour (e.g., "1993070116")
+                Note that the rollover specification (or default of NEVER)
+                has a side effect in the original allocation and extension
+                alloca- tions for the log file.  A different value for each
+                rollover selection is defined in CONF.H, based on a
+                gut-feel for the file size.  These may be changed by
+                editing CONF.H and recompiling and relinking the server.
+
+ScratchDir:	The path to a device/directory to which the gopher server
+                has full access (Read, Write, Execute and Delete).  The
+                default is SYS$SCRATCH:, but for INETD servers this must be
+                explicitly specified since they do not have the
+                SYS$SCRATCH: logical defined.  
+
+SpawnInit:	The fully-qualified filespec (device:[dir]filename) for a
+                DCL command file to be executed by any subprocesses spawned
+                by the gopher server.  Included in this file should be
+                symbol and/or logical definitions which the subprocesses
+                (e.g., GREP searches) will require but are not defined due
+                to INETD startup.  Note the use of GOPHER$ROOT:[v1216] is
+                specific to the site psulias.psu.edu; in no way should you
+                feel obligated to use the same device and directory tree
+                specification.
+
+SortDir:	TRUE or FALSE, specifies whether directories should be
+                sorted; default TRUE.
+
+SortGREP:	TRUE or FALSE, specifies whether result menus from GREP
+                searches should be sorted.  Overridable at the individual
+                link tuple  level by specifying ":sort:" or ":nosort:"
+                immediately after the "7" in the selector string for the
+                Path= specification.
+
+SortShell:	TRUE or FALSE, specifies whether result menus from shell
+                searches should be sorted.  Overridable at the individual
+                link  tuple level by specifying ":sort:" or ":nosort:"
+                immediately  after the "7" in the selector string for the
+                Path= specifica- tion.
+
+SortCMD1:	TRUE or FALSE, specifies whether result menus from CMD1
+                searches should be sorted.  Overridable at the individual
+                link tuple  level by specifying ":sort:" or ":nosort:"
+                immediately after the "7" in the selector string for the
+                Path= specification. Does not apply to 7$version, 7$ftplink
+                or 7$go4link pseudo- searches (all these are implicitly
+                "7:nosort:$...").
+
+FTPPort:	NONE or a port number, specifies the port for a local
+                gopher server which supports anonymous FTP (aFTP) gateway
+                accesses. Since these gateway accesses can introduce extra
+                load on a  gopher server, you may wish to disable them by
+                specifying NONE. The default is whatever your default port
+                is defined to be. When NONE, no aFTP gateway requests are
+                honored.  When a different port value than your default
+                Port: specification is supplied, it is assumed another
+                server exists on that port configured to honor aFTP gateway
+                requests.  When a link tuple with Port=+ and Path=ftp....
+                is offered back to a client, this port is substituted
+                instead of the standard port.
+
+EXECPort:	NONE or a port number, specifies the port for a local
+                gopher server which supports EXEC script accesses.  Since
+                these script executions can introduce extra load on a
+                gopher server, you may wish to disable them by specifying
+                NONE.  The default is whatever your default port is defined
+                to be.  When NONE, no EXEC script requests are honored. 
+                When a different port value than your default Port:
+                specification is supplied, it is assumed another server
+                exists on that port configured to honor  EXEC script
+                requests.  When a link tuple with Port=+ and Path=exec...
+                is offered back to a client, this port is substi- tuted
+                instead of the standard port.
+
+SRCHPort:	NONE or a port number, specifies the port for a local
+                gopher server which supports search index accesses.  Since
+                these searches can introduce extra load on a gopher server,
+                you may wish to disable them by specifying NONE.  The
+                default is whatever your default port is defined to be. 
+                When NONE, no index search requests are honored.  When a
+                different port value than your default Port: specification
+                is supplied, it is assumed another server exists on that
+                port configured to honor search index requests.  When a
+                link tuple with Port=+ and Path=7... is offered back to a
+                client, this port is substituted instead of the standard
+                port.
+
+
+II.e Populate the Data Directory Root
+-------------------------------------
+Several files are needed in the root of the data directory.
+
+The _SERVER_ERROR.* files supplied should be copied there and *editted* as
+appropriate for your site.  If your selected Hidden prefix string as
+specified in your configuration file is not "_", then the filenames should
+be changed by to be prefixed by that chosen Hidden prefix string:
+
+	$ RENAME _SERVER_ERROR.* <hidden_prefix>SERVER_ERROR.*
+
+The "SERVER_ERROR" and filename extensions should remain unchanged;
+specific file extensions and the SERVER_ERROR filename are used throughout
+the VMS code to allow the server to specifically target error explanations
+to client's users.
+
+It is very important to edit every one of these files since, as
+distributed, they tell people who want to question or complain about a
+problem to contact GopherAdmin@       , lacking the address of your own
+Gopher administration organization.  This gets extremely confusing for
+client users when they see this incorrect information coming from your
+site. 
+
+It's wise to have an "ABOUT" file in the root directory to explain the
+basic purpose intended for your Gopher Server.  This can be a hidden file
+(that is, name it "_ABOUT", for example) since it will likely be directly
+located through the root .LINKS file.
+
+You'll need a root .LINKS file, which will be offered upon root connection
+to any client.  This is the heart of a Gopher Server environment.  A .LINKS
+file is *ANY* file that begins with "." (by default; this can be overriden
+with another character or string of characters in the configuration). 
+These files normally sort to the top of the directory by beginning with
+".", so they are usually found and processed before any other files are
+detected in a directory.
+
+
+III. .LINKS and lookaside files
+===============================
+
+A .link file is one that instructs the server how to present a menu of 
+data.  A lookaside fills a similar function, but allows more information to 
+be provided by defaults.
+
+
+III.a Creating .LINKS
+---------------------
+The ability to make links to other hosts is how gopher distributes itself
+among multiple hosts.  There are two different ways to make a link. The
+first and simplest is to create a link file that contains the data needed
+by the server.
+
+By default all files in the gopher data directory starting with a period
+(".", or perhaps in your configuration you've overriden this) are taken to
+be link files.  A link file can contain multiple link tupless.  A define a
+link tuple you need to put five lines in a link file that define the
+characteristics for the document.  Here is an example of a link tuple:
+
+Name=Cheese Ball Recipes
+Type=1
+Port=150
+Path=1/Moo/Cheesy
+Host=zippy.micro.umn.edu
+
+The Path= line contains the selector string that the client will use to
+retrieve the actual document.  The Port= and Host= lines tell the client
+where the server is which will respond to that selector string with the
+correct file or menu.  The Name= and Type= specifications are used for
+display, by the client, of the link.  Normally the client doesn't tell its
+user the values of the Path=, Port= and Host= lines.
+
+An easy way to retrieve this information is to use telnet to get the
+information.  For instance let's say you want to link the University of
+Minnesota's Gopher Server to your gopher server.  Just telnet to the port
+(like in the example above) and retrieve the information. The server
+returns a list in the following format:
+
+<character Object Type><TAB><Name><TAB><Path><TAB><Host><TAB><Port>
+
+You need to keep the Object Type, Path, Host, and Port the same in the link
+tuple.  You can change the name of the document if you want.
+
+The VMS Gopher Server's .LINKS file is a two-part file.  The first part is
+optional while the second is required (if the 2nd part is missing, the
+Gopher Server will effectively ignore the file).  Comments in the form of
+null lines or lines beginning with "#" are permitted throughout and are
+ignored by the server. 
+
+The syntax of a link file is as follows:
+
+	<link> := <line> CR-LF
+	<line> := <comment> | <specification>
+	<comment> := <null_line> | "#" [<any_text>]
+	<specification> := <keyword>"=" <text>
+
+Note that no space is permitted between the keyword and "=".
+
+Continuation of extra long texts is permissable by having a '-' (hyphen) as
+the very last character in a long line, and a ' ' (blank) as the very first
+character of the next line.  In this situation, the '-' will be discarded,
+and the next line will be appended to the long line in place of the '-'.
+This may continue through the maximum length of a link file line, 1024 
+bytes.  It is probably only useful for Path= specifications which can get
+excessively long on occasion.  Name= specifications may be continued, but
+it's wise to keep them shorter than 70 characters so clients are able to
+display them without truncation.
+
+The first part consists of one or more local Ignore and/or Access speci-
+fications and optionally a DName, SortDir and/or IgnoreAll specification.
+
+Access=		Specifies sites which are to be denied access or explicitly
+                granted access to *this directory*.  Multiple Access 
+                specifications 	may be made.  No defaults are defined.  
+                The <text> for the Access specification is formatted as
+                follows:
+
+			<site> [["!"]<acc>][,["!"]<acc>]...
+	<site> is the domain name or IP number of a site whose clients are
+                to  be granted or denied access. "default" may be specified
+                to  define a default set of access permissions.  Specifying
+                a site with a prefixing "." (e.g., Access=.psu.edu)
+                specifies that any host with a name ending in ".psu.edu"
+                should match the specification.  Similarly, specifying a
+                site in dotted decimal form with a suffixing "." (e.g.,
+                Access=128.118.) specifies that any host with an IP address
+                starting with "128.118." should match the specification.
+	<acc> specifies "b" for browse, "r" for read and "s" for search
+                permissions.  "!" prefixing a permission denies the access, 
+                while omitting the "!" grants the access.  Note that
+                because of this syntax, inline commentary ("!" prefixing
+                any other text), allowed with all other configuration
+                lines, is not allowed with an Access specification.  Also
+                note that multiple permissions can be associated with a
+                site on a single line, if they are separated by commas or
+                spaces, e.g. Access:.unc.edu b,r,!s.  At present, only
+				"b" is relevant, since browse access is required to secure
+				a listing of a directory.
+
+Ignore=		Specifies default *exclusion* of files by extension within
+                this directory.  Semantically, this is the same intent as
+                the Ignore: specifications in the configuration file.  This
+                allows files not globally ignored to be ignored when
+                building menus for the directory where this .LINKS file
+                resides.  More than one Ignore= specification may be
+                specified; all to be specified in a given .LINKS file
+                *must* appear before any non-comment, non Ignore=
+                specifications, however.
+
+IgnoreAll=TRUE	Specifies default *exclusion* of *all* non-.LINKS files
+                within this directory.  After processing .LINKS files
+                (i.e., files with "." as the first character in their
+		filename, other files in the directory are ignored.
+		Alternatively, IgnoreAll=FALSE can be used to impose the
+		default behavior within the directory.
+
+
+DName=		Specifies a default Name= equivalence for documents within
+                this directory without a lookaside file Name=
+                specification. This offers a way to achieve the behavior of
+                a Unix server with the "date+size" patch, by specifying
+
+			DName=%fn [%ts, %sz]
+
+                Note this overrides a DName: specification in the
+                configuration file for the directory only.  Only the last
+                DName= specification encountered within one or more .LINKS
+                files will be used.  The DName= specification is ignored
+                for documents for which the "date+size" patch is
+                inappropriate (directories, indexes, etc.); in this case,
+                the document name only is presented.
+
+SortDir=	Specifies whether the directory should be sorted (TRUE)
+                or not sorted (FALSE), overriding the configuration file
+                default for SortDir: for this directory.
+
+The second part consists of one or more link tuples.  A link tuple is a set
+of specifications describing the link.  Minimum specifications are a Name=,
+Type=, Port=, Path=, and Host= specification; once a tuple is started,
+omitting any of these required specifications causes the entire tuple to be
+ignored.  Note that the Host=, Port= and Path= specifications uniquely
+identify any document or resource world-wide, while the Name= and Type=
+specifications describe them.
+
+Order of optional versus Required link tuple entries is very important: 
+All Optional link tuple entries must be sandwiched between the first and
+last Required entries or they will be ignored.  A good rule of thumb is to
+always have Name= first and Host= last, with all other link tuple entries
+between them, Required or Optional.
+
+Required Link Tuple specifications:
+
+Name=		Specifies the title which the client is to present for
+                this menu item.  Some clients are restricted on how much
+                they can display, so this should be limited to about 70
+                characters. You may include specifications in this field to
+                have the server include details about the file in the name
+                as presented to clients.  These specifications are of the
+                following format:
+		%fn - server substitutes the filename from the Path= for
+                        "%fn" (device:[directory], if any, is omitted).
+		%pt - server substitutes the port number associated with
+			the current link tuple.
+		%ho - server substitutes the host name associated with
+			the current link tuple.
+		%ts - server substitutes the last modification time/date
+			for "%ts".  If the current year, DD-MMM HH:MM:SS
+			is the format; if not, DD-MM-YYYY is the format.
+		%ti - server substitutes the last modification time in
+			HH:MM:SS format for "%ti".
+		%dt - server substitutes the last modification date in
+			DD-MM-YYYY format for "%dt".
+		%sz - server substitutes the file size in bytes for "%sz".
+                        If the file size exceeds 999 bytes, it is rounded
+                        up to the nearest K (1024 bytes) and suffixed by
+                        "KB"; if 999 bytes or less, it is displayed with
+                        the text " bytes".
+
+Type=		Specifies the Gopher document type, or capability.  These
+                may be any type valid at the host specified in the Host=
+                specifica- tion.  This is one-character, a letter or
+                number.  0 means a file, 1 a directory, 7 a searchable
+                index, 8 a Telnet session, 2 a CSO phonebook server, i for
+		an information line and so on.
+
+Host=		The Internet host where the Name= specified document or
+                resource resides, specified as a domain name or IP number. 
+                Specifying "+" directs the server to supply its own
+                HostAlias from the configuration file.
+
+Port=		The port on the specified Host= where the document or
+                resource is available.  This is a numeric TCP/IP port
+                number.  For other hosts's Gopher servers, this is normally
+                70.  For a Telnet session (Type=8), it is normally 23. 
+                Specifying "+" directs the server to supply its own port
+                number (from the configuration file or, lacking that, the
+                compiled CONF.H value of GOPHER_PORT) as the port.  "+"
+                should probably not be used when the value of Host= doesn't
+                match the HostAlias specification in the configuration
+                file.
+
+Path=		Specifies, again, the Type= code, immediately followed by
+                the specification string expected by the Gopher Server on
+                the Port= and Host= specifications, to which that server
+                will respond with the document or menu described by the
+                Name= specification.  Often this is an appropriate file
+                specification on the Host's OS, like 1/pub/gopherdata/ for
+                a directory on a Unix platform, or 0GOPHER_ROOT:[_data] for
+                a directory on a VMS platform.  The path, if specified for
+                a Telnet session (Type=8), generally names the presumed
+                login to the session. The path one specifies for an index
+                search operation (Type=7) will vary depending upon the kind
+                of index search to be supported; see "Setting Up Searches"
+                below.  The specification of paths can get long;
+                continuation is appropriate for them, as in:
+
+		  Path=1gopher_root_this_is_a_long_one:[dir1.dir2.dir3.-
+			 dir4.dir5.dir6]
+
+                (note the '-' at the end of the 1st line, and the ' ' at
+                the start of the 2nd line).
+
+Optional Link Tuple specifications:
+
+Access=		Specifies sites which are to be denied access or
+                explicitly granted access to this *item*.  Multiple Access
+                specifications  may be made.  No defaults are defined.  The
+                <text> for the  Access specification is formatted as
+                follows:
+
+			<site> [["!"]<acc>][,["!"]<acc>]...
+	<site> is the domain name or IP number of a site whose clients
+                are to  be granted or denied access. "default" may be
+                specified to  define a default set of access permissions. 
+                Specifying a site with a prefixing "." (Access=.psu.edu)
+                specifies that any host with a name ending in ".psu.edu"
+                should match the specification.  Similarly, specifying a
+                site in dotted decimal form with a suffixing "." (e.g.,
+                Access=128.118.) specifies that any host with an IP address
+                starting with "128.118." should match the specification.
+		
+	<acc> specifies "b" for browse, "r" for read and "s" for
+                search  permissions.  "!" prefixing a permission denies the
+                access,  while omitting the "!" grants the access.  Note
+                that because of this syntax, inline commentary ("!"
+                prefixing any other text), allowed with all other
+                configuration lines, is not allowed with an Access
+                specification.  Denial of "b" (browse) access will suppress
+                the item in the menu listing for the denied clients; Denial
+                of "r" prohibits access for reading purposes (applicable
+                only in lookaside files); Denial of "s" prohibits access
+                for search purposes; at present no testing of suppressed
+                search access at the link tuple level has been tested.
+                Note that multiple permissions can be associated with a
+                site on a single line, if they are separated by commas or
+                spaces, e.g. Access:.unc.edu b,r,!s.
+
+Numb=		Specifies the ordinal position in the menu to be offered.
+                Items with Numb= specified are sorted into numeric order by
+                the Numb= value an placed at the start of the menu. Items
+                without any Numb= specification are sorted in lexical order
+                and appear after all the items with Numb= specified.
+
+Hidden		Specifies the item is not to appear in the menu under
+		any circumstances.
+
+Since directory-wide Access specifications in the 1st part of a .LINKS file
+are syntactically the same as those in any document-specific link tuple
+specification in the 2nd part, it is a wise practice to always start each
+link tuple in the 2nd part with one of the *required* specifications
+(required entries are Name=, Type=, Port=, Path= and Host=; optional
+entries are Access=, Numb= and Hidden).  Access= specifications that are to
+apply specifically to a link tuple *should* not be the first specification
+in a link tuple, since either the initial construction of the .LINKS file,
+or subsequent editing of that file, might make that link tuple the 1st one
+in the 2nd part, and the server will interpret the Access= specifications
+as members of the 1st part, thus global to the directory, not specific to
+the tuple as was intended.
+
+
+III.b Lookaside Files
+---------------------
+The second method of creating a link is a bit harder, however it's ideal
+for such things as sounds where the only change needed is the object type,
+or for supplying a name with spaces when VMS won't let you do that.
+
+Here's how you'd change the file GOPHER_ROOT:[_sounds]Moo into a sound: 
+
+  set def GOPHER_ROOT:[_sounds]
+  create/dir [._lookaside]
+  set def [._lookaside]
+  copy tt: Moo
+  Type=s
+  ^Z
+  
+The idea is that you create a directory called [._lookaside] in the same
+directory as the document.  This is referred to as a "lookaside" directory.
+The configuration file allows you to specify a name to be interpreted as a
+lookaside directory.  Then you create a file in the lookaside directory,
+with the same name as the file whose attributes you want to modify.
+
+You only need to put in what needs to be changed.  The server will supply
+defaults if it doesn't find out what it needs.  In the above example for
+instance, the host server would supply the Name, Host, Port and Path for
+the object.  The only thing that changed was the type.
+
+Lookaside file specifications may be continued.  Continuation of extra 
+long texts is permissable by having a '-' (hyphen) as the very last
+character  in a long line, and a ' ' (blank) as the very first character of
+the next line.   In this situation, the '-' will be discarded, and the next
+line will be  appended to the long line in place of the '-'.  This may
+continue through the  maximum length of a lookaside file line, 1024 bytes. 
+It is probably only  useful for Path= specifications which can get
+excessively long on occasion.   Name= specifications may be continued, but
+it's wise to keep them shorter than  70 characters so clients are able to
+display them without truncation.
+
+Some specifications only make sense in lookasides; these specifications
+modify the way that the server will present the data to the client,
+possibly overriding default server entries.  Because they are applicable at
+document delivery time, there is no .LINKS context; any specification of
+these entries in a standard link tuple in a .LINKS file are ignored.
+
+Head=		Specifies a line of text to be prefixed to a Type=0
+                document when the server delivers it to a client.  It
+                overrides any configuration file DHead: specification, and
+                may be null (i.e., "Head=") to suppress any default header
+                from the configuration. If a valid filename (which exists)
+                is specified, the entire file's contents is prefixed before
+                the document.  This is a method of adding standard
+                disclaimers or copyright notices.
+
+Foot=		Specifies a line of text to be suffixed to a Type=0
+                document when the server delivers it to a client.  It
+                overrides any configuration file DFoot: specification, and
+                may be null (i.e., "Foot=") to suppress any default footer
+                from the configuration. If a valid filename (which exists)
+                is specified, the entire file's contents is suffixed after
+                the document.  This is a method of adding standard
+                disclaimers or copyright notices.
+
+RHead=		Specifies a line of text to be prefixed to a Type=0
+                document when the server delivers it to a client as a range
+                (i.e., Path=R...).  It is supplied in addition to any Head=
+                or DHead= specification, and may be null (i.e., "RHead="). 
+                If a valid filename (which exists) is specified, the entire
+                file's contents is prefixed before the document.
+
+RFoot=		Specifies a line of text to be suffixed to a Type=0
+                document when the server delivers it to a client as a range
+                (i.e., Path=R...).  It is supplied in addition to any Foot=
+                or DFoot= specification, and may be null (i.e., "RFoot="). 
+                If a valid filename (which exists) is specified, the entire
+                file's contents is suffixed after the document.
+
+
+III.c ACL-Resident Lookaside Information
+----------------------------------------
+Lookaside files have a distinct disadvantage:  they require, for every
+directory that contains even one file needing lookaside information, a
+hidden subdirectory containing a file with the identical name, that file
+containing the lookaside information.  At best this is cumbersome to
+manage.  VMS offers a facility by which the lookaside information may be
+stored as a physical part of the original file, eliminating the need for a
+subordinate hidden lookaside directory and extra files.
+
+This facility uses ACEs (Access Control Entries), specifically Application
+ACEs. These are part of the file's Access Control List (ACL), and for
+Gopher purposes will be known as ACL-Resident Lookaside information.  To
+generalized commands such as "DCL DIR/ACL", "DIR/SEC" and "SET ACL/EDIT",
+these will appear as one or more (APPLICATION,...) entries.  As their
+format is understood only to the application they support, these
+generalized methods of viewing and editing them can only display them as
+strings of hexidecimal longwords.
+
+A program, LOOKASIDE, is provided to maintain ACL-Resident lookaside
+inform- ation.  It may be run as either a foreign command or as a standard
+RUN of an executable:
+
+	$ LOOKASIDE :== $device:[directory]LOOKASIDE.EXE
+	$ LOOKASIDE document [optional command line switches...]
+or
+	$ RUN device:[directory]LOOKASIDE
+
+LOOKASIDE will prompt for a file specification if none is specified on its
+foreign command line, or if the RUN format is used.  If the GOPHER_CONFIG
+logical is not available, or if the file it references is not accessible to
+LOOKASIDE, it will prompt for a Configuration File Specification as well.
+The configuration file located in this manner is searched for a LookAside:
+specification; if none is found, LOOKASIDE will repeatedly prompt for a
+configuration file until it either is supplied with one with a LookAside:
+specification, or the user specifies an EOF (^Z).
+
+LOOKASIDE presents a standard EDT edit buffer, which the user is expected
+to modify as needed to supply lookaside information.  If the specified
+document actually has a lookaside file, it will be loaded into the top of
+the edit buffer.  LOOKASIDE uses the configuration file's LookAside
+specification to find the real lookaside file; if the user refused to
+supply a configuration file with such a specification, any real lookaside
+file is ignored.
+
+If any ACL-Resident lookaside entries are already defined for the document,
+these will be loaded into the end of the edit buffer.
+
+LOOKASIDE next allows the user to use standard EDT editing to manipulate
+the edit buffer.  If a file LOOKASIDE.INI exists in the same directory
+where the LOOKASIDE.EXE file resides, it will be used as an EDT command
+file for initialization of the editor.
+
+LOOKASIDE can be run in non-interactive mode as well.  Non-interactive mode
+means that the SYS$INPUT device is not assigned to a terminal device.  For
+example, LOOKASIDE might be running in a DCL script or as an action line in
+a MAKE makefile, or MMS description file.  Non-interactive mode can be
+triggered by using a command line switch as well.  In non-interactive mode,
+LOOKASIDE will not prompt for a filename or a configuration file.  Command
+line specification of these is required, or the default configuration file
+may be used, or the configuration file may be ignored using a command line
+switch. In non-interactive mode, the LOOKASIDE.INI file is ignored, and the
+EDT editing buffer is not offered to the user.  In non-interactive mode,
+command line switches are required to add new ACL-resident lookaside
+entries, or a real lookaside file must exist with entries not currently
+present in the file's ACL-resident lookasides.
+
+All required and optional link tuple items may be specified.  With the
+exception of Access=, if more than one link tuple element with the same
+keyword appears in the edit buffer when the user exits the editor, only the
+last element is preserved in the ACL- Resident Lookaside information.  All
+Access= link tuple elements appearing in the edit buffer when the user
+exits the editor are preserved in the ACL-Resident Lookaside information.
+
+Once the user completes modifications of the buffer, EXIT will write the
+buffer to the ACL-Resident Lookasides of the file, while QUIT will discard
+the user's edits.
+
+The LOOKASIDE editor can also use command line switches to control its
+operation.  This is especially useful in non-interactive mode, such as in a
+DCL script or a MAKE operation.  LOOKASIDE options *MUST* be separated by a
+space (that is, use " /" and not just "/" to start each option).  Options
+are:
+
+/Config[=filename]	(default; default filename from GOPHER_CONFIG
+/NoConfig	logical) This switch specifies if a configuration file is
+                to be consulted for determining the possible location of a
+                pre-existing lookaside file for the file to be edited. In
+                non-interactive mode, LOOKASIDE will not prompt for a
+                configuration file if one is unspecified and the default
+                cannot be found.  Specify /NoConfig if you don't have any
+                Lookaside: specification in your config file.
+
+/NoInteractive	This switch specifies that non-interactive mode is to be
+		presumed even if the SYS$INPUT device is assigned to a
+		terminal.
+
+/NoDebug	(default)
+/Debug		This switch specifies if diagnostic debugging data is to
+		be displayed.
+
+/Clear		This switch specifies that any existing ACL-resident
+		lookaside entries and any existing lookaside file are
+                to be ignored.  Only command line specified lookaside
+                entries will appear in the editing buffer for user
+                modification during interactive mode, or in the ACL
+                following exit in non-interactive mode.
+
+/Name=display text
+/Type=resource type	These switches (no defaults) specify standard
+/Path=selector		link tuple entries to be appended to the editing 
+/Port=TCP/IP port	buffer before offering the buffer to the user
+/Host=DNS hostname	for editing.  In non-interactive mode, these 
+/Access=site r b s	switches can be used to supply all ACL-resident 
+/Numb=number		lookaside entries *to be added*.  With the 
+/Hidden			exception of the prefixing "/" switch character,
+/Head=doc hdr		the syntax of these entries is identical to the 
+/Foot=doc ftr		syntax one would use in a .LINK file, in a 
+/Rhead=doc rnghdr	lookaside file or in ACL-resident lookasides.  
+/Rfoot=doc rngftr	Values may be enclosed in quotes ("") to 
+			preserve case and/or whitespace; outer quotes
+			are discarded (e.g., /Name="text" on the command
+			line becomes Name=text in the ACL-resident
+			lookaside.
+
+Lookaside ACEs are defined to propogate; creating a new generation of a
+document with ACL-Resident lookasides will propogate those lookaside
+entries into the new generation of the file.
+
+
+III.d Controlling Remote Access
+-------------------------------
+On occasion one may have a need to restrict access to certain documents
+offered by your server.  For example, licensed or sensitive information, or
+access to resources paid for by a certain community which are to be
+accessed only by the authorized or paying customers of that resource. 
+Access may be controlled at the global level using one or more Access:
+specifications in the server configuration file.  Finer granularity may be
+achieved by using one or more Access= specifications at the top of any
+.LINKS files, or even finer by specifying one or more Access=
+specifications within individual link tuples or in lookasides, either
+traditional lookaside files or ACL-resident lookasides.
+
+An example taken from a live site using these facilities to control access
+follows:
+
+	Name=UnCover Periodical Search and Delivery Service
+	Type=8
+	Port=23
+	Numb=5
+	Access=default !browse,!read,!search
+	Access=.unc.edu browse
+	Access=.duke.edu browse
+	Access=.ncsu.edu browse
+	Access=152.1. browse
+	Access=152.2. browse
+	Access=152.3. browse
+	Path=
+	Host=uncover.lib.ncsu.edu
+
+This example limits access to the telnet service "Uncover..." to no users
+except those whose hosts match the specified host names.  Notice both the
+DNS names and the dotted decimal addresses are specified to allow a wide
+range of hosts within these domains.  The link tuple will not even be
+offered to hosts which don't satisfy the access filter.
+
+Another example from the same site, which prevents the directory from even
+being offered on a menu to a non-local site:
+
+	Name=TRLN Private Gopherhole
+	Type=1
+	Port=+
+	Access=default !b,!r,!s
+	Access=trln.lib.unc.edu b,r,s
+	Numb=12
+	Path=1gopher_root:[other_services.trln_private]
+	Host=+
+
+This example allows only the host site's clients to access the directory in
+question.  That directory then also contains a .LINKS file, which is also
+access controlled, even if the client knows how to specify it in a way
+which allows bypassing of the access-controlled pointer, above:
+
+	DName=%fn [%ts, %sz]
+	Ignore=.doc
+	Ignore=.dir
+	Ignore=.txt
+	Ignore=.dia
+	Ignore=.lis
+	Access=default !b,!r,!s
+	Access=trln.lib.unc.edu b,r,s
+
+	Name=About TRLN Private
+	Type=0
+	Port=+
+	Numb=1
+	Path=0gopher_root:[other_services.trln_private]_about.txt
+	Host=+
+
+The Access: specifications in the configuration file, and the Access=
+specifications which can be found in .LINKS files, in link tuples and in
+lookasides are semantically the same, and virtually the same in syntax as
+well -- the only difference is the use of ":" in the configuration file
+syntax, and "=" in the .LINKS, link tuple and lookaside syntax.
+
+
+IV. Starting the Gopher Server Daemon
+=====================================
+
+To start the Gopher Server, submit [.EXE]START_GOPHER.COM from a suitably
+privileged authorization (one with CMKRNL, so that SUBMIT/USER may be
+used). 
+
+The Gopher daemon will initialize and start accepting connections.  You can
+view the log file specified in the configuration file to see how things are
+going. The "Starting" log entry will name the process id.  At present there 
+are two ways to stop the server in case of problems, both of which require 
+knowing the process id.  One way is to issue a STOP/ID= on the process, 
+another is to execute [.EXE]HUNG.COM, which requires the process ID be 
+passed in, e.g.
+	@GOPHER_EXE:HUNG e14
+Use of HUNG.COM is preferable, as it will log some information that may be 
+useful in determining the cause of the problem.
+
+
+V. Usage
+========
+
+Except for debugging purposes, the VMS Gopher Server is not intended to be
+run interactively or with command line options.
+
+
+VI. Adding Data to the Gopher Server
+====================================
+Gopher data is most simply presented by a hierarchical directory structure. 
+Here are suggestions for creating that directory structure.
+
+
+VI.a Creating subdirectories
+----------------------------
+To make a gopher directory, just create a directory subordinate to the
+gopher data directory.  For instance, say you had a bunch of Heavy Metal
+Lyrics you wanted to put online, you might do the following: 
+
+ $ create/dir GOPHER_ROOT:[.Heavy_Metal_Lyrics.Metallica._lookaside]
+
+Note we've created a lookaside subdirectory as well.
+
+
+VI.b Adding files
+-----------------
+Okay, now you want to add some text files to your gopher database.  To do
+this just create and/or copy your textfiles into the directories in the
+gopher Server data directory.  Here's a quick example that uses a lookaside
+file:
+
+ $ copy mop.txt GOPHER_ROOT:[Heavy_Metal_Lyrics.Metallica]mop.txt
+ $ copy tt: GOPHER_ROOT:[Heavy_Metal_Lyrics.Metallica._lookaside]mop.txt
+Name=Master of Puppets
+^Z
+
+You'll want to create your text files and directories with descriptive
+names, or hide them by prefixing the directories and filenames with the
+Hidden Prefix character(s), and locate them exclusively through your .LINKS
+files, as the above example demonstrated.  .LINKS are going to be far more
+prevalent under VMS than they might be under Unix, since spaces are allowed
+in Unix filenames while they aren't in VMS filenames; you'll need them to
+provide reasonable titles for your entries.  Lookaside files can also be
+used; more on them later.  Remember to use continuation when specifications
+get so long they will be difficult to edit.
+
+
+VI.c Adding alternate directory trees
+-------------------------------------
+Normally, only files and directories with null device specifications in
+their path names are accepted by the server for display.  If a device
+specification is part of the client-supplied filespec, it must specify the
+Gopher data directory device.
+
+On occasion, there might be a need to have the server access files or
+directories outside the base gopher data directory.  There are two ways to
+do this.  First, the GOPHER_DATADIR logical, or the logical device named in
+the DataDirectory specification of the configuration file, may be defined
+as a search list.  This has the benefit of being totally transparent to the
+server, simply adding additional files to the root directory. 
+Subdirectories may become problematic, however, due to DIGITAL acknowledged
+problems with search lists.
+
+From the VMS Database on DSNLINK:
+"OPENIN, DNF, NOSUCHFILE Errors Using Search List Logicals For DIRECTORY"
+           "When referencing a directory using a search list of rooted
+           directories, ensure that the specified directory exists in all
+           of the directory roots in the search list."
+and ["Overview of Search List Logicals"]
+           "Access to the components of a searchlist are transparent only
+           if all components have the same access (protections, existence). 
+           If the searchlist components are defined with different
+           characteristics, command execution can become inconsistent."
+
+An alternative is to create additional logical devices pointing to these
+additional directory trees.  Name these additional logical devices such
+that they begin with the same text as the configured DataDirectory device. 
+For example, if your configured DataDirectory is "GOPHER_ROOT:[000000]",
+then any number of logical devices of the form GOPHER_ROOTx, where x can be
+any additional text, will be honored by the server.  Extra-long logical
+device names, like GOPHER_ROOT_THIS_ONE_IS_A_REALLY_LONG_ONE, might require
+continuation of Path= specifications which use them.
+
+
+VI.d Setting Up Searches
+------------------------
+Index searches (Type=7) are among the more powerful features a Gopher
+server can offer.  Several different search engines are available for
+Gopher servers to use.  NeXT-based servers can offer search engines based
+on NeXT's digital library; WAIS-based searches are available as well.  The
+VMS Gopher Server offers three kinds of searches:  traditional GREP
+searching, Shell searching, and Command searching.  The results of a
+successful search are generally formatted in a menu to the client, each
+menu item representing a hit on the search terms. 
+
+The general format of a search specification requires Type=7 and
+Path=7<selector>, where <selector> is specific to the kind of search engine
+to be used.  
+
+Presentation of hits returned by the search engine is usually in sorted
+order. The SortXXX: options in the configuration file specify the sort
+default for each search engine (GREP, CMD1, Shell) and are normally TRUE. 
+The configuration defaults for any of these engines may be overriden in the
+search specification by a ":sort:" or ":nosort:" token *immediately
+following the "7" in the Path= specification, as in:
+
+	Path=7:sort:<selector>		or	Path=7:nosort:<selector>
+
+
+VI.d.1 GREP searching
+---------------------
+Traditional GREP searching is a brute-force search of a directory for one
+or more character strings.  Files in which one or more hits on the
+specified character strings are found are returned in a menu to the client
+for possible retreival.  The VMS Gopher Server implements this using DCL
+Search at present. As a result, regular expressions are not permissable as
+search terms.  To define a GREP search, the path must specify a directory,
+as in:
+
+	Path=7gopher_root1:[gopher.vms.server]
+
+A side effect of the VMS implementation allows specification of wildcarded
+files to restrict the search to only a subset of the directory, as in:
+
+	Path=7[source]*.c, *.h
+
+Hunter Goatley (Western Kentucky University, Bowling Green, KY, USA) has
+ported GNU grep v1.6 to VMS; this is used for EGREP.  Thanks to Foteos
+Macrides  (Worcester Foundation for Experimental Biology) for enhancing
+EGREP for use  with the VMS Gopher Server (GGREP) and to Hunter, both for
+porting GREP and  for incorporating Foteos' enhancements into the general
+distribution as part  of the official VMS version of EGREP.
+
+A file, [.DOC]ABOUT.REGULAR_EXPRESSIONS, is supplied to provide a basis
+for a document you might want to include a link to whenever you provide a
+link to a GREP search.  Regular expressions are the heart of a GREP search,
+but it is not a given that your users will understand what they are and how
+to use them. 
+
+
+VI.d.2 Shell searching
+----------------------
+Shell searching is a site-specific, database-specific search facility.  It
+is very extensible as it is implemented in a DCL command file.  The command
+file (and perhaps any program it invokes) interpret the search terms and
+index specification provided by the client and construct a file which is
+literally fed back to the client, containing 1-line link tuples
+representing the hits. To define a Shell search, the path must specify a
+DCL command file with .SHELL as its extension, as in:
+
+	Path=7[search_engines]search_engine_1.shell
+
+Any fixed parameters to the shell search should be included as part of the
+path specification.  For example, using Bruce Tanner's indexed text search
+engine:
+
+	Path=7gopher_root1:[gopher.vms.server]search.shell -
+		gopher_root1:[gopher.vms.server]server
+
+The above specification results in the execution of the following DCL
+command by the server on behalf of the client, where term1[,...] represents
+the client's specified search terms:
+
+	$ @gopher_root1:[gopher.vms.server]search.shell -
+	_$ gopher_root1:[gopher.vms.server]server output -
+	_$ "term1[,...]" "host" port "cfg"
+
+Continuation as shown here is for clarity.  The server supplies the Path=
+text first, invoking the DCL command file and supplying whatever parameters
+were set up as constants within the Path= (in this case, only p1, an index
+specification to search.shell).  The server then supplies a parameter
+naming the output file where the shell search is to place its results. 
+This might be p1, p2, p7, etc. depending on how many fixed parameters are
+supplied in the Path= specification.  Next the server supplies, enclosed
+inside double quotes, the client's terms for the search.  Again, these
+might be p2, p3, p8, etc., depending on how many fixed parameters were
+coded for the Path=.  Finally the server supplies three parameters which
+may be used by the shell if needed. These are a text string specifying the
+host name of the server, a numeric value specifying the port the server is
+serving, and a text string specifying the *device* part of the server's
+default data directory.  The last of these may be used to verify the client
+should have access to the indexes being requested by checking to insure
+they are within the gopher database area, while the host and port may be
+used to supply default values as part of the output link tuples.
+
+The DCL command file is expected to interpret the supplied parameters and
+to create the specified output file.  It is expected to populate the output
+file with records, one record per search hit, of the form:
+
+<character Object Type><TAB><Name><TAB><Path><TAB><Host><TAB><Port>
+
+See III.a, Creating .LINKS, for a description of the values of these fields.
+
+Note that server-specific selector strings may be passed back.  For
+example, Bruce Tanner's search engine supplies link tuples which use the
+server-internal R (range) object type to specify ranges within a single
+document in the <Path>, while supplying the universal 0 (file) <character
+Object Type>.  When the client selects one of the search result's menu
+items, the server interprets the R object type in the <Path> and returns a
+segment of a file, which the client will then display as if it were a file
+due to the 0 in the <character Object Type>.  Another application might
+search a set of fielded records in a database, and actually return the
+*values* of the individual matching records for the <Name>, while returning
+the same "0filespec" for the <Path> for every menu item, resulting in the
+same file (a help file, maybe, about the record supplied in <Name>?) being
+returned should the client select any item in the search's result menu.
+
+A file, [.DOC]ABOUT.BOOLEAN_KEYWORD_QUERIES, is supplied to provide a basis
+for a document you might want to include a link to whenever you provide a
+link to a Shell search using the QUERY.EXE search engine.  Boolean
+operators and keywords are the heart of such a search, but it is not a
+given that your users will understand what they are and how to use them. 
+
+
+VI.d.3 Building Indexes
+-----------------------
+While it is possible to build a multitude of possible index schemes, a
+generalized one has been developed by Bruce Tanner of Cerritos College
+which may be applicable to many basic text searching needs.  This index
+scheme is used by the search engine QUERY.EXE included with this
+distribution.  BUILD_INDEX.EXE must be used independent from the Gopher
+Server to build the required .IDX and .SEL files used by the QUERY.EXE
+engine.  Define a foreign command symbol for BUILD_INDEX, as in:
+
+	$ INDEX :== $device:[directory]BUILD_INDEX.EXE
+
+Then use the program to construct .SEL and .IDX files for a document:
+
+	$ INDEX document /switch /switch ...
+
+	where "document" is the (possibly wildcarded) name of the
+		document(s) to be indexed.  This should include the path
+		*as a gopher client* would specify it, including
+		device:[directory] as required.  Wildcarding permits
+		ellipsis (...) in the directory specification as well as "*"
+		in the filename.  The fully qualified path(s) will appear
+		in all search hit link tuples as part of the selector
+		strings, so accuracy is important if subsequent requests
+		for the hit document segments are to succeed.  If the
+		document(s) change often, indexes can be tied to a
+		specific generation of the document by the /VERSION switch.
+
+	Several switches specify the range delimiters to be applied.
+		Range delimiters cause the document to be divided into
+		manageable chunks for reading purposes.  Documents are
+		divided into ranges so that a hit on a keyword in that
+		document returns only the range containing the keyword; if
+		keywords appear in multiple ranges, multiple ranges are
+		offered to the client. The range delimiter switches are
+		/CHARACTER, /DASH, /EQUAL, /FIELD, /FF, /LINE, /PARAGRAPH,
+		and /WHOLE:
+		/CHARACTER=%xn - divide the document whenever a line
+			beginning with the hexadecimal value n is
+			encountered. "%x" is a required part of the
+			specification.
+		/DASH=n - divide the document whenever a line *begins*
+			with n dashes ("-").  Three ("---") is the default.
+		/EQUAL=n - divide the document whenever a line *begins*
+			with n equal signs ("=").  Eighty is the default.
+		/FIELD=(POSITION=n, SIZE=m) - divide the document whenever
+			columns n through n+m are not all blank.
+		/FF - divide the document whenever a line beginning with
+			a form feed is 	encountered.
+		/LINE - divide the document into individual lines.  Any
+			search hit returns a single line.
+		/PARAGRAPH - divide the document whenever a blank line
+			is encountered.
+		/WHOLE - *DO NOT* divide the document.  Any search hit
+			returns the entire document.
+
+	/CANDIDATE specifies the file of candidate words to use in the
+		index file.  This is the reverse of /NOISE.
+		/CANDIDATE=filename
+
+	/DEFAULT_TOPIC specifies whether a default topic name will be selected.
+		/DEFAULT_TOPIC - (the default) use the first line of each new
+			topic as the topic name if there are no /TOPIC items
+			that are matched in the text.
+		/NODEFAULT_TOPIC - no default topic name will be read.
+	If there is no topic name selected by /DEFAULT_TOPIC or /TOPIC
+	switches, no selector or index entries will be written.  In this way,
+	you can omit header and trailer portions of structured documents.
+
+	/KEYWORD determines what part of the input file will be indexed.
+		By default, (assuming no /NOISE or /CANDIDATE) every word
+		is indexed.
+		/KEYWORD=(TEXT=str, EXCLUDE, END=str)
+			TEXT=string - where to start in indexing.
+			EXCLUDE - exclude the contents of the TEXT string
+				from the index.
+			END=string - says to stop indexing at "string".
+				If END is not given, indexing will stop at the
+				end of the line.  If END is given but not
+				matched, indexing will end at the end of
+				the article.
+
+	/LINK specifies whether to create index/selector (.IDX/.SEL)
+		or Gopher linkage (.LINK) from the source document.
+		/LINK - create a .link file
+		/NOLINK - (the default) create .IDX/.SEL files.
+		By default, /LINK displays selectors in the order found in
+		the source file.  /LINK=SORT displays selectors in sorted
+		order.
+	To create files with leading periods, use /OUTPUT=.LINK/LINK.
+
+	/MAX_TOPICS defines the size of the field that holds the article
+		number.  The default (6) holds 999,999 articles per index.
+
+	/MINIMUM_WORD defines the minimum size of a 'word' that will be
+		indexed. The default (3) automatically eliminates all
+		1 and 2 character words from the index.
+		/MINIMUM_WORD=n - defines the smallest word to index.
+
+	/NOISE specifies the file of 'noise' words to omit from the
+		index file.
+		/NOISE=filename
+			If no file is specified,
+			GOPHER_ROOT:[000000]_NOISE_WORDS.DAT is used.
+
+	/NUMBERS specifies whether to index numeric data.
+		/NUMBERS (the default) says to index numbers.
+		/NONUMBERS says to exclude numbers from the index.
+
+	/OUTPUT specifies the name of the .SEL/.IDX/.SEQSEL/.SEQIDX/.LINK
+		files. By default the file name/directory will be the
+		name/directory of the first document found.  The following
+		switch will override this:
+			/OUTPUT=filename - specify the device, directory,
+				filename part of the .IDX, .SEL and .LINK files.
+
+	/PUNCTUATION defines which characters of an input line are replaced
+		by spaces before words are selected from that line for
+		indexing.
+		/PUNCTUATION="..." - define the punctuation characters.
+	The default set of punctuation is .,?:()".  Space is always a
+	punctuation character.
+
+	/SELECTOR specifies what kind of selector will be generated for
+		each topic.  If /SELECTOR is not given, a type 'R' (range)
+		selector is automatically calculated for each topic.
+		/SELECTOR=(TEXT=str, END=str, BOTH)
+		TEXT=string says that any text following the string
+			(up to the END string, next space or end of line)
+			will be used as the selector for the current topic.
+			This switch can be used to index textual desciptions
+			of binary files, and have links to the binary files
+			returned in the search hit lists. The format of the
+			selector string is <Type><Path>.  Type must be a
+			Gopher protocol file type (i.e., the value given in
+			a .link 'Type=' entry).  Path similarly must be a
+			complete Gopher protocol 'Path=' value, and must
+			include the Gopher or HTTP DataDirectory device. If
+			there is no selector found, no selector or index
+			entries will be written.  For example, a selector
+			for a binary file specified by
+			/SELECTOR=(TEXT="selector: ") could be: 
+			selector: I9gopher_root:[images]picture.gif or: 
+			selector: s9www_root:[sounds]music.au
+		END=string says what will end a selector string if the
+			default rules (space or end of line) aren't enough.
+		BOTH says to generate selector (and index) entries for both
+			the selector specified and the current input file
+			topic.
+
+	/SEQUENTIAL specifies whether an indexed (.IDX/.SEL) or
+		sequential (.SEQIDX/.SEQSEL) index/selector files are
+		created.
+		/SEQUENTIAL - create sequential index/selector files
+		/NOSEQUENTIAL - (the default) create indexed files
+		Omitting the /SEQUENTIAL switch is simpler, but can be
+		much slower than building the indexed files with
+		CONVERT/FDL after generating the sequential
+		index/selector files.
+
+	/SPECIFICATION specifies a file that may contain the switches
+		defined in this document.  The only exceptions are
+		/SPECIFICATION and the input file.  Specification input
+		lines may be up to 255 characters long, but must not
+		be continued.
+
+	/TOPIC determines how to describe each section of the document.
+		By default, the first line of each section is use as the
+		description.  For those documents that have lines that
+		start with keywords (such as "Subject:"), you may describe
+		those keywords with the /TOPIC switch:
+		/TOPIC=(TEXT=str, EXCLUDE, BREAK, POSITION=n, OFFSET=n,
+			SIZE=n, END=str)
+			Up to 20 /TOPIC switches may be specified for the
+			file(s) to be indexed.  All the text found will be
+			modified by the SIZE and EXCLUDE keywords and
+			concatenated to form the selector string.
+			TEXT=string - record the last line in the section
+				section that starts with the specified 
+				string.  Case is ignored, strings that 
+				contain spaces and punctuation
+				should be enclosed in quotes.
+			EXCLUDE - exclude the contents of the TEXT string
+				from the line found to match the TEXT
+				string.
+			BREAK - divide the document whenever this topic
+				is matched.
+			SIZE=n - truncate the line found to match the TEXT
+				string to n characters.
+			POSITION=n - defines (with SIZE) a field to use for
+				the topic name if the field is non-blank.
+				- defines (with TEXT) where to look for the
+				text string.  POSITION=0 (the default) says
+				to search the entire line for the text string.
+			TEXT or SIZE is required, defaults are no exclude
+				and no truncate.  For example:
+			/TOPIC=(TEXT="date: ", SIZE=10, EXCLUDE) 
+				will use 10 characters of the line that 
+				starts with "date: " starting immediately
+				after "date: ".
+			/TOPIC=(POSITION=1, SIZE=6) will use anything
+				(except blanks) in columns 1 through
+				6 as the topic.
+			/TOPIC=(TEXT="date: ", POSITION=1) will only look for
+				"date: " in column 1 of each line.
+			OFFSET=n - says to skip 'n' characters after a topic
+				match before extracting a topic title.
+			END=string - says to stop the topic title at "string".
+				Defaults to "</" to match HTML end tags and
+				can be disabled by giving END="".  The title
+				will not extend past the end of the current
+				line.
+
+	/VERSION specifies the format of the selector file name.
+		/VERSION - (the default) includes the file version
+			number of the document in the selector, so that
+			subsequent changes to the document will not 
+			invalidate the indexes, which point to the
+			generation of the document indexed with /VERSION
+			(indexes must be rebuilt before the older 
+			generation can be deleted, of course).
+		/NOVERSION - omits any version information from the
+			selector.
+
+	/WORD_LENGTH specifies the size of the key field in the index file.
+		The default key field size is 20 characters.  If the text
+		file to be indexed contains words larger than 20 
+		characters, error messages will be generated saying how
+		large the words are and that they are being truncated.  If
+		there are a significant number of words that give this
+		error, use the /WORD_LENGTH switch:
+		/WORD_LENGTH=n - specify the maximum word length in the text
+		file (default 20).
+
+
+
+BUILD_INDEX performs three major tasks:
+
+(1) It breaks a document into articles (called 'topics').
+
+    The input file xxx.yyy is read and split into topics based on
+    /FIELD, /PARAGRAPH, /FF, /DASH, /EQUAL, /CHARACTER, /LINE, /WHOLE
+    and /TOPIC=BREAK.  Depending on /SEQUENTIAL, /LINK and /OUTPUT, it
+    will create a xxx.SEL, xxx.LINK or xxx.SEQSEL file containing the
+    names and locations of these topics.  The absolute path of the
+    input file is written into this file, so the input file must be in
+    its permanent location at the time that it is indexed.  The
+    version number of the input file will be included with the file
+    name depending on /VERSION.
+
+(2) It creates the topic titles and selector.
+
+    The default title for a topic is the first line of the topic. 
+    This is specified by /DEFAULT_TOPIC.  A topic title can be created
+    by one or more /TOPIC switches.  If /SELECTOR is specified, the
+    input file will include the selectors, otherwise selectors will be
+    automatically generated.  If no topic title is created because of
+    a combination of /NODEFAULT_TOPIC and /TOPIC, or if no selector is
+    found because of /SELECTOR, no topic selector will be written, nor
+    will any of the words found within the given topic be indexed.
+
+(3) It indexes the words of the source document(s).
+
+    If /LINK is not specified, an article is split into 'words'
+    defined by /PUNCTUATION and /MINIMUM_WORD.  Indexing is turned on
+    and off by /KEYWORDS.  When indexing is 'on', any words that are
+    found in the file specified by /NOISE or not found in the file
+    specified by /CANDIDATES and numbers rejected by /NONUMBERS are
+    discarded.  Those words that remain are written into an index file
+    (xxx.IDX) or sequentual file (xxx.SEQIDX) specified by /OUTPUT and
+    /SEQUENTIAL.  The index file has three fields: a keyword field
+    containing the indexed word whose size is specified by
+    /WORD_LENGTH; a topic index field whose size is specified by
+    /MAX_TOPICS; and a word count within the topic.
+
+
+The default switches are:
+
+/DEFAULT_TOPIC
+/MAX_TOPICS=6
+/MINIMUM_WORD=3
+/NUMBERS
+/VERSION
+/WHOLE
+/WORD_LENGTH=20
+
+The two files, xxx.SEL and xxx.IDX (or xxx.SEQSEL and xxx.SEQIDX),
+should either be built where the server will expect them, specified
+with /OUTPUT, or be moved there.  The Path= specification for the
+search's link tuple should reference the directory where the .IDX and
+.SEL files reside. It does not matter if this is a different directory
+from where the actual data file which has been indexed resides.
+
+
+QUERY.EXE, whose use is demonstrated in the shell search SEARCH.SHELL,
+processes the files built by BUILD_INDEX.EXE and the client-specified
+keywords, and writes to an output file link tuples selecting ranges of the
+indexed document which contain hits on the search.
+
+Note that the "document" specification in the Path= using SEARCH.SHELL can 
+even be wildcarded.  For example, say you have run BUILD_INDEX on a large
+number of files in different directories, and stored all the .IDX and .SEL
+files in a single directory GOPHER_ROOT:[INDEXES].  The following link
+tuple would search all the indexes, and return hit list referencing any
+subset of files on which BUILD_INDEX had been run.
+
+	Name=Search all indexes
+	Type=7
+	Path=7gopher_root:[dir].shell gopher_root:[indexes]*
+	Port=+
+	Host=+
+
+QUERY.EXE, whose use is demonstrated in the shell search SEARCH.SHELL,
+processes the files built by BUILD_INDEX.EXE and the client-specified
+keywords, and writes to an output file link tuples selecting ranges of the
+indexed document which contain hits on the search.
+
+Note that the "document" specification in the Path= using SEARCH.SHELL can 
+even be wildcarded.  For example, say you have run BUILD_INDEX on a large
+number of files in different directories, and stored all the .IDX and .SEL
+files in a single directory GOPHER_ROOT:[INDEXES].  The following link
+tuple would search all the indexes, and return hit list referencing any
+subset of files on which BUILD_INDEX had been run.
+
+	Name=Search all indexes
+	Type=7
+	Path=7gopher_root:[dir].shell gopher_root:[indexes]*
+	Port=+
+	Host=+
+
+
+VI.d.4 Command searching
+------------------------
+Command searching is a way to incorporate OS-specific file selection tools
+into the gopher facilities, using generic keywords which should be
+interpretable on any OS.  Like GREP searching, Command searching locates
+files, but not necessarily based upon content; date of last modification
+was the inspiration for this kind of searching.  Files which match the
+criteria of the search are returned in a menu to the client for possible
+retreival.  To define a Command search, the path must specify a keyword and
+a (possibly wildcarded) filespec, as in:
+
+	Path=7$since gopher_root1:[gopher.vms.server]
+
+The "$" is required to indicate this is a command search.  The valid
+keywords for Command searching are, at present:
+
+since		Client's search term must specify a date; server
+                   locates files matching the filespec which have been
+                   modified since that date using DCL Directory/SINCE.
+before		Same as "since" except DCL Directory/BEFORE is
+		   used.
+search		Client's search term(s) specify character strings;
+                   server locates files matching the filespec which contain
+                   one or more of those strings.
+search&		Same as "search" except /MATCH=AND is applied to
+		   the DCL search.
+search|		Same as "search" except /MATCH=OR is *explicitly*
+		   applied to the DCL search.
+search~&	Same as "search" except /MATCH=NAND is applied to
+		   the DCL search.
+search~|	Same as "search" except /MATCH=NOR is applied to
+		   the DCL search.
+version		Does *not* require a filespec; ignores any client-supplied
+                   search terms; returns a menu of entries describing the
+                   image of the server honoring the search, the same
+                   information as supplied in the "Image Identification
+                   Information" segment of an ANAL/IMAGE on the server.
+                   Configuration file fields are also reported, as is the
+                   host hardware and software version.
+ftplink		Does *not* require a filespec.  The client's search term
+                   must specify the Internet address of an anonymous ftp
+                   host (e.g., Niord.SHSU.edu). This pseudo-search function
+                   returns a link with the name "Link to aFTP host <site>/"
+                   and the path for accessing that site via the gopher
+                   server's aFTP gateway (see Section VI.f).  If the client
+                   shoots at this item, the gateway will return the aFTP
+                   host's top directory listing as a gopher menu.
+go4link		Does *not* require a filespec.  The client's search term
+                   must specify the Internet address of a gopher host
+                   (e.g., psulias.psu.edu).  It may also as a 2nd term
+                   specify a port other than 70 (the default).  This
+                   pseudo-search  function returns a link with the name
+                   "Link to  Gopher host <site> on port <port>/" and host,
+                   port and path for accessing that site's gopher server
+                   (see Section VII.a).  If the  client shoots at this
+                   item, the gopher server  at that host will respond
+                   (assuming that host  *has* a gopher server) with its
+                   top-level menu.
+
+
+VI.e Setting up Scripts
+-----------------------
+Occasionally it is useful to have a script executed and its output be
+returned as a simple text file.  This is accomplished by building an
+OS-specific command file and declaring it to the Gopher server as a text
+file.  When the server senses that the text file to be printed is actually
+a script, it will  execute the script with a log file, then return that log
+file as if it were  the text file requested by the client.  For example,
+perl and gawk scripts, or DCL command streams ranging from simple to
+complex, may be useful.
+
+OS-specific security measures should be taken to insure that a client can
+only request execution of a script which the server's management *wants* to
+be performed.  In the case of the VMS Gopher Server, these scripts must end
+with the extension ".SCRIPT", much just like shell searches require the
+extension ".SHELL", even though under VMS both of them might normally have
+the extension ".COM".  They must also have the text "$!" as the first two
+characters of the first line of the file.  It is also advisable that they
+be restricted in access so the server can only execute them when
+appropriate, using ACL lists and other VMS security facilities.
+
+
+VI.e.1 Text File Scripts
+------------------------
+It is *STRONGLY RECOMMENDED* that you not use Text File Scripts.  They seem
+to be a holdover from long ago, and all of its functionality is provided by
+the EXEC script processing facility.  However, some users may feel a need
+to define non-parameterized Text File Scripts.
+
+To define a Text File Script, the path must specify a DCL command file with
+.SCRIPT as its extension as a text file resource, as in the following link
+tuple:
+
+	Name=A dynamic "About" File
+	Type=0
+	Port=+
+	Host=+
+	Path=0[_dynamic_documents]_demonstration.script
+
+No parameters to the script are allowed as part of this specification.  The
+server will execute the following command in a subprocess:
+
+	$ @[_dynamic_documents]_demonstration.script/output=xxx
+
+The script is expected to perform its tasks, any the entire log of the
+execution is will be saved in the temporary file "xxx."  After completion
+of the script, the contents of the temporary file "xxx" are transmitted to
+the client, instead of the script itself.  Care must be taken to insure
+that the script is fully debugged and foolproof, since subtle error
+conditions can result in the script failing and not producing a usable log
+file.  If the server cannot sucessfully open the log file, the server will
+pass back the *script file* as the results of the client's request,
+possibly causing great consternation and confusion to the client's user.
+
+
+VI.e.2 Exec Scripts
+-------------------
+When parameters are required, or more generally in any case including the
+non- parameterized script, an EXEC Script is used.  To define a EXEC
+Script, the path must specify a DCL command file with .SCRIPT as its
+extension as an exec file resource, as in the following link tuple:
+
+	Name=Another dynamic "About" File
+	Type=0
+	Port=+
+	Host=+
+	Path=exec:parm1 parm2:[_dynamic_documents]_demonstration.script
+
+In this example, parameters are specified between a pair of colons (":"),
+and the resource type is the keyword "exec" instead of the character "0".  
+Notice the Type= specification remains "0"; clients apparently don't
+understand a Type=e specification, and it turns out to be irrelevant in
+this case.  Now of course another Type=1 or Type=9 or whatever could indeed
+be allowed, provided the path=exec:... specified produces the correct
+information in its output. Arguments are optional; "Path=exec::scriptfile"
+is perfectly acceptable. The server will execute the following command in a
+subprocess:
+
+   $ @[_dynamic_documents]_demonstration.script/output=xxx "parm1 parm2"
+
+and the script file can interpret the parameter symbol P1 to secure the
+parameters.  The temporary file "xxx" will again be written to by the
+script file, and when the script file completes execution the server will
+write the file back to the client.
+
+
+VI.f Setting up links for the anonymous ftp gateway
+---------------------------------------------------
+The anonoymous ftp gateway allows the client to access the directories and
+files of an anonymous FTP host via the gopher menu system.  The "ftplink" 
+pseudo-search function can be used as a general service for creating links
+to  aFTP hosts' top directories and returning them as menu items to the
+client.  To  install this service on your gopher server, put the following
+tuple in a .links  file:
+
+Name=Query a specific anonymous FTP host
+Type=7
+Port=+
+Path=7$ftplink
+Host=+
+
+If the client shoots at the item corresponding to this tuple and enters an
+anonymous FTP host's Internet address as the search term (e.g.,
+Niord.SHSU.edu), the gopher server will return a tuple with the following
+format:
+
+Name=Link to aFTP host Niord.SHSU.edu
+Type=1
+Port=<your server's port>
+Path=ftp:Niord.SHSU.edu@/
+Host=<your server's address> 
+
+The client can then shoot at the item corresponding to this tuple, and your
+server will respond by using its gateway to obtain a listing of the
+anonymous  FTP server's top directory, construct a series of tuples for
+accessing its files and subdirectories, and return that to the client as a
+menu.  The extensions of files are used to determine the gopher object
+types (e.g., 0, 4, 9, I, s). Directory objects are, of course, assigned
+Type=1.
+
+If you wish to create a directory of specific links to anonymous FTP hosts, 
+the Path specification for gateway tuples has the following format:
+	
+	Path=ftp:site@path
+
+where 'site' is the anonymous FTP host's Internet address, and 'path' is
+that  to the directory or file, converted to Unix format for VMS hosts. 
+The single character path '/' is used for the host's default anonymous
+login directory. For VMS anonymous FTP hosts, a device can be included in
+the path, but must be  followed by a directory specification, e.g.:
+
+	Path=ftp:dmc.com@uucp_public:/000000/
+
+This feature was added to the VMSGopherServer for hosts which specify their
+anonymous account trees via search list logicals.
+
+If an error or access violation is reported by the anonymous FTP server,
+this is returned to the client as a menu item whose name is the FTP error
+code number followed by the text of the error or access violation message. 
+If a network connection error, unrecoverable transmission error, or
+internal gopher server error occurs, the item name will be 'Server error:'
+follow by a description of its nature.  In both cases, the tuple for that
+item will be your Server Error file (containing the information for
+reporting the error to the gopher server administrator),
+_server_error.range.
+
+
+VII. Becoming part of the worldwide GopherSpace
+===============================================
+
+Often there are documents which you would like to offer your user community
+which are already available at other gopher servers.  Pointing to those
+servers is simply a matter of using an appropriately formatted link tuple:
+
+	Name=International Gopher Network (based at University of Minnesota)
+	Type=1
+	Port=70
+	Path=1/Other Gopher and Information Servers
+	Host=gopher.tc.umn.edu
+
+This link will open your client's access to the world.  Your server should
+probably be registered with other servers as well, so the whole of
+GopherSpace can access it.  For example, you should probably send a
+mailgram to the University of Minnesota, at gopher@boombox.micro.umn.edu,
+telling them about your new server and giving them a link tuple to reach
+you.
+
+	Name=Your Institution Here
+	Type=1
+	Port=yourport#
+	Path=
+	Host=yourgopher.yourhost.edu
+
+For example,
+
+	Name=Penn State University Libraries, University Park, PA, USA
+	Type=1
+	Port=70
+	Path=
+	Host=psulias.psu.edu
+
+Of course, if you are part of a campus-wide GopherSpace, you probably don't
+need to register with the University of Minnesota, since they probably
+already have your campus' main gopher in their list.  However, you should
+register with your campus' main gopher so that, through that site, you are
+fully connected with the web of GopherSpace.
+
+As a user of a VMS Gopher Server, you should probably subscribe to the list
+VMSGOPHER-L@trln.lib.unc.edu.  This discussion list, hosted by Dennis
+Sherman of the Triangle Research Libraries Network (Chapel Hill, North
+Carolina, USA), is the medium where discussion between the
+porters/developers and users of the VMS Gopher Server takes place.  Send
+EMAIL (no interactive messages) to the address
+
+	MXServer@TRLN.LIB.UNC.EDU
+
+with a single-line body reading
+
+	SUBSCRIBE VMSGOPHER-L
+
+and join the VMS Gopher Server community.  VMS Gopher Client discussion and
+porting is also underway and discussion continues on this list for that
+subject as well.  Various porting efforts for the server are underway, not
+just this server.  A DECThreads version is also being worked upon by a
+subscriber.  There is also interest in incorporating Gopher+ efforts into
+the VMS Gopher Server.
+
+Also, as a user of a VMS Gopher Server, you are requested to also send your 
+connection information to the discussion list VMSGOPHER-L@trln.lib.unc.edu.
+This announces the presense of another VMS Gopher Server to the folks who
+are doing the actual porting of Gopher to VMS.  Your link tuple will be
+added to the central VMS Gopher Server nexus at Niord.SHSU.edu.  You should
+also add the following link tuple to your server so you can reach other VMS
+Gopher Servers more directly; thanks to George Greenwade of Sam Houston
+State University (Huntsville, Texas, USA) for offering this service.
+
+	Name=Other VMS-based Gopher Servers
+	Type=1
+	Port=70
+	Path=1gopher_root:[_data.gopherstuff.others]
+	Host=Niord.shsu.edu
+
+
+VII.a Pointing to other gopher servers
+--------------------------------------
+GopherSpace exists because most gopher servers point to other servers.
+Pointing to another server simply amounts to defining a link as follows:
+
+	Name=Link to PSU/LCS Server
+	Type=1
+	Port=70
+	Host=psulias.psu.edu
+	Path=
+
+Note that it's a directory type, with a null path.  This causes the server
+at the host "psulias.psu.edu" on port 70 (the international standard
+Internet Gopher TCP/IP port) to respond with it's main menu. Specifying a
+specific Path= (remember these are host-specific except for the 1st
+character) causes the server to respond with the menu at that directory
+specification.
+
+This the client to access the directories and files of another Internet
+Gopher via the gopher menu system.  The "go4link" pseudo-search function
+can  be used as a general service for creating links to gopher hosts' top 
+directories and returning them as menu items to the client.  To install
+this  service on your gopher server, put the following tuple in a .links
+file:
+
+Name=Query a specific Gopher host
+Type=7
+Port=+
+Path=7$go4link
+Host=+
+
+If the client shoots at the item corresponding to this tuple and enters a
+Gopher host's Internet address as the search term (e.g., Niord.SHSU.edu),
+the gopher server will return a tuple with the following format:
+
+Name=Link to Gopher host Niord.SHSU.edu on port 70
+Type=1
+Port=70
+Path=
+Host=Niord.SHSU.edu
+
+The client can then shoot at the item corresponding to this tuple, and that
+server will respond with its main menu.  If the client specifies a numeric
+value as a 2nd search term, that value will be used as the port instead of
+the standard port of 70.
+
+
+VII.b Pointing to other kinds of servers
+----------------------------------------
+GopherSpace contains more than just gopher servers.  For example, aFTP
+servers and CSO (Phone Book) servers can be accessed.
+
+Pointing to a CSO server simply amounts to defining a link as follows:
+
+	Name=Phone Book Lookup
+	Type=2
+	Port=105
+	Host=psulias.psu.edu
+	Path=
+
+Note that it's a CSO lookup type, value 2.  Most gopher clients understand
+the Type=2 such that they transmit and receive a different protocol, the
+CSO Phone Book protocol, when communicating with the CSO server at the host
+"psulias.psu.edu" on port 105.  Note this is the only involvement the
+server has with a CSO lookup.  No code to support CSO operations is
+contained within the gopher server.
+
+Bruce Tanner of Cerritos College has implemented a first pass at qi (the
+Unix CSO server) for VMS.  Version 1.3 is available by Gopher or aFTP from
+his server @cerritos.edu.
+
+Pointing to an FTP server simply amounts to defining a link as follows:
+
+	Name=aFTP gateway to NIORD
+	Type=1
+	Port=70
+	Host=sci.wfeb.edu
+	Path=ftp:Niord.SHSU.edu@/
+
+Note that it's an aFTP gateway type, Path=ftp:.  The gopher server on port
+70 at sci.wfeb.edu will connect to the aFTP host Niord.SHSU.edu, interpret
+its file and directory names in a manner consistent with gopher, and supply
+a gopher menu of the root directory at that aFTP site to the gopher client,
+which may subsequently request additional accesses to the files and/or
+directories listed in that menu.
+
+
+VIII. Debugging your server
+===========================
+
+Unfortunately, sometimes things don't always go as you want them to. 
+Sometimes the server acts oddly or crashes & burns.  Sometimes a search
+that should work just fine, doesn't.  Remember there is a debug version of
+the server as part of the standard MMS generation (in fact, using MMS, one
+can't even create a non- debug version of the server without explicitly
+saying to do so).  So keep a debug copy of the server around and when
+things don't work right, examine the log files and try to duplicate, using
+a client and the debug server running against a different port, the
+problem.  If you find an error and fix it, please post the error and your
+correction to VMSGOPHER-L (just code fragments or VMS DIFFs against the
+*current* copies of the source from one of the major archives, please, not
+an entire source file or an unidentifiable fragment ;-) so others can
+benefit.
+
+
+VIII.a Debugging a Shell Search
+-------------------------------
+One of the most common problems reported to VMSGOPHER-L is that a shell
+search (using Bruce Tanner's BUILD_INDEX/QUERY.EXE/SEARCH.SHELL indexed
+search) works fine from DCL but doesn't return the expected results
+(usually no results) when run by the Gopher Server.  Several assumptions
+need to be confirmed:
+
+1)  Is the shell search is properly declared in a link tuple?  It should
+look something like this:
+
+	Name=Shell Search
+	Type=7
+	Path=7gopher_root:[dir1]search.shell gopher_root:[dir2]document
+	Port=+
+	Host=+
+
+Note that two filespecs must be supplied in the Path= string.  The first
+locates the search shell file, the second locates the index files for the
+file "document".
+
+2)  If you create a link tuple like the following, can a client retrieve
+the shell file as a text file?  If not, perhaps the filespec for the
+search.shell file is incorrect, or read access to the file is not granted
+to the server.
+
+	Name=Shell Search
+	Type=0
+	Path=0gopher_root:[dir1]search.shell
+	Port=+
+	Host=+
+
+3)  Has the shell file been edited to properly reference the QUERY.EXE
+program *where it lives on your system*?
+
+4)  Does the ID under which the Gopher Server runs have execute access to
+the shell file and the QUERY.EXE program?  Does it have write access to the
+ScratchDir: specified in the configuration?  Does it have execute access to
+the SpawnInit: file specified in the config- uration?  Does it have
+sufficient quotas to perform the spawned tasks asked of it?
+
+5)  Do the files document.idx and document.sel, created by BUILD_INDEX,
+exist on the device and in the directory specified in the Path=
+specification of the link tuple?  Does the file specified in the
+"Rnnn-nnn-filespec" texts in the document.sel file actually exist as the
+filespec specifies?  If not, the document's index files .idx and .sel need
+to be moved there or rebuilt. of the executable.
+
+6)  A last recourse, of course, is to run the gopher_debug version of the
+server under the debugger, with SET VERIFY turned on before doing so. 
+Dummy up another configuration file for this, using port 71 or port 1070,
+so as not to conflict with the real server, and maybe a separate log file
+you can dispose of later.  Define a foreign command for the debug version
+of the server
+
+	$ gd :== $dev:[dir]gopher_debug.exe
+
+and invoke it:
+
+	$ set verify		! to make spawned subprocesses display
+	$ gd DEBUG port config	! where port is 71 or 1070 or whatever
+				! and config is the dummy cfg file
+
+Once in the debugger, SET MODE NOSCREEN and GO.
+
+Then, invoke a client from a separate terminal or session, connecting it to
+the selected debugging port.  Your main menu should be raised, and the
+debug server (because of the DEBUG option on its command line) will log not
+just to the log file but to the screen as well as it crunches along.  Go on
+down your menus and select your search. Because of the SET VERIFY, you
+should see the spawned seach.shell execute.  Take note of what's going on
+there and your failure should appear fairly obviously.  If not, add some
+diagnostics (like displaying effective filenames and parameters) to
+search.shell.
+
+
+IX. HTML
+========
+
+Foteos Macrides has implemented the HTML functionality for the server.  It
+emulates HTTP/0.9 file serving and search capabilities, and can service
+both HTTP/0.9 and HTTP/1.0 (HTTP2) hypertext (WWW) browsers or emulations.
+
+To set up tuples for serving HTML to a hypertext browser, designate Type=h,
+and prefix "GET /" to what the Path= field otherwise would be on VMS.  For
+example, this tuple in a .links file or lookaside entry invokes the
+hypertext browser for a local foo.html file:
+
+	Name=Overview of WWW (via WFEB's home page)
+	Type=h
+	Port=+
+	Path=GET /h[_WWW]_default.html
+	Host=+
+
+Leave out the 'h' from the Path= field for a link to a WWW http server:
+
+	Name=Global Network Navigator
+	Type=h
+	Port=80
+	Path=GET /GNN-ORA.html
+	Host=nearnet.gnn.com
+
+To do searches, substitute '7' for 'h' in the Path:
+
+	Name=Indexed search of server.doc in hypertext mode
+	Type=h
+	Port=+
+	Path=GET /7[_Shell]search.shell [_FileServ._Server]server
+	Host=+
+
+	Name=EGREP search of server sources in hypertext mode
+	Type=h
+	Port=+
+	Path=GET /7[_FileServ._Server]*.*;
+	Host=+
+
+Of course, there's no point in using hypertext mode for searches of
+entirely plain text, but if a directory contains any hypertext documents,
+they can be assigned hypertext tuples via lookaside files or ACL-Resident
+lookaside entries, so that the menu of hits returned from the search will
+include tuples for accessing those documents as processed hypertext.
+
+To generate and pass a directory menu to the hypertext browser, substitute
+'1', instead of 'h' or '7' in the Path.  To pass the raw hypertext file,
+substitute '0', or use a standard gopher tuple for text files (Type=0, and
+the 'GET /' omitted from the Path= field).
+
+Use standard URL's in anchors for accessing the Gopher server or its
+particular tuples from foo.html's, or in arguments passed to lynx or other
+hypertext browsers from the command line.  That is,
+
+	$ lynx "gopher://sci.wfeb.edu:70/"
+
+would invoke a session on the WFEB gopher server, with lynx instead of the
+gopher client, and any tuples with "Path=GET /<gopher_style_path>" would be
+handled as if lynx were connected to a WWW http server.
+
+In the Gopher+ client, the '=' command displays the URL in addition to the
+standard tuple information for the item at which you are pointing. Use this
+facility if you are uncertain about how to construct the URL for inclusion
+in the anchor of a hypertext document, or as a command line argument to a
+hypertext browser, for standard gopher items.  However, when the Gopher+
+client converts a hypertext tuple to a URL, it retains gopher syntax, which
+is unnecessary.  For example, for the tuples shown above, the WFEB and GNN
+home pages will be shown as:  
+
+URL: gopher://sci.wfeb.edu:70/hGET /h[_WWW]_default.html
+URL: gopher://nearnet.gnn.com:80/hGET /GNN-ORA.html
+
+These will work with the lynx browser, but can be simplified.  You can
+replace 'gopher:' with 'http:', delete the 'hGET /', and if it's a WWW
+server let the port be defaulted to 80, so that you use:
+
+     $ lynx "http://sci.wfeb.edu:70/h[_WWW]_default.html"
+     $ lynx "http://nearnet.gnn.com/GNN-ORA.html"
+
+or, for anchors in a hypertext document:
+
+<DT><A HREF=http://sci.wfeb.edu:70/h[_WWW]_default.html>Overview of WWW</A>
+<DT><A HREF=http://nearnet.gnn.com/GNN-ORA.html>Global Network Navigator</A>
+
+The VMSGopherServer also can be used as a dedicated http server.  In this
+case, you should install the server on port 80, and offer only local
+documents for browsing or searching, with anchors for other http, gopher,
+wais, news, archie, etc., servers or services in those local documents (as
+opposed to the tuples of your .links files).  You can overlap the directory
+trees of your gopher server and http server by making the root directory of
+the http server a subdirectory of the gopher server, and including only
+material appropriate for the http server implementation in that limb of
+your overall gopher data tree.  The gopher server can then access the HTML
+material appropriately, and the http server will not offer other gopher
+material, or links to other gopher servers or services, inappropriately
+(that is, using an 'http:' URL when it should be using a 'gopher:' URL). 
+The http server can access your entire gopher data tree as well, but via
+appropriate URL's in the anchors of its local hypertext documents. 
+Accessing your gopher data tree via hypertext documents enables you to
+embed your gopher items in descriptive or explanatory text, rather than
+requiring _ABOUT or 00README files as separate menu items.
+
+
+X. Information inserts or spacers
+=================================
+
+The Type=i (A_INFO) gopher object is a client-dependent feature, which was
+implemented in v2.010 of the UMN Unix/VMS client, and has been used for
+some time now by clients for other platforms.  It enables you to insert
+spacers (blank lines) or purely informational lines of text into the
+directory listings from your server, which will not generate any action by
+the client if a user inadvertantly shoots at the line.  However, for
+pre-v2.010 clients, Type=i objects are omitted from the client's menu.
+At present, Type=i should not be used for critically important information
+because users with earlier versions of the UMN client will not see that
+information.
+
+To insert blank spacer lines, you can use tuples with the following format
+in your .links files without a corresponding file, or you can use dummy
+files in the directory together with such tuples in lookaside files or
+ACL-resident lookaside entries for the dummy files:
+
+Name=
+Type=i
+Port=+
+Numb=5
+Path=i
+Host=+
+
+The Numb= field indicates the position in the menu where the spacer should
+appear.
+
+The equivalent format can be used for information lines, but with the
+information used as the Name= field.  For example:
+
+Name=The following files are very interesting
+Type=i
+Port=+
+Numb=7
+Path=i
+Host=+
+
+If Type=i tuples are used without a Numb= field, they will be sorted on the
+basis of their Name= field.  This can be useful in directories with files
+which can be grouped alphanumerically.  Dummy files can be included with
+Name= fields which will sort above each group of data files.  If the
+directory is fluid (number of files in each group changes regularly), the
+positioning of the Type=i tuples automatically will move up or down to
+appropriate positions in the menu for that directory.
+
+Yet another possible strategy is to use the same Numb= entry for a Type=i
+tuple and a group of data files, so that they'll be tied during sorting,
+and grouped together in alphanumeric order of their Name= fields.
+
+
+XI. Nifty things not essentially related to Gopher
+==================================================
+
+Bruce Tanner's search engine, QUERY.EXE, has an interactive mode.  If there 
+are 2 or fewer command line arguments, it will go into interactive mode. 
+If  given all 5 arguments, it behaves as if it is running under a gopher
+server.   If the first argument is missing, it will prompt for a idx/sel
+file name.  If  the second argument is missing, it will prompt for a query
+string.  Here are  several ways to invoke the search:
+
+$ run gopher_root:[server]QUERY
+Index file to search: gopher_root:[data.gopher]server
+Enter query: shell
+There are 7 topics found:
+1.  I. Overview of the PSU/LCS VMS Internet Gopher Server.
+2.  II.  Setting Up Your Server.
+3.  VI.d Setting Up Searches
+4.  VI.d.2 Shell searching
+5.  VI.d.3 Building Indexes
+6.  VI.e Setting up Scripts
+7.  VIII.a Debugging a Shell Search
+
+Select topic to view [0 to quit]: 0
+
+ 
+$ query :== $gopher_root:[server]QUERY
+$ query gopher_root:[data.gopher]server
+Enter query: search
+There are 14 topics found:
+1.  I. Overview of the PSU/LCS VMS Internet Gopher Server.
+2.  DISCLAIMERS:
+3.  II.  Setting Up Your Server.
+4.  II.c Prepare the command files.
+5.  II.d Configure the Gopher Server
+6.  III. .LINKS and lookaside files
+7.  VI.c Adding alternate directory trees
+8.  VI.d Setting Up Searches
+9.  VI.d.1 GREP searching
+10.  VI.d.2 Shell searching
+11.  VI.d.3 Building Indexes
+12.  VI.d.4 Command searching
+13.  VIII. Debugging your server
+14.  VIII.a Debugging a Shell Search
+
+Select topic to view [0 to quit]: 0
+
+
+$gopher_doc :== $gopher_root:[server]QUERY gopher_root:[data.gopher]server
+
+$ gopher_doc "shell and search"
+There are 6 topics found:
+1.  I. Overview of the PSU/LCS VMS Internet Gopher Server.
+2.  II.  Setting Up Your Server.
+3.  VI.d Setting Up Searches
+4.  VI.d.2 Shell searching
+5.  VI.d.3 Building Indexes
+6.  VIII.a Debugging a Shell Search
+
+Select topic to view [0 to quit]: 0
+
+
+This brings full-text boolean searches to non-gopher sites as well.

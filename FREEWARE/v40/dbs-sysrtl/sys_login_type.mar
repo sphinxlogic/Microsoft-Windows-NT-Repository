@@ -1,0 +1,127 @@
+	.title	sys_login_type
+	.ident	"X1-003"
+
+;+
+; Version:	X1-003
+;
+; Facility:	Library routines.
+;
+; Abstract:	Returns the JPI JOBTYPE or MODE value, or returns true/false
+;		if the value passed matches the current status.
+;
+; Environment:	User mode
+;
+; History:
+;
+;	10-Apr-1991, DBS, Version X1-001
+; 001 -	Original version.
+;	08-Sep-1991, DBS; Version X1-002
+; 002 -	Fixed bug/typo with psect definitions.
+;	19-Jan-1996, DBS; Version X1-003
+; 003 -	Added code for alpha.
+;-
+
+;++
+; Functional Description:
+;	(This module hase two entry points.)
+;	This routine uses the $GETJPI routine to return the current JOBTYPE
+;	or MODE as a longword, or will compare the value passed to the current
+;	job type or mode and return true or false.
+;	Use the values defined in $JPIDEF (jpi$k_<jobtype>).
+;	Note that the JOBTYPE and MODE values returned have different values.
+;
+; Calling Sequence:
+;	(In the following, replace sys_jobtype with sys_mode for the second
+;	 entry to this routine)
+;	To return the current jobtype:
+;		jobtype = sys_jobtype()
+;			- or -
+;		calls	#0, g^sys_jobtype
+;		movl	r0, jobtype
+;
+;	To test the current jobtype:
+;		batch = 2
+;		if (sys_jobtype(batch))...
+;			- or -
+;		movl	#jpi$_batch, jobtype
+;		pushal	jobtype
+;		calls	#1, g^sys_jobtype
+;		blbs	r0, batch_processing
+;
+; Formal Argument(s):
+;	logintype.rl.r	Optional type value to check against the current
+;			value.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	None
+;
+; Routine Value:
+;	Either the current JOBTYPE or MODE or true/false if the passed value
+;	matches the current jobtype.  Depends on the calling sequence.
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.ntype	...on_alpha..., R31
+	.iif equal, <...on_alpha...@-4&^XF>-5, alpha=0
+	.iif defined, alpha, .disable flagging
+; use the following for jsb entry points
+;jsb_name:: .iif defined, alpha, .jsb_entry input=<R0>, output=<R0>
+
+	.disable global
+
+	$jpidef
+	$gblini	GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+	set_psect _sys_data
+
+login_type:	.long	0
+item_list:	.word	4
+item:		.word	0		; filled in at run-time
+		.address login_type
+		.long	0
+		.long	0		; end of list
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+sys_jobtype, ^m<>
+	movw	#jpi$_jobtype, item
+	brb	get_type
+
+	.entry -
+sys_mode, ^m<>
+	movw	#jpi$_mode, item
+
+get_type:
+	$getjpiw_s itmlst=item_list
+	tstw	(ap)			; how many arguments ?
+	beql	return_type		; none, return the jobtype
+	tstl	4(ap)			; check the argument
+	bneq	check_type		; do a check if a valid address
+return_type:
+	movl	login_type, r0		; pass the value to the caller
+	brb	exit_routine
+check_type:
+	clrl	r0			; assume no match for now
+	cmpl	login_type, @4(ap)	; see if it's what they thought
+	bneq	exit_routine		; no good
+	movl	#1, r0			; say it's ok
+exit_routine:
+	ret
+
+	.end

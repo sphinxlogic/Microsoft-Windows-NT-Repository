@@ -1,0 +1,266 @@
+MODULE PPL$FINDID ( ADDRESSING_MODE ( EXTERNAL = GENERAL ),	!
+		   IDENT = 'V57-001'
+		  ) =
+BEGIN
+
+!
+!			  COPYRIGHT (c) 1986 BY
+!	      DIGITAL EQUIPMENT CORPORATION, MAYNARD, MASS.
+!
+! THIS SOFTWARE IS FURNISHED UNDER A LICENSE AND MAY BE USED AND  COPIED
+! ONLY  IN  ACCORDANCE  WITH  THE  TERMS  OF  SUCH  LICENSE AND WITH THE
+! INCLUSION OF THE ABOVE COPYRIGHT NOTICE.  THIS SOFTWARE OR  ANY  OTHER
+! COPIES  THEREOF MAY NOT BE PROVIDED OR OTHERWISE MADE AVAILABLE TO ANY
+! OTHER PERSON.  NO TITLE TO AND OWNERSHIP OF  THE  SOFTWARE  IS  HEREBY
+! TRANSFERRED.
+!
+! THE INFORMATION IN THIS SOFTWARE IS SUBJECT TO CHANGE  WITHOUT  NOTICE
+! AND  SHOULD  NOT  BE  CONSTRUED  AS  A COMMITMENT BY DIGITAL EQUIPMENT
+! CORPORATION.
+!
+! DIGITAL ASSUMES NO RESPONSIBILITY FOR THE USE OR  RELIABILITY  OF  ITS
+! SOFTWARE ON EQUIPMENT WHICH IS NOT SUPPLIED BY DIGITAL.
+!
+
+!++
+! FACILITY:
+!		PPL ( Parallel Processing Library )
+!
+! ABSTRACT:
+!
+!
+! ENVIRONMENT:
+!
+!
+!--
+!<BLF/PAGE>
+
+!++
+!
+! AUTHOR:	Catherine M. Fariz, CREATION DATE: (08-OCT-1986)
+!
+!
+! MODIFIED BY:
+!
+! 	Catherine M. Fariz, (08-OCT-1986): VERSION 00
+!
+! 01-000	- Original version
+!
+! 01-001	- Corrected accvio due to null params.		CMF 20-JAN-1987
+!
+! 01-002	- Corrected the Ident.				CMF 26-JAN-1987
+!
+! V051-001	- Removed declarations of PPLSECT		WWS 09-Sep-1988
+!
+! V053-001	- Removed declarations of CTX			PJC 14-Aug-1989
+!
+! V053-002	- Additions for vm-zones			HPO 31-AUG-1989
+!
+! V053-003	- Renamed PPL$Find_Synch_Element_ID to		WWS  1-Sep-1989
+!		    PPL$Find_Object_ID
+!		- Created an alias for PPL$Find_Synch_Element_ID
+!		    to PPL$Find_Object_ID
+!
+! V057-001	- EVMS/Alpha port: removed BLISS32 language	PJC 12-Nov_1991
+!		  specifier from module
+!--
+!<BLF/PAGE>
+
+!
+! TABLE OF CONTENTS:
+!
+
+!
+! INCLUDE FILES:
+!
+
+LIBRARY 'RTLSTARLE';			! System symbols
+LIBRARY 'SYS$LIBRARY:XPORT';
+UNDECLARE %QUOTE $DESCRIPTOR;		! Clear up conflict
+LIBRARY 'OBJ$:PPLLIB';
+REQUIRE 'RTLIN:RTLPSECT';		! Define DECLARE_PSECTS macro
+
+!
+! FORWARD ROUTINE
+!
+FORWARD ROUTINE
+    PPL$FIND_OBJECT_ID;
+!
+! MACROS:
+!
+
+!
+! EQUATED SYMBOLS:
+!
+
+!
+! PSECT DECLARATIONS
+!
+DECLARE_PSECTS (PPL);		! Declare Psects for PPL facility
+
+!
+! OWN STORAGE:
+!
+
+!
+! LINKAE DECLARATIONS
+!
+LINKAGE
+    JSB_R0_R01 =	JSB (REGISTER=0;REGISTER=0,REGISTER=1);
+
+!
+! EXTERNAL REFERENCES:
+!
+EXTERNAL ROUTINE
+    PPL$$NAME_SEARCH,				! Determines if name exists
+    STR$ANALYZE_SDESC_R1 :	JSB_R0_R01;	! Cleanse string descriptor
+!
+! EXTERNAL
+!
+EXTERNAL
+    PPL$$GL_PPLSECT :	REF PPLSECT_BLOCK,
+    PPL$$GL_CONTEXT :	REF CTX_BLOCK;
+
+
+%SBTTL 'ROUTINE: PPL$FIND_OBJECT_ID () - Find ID associate with a name'
+!
+%if VAX
+%then
+GLOBAL BIND ROUTINE
+    PPL$FIND_SYNCH_ELEMENT_ID = PPL$FIND_OBJECT_ID; ! Old routine name
+%fi
+
+GLOBAL ROUTINE PPL$FIND_OBJECT_ID
+    (
+    	ELEMENT_ID : REF VECTOR [1],
+	ELEMENT_NAME :	REF $BBLOCK
+    ) =
+!++
+! FUNCTIONAL DESCRIPTION:
+!
+!	Given the name of a spin lock or counting semaphore
+!	( an element name ), this routine returns the ID
+!	of the element.	
+!
+! CALLING SEQUENCE:
+!
+!	condition-value = PPL$FIND_OBJECT_ID ( element-name,
+!					  		element-id )
+!
+! FORMAL ARGUMENT(S):
+!
+!	ELEMENT-NAME
+!	VMS USAGE	:  char_string
+!	TYPE		:  character string
+!	ACCESS		:  read only
+!	MECHANISM	:  by descriptor
+!
+!	The name of the synchronization element that the user wants
+!	the associated ID for.
+!
+!	ELEMENT-ID
+!	VMS USAGE	:  identifier
+!	TYPE		:  longword ( unsigned )
+!	ACCESS		:  modify
+!	MECHANISM	:  by reference
+!
+!	The ID of the element to be returned to the user.
+!
+! IMPLICIT INPUTS:
+!
+!	The Name/Identifier List.
+!
+! IMPLICIT OUTPUTS:
+!
+!	NONE
+!
+! COMPLETION CODES:
+!
+!	PPL$_INVARG	Invalid argument(s).
+!
+!	PPL$_INVELENAM	Invalid element name, illegal character string.
+!
+!	PPL$_NORMAL	Normal successful completion.
+!
+!	PPL$_NOSUCHNAM	No element with the specified name exists.
+!
+!	PPL$_WRONUMARG	Wrong number of arguments.
+!
+! SIDE EFFECTS:
+!
+!	NONE
+!
+!--
+BEGIN	!PPL$FIND_OBJECT_ID
+
+BUILTIN
+    	ACTUALCOUNT,
+	NULLPARAMETER;
+
+LITERAL
+    	MAX_ARGS = 2,		! Maximum number of parameters passed
+    	ZERO = 0;		! Zero
+
+LOCAL
+	PPL_OBJECT	: REF VM_BLOCK,			! PPL - OBJECT
+	STATUS,						! Status
+   	ELEMENT		: REF $BBLOCK [DSC$C_S_BLN],	! ref to Element Name
+   	ELEMENTNAME_DESC: $BBLOCK [DSC$C_S_BLN];	! Element Name desc
+
+
+!+
+! Validate parameters.
+!-
+IF ( ACTUALCOUNT () NEQ MAX_ARGS ) THEN
+    RETURN PPL$_WRONUMARG;
+
+IF NULLPARAMETER ( ELEMENT_ID ) THEN
+    RETURN PPL$_INVARG;	
+
+IF NULLPARAMETER ( ELEMENT_NAME ) THEN
+    RETURN PPL$_INVARG;
+
+!+
+! validate the contents of the ELEMENT_NAME descriptor
+!-
+element = elementname_desc[base_];
+elementname_desc[dsc$b_dtype] = dsc$k_dtype_t;
+elementname_desc[dsc$b_class] = dsc$k_class_s;
+str$analyze_sdesc_r1 ( element_name[base_];
+		       elementname_desc[dsc$w_length],
+		       elementname_desc[dsc$a_pointer] );
+
+verify_init_;
+
+
+!+
+! Need to search the Name/Identifier List for the element name.
+! If it is not found, return an error.
+!-
+
+status = ppl$$name_search (element[base_], ppl_object);
+
+IF ( NOT .STATUS ) THEN
+    RETURN .STATUS;
+
+!+
+! If it is found, then return the handle to the user.
+! However, before we do this, if the element ID is zero,
+! then set it to what it should be, then return it to the user.
+!-
+
+IF (.PPL_OBJECT[vm_l_type] NEQ ppl$k_vm) THEN
+    ELEMENT_ID[0] = .PPL_OBJECT[vm_l_eid]
+    !*** this only works because events and sems also put the eid at the same offset
+ELSE
+    ELEMENT_ID[0] = .PPL_OBJECT[vm_l_zone_id];
+
+
+RETURN PPL$_NORMAL;
+          
+
+END;			! End of Routine PPL$FIND_ELEMENT_ID
+
+
+END				! End of module PPL$FINDID
+ELUDOM

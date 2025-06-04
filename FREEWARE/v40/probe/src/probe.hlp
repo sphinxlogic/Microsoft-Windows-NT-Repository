@@ -1,0 +1,1093 @@
+! MODULE        PROBE.HLP
+! VERSION       2.3B
+!
+! COPYRIGHT © 1989-1997, Stephane Germain. ALL RIGHTS RESERVED.
+!
+! This file describes the PROBE utility functions and interface commands.
+!
+! This module is to be included in the system help library SYS$HELP:HELPLIB.HLB
+! or a substitute directory within SYS$HELP search path. Alternately, this file
+! could be independantly put in a completely separate library path which would
+! then be invoked explicitely by the user (HELP/LIBRARY=) or be pointed to by
+! HLP$LIBRARY_*.
+!
+! 2.2-1 : Updated Smoothing legend indication.
+! 2.2-2 : Updated /FILTER (Format & Protocol) for new and expanded key actions.
+! 2.2-3 : Uncommented /RECORD=data section
+! 2.2-4 : Uncommented /ANALYZE, /EXTRACT and /PLAYBACK sections & related.
+! 2.2-5 : Updated and corrected display & statistics interpretation section.
+! 2.2-6 : Updated "Release_notes".
+! 2.2B1 : Updated parameter section for new adapter support.
+! 2.2B2 : Updated /ANALYZE to include FORMAT procedure.
+! 2.2B3 : Updated /PLAYBACK for non-AXP support.
+! 2.2B4 : Updated /TABLE for DEFAULT.TBL.
+! 2.2B5 : Updated interpretation section.
+! 2.2B6 : Added /COLLISION_RATE.
+! 2.2B7 : Added "V22B_Release_notes".
+! 2.3-1 : Updated /TABLE for SYS_PROBE:NETWORK.TBL and VENDOR verb.
+! 2.3-2 : Updated /RECORD for NETWORK.PRB
+! 2.3-3 : Updated /STATISTICS for NETWORK.PRB_STATS
+! 2.3-4 : Updated /FILTER=PROTOCOL for IEEE SNAP frames selection.
+! 2.3-5 : Updated interpretation section.
+! 2.3-6 : Added "V23_Release_notes".
+! 2.3B1 : Updated examples.
+! 2.3B2 : Updated footnote read-this-also topic.
+! 2.3B3 : Updated /ANALYZE and /PLAYBACK for Alpha support.
+! 2.3B4 : Restructured release_notes topic and added V23B subtopic.
+!
+1 PROBE
+
+ Probe is a network monitoring tool which allows the capture and/or display
+ of Ethernet traffic activity in real-time or the formatting of previously
+ collected data. Various filter combinaisons can be enabled to select the
+ traffic of interest for presentation. Sampling can be performed unattended
+ (in batch for example) by setting a series of alternating collection and
+ sleep cycles.
+
+ Format:
+
+   PROBE  [adapter]
+
+ At least one of /DISPLAY, /RECORD or /STATISTICS must be specified for
+ network monitoring to occur.
+
+ Use /PLAYBACK to display a previously recorded network activity file.
+
+ Refer to the RELEASE_NOTES topic for a summary of updated features.
+2 Parameter
+
+  Specifies the name of the Ethernet adapter on the machine. If omitted,
+  Probe checks for the presence of the 'ETHERNET' logical name and uses
+  its equivalence string as the parameter value. Otherwise, Probe scans
+  the system configuration for one of the following default devices:
+
+   ESA0 (Vaxstation inbedded class)
+   ETA0 (BI class)
+   EWA0 (AlphaStation PCI class)
+   EXA0 (XMI class)
+   EZA0 (SGEC class)
+   XEA0 (Unibus class)
+   XQA0 (Qbus class)
+
+  No parameters are allowed when /PLAYBACK is specified.
+2 Qualifiers
+/ANALYZE
+ /ANALYZE[=(attribute[,...])]
+
+  With /PLAYBACK only, specifies that a formatted dump of the sample file
+  is required. The use of this qualifier makes it possible to process in
+  batch a previously recorded network session.
+
+  Optional attributes specify the information to be interpreted from the
+  recording file and a possible output redirection.
+
+  CLASS=(class_type[,...])
+                Used to indicate which information within the recording
+                file is of interest and should be interpreted. Typical
+                use of these classes are for building reports intended
+                for further external treatment (e.g. spreadsheets).
+                Available options are:
+
+                ALL                  Formats all recorded information.
+                                     If present, this option is treated
+                                     first.
+                [NO]COLLISION        Formats or skips recorded collision
+                                     information.
+                [NO]CONTROLS         Expands or bypasses control fields
+                                     within significant records.
+                [NO]CYCLE_BREAK      Formats or skips cycle boundary
+                                     information.
+                [NO]DATA             Formats or skips frame data contents
+                                     if present in recording. The FRAME
+                                     class must be active.
+                [NO]FRAME            Formats or skips ethernet frame
+                                     (envelop) information.
+                [NO]HEADER           Formats or skips recording origin
+                                     information.
+                [NO]TABLE            Formats or skips recorded protocol
+                                     and node definitions.
+
+                The default selected set of options are:
+
+                ALL,NOCONTROLS,NODATA
+
+  OUTPUT=filespec
+                Used to redirect the output from the standard terminal
+                device to a file. The type .PRB_ANALYSIS is defaulted.
+
+  This qualifier is mutually exclusive with /DISPLAY.
+! and /INTERFACE.
+
+  =====================================================================
+  A DCL command procedure is also provided to display the content of a
+  (V2.2 or V2.3) sample file. You can invoke:
+
+  @SYS_PROBE:FORMAT  recorded-traffic-file  [output-file]
+
+  where 'recorded-traffic-file' is a Probe recording file (.PRB) and
+  'output-file' is an optional output redirection (.PRB_FORMAT), to
+  obtain a rough equivalent of PROBE/PLAYBACK/ANALYZE. If the logical
+  name PROBE$FORMAT_DATA is defined then data formatting is performed,
+  similar to /ANALYZE=CLASS=DATA.
+/COLLISION_RATE
+ /COLLISION_RATE=collisions  (per thousand sent frames)
+
+  Specifies a fixed collision rate, overriding the default automatic
+  ethernet line tracking. Accepted values range from 1 (0.1%) to 999
+  (99.9%). Specify 0 to disregard collisions altogether.
+
+  Manually determining a reasonable collision rate takes into account
+  the segment length, physical node distribution and traffic activity
+  pattern. A value can be estimated from DECnet line counters. Ethernet
+  collisions are normal (see the Ethernet_basics topic) but effectively
+  decrease the total available bandwidth.
+
+  When automatic line tracking is in effect, line counters are checked
+  every second until at least 100 frames have been emitted. An updated
+  collision factor is then computed.
+
+  If recording is taking place (see /RECORD), a collision record is
+  logged at the beginning of each cycle and whenever a new rate has
+  been computed thereafter.
+/DISPLAY
+ /DISPLAY[=(attribute[,...])]
+
+  In record mode (see /RECORD), specifies that traffic data is to be
+  graphically displayed on a VT100 (or upward compatible) type screen.
+  The resulting histogram consists of global and node information which
+  reflects the traffic matrix of the local network segment.
+
+  The display area adapts to the actual terminal setting. The minimum
+  number of output lines required is dynamically determined based on
+  the command given (the absolute minimum is 15 lines).
+
+  The following attributes can be specified to limit or enhance the
+  display of different network events.
+
+  INTERVAL=sec  Specifies a display refresh interval in seconds. By
+                default, the interval is 0.5 second (2 hz refresh).
+                Specifying larger values will lessen the CPU load
+                on the host at the risk of overflowing the frame
+                and events input queues between updates, resulting
+                in statistics errors or lost information. The lower
+                legend area shows <I=sec> to indicate the refresh
+                interval.
+
+                See also the /SCHEDULE qualifier.
+
+  PEAK          Indicates that the peak measured load of the segment
+                and of each node is to be displayed. The corresponding
+                numeric value is shown in the right %LOAD column, below
+                a 'max' indication. Upon omitting this attribute, the
+                default behavior is to display the average load data
+                and a 'ave' indication.
+
+                Graphically, the current load value is displayed as a
+                filled bar. The peak or average value is displayed as
+                a terminated line extending from this bar. Since it is
+                possible for a momentary value to exceed its average,
+                the line is then changed into a crossed pattern. The
+                average bar is therefore only occluded when it matches
+                the current value bar.
+
+  SCALE=FULL
+        HALF (default)
+        LOGARITHMIC
+
+                Specifies the load display scale. By default, HALF
+                is used, which yields a resolution of 1% over a 50%
+                scale. A FULL scale yields a 2% resolution over the
+                full 100% load scale. This is useful under extreme
+                loads or when a strong asymetry exists between nodes.
+                A logarithmic scale is useful to better differentiate
+                nodes in small load conditions. Only one attribute
+                can be specified.
+
+  SMOOTHING[=%] Indicates that a given current node load value is to
+                be smoothed (filtered) prior to been displayed. This
+                can be used to reduce the effect of transient traffic
+                and make the display more stable/readable. The range
+                for this attribute is 1 to 99 with 1 corresponding to
+                the least amount of smoothing (most dynamic display)
+                and 99 making the display essentially static. When
+                this attribute is selected but the value is omitted,
+                the default smoothing value is 20%. The upper legend
+                area shows <Sm=%%> to indicate the level of smoothing
+                being performed.
+
+                When this attribute is omitted entirely, raw data is
+                displayed (equivalent to 0% smoothing) and no legend
+                indication appears. Average or peak value computations
+                are never affected by this attribute. Similarly, global
+                load values are not smoothed. See the /TABLE qualifier
+                for information on how specific nodes can be set to
+                bypass this attribute so that their load values are
+                always volatile.
+
+  THRESHOLD=%   Specifies a load display activation level. This level
+                is used for node display selection, based on the node
+                current (smoothed) value being greater or equal to the
+                specified relative setting. The higher the level, the
+                least likely a given node is to be displayable. This
+                can be viewed as setting an activity "warning" level.
+                A value from 1 to 50 must be specified with this
+                attribute. See the /TABLE qualifier for information
+                on how specific nodes can be set to bypass this
+                attribute in order to remain displayable.
+!
+!  In playback mode (see /PLAYBACK), the /DISPLAY qualifier is implied
+!  and all attributes are ignored.
+
+  This qualifier cannot be issued from batch mode.
+
+  The merit of each node for display selection is based on:
+
+  1. Relative load:
+  The highest (smoothed) load is displayed first (on top). Smoothing
+  can be controlled on a node basis via the BYPASS attribute (see the
+  /TABLE qualifier) but instantaneous loading is always the first basis
+  for comparison between nodes.
+
+  2. Threshold setting:
+  All nodes with loads under the given threshold level are rejected for
+  display unless the appropriate BYPASS attribute is set (see the /TABLE
+  qualifier).
+
+  3. Priority:
+  The remaining nodes are ordered starting with those marked with the
+  PRIORITY attribute (see the /TABLE qualifier). Within the priority
+  list, nodes are ordered based on instantaneous load. The 'multicast'
+  collection is permanently set with PRIORITY enabled by default.
+
+  The qualifiers /FILTER=DESTINATION and /FILTER=SOURCE also have an
+  effect on the display. Please consult the appropriate help topic.
+/EXTRACT
+ /EXTRACT=(criteria[,...)]
+
+  With /PLAYBACK only, specifies conditions governing the selection
+  of recorded data. This qualifier is used to scope down the amount of
+  information which is to be processed, thereby optimizing manipulation
+  performance.
+
+  Possible criteria are:
+
+  CYCLE=(identifier[,...])
+
+                Specifies a series of cycle numbers of interest for
+                analysis or display. Cycle numbering starts at 1 and
+                must be positive. Data within cycles not specified is
+                ignored. Similarly, requested cycles falling outside
+                of the recording actual bounds are ignored.
+!
+!  This qualifier is analogous to the EXTRACT command which can be given
+!  during an interactive playback session from the PROBE> prompt or from
+!  the initialisation file PROBE$PLAYBACK_INITIAL.
+/FILTER
+ /FILTER=(filter_class[,...])
+
+  Specifies conditions under which a given incoming frame is accepted
+  or rejected for display or statistical cumulation. No filters are set
+  by default, which means that all traffic is collected and processed.
+  Setting a filter in a given class means that corresponding frames or
+  data are accepted and, implicitely, that frames or data falling
+  outside the specified class boundary are rejected.
+
+  Note that file logging (see /RECORD) is independant of filter state
+  i.e. all traffic is recorded for eventual analysis regardless of this
+  qualifier. Moreover, global (minimum/maximum frame size...) values are
+  always updated before any frame is discarded.
+
+  The various filtering classes are:
+
+  DESTINATION_ONLY
+                Destination-related data is collected. In display mode,
+                the most active destination nodes are shown and source-
+                specific traffic data is discarded.
+
+                This class is mutually exclusive with the source class
+                described below.
+
+  FORMAT=frame_type
+                Accepts frames based on their type. Either ETHERNET or
+                IEEE_802_3 may be specified as keywords.
+
+                During execution, typing 'I' dynamically sets or resets
+                the IEEE filter. Typing 'H' dynamically sets or resets
+                the ETHERNET filter.
+
+                In display mode, filtering is shown as 'Ieee' or 'etHr'
+                beside the frame counter . Immediately below, opposite
+                symbology is shown beside the reject counter. 
+
+  MULTICAST     Accepts only multicast (broadcast) type frames. All
+                specifically addressed frames are rejected.
+
+                During execution, typing 'M' or '.' dynamically sets
+                or resets this filter.
+
+                In display mode, this filter is shown as the letter
+                'M' (active) or the symbol '.' (inactive) beside the
+                protocol filter state.
+
+  NODE=(name[,...])
+                Accepts frames based on their source or destination
+                (restricted with the SOURCE_ONLY or DESTINATION_ONLY
+                classes) being within the defined name set. All other
+                nodes are implicitely discarded.
+
+                Nodes are defined by name and address via the /TABLE
+                qualifier. Consult that topic for information about
+                creating symbolic groupings or modifying display
+                priority.
+
+  PROTOCOL=(number[,...])
+                Accepts Ethernet or IEEE SNAP frames based on their
+                protocol. Each frame matching one of possibly many
+                active protocol filters is kept. Other frames are
+                rejected. IEEE 802.3/802.2 frames are not affected
+                by this filter setting.
+
+                The /TABLE qualifier is used to define all protocol
+                attributes, of which a unique numeric identifier is
+                used for filter association. Identifier notation is
+                assumed to be decimal.
+
+                During execution, typing a single-digit hexadecimal
+                identifier number (1 through F) dynamically deselects
+                an active or inhibited filter or selects a defined but
+                inactive filter. Typing '0' toggles protocol filtering
+                activity as a whole. This is useful when a new set of
+                filtering conditions is to be prepared and activated
+                at once. For filtering to resume, at least one filter
+                must be inhibited (on standby).
+
+                In display mode, defined protocol identifiers are shown
+                in the lower legend area. The corresponding number of
+                all active filters are displayed immediately above on
+                the filter status line. Inhibited filters are shown as
+                '-' (strikethrough).
+
+  SOURCE_ONLY   Source-related data is collected. In display mode,
+                the most active source nodes are shown and destination-
+                specific traffic data is discarded.
+
+                This class is mutually exclusive with the destination
+                class described above.
+
+  In order to use keypad keys ('.' and kp1-kp9) during execution, the
+  keypad must be set to numeric mode. Illegal characters result in a
+  (series of) terminal bell. The inputs are discarded with no further
+  impact. In summary, valid inputs are:
+
+  0             collective protocol filters
+  1-9 and A-F   individual protocol filter
+  H             Ethernet format filter
+  I             IEEE format filter
+  M or .        multicast filter
+!  X             protocol filter logic reversal
+
+  Filters can be viewed as a way of imposing increasingly restrictive
+  and overlapping selection criteria. By carefully choosing a filter
+  set, the user can view a small or more global portion of the network
+  activity. In decreasing order of importance, filter class precedence
+  is:
+
+  1. Format filter [ETHERNET | IEEE_802_3].
+
+  2. Multicast filter.
+
+  3. Protocol filter.
+
+  4. Direction filter [SOURCE | DESTINATION].
+
+  5. Node filter.
+
+  This qualifier is mutually exclusive with the /PLAYBACK qualifier.
+!  Refer to the FILTER command within the playback functional help
+!  module, available during an interactive playback session at the
+!  PROBE> prompt. It is also possible to specify filters via the
+!  initilisation file PROBE$PLAYBACK_INITIAL.
+!/INTERFACE
+! /INTERFACE=type
+!
+!  With /PLAYBACK only, specifies the terminal type. Valid types are:
+!
+!  CHARACTER_CELL
+!                For standard VT100+/ANSI terminals or compatibles.
+!                This is the default. Subsequent commands are given
+!                via a DCL-like line interface.
+!
+!  XWINDOWS      For Xterminals or workstations supporting the 'X'
+!                display protocol. This interface uses pull-down
+!                menus and other advanced facilities to simplify
+!                the user's command-giving task.
+/PLAYBACK
+ /PLAYBACK[=filespec]
+
+  Specifies that previously recorded traffic information is to be loaded
+  and, optionally, the file name that contains this data. The network is
+  not accessed. The file name RECORDED.PRB is defaulted.
+
+  This qualifier cannot be invoked in batch mode unless used with /ANALYZE.
+  This qualifier is also mutually exclusive with /RECORD, /SCHEDULE and
+  /STATISTICS. Some other qualifiers or options are limited when used in
+  the playback context. No special privileges are required; file access is
+  assumed.
+!
+!  Additional help information is available within the playback module
+!  at the PROBE> prompt.
+/RECORD
+ /RECORD[=(attribute[,...])]
+
+  Specifies that sampled traffic information is to be saved to a file for
+  later analysis. The following attributes exist:
+
+  DATA[=number] Used to indicate that each frame's data bytes are to be
+                recorded. This is useful with protocol analyzing software
+                to track and decode messages. The quantity of significant
+                data bytes to record is a number between 1 and 1500, up
+                to the actual frame size. If the number is omitted, 16 is
+                defaulted.
+
+  OUTPUT=filespec
+                Used to specify the file to contain the recorded, binary
+                format, network activity. When omitted, the defaulted file
+                is NETWORK.PRB in the current directory.
+
+  For network traffic sampling, the privileges ALTPRI, PHY_IO, PSWAPM and
+  CMKNRL are required. Process quotas such as ast_limit, byte_limit and
+  buffered_IO may require a boost to cover for network peak loads.
+
+  This qualifier is mutually exclusive with the /PLAYBACK qualifier.
+/SCHEDULE
+ /SCHEDULE=(attribute[,...])
+
+  Specifies an automatic monitoring schedule composed of one or multiple
+  repetitive cycles. A cycle begins by a standby (sleep) interval and is
+  followed by an active (monitoring) interval. The active interval must
+  always be specified. A standby interval must be specified when many
+  cycles are required, it can be omitted or zero when a unique active
+  interval is desired. If no schedule is specified, network monitoring
+  is performed continuously until externally stopped or until internal
+  counters overflow. To halt execution in interactive mode, enter ^Z
+  (generic exit) or press the space bar. This will override outstanding
+  cycles and immediately rundown the program.
+
+  ACTIVE_INTERVAL=timespec
+                Specifies a VMS delta time during which Ethernet
+                activity is monitored. This attribute is mandatory
+                and must evaluate to between 1 and 9999 seconds.
+                When in display mode (see /DISPLAY), the value
+                of this attribute is adjusted to the next valid
+                multiple of the specified or implied "interval".
+
+  CYCLE_COUNT[=number]
+                Specifies the number of cycle repetitions. The
+                value can range from 1 to 32767 inclusively. When
+                omitted, the default value is 1, corresponding to
+                a single cycle. When specified, a standby interval
+                must also be specified.
+
+  STANDBY_INTERVAL=timespec
+                Specifies a VMS delta time during which all Probe
+                monitoring activities are suspended. The value must
+                evaluate to a minimum of 1 and a maximum of 32767
+                seconds. An internal synchronization timeout period
+                is computed from this attribute and results in an
+                error condition when reached. Consequently, under
+                heavy network loads or when large statistics files
+                are produced, it may be necessary to increase this
+                value to allow for all outstanding internal activity
+                to wind down.
+
+  This qualifier is mutually exclusive with the /PLAYBACK qualifier.
+/STATISTICS
+ /STATISTICS[=(attribute[,...])]
+
+  Specifies that a statistics report is to be computed at the end of
+  each cycle (see the /SCHEDULE qualifier) or at execution rundown.
+  The following attributes exist:
+
+  OUTPUT=filespec
+                Used to specify the file where reporting is to occur.
+                When a single cycle is performed and this attribute is
+                omitted, reporting is directed to the default terminal
+                device. However, when two or more cycles are specified,
+                a file must be specified or statistics will not be
+                produced. A default specification NETWORK.PRB_STATS is
+                applied against an eventual incomplete filespec.
+!
+!  REPORT=MATRIX
+!         SEGMENT
+!         SUMMARY (default)
+!
+!                Specifies the report type. The summary is a listing of
+!                global and protocol/node values.
+
+  This qualifier is mutually exclusive with the /PLAYBACK qualifier.
+/TABLE
+ /TABLE[=filespec]
+
+  Specifies a file containing protocol, node and vendor definitions for
+  filter associations (see /FILTER) or display and statistics formatting
+  (see /DISPLAY and /STATISTICS).
+
+  The default file is pointed to by the 'NETWORK' logical name, otherwise
+  the file SYS_PROBE:NETWORK.TBL (provided for customization on site) is
+  used. Definitions within the file follow normal DCL syntax rules (with
+  no preceeding $). The following commands are recognized:
+
+  PROTOCOL      'Name'
+
+                /IDENTIFICATION= Reference_number (1 to 15)
+                /VALUE= Hexadecimal_number (2 bytes; 4 digits)
+
+  NODE          'Name'
+
+                /ADDRESS= Hexadecimal_address (6 bytes; 12 digits)
+                [/DESTINATION= (processing_attribute,...)]
+                [/SOURCE= (processing_attribute,...)]
+
+                Where valid processing_attributes are:
+
+                PRIORITY             Selects this node (source or target)
+                                     for front of display list.
+                DISABLE              Inhibits node (source or target)
+                                     processing and display.
+                BYPASS=(option,...)  Bypasses the selected option:
+                        SMOOTHING    ...no smoothing calculation.
+                        THRESHOLD    ...no threshold limiting.
+
+  VENDOR        'Name'
+
+                /PREFIX= Hexadecimal_number (3 bytes; 6 digits)
+
+  Line continuation (via the minus sign) is not supported. Hexadecimal
+  representation must not include any separators or quotation marks.
+  Leading zeros, if any, can be omitted. All names are truncated to 12
+  characters.
+
+  It is possible to specify a logical terminal device as a filename. The
+  utility displays a 'Table>' prompt requiring the user to input protocol,
+  node or vendor definition commands. Since these commands are processed
+  before filtering association is attempted, one can specify arbitrarily
+  complex filter requirements on the fly without having to create a table
+  file. Enough node and protocol definitions should be entered to satisfy
+  all filtering references. Prompting ends and the utility continues when
+  CTRL/Z is entered at the prompt.
+
+  Each protocol is identified by a unique number. No checks are made for
+  duplicated names or matching values. Similarly, nodes must be defined
+  with unique addresses although their names may be the same. Since node
+  filtering is selected on a name basis, one could define many addresses
+  within a symbolic class name and use that name in a filter specification
+  to view class-wide traffic. The vendor prefix is the MAC address block
+  number reserved by each manufacturer. It is sometimes refered to as a
+  Organization Unit Identifier (OUI). When defined, the OUI is replaced
+  by the (truncated) name parameter in the display and statistics views.
+
+  All definitions are written to the recording file. On playback, any new
+  specified table file definitions will override the equivalent recorded
+  information. This allows dynamic updates of table information stored in
+  the recording file.
+
+  This qualifier is required when /FILTER is specified with a protocol or
+  node class.
+2 Examples
+
+  1. PROBE/RECORD=OUTPUT=MYFILE
+
+     Logging to file MYFILE.PRB for eventual playback.
+     No display nor statistics produced.
+     Filters would have been useless here.
+     Cycles could have been used to automate the process.
+
+  2. PROBE/STATISTICS  ETA0
+
+     No logging. Adapter is DEBN{T,A,I} type.
+     Summary statistics (on display) when stopped from keyboard.
+     No interactive display.
+
+  3. PROBE/RECORD -
+          /DISPLAY -
+          /SCHEDULE=(ACTIVE=0:5:0)
+
+     Logging to RECORDED.PRB. No statistics report.
+     Default display (average,nosmoothing,nothreshold), fastest refresh.
+     1 implied cycle, 5 minute activity, no standby period.
+
+  4. PROBE/DISPLAY=PEAK -
+          /SCHEDULE=(CYCLE=5,ACTIVE=::10,STANDBY=:1:) -
+          /FILTER=SOURCE -
+          /STATISTICS=OUTPUT=MYOTHERFILE
+
+     No logging. Monitoring source information only.
+     Statistics to file MYOTHERFILE.PRB_STATS for 5 cycles, 1 minute
+     wait followed by 10 seconds activity. Default display except for
+     peak value.
+
+  5. PROBE/DISPLAY=(SMOOTHING,THRESHOLD=5) -
+          /TABLE=SYS$LOGIN:MY_CONFIG -
+          /FILTER=(PROTOCOL=(1,2,3,9),NODE=(MYVAX,ADAM,EVE,BIGONE))
+
+     No logging. The only frames considered will be to/from the nodes
+     named in the command line, as defined in the (user created) file
+     MY_CONFIG.TBL and only for protocols defined in that same file
+     with identifiers 1, 2, 3 and 9. The only nodes displayed will be
+     those with a smoothed load value of at least 5% of the global
+     network traffic except for those nodes defined with
+     BYPASS=THRESHOLD.
+
+  The following lines are typical of those found in a basic 'table'
+  file:
+
+  PROTOCOL    DECNET    /ID=1 /VALUE=6003    ! file transfers etc...
+  PROTOCOL    LAT       /ID=2 /VALUE=6004    ! lots of small frames
+  PROTOCOL    LAVC      /ID=3 /VALUE=6007    ! traffic similar to LAT
+  PROTOCOL    DUMP-LOAD /ID=4 /VALUE=6001    ! MOP remote operations
+  PROTOCOL    APPLETALK /ID=9 /VALUE=809B    ! MacIntosh stuff
+  PROTOCOL    IP        /ID=10/VALUE=0800    ! typically U*ix
+  !
+  NODE ADAM   /ADDRESS=AA0004000104/DESTINATION=DISABLE
+  NODE EVE    /ADDRESS=AA0004000204/SOURCE=BYPASS=THRESHOLD
+  NODE MYVAX  /ADDRESS=AA0004000A04/SOURCE=PRIORITY/DESTIN=PRIORITY
+  NODE BIGONE /ADDRESS=AA0004000B04
+  NODE SRV1   /ADDRESS=08002B012345          ! Some DEC box
+  !
+  VENDOR      DEC       /PREFIX=08002B
+  VENDOR      CISCO     /PREFIX=00000C
+
+  See the provided file SYS_PROBE:NETWORK.TBL for an extensive list
+  of ethernet protocol values and vendor prefixes. Customize locally
+  as required.
+2 Interpretation
+
+  The following subtopics address the display and statistic outputs
+  data fields and legend conventions.
+
+3 Display
+
+  Use the following partial symbolic diagram and underlying information
+  to identify display semantics:
+
+  ---------------------------------------------------------------------
+  PROBE 2.3B                 ????????::@@@@@@@@
+  mmmmmmmmmmm  RATE   %LOAD
+                fps  cur/=== 0    10   20   30   40   50   60   70   80
+  Segment            <Sm=~~> |----|----|----|----|----|----|----|----|-
+   (( Local )) RRRR  %%%/+++ |cccccccccccccppppppppppppppppppppppnnnnnn
+  Source                     |--T                                      
+  NNNNNNNNNNNN RRRR  %%%/+++ |cccccccccccccppppppppppppppppppppppnnnnnn
+  NNNNNNNNNNNN RRRR  %%%/+++ |cccccccccccccppppppppppppppppppppppnnnnnn
+  Destination                |--T
+  <multicast>  RRRR  %%%/+++ |cccccccccccccppppppppppppppppppppppnnnnnn
+  NNNNNNNNNNNN RRRR  %%%/+++ |cccccccccccccppppppppppppppppppppppnnnnnn
+                     <I=0vv> |----|----|----|----|----|----|----|----|-
+  NODES....... SIZE.....byte 0    10   20   30   40   50   60   70   80
+  $$$$ of #### Maximum= hhhh Frames= xxxxxx etHr M Filters= 0__3___7___
+  Coll= &&&.&% Average= aaaa Reject= yyyyyy Ieee   Protocols 123456789A
+  (iiiii)ttttt Minimum= llll Exit= Automatic @ (iiiii)wwwww+ssss [^Z |
+  ---------------------------------------------------------------------
+  $ probe/display=(interval=v,scale=full,threshold=T,smoothing=~) -
+  _$     /table=some.file /schedule=(cycle=i,standby=w,active=s) -
+  _$     /filter=(format=ethernet,multicast,protocol=(3,7))
+  ---------------------------------------------------------------------
+
+  1. Numbers appearing besides the Protocol header are defined valid
+  protocol identifiers. Numbers appearing besides the Filter header
+  are active protocols (0 is a fix reminder for global switch).
+  2. The reject count is the total of all filtered and dropped frames.
+  3. Nodes are sorted based on their interval load. Therefore, a node
+  transmitting or receiving a large number of small frames could be
+  displayed below a node transmitting or receiving a smaller number
+  of large frames if this node imposed a larger network load. Values
+  in the rate column would then appear out of order.
+  4. Displayed size is the physical frame size (i.e. data + envelop).
+
+  ---------------------------------------------------------------------
+  a : average frame size                        {bytes}
+  c : current value bar                         [block]
+  h : high frame size                           {bytes}
+  i : cycle number                              {pure number}
+  l : low frame size                            {bytes}
+  m : mode                                      {symbol}[bold]
+  N : node name (or address representation)     {symbol}
+  n : null                                      [blank]
+  P : protocol name                             {symbol}
+  p : peak <max> or average <ave> value bar     [line or cross]
+  R : absolute rate                             {frames/second}
+  s : timer activity setting                    {seconds}
+  T : threshold mark                            [bold diamond]
+  t : running time                              {seconds}
+  v : display refresh interval                  {seconds}
+  w : timer standby setting                     {seconds}
+  x : frames processed                          {frames}
+  y : frames rejected                           {frames}
+  ? : host name                                 {symbol}
+  @ : adapter name                              {symbol}
+  = : <ave>rage or <max>imum legend             {symbol}
+  $ : active node sublist size                  {pure number}
+  # : node list size                            {pure number}
+  & : collision rate percentage                 {pure number}
+  % : network utilisation load percentage       {pure number}
+  ~ : smoothing percentage                      {pure number}
+  + : average or maximum relative load          {pure number}
+
+3 Statistics
+
+  Use the following partial symbolic diagram and underlying information
+  to identify statistic semantics:
+
+  ---------------------------------------------------------------------
+  PROBE 2.3B STATISTICS Elapsed time: d dd:dd:dd.dd
+
+  Segment               Node::Device            Rate(hz)  Load(%) CD(%)
+  (local)           ????????::@@@@@@@@   Max:       ++++    +++.+ +++.+
+                                         Min:       ----    ---.- ---.-
+
+                                                          ----Size-----
+  Category          Frames  Multicst               Bytes  Ave  Min  Max
+
+  Ethernet:       xxxxxxxx  ffffffff            bbbbbbbb  aaa  lll  hhh
+  IEEE 802.3:     xxxxxxxx  ffffffff            bbbbbbbb  aaa  lll  hhh
+  Total:          xxxxxxxx  ffffffff            bbbbbbbb  aaa  lll  hhh
+  Filtered:       yyyyyyyy  yyyyyyyy            bbbbbbbb
+  Dropped:        zzzzzzzz
+                                                          ----Size-----
+  Protocols    #    Frames  Multicst               Bytes  Ave  Min  Max
+  PPPPPPPPPPPP p  xxxxxxxx  ffffffff            bbbbbbbb  aaa  lll  hhh
+  .
+  .
+  PPPPPPPPPPPP p  xxxxxxxx  ffffffff            bbbbbbbb  aaa  lll  hhh
+
+                          -Max--Ave-                      ----Size-----
+  Nodes            <Hits> Rate %Load    Frames     Bytes  Ave  Min  Max
+  NNNNNNNNNNNN
+  S: <p_p_p_p_p_p_p|____> rrrr  %%%   xxxxxxxx  bbbbbbbb  aaa  lll  hhh
+  D: <_p_p_p_p_p_p_|IEEE> rrrr  %%%   xxxxxxxx  bbbbbbbb  aaa  lll  hhh
+  .
+  .
+  <multicast> 
+  -: <_____________|____>    0    0          0         0    0    0    0
+  D: <_p_p_p_p_p_p_|IEEE> rrrr  %%%   xxxxxxxx  bbbbbbbb  aaa  lll  hhh
+  ---------------------------------------------------------------------
+
+  1. A frame is considered filtered only if both direction data is lost
+  as a result of some filtering.
+  2. A frame is dropped if either the listener or the data manager are
+  unable to pass control of the intermediate queue to the other process.
+  3. The 'S' and 'D' node entry headers identify source and destination
+  statistics. A strike-through indicate node direction filtering.
+  4. Numbers appearing besides the node direction headers and enclosed
+  with <|> are protocol/type hits on this node direction.
+  5. Shown size is the physical frame size (i.e. data + envelop). The
+  playback size format is data/physical.
+
+  ---------------------------------------------------------------------
+  a : average frame size                        {bytes}
+  b : overall byte count                        {bytes}
+  d : elapsed time                              {VMS delta}
+  f : multicast frame count                     {frames}
+  h : high frame size                           {bytes}
+  l : low frame size                            {bytes}
+  N : node name (or address representation)     {symbol}
+  P : protocol name                             {symbol}
+  p : protocol identifier                       {pure number}
+  r : last interval absolute rate               {frames/second}
+  x : processed frame count                     {frames}
+  y : rejected frame count                      {frames}
+  z : dropped frame count                       {frames}
+  @ : adapter name                              {symbol}
+  ? : host name                                 {symbol}
+  % : network utilisation load percentage       {pure number}
+  - : generic minimum                           {pure number}
+  + : generic maximum                           {pure number}
+
+2 Footnotes
+
+  The following subtopics may interest the technical or otherwise
+  inquisitive user.
+
+3 Ethernet_basics
+
+  Ethernet as it is now known was developped by Xerox, Digital and
+  Intel in the mid 70's. It was later modified slightly and adopted by
+  the IEEE under the 802.3 appellation.
+
+  Ethernet is a bus network based on a 50 ohms cable and operating at
+  10 Mbps (millions bit per second). The original specification called
+  for a 500 meters (maximum) coax over which up to 100 taps could be
+  made. Over the years, many other cable implementations have appeared,
+  for example thinwire, twisted pair and even fiber-optics.
+
+  Ethernet's digital signaling uses Manchester encoding (mid-cycle
+  transition in the direction corresponding to the bit value). Channel
+  access is arbitrated by a distributed probabilistic method, known as
+  Carrier Sense Multiple Access with Collision Detection (CSMA/CD).
+  Using this method, a station is free to transmit if the cable is not
+  being used. If two stations transmit simultaneously, a collision
+  occurs. Each station, after having transmitted a jam signal, stops
+  and waits a random interval before attempting retransmission.
+
+  On Ethernet, information is transmitted in frames. All frames are
+  composed of the following elements:
+
+  1. Preamble    - 64 bits used for synchronization.
+  2. Destination - 48 bits unique address identifying the target
+                   machine or a multicast code which will trigger
+                   all listening machines.
+  3. Source      - 48 bits unique address identifying the origin
+                   machine.
+  4. Protocol    - 16 bits frame type identifier. This interpretation
+                   is only valid in the Ethernet specification.
+     Length      - In the 802.3 specification, the protocol field is
+                   replaced by the data (next field) size, in bytes.
+  5. Data        - the actual information transmitted. This field can
+                   be between 46 and 1500 bytes long. Padding is
+                   performed on small (less than 46 bytes) frames.
+  6. FCS         - 32 bits frame check sequence used to validate the
+                   frame contents and detect transmission errors.
+
+  The Ethernet specification guarantees a minimum time between frames
+  equivalent to 12 bytes of silence. Probe does not include the fixed
+  preamble field nor interframe gap into its frame size reports but
+  it does consider their impact when calculating network utilization
+  values.
+
+3 Program_concept
+
+  1. The Probe utility is made up of 4 modules named PROBE, ACQ, DMS
+     and REPLAY. Module PROBE is the overall controller, responsible
+     for command parsing, set-up, scheduling (timer based) and user
+     interaction during recording.
+     Module ACQ is spawned from PROBE and is responsible for network
+     monitoring and file logging. It is asynchronous and responds
+     solely to network inputs.
+     Module DMS is also spawned from PROBE but runs synchronously up
+     to twice per second (depending on user selection). It maintains
+     statistics and performs all display functions during recording.
+     Module REPLAY performs all aspects of playback and analysis.
+
+  2. All 3 recording modules run at an elevated, real-time, priority
+     level and are internally synchronized and interlocked through
+     event flags and special instructions. Data sharing is done via
+     global sections. Some privileges are required, especially for
+     the ACQ module.
+     Module REPLAY is a single stream interactive application and
+     requires no special privileges.
+
+3 Performance_issues
+
+  1. This utility is designed to benefit from multiprocessing with
+     up to 3 processors. For minimum penalty in single and diadic
+     CPU configurations, all monitoring fonctions are asynchronous
+     except for statistics cumulation and display refresh features
+     which require a CPU on a regular basis.
+
+     In single processor system under heavy ethernet loading, there
+     is a likelihood of display refresh slippage. This is due to the
+     priority given to data collection over display functions. As
+     the load lessen, the display should catch up. Normal interactive
+     users will probably notice a response time degradation in these
+     cases but should otherwise be minimally impacted by this utility.
+
+     To prevent display IO output queue buildups and important lags
+     in the perceived response, it is recommended to use the highest
+     baud rate available to the terminal and to refrain from holding
+     the screen (XOFF). Consider also the fact that various scales
+     will fill the screen in different proportions (the worst being
+     logarithmic, the best being full (100%) scaling). Thresholding
+     and smoothing can be moderately useful in decreasing the display
+     IO loading.
+
+  2. Monitoring modules are foremost optimized for speed. IO's are
+     internally buffered and transmitted in 1 large chunck for both
+     display and file recording functions. Statistics output uses a
+     RMS record-oriented approach. This is more convenient and does
+     not impede on real-time activities as statistics are produced
+     during standby periods only. However, sufficient time must be
+     given to the statistician to resynchronize.
+
+     There is a definite advantage (static node block initialisation)
+     to preloading node addresses via a table file. Also, consider
+     defining more active nodes first in the table. This is because
+     node information is accessed through a hashing process. Nodes
+     with identical hash keys (based on hexadecimal address) are
+     linked in a first-come-first-serve order. A very active node
+     located at the end of a hash chain incurs additional search
+     overhead compared with the chain head node.
+
+  3. The likely limiting factors for a given system when running
+     Probe will be a mixture of ethernet adapter capacity and CPU
+     configuration (number of engines and rating).
+
+     In a real world situation on a VAX 6430 with 50 active users,
+     network loads of 30% (peak) are handled with little user impact.
+     A VAXstation 3100/76 (DECwindows terminal emulation) can handle
+     an offered load of about 1500 frames per seconds with some left
+     over capacity. CPU utilization is about 50% interrupt/kernel at
+     that time, with ACQ consuming the largest part of the remainder.
+     At times, the display refresh (DMS) can be seen lagging.
+
+3 Read_this_also
+
+  1. To prevent subprocesses control losses, DCL level interrupts
+     (CTRL/C and CTRL/Y) are disabled by Probe. In display mode, the
+     user should avoid CTRL/T as it may affect the screen layout in
+     unrecoverable fashion.
+
+  2. In display mode, the output device is automatically set to
+     NOWRAP, NOINSERT. It is *not* returned to its original state
+     (if different) upon rundown. The keypad must be set to numeric
+     mode to allow filter manipulations.
+
+  3. The recording file produced by ACQ is seen by RMS as a fixed
+     record organisation. Each record is identified by a leading type
+     and, as appropriate, subtype. Except for the introduction and
+     filling records (types 1 and 3 respectively) which are always at
+     the beginning of file, there is no guarantee of chronologicality
+     in the data stream except when at most 2 logging streams exist.
+
+  4. Relevant SYSGEN parameters:
+
+     MAXBUF... Probe will attempt to use as many display lines as
+               possible within a given page size (as defined by
+               SET TERM/PAGE) up to a computed value based on the
+               largest single refresh IO that is permitted by the
+               system. The default VMS value is normally acceptable
+               for most display terminals but newer VT400 devices
+               or workstation type screens may benefit from a boost.
+
+2 Release_notes
+3 V22
+
+  The following is a list of changes made since PROBE version 2.1B:
+
+  1. New functionality/syntax:
+
+     o  /ANALYZE
+     o  /EXTRACT
+     o  /PLAYBACK
+     o  /RECORD=DATA
+
+  2. New dynamic filtering key inputs:
+
+     o  Protocols A to F.
+     o  Format H (ethernet) and I (802.3).
+
+  3. Revamped statistics layout:
+
+     o  New header; additional information and clearer format.
+     o  Protocol statistics are now cumulated regardless of protocol
+        filtering state.
+     o  Node statistics are now sorted by name.
+     o  Protocol hits displayed separately for each node direction.
+     o  IEEE hits maintained for each node direction.
+
+  4. Revamped display layout:
+
+     o  New counter and status field placements.
+     o  Interval value now shown.
+
+  5. Internal enhancements:
+
+     o  The default statistics sample interval is automatically changed
+        to 1 second when display is inactive. This allows more precise
+        rate calculations.
+
+     o  New/hidden protocol block (0) for unmatched frames statistics
+        cumulation.
+
+     o  Even though the display/statistics reported "size" value is the
+        total frame size (i.e. including envelop <D+S+P+DATA+FCS>), the
+        logger "size" correspond to the payload (significant DATA, i.e.
+        with padding removed when known) size. A new field is defined
+        for carrying IEEE type overhead information. This was documented
+        in version 2.1B but the code was not implemented. The new replay
+        module displays both the logical (i.e. data) and physical (i.e.
+        total frame) sizes.
+
+3 V22B
+
+  The following is a list of changes made since PROBE version 2.2:
+
+  1. New functionality/syntax:
+
+     o  /COLLISION_RATE
+
+  2. Alpha/AXP support through the AMACRO-32 compiler.
+
+  3. New FORMAT.COM DCL procedure. Supports the platform identification
+     bit in the recording file flag field (updated definition). In this
+     release, time values are not displayed (shown as XXXXX.YY).
+
+  4. Internal enhancements:
+
+     o  Automatic line counters tracking. Redesigned.
+
+     o  If the Sysgen parameter SCSNODE is not defined then Probe will
+        get the system name by translating SYS$NODE.
+
+     o  Dropped frames (in Statistics output) now take into account both
+        internal handling failures and external (system) buffer losses.
+
+3 V23
+
+  The following is a list of changes made since PROBE version 2.2B:
+
+  1. New functionality/syntax:
+
+     o  VENDOR (TABLE) verb
+
+  2. Updated /TABLE for new default file (logical) name.
+     Updated /RECORD=OUTPUT for new default file name.
+     Updated /STATISTICS=OUTPUT for new default file name.
+
+  3. Updated /PLAYBACK module and FORMAT.COM for vendor support, IEEE
+     SNAP frame protocol extraction, raw 802.3 IPX, and miscellaneous
+     fixes. FORMAT.COM now displays the frame time stamp.
+
+  4. Load and collision rate values are now displayed and reported
+     (statistics) with increased precision (i.e. floating notation).
+     In narrow display fields, dual digit values are shown as rounded
+     integers with no fractional parts.
+
+  5. Protocol filtering now applies to IEEE SNAP frames, in addition
+     to Ethernet type frames.
+
+  6. Display improvements:
+
+     o  The network secondary load value now follows the <ave>rage
+        or <max>imum column heading.
+
+     o  The average value bar is no longer occluded by a longer
+        current value bar except when both have the same length.
+
+     o  Dual intensity bars were difficult to differentiate on
+        workstation screens. Equivalent functionality is achieved
+        using line and crossed markings.
+
+  7. Internal enhancements:
+
+     o  Fixed keyboard input specification for proper behavior in
+        DCL procedures.
+
+     o  Improved resilience to network input errors.
+
+     o  Improved Alpha/AXP specific code.
+
+3 V23B
+
+  This is a maintenance-only release. No new functionality was added
+  since PROBE version 2.3.
+
+  1. Corrected a protocol filtering bug causing an access-violation
+     in the DMS subprocess.
+
+  2. The display device is no longer initialized to White-on-Black.
+     The currently active color settings remain.
+
+  3. The software has been tested with DECnet/OSI under Alpha/VMS 6.2.
+
+  4. PROBE/PLAYBACK/ANALYZE now supported on Alpha.
+

@@ -1,0 +1,97 @@
+;++
+; Copyright © 1992, 1994, 1996 by Brian Schenkenberger.  ALL RIGHTS RESERVED.
+;
+; This software is provided "AS IS" and is supplied for informational purpose
+; only.  No warranty is expressed or implied and no liability can be accepted
+; for any actions or circumstances incurred from the use of this software or 
+; from the information contained herein.  The author makes no claim as to the
+; suitablility or fitness of the software or information contain herein for a
+; particular purpose.
+;
+; Permission is hereby granted *ONLY* for the "not-for-profit" redistribution
+; of this software provided that ALL SOURCE and/or OBJECT CODE remains intact
+; and ALL COPYRIGHT NOTICES remain intact from its original distribution.  
+;
+;(!) NO TITLE TO AND/OR OWNERSHIP OF THIS SOFTWARE IS HEREBY TRANSFERRED. (!)
+;--
+	.TITLE	SSINTLOADER		; load demo system service intercept
+	.IDENT	/V1.3 %6.233 LDR/	; loadable executive image (dynamic)
+;++
+; Determine the target architecture
+;--
+	.NTYPE	...ON_ALPHA...,R31
+	.IIF EQ,<...ON_ALPHA...@-4&^XF>-5, ALPHA=0
+	.IIF DF,ALPHA,	.DISABLE FLAGGING
+
+;++
+; Local macro routine definitions
+;--
+	.MACRO	CHKSTS,STS=<R0>,RETURN=<RET>,?L1
+	BLBS	STS,L1
+	RETURN
+L1:	.ENDM	CHKSTS
+
+;++
+.SBTTL	Macros to conditionally compile the code for VAX or Alpha support
+;--
+	.MACRO	.ON_AXP	OPERATION	; conditional compilation macro
+	.IIF DF,ALPHA,	OPERATION	;    for code specific to Alpha
+	.ENDM	.ON_AXP;OPERATION
+
+	.MACRO	.ON_VAX OPERATION	; conditional compilation macro
+	.IIF NDF,ALPHA,	OPERATION	;    for code specific to VAX
+	.ENDM	.ON_VAX;OPERATION
+
+
+;++
+.SBTTL	Include files and libraries
+;--
+	.LINK		"SYS$SYSTEM:SYS.STB"/SE
+
+	.LIBRARY	"SYS$LIBRARY:STARLET.MLB"	; look here for:
+	$LIB$ROUTINESDEF	; LIB$ RTL routine macros
+
+
+	.LIBRARY	"SYS$LIBRARY:LIB.MLB"
+	$LDRIMGDEF		; loadable execlet def's
+	.ON_AXP	<$LDRDEF>	; execlet init flag def's
+
+;++
+; SSINTLOADER program data section
+;--
+	.PSECT	DATA,WRT,NOEXE,5
+LOADER_ARGS:	.LONG	3
+		.ADDRESS	EXECLET_NAME	; loadable image name
+		.ON_AXP	<.LONG	LDR$M_UNL>	; flags - image unloadable
+		.ON_VAX	<.LONG	LDR_DYN$M_UNL>	; flags - image unloadable
+		.ADDRESS	LOADER_HANDLE	; address of loader handle
+
+LOADER_HANDLE:					; storage for loader handle
+EXECLET_BASADR:	.LONG	0
+EXECLET_LDRIMG:	.LONG	0
+EXECLET_SEQNUM:	.LONG	0
+
+EXECLET_NAME:	.ASCID	"SYS$DISK:[]SSINTERCEPT.EXE"
+
+FMTOUTBUF:	.ASCID	"SSINTERCEPT loaded at !000008XL!/"-
+			"                      !000008XL!/"-
+			"                      !000008XL"                
+
+;++
+; SSINTLOADER program code section
+;--
+	.PSECT	CODE,NOWRT,EXE,5
+	.ENTRY	SSINTLOADER,0
+
+	$CMEXEC_S	ROUTIN=G^LDR$LOAD_IMAGE,-	; try to load
+			ARGLST=LOADER_ARGS		; the execlet
+	CHKSTS
+
+	$FAO_S	CTRSTR=FMTOUTBUF,OUTLEN=FMTOUTBUF,OUTBUF=FMTOUTBUF,-
+		P1=EXECLET_BASADR,P2=EXECLET_LDRIMG,P3=EXECLET_SEQNUM
+	CHKSTS
+
+	$LIB_PUT_OUTPUT_S	MESSAGE_STRING=FMTOUTBUF
+	RET
+
+	.END	SSINTLOADER

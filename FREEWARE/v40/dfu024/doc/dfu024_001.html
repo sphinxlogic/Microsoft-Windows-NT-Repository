@@ -1,0 +1,936 @@
+<!-- DFU024_001.HTML continuation of OWN$:[SOURCES.CC.DFUSRC.FREE024]DFU024.HTML -->
+<html>
+<head>
+<title>DFU V2.4</title>
+</head>
+<body>
+<h1 align="center">DFU V2.4</h1>
+
+<hr> <a href="DFU024.HTML#bottom_main">Previous page...</a> 
+ | <a href="DFU024_CONTENTS.HTML">Contents</a>
+
+<hr size=5>
+<p><pre> 
+$ DIR EXAMPLE  
+  
+Directory MYDISK:[RUBBISH]  
+  
+EXAMPLE.DIR;1  
+  
+$ DFU  
+DFU&gt; DELETE/DIRECTORY EXAMPLE.DIR  
+  
+%DFU-I-CLEANUP, Deleting MYDISK:[RUBBISH]EXAMPLE.DIR;1...  
+%DFU-S-DELETED, File DBGINI.COM;3 deleted  
+%DFU-S-DELETED, File ICON.COM;1 deleted  
+%DFU-S-DELETED, File I_FOOL.COM;1 deleted  
+%DFU-S-DELETED, File LOGICALS.COM;51 deleted  
+%DFU-S-DELETED, File LOGIN.COM;79 deleted  
+%DFU-S-DELETED, File LOGOUT.COM;4 deleted  
+%DFU-S-DELETED, File NOTE_COMPRESS.COM;3 deleted  
+%DFU-S-DELETED, File SHOWCL.COM;3 deleted  
+%DFU-S-DELETED, File SYMBOLS.COM;89 deleted  
+%DFU-S-DELETED, File TPUBUILD.COM;5 deleted  
+%DFU-S-TOTAL, 11 file(s) deleted  
+%DFU-S-DELETED, File EXAMPLE.DIR;1 deleted  
+</pre> 
+
+<p> 
+<h3>/FILE=file-id</h3> 
+Specify a complete file-id (num,seq,rvn) of the file which must be  
+deleted.  
+This qualifier allows the deletion of lost files or files marked for  
+delete. Example :                                          
+
+<p><pre> 
+$ DFU  
+DFU&gt; VERIFY MYDISK:  
+  
+%DFU-S-CHKHOME, Home block info verified OK  
+%DFU-I-IFSCAN, Scanning INDEXF.SYS...  
+%DFU-E-INVBAKFID, file (86,17915,1) 0004CF04$BFS.;1 has invalid backlink  
+%DFU-W-DELETED, file (537,2878,1) APPL_UTRYIT_BOOK.TMP;1 marked for delete  
+ .  
+ .  
+ .  
+  
+DFU&gt; DELETE MYDISK/FILE=(86,17915,1)  
+%DFU-S-DELETED, File 0004CF04$BFS.;1 deleted  
+  
+DFU&gt; DELETE MYDISK/FILE=(537,2878,1)  
+%DFU-S-DELETED, File APPL_UTRYIT_BOOK.TMP;1 deleted  
+  
+</pre> 
+
+<p> 
+<h3>/KEEP</h3> 
+Preserve the directory tree; only delete the contents. /KEEP  
+is only valid with the /DIRECTORY qualifier. /KEEP works  
+for DELETE/DIR and DELETE/DIR/TREE.  
+<h3>/NOLOG</h3> 
+Do not log succesfull deletes to SYS$OUTPUT. /LOG is the default.  
+<h3>/NOREMOVE</h3> 
+Can only be used with /FILE. Default DELETE/FILE will try to  
+remove the file from the parent directory. If the file's backlink  
+no longer points to a valid directory this will generate an error.  
+The /NOREMOVE qualifier overrules this behaviour allowing such  
+files to be deleted.  
+<h3>/STATISTICS</h3> 
+This qualifier displays the performance statistics: CPU time, Elapsed  
+Time,  
+I/O and PageFaults.  
+<h3>/TREE</h3> 
+Can only be used with /DIRECTORY. The delete command will delete  
+all subdirectories within the directory file specified. DFU will first  
+sort out the subdirectory tree and than delete the files in the proper  
+order.  
+Thus a complete directory tree is deleted with one command.  
+</blockquote> 
+<p> 
+<a name="ch7"></a> 
+
+<p><hr size=5> 
+<a name="chapter_7"><h1>Chapter 7<br>DIRECTORY</h1></a> 
+
+<p> 
+This chapter describes the DIRECTORY command with the related  
+parameters  
+and qualifiers.  
+<a name="hd7_1"></a> 
+
+<a name="heading_7.1"><h1>7.1 Introduction</h1></a> 
+
+<p> 
+The DIRECTORY command offers 6 major functions. 3 functions deal with  
+all directories on a disk, the other 3 functions are used for  
+manipulating individual directories. These functions  
+are activated by special qualifiers:  
+
+<ul> 
+  <li>Individual directory functions :  
+
+  <ol> 
+    <li>/COMPRESS : Rebuild one or more directory files. Directories  
+are alphabetically sorted lists of filenames and file id's. Because  
+file  
+names are randomly inserted and deleted, holes will occur in directory  
+files.  
+Such holes will only be reused if a file can be alphabetically fitted  
+into  
+it. As a result directory files will grow. Especially MAIL  
+subdirectories  
+suffer from this behaviour.  
+      <br>To make matters worse directory files above 127 blocks will  
+no longer be  
+cached by the file system. This will degrade performance on such  
+directories  
+dramatically. The COMPRESS function will rebuild the complete directory  
+file.  
+The /TEST qualifier can be used to preview the results of a possible  
+COMPRESS command.  
+    <li>/CREATE/ALLOCATE=n : Create a directory with a preallocated  
+size  
+of 'n' blocks. Note that 'n' will be rounded up to a multiple of the  
+disks cluster size.  
+    <li>/DUMP : Make a dump of the directory blocks and formats the  
+output.  
+This option is usefull for debugging directory files which are  
+suspected  
+or corrupted. This function is equivalent to the previously  
+undocumented  
+VMS command DUMP/DIRECTORY, although the layout of the output is  
+different.  
+  </ol> 
+    <br>  <li>Disk-wide directory functions :  
+
+  <ol> 
+    <li>/ALIAS : Scan all directories on the disk for alias file  
+entries.  
+    <li>/EMPTY : Scan the disk for empty directories  
+    <li>/VERSION=n : Scan all directories on the disk for files which  
+have  
+at least 'n' versions.  
+  </ol> 
+    <br></ol> 
+
+<p> 
+The diskwide function qualifiers can be used in one command; other  
+combinations  
+of qualifiers are not possible.  
+Note that the diskwide directory functions can take several minutes to  
+complete  
+because a complete directory scan uses a lot of disk I/O (approximately  
+2 I/O's per directory).  
+
+<p> 
+An indirect command file containing a list of  
+files can be used as a parameter to /COMPRESS or /DUMP. Such a list  
+can be generated with the SEARCH command. Example:  
+
+<p><pre> 
+DFU&gt; SEARCH disk/FILE=*.DIR/SIZE=MIN=50/OUT=x.x  
+DFU&gt; DIRECTORY/COMPRESS @x.x  
+</pre> 
+
+<p> 
+Caution: Care should be taken when compressing critical system  
+directories.  
+To be safe you should first use the /TEST qualifier before compressing  
+the directory. Another problem may be caused by a systemcrash just when  
+DFU  
+is rewriting the new compressed directory (although the chance that  
+this  
+happens is very small). When this happens you can recover the files by  
+executing the following procedure:  
+
+<ol> 
+  <li>Do a $SET FILE/NODIR of the corrupted directory  
+  <li>Delete the directory and create a new one  
+  <li>Do a $ANALYZE/DISK/REPAIR ; this will move all the lost files to  
+[SYSLOST].  
+  <li>Move the files from [SYSLOST] to the newly created directory.  
+</ol> 
+
+<p> 
+<a name="hd7_2"></a> 
+
+<a name="heading_7.2"><h1>7.2 Discussion of directory compression</h1></a> 
+
+<p> 
+Version V2.2 of DFU introduced a major change in the directory  
+compression  
+process (issued by the DIRECTORY/COMPRESS command). Previously versions  
+always performed a maximum compression , and then truncated the  
+resultant directory. This may be usefull on a dormant directory ,  
+but on an active directory this method introduced new problems:  
+
+<ul> 
+  <li>When new files were added to the directory it must very quickly  
+be extended. Not only is this a slow operation, but on a fragmented  
+disk this can lead to DIRALLOC errors.  
+  <li>Active directories where files are inserted in a random  
+alphabetical  
+order very quickly lead to expansion of the just compressed directory.  
+</ul> 
+
+<p> 
+The first problem is now solved by NOT doing an automatic TRUNCATION  
+of the directory. The /TRUNCATE qualifier has been added to allow  
+truncation on the users request. Also /TRUNCATE=blocksize is possible  
+to perform partial truncation; DFU will not truncate below the  
+blocksize  
+issued in /TRUNCATE. (The actual blocksize will be rounded up to a  
+multiple of the disks cluster size.)  
+The second problem is solved by the new /FILL_FACTOR qualifier.  
+Here a user can direct DFU to fill each directory block up to a  
+certain percentage (between 50 and 100). Not specifying /FILL_FACTOR  
+is the same as doing /FILL_FACTOR=100 (full compression).  
+Note however that the directory's allocated size must be large enough  
+to allow a lower fill factor. If that is not possible DFU  
+will issue a DFU-E-EXTERR error, and you must use a higher fill  
+factor.  
+So, what strategy should be used when comnpressing directories?  
+
+<ol> 
+  <li>Inactive directories : use DIR/COMPRESS/TRUNCATE.  
+  <li>Not very active diredctories : use DIR/COMPRESS (/TRUNCATE=n).  
+  <li>Active directories, files added at the end (such as MAIL  
+directories) :  
+use DIR/COMPRESS  
+  <li>Active directories, files added in random alphabetical order :  
+use DIR/COMPRESS/FILL_FACTOR=n  
+</ol> 
+
+<p> 
+<a name="hd7_3"></a> 
+
+<a name="heading_7.3"><h1>7.3 Output formatting</h1></a> 
+
+<p> 
+A new qualifier /FORMAT can be used with DIRECTORY/VERSION.  
+This allows the build up of a command procedure directly from the  
+output generated by the DIR/VERSION command. /FORMAT has the following  
+restrictions :  
+
+<ol> 
+  <li>/FORMAT is only valid with the /VERSION and the /OUTPUT  
+qualifier.  
+  <li>The format string used must contain the !AS directive (in  
+uppercase).  
+The file found will be substituted at the !AS location  
+</ol> 
+
+<p> 
+Example:  
+
+<p><pre> 
+DFU&gt; DIR/VERSION=4/OUTP=PURGE.COM/FORMAT="$PURGE/KEEP=3 !AS" mydisk  
+</pre> 
+
+<p> 
+<a name="directory"></a> 
+
+<hr> 
+<a name="command_3"><h1>DIRECTORY</h1></a> 
+
+<p><blockquote> 
+Performs directory functions.  
+</blockquote> 
+<hr> 
+<h2>Format</h2> 
+<blockquote> 
+<h3>DIRECTORY device[:] or directory-file(s) </h3> 
+</blockquote> 
+<hr> 
+<h2>PARAMETERS</h2> 
+<blockquote> 
+<h3>device</h3> 
+The device on which to perform one of the diskwide directory  
+functions.  
+<h3>directory-files(s)</h3> 
+The file specification of the directory on which to perform  
+the /CREATE , /COMPRESS or /DUMP function.  
+Wildcard file specifications may be used.  
+DFU will automatically add .DIR to the filespecification if a filetype  
+is not provided.  
+</blockquote> 
+<hr> 
+<h2>QUALIFIERS</h2> 
+<blockquote> 
+<h3>/ALIAS</h3> 
+The /ALIAS qualifier directs DFU to scan all directories for alias  
+file entries. Only alias files in DIFFERENT directories will be found  
+(this is the most common situation).  
+Normally only the system disk should contain alias files. This  
+qualifier  
+can be combined with /VERSION=n and /EMPTY.  
+<h3>/ALLOCATE=n</h3> 
+Used in combination with /CREATE. Creates the new directory with  
+an allocated size of 'n' blocks.  
+<h3>/COMPRESS</h3> 
+Performs the directory compression unless /TEST is also specified.  
+The output will show the results in terms of file sizes. Example:  
+
+<p><pre> 
+DFU&gt; DIR/COMP OWN$:[000000]MAIL  
+  
+%DFU-S-DONE, OWN$:[000000]MAIL.DIR;1: 31 files; was : 4/9, now : 3/3 blocks  
+  
+DFU&gt;  
+</pre> 
+
+<p> 
+<h3>/CREATE</h3> 
+Create a new , empty directory. The allocated size will be 1 cluster  
+unless  
+/ALLOCATE is specified.  
+<h3>/DEVICE</h3> 
+The device on which the files reside. The device name is added to the  
+file name. If you generate a file list with the DFU SEARCH command  
+you don't need this qualifier. However you may have a list  
+of files produced from another source and thus need to append a device  
+name to it. This qualifier can only be used in combination with  
+/COMPRESS  
+or /DUMP.  
+<h3>/DUMP</h3> 
+Produce a block level dump of a directory. /DUMP will interpret the  
+directory  
+entries found in each block. A directory entry contains a size,  
+version-limit,  
+type and name field. Next the directory entry contains a list of  
+versions and file ID's for this entry. /DUMP will produce a rather  
+low level output of this information. Example :  
+
+<p><pre> 
+DFU&gt; DIR/DUMP C.DIR  
+  
+DUMP of directory block 1  
+Size: 22, Version limit: 3, Type: 0, Name(10): CHKDSK.EXE  
+   Version: 3, FID : (1027,1456,0)  
+Size: 26, Version limit: 3, Type: 0, Name(13): CHKDSK.README  
+   Version: 2, FID : (33892,1171,0)  
+   Version: 3, FID : (1256,11234,0)  
+Size: 22, Version limit: 3, Type: 0, Name(10): CHKDSK.SAV  
+   Version: 2, FID : (13947,100,0)  
+Size: 24, Version limit: 3, Type: 0, Name(11): CHKDSK.SAVE  
+   Version: 1, FID : (12531,2114,0)  
+Size: 26, Version limit: 3, Type: 0, Name(14): CHKDSK_LNK.COM  
+   Version: 2, FID : (12314,72,0)  
+Size: 18, Version limit: 3, Type: 0, Name(5): C_D.C  
+   Version: 3, FID : (32650,32,0)  
+Size: 20, Version limit: 3, Type: 0, Name(7): C_D.EXE  
+   Version: 9, FID : (2675,64,0)  
+Size: 20, Version limit: 3, Type: 0, Name(7): C_D.OBJ  
+   Version: 4, FID : (9835,117,0)  
+Size: 20, Version limit: 3, Type: 0, Name(7): C_D_2.C  
+   Version: 15, FID : (12428,84,0)  
+Size: 22, Version limit: 3, Type: 0, Name(9): C_D_2.OBJ  
+   Version: 9, FID : (8439,119,0)  
+Size: 22, Version limit: 3, Type: 0, Name(9): C_D_3.CLD  
+   Version: 3, FID : (9777,178,0)  
+Size: 22, Version limit: 3, Type: 0, Name(9): C_D_3.OBJ  
+   Version: 2, FID : (9737,161,0)  
+Size: 20, Version limit: 3, Type: 0, Name(7): C_D_4.C  
+   Version: 3, FID : (10594,1580,0)  
+Size: 22, Version limit: 3, Type: 0, Name(9): C_D_4.OBJ  
+   Version: 2, FID : (10177,109,0)  
+  
+DUMP of directory block 2  
+Size: 18, Version limit: 3, Type: 0, Name(5): DFU.C  
+   Version: 169, FID : (31123,52,0)  
+  
+ .  
+ .  
+ .  
+%DFU-I-TOTAL, OWN$:[SOURCES.FORTRAN.DFUSRC]C.DIR;1: 42 files  
+  
+</pre> 
+
+<p> 
+<h3>/EMPTY</h3> 
+The /EMPTY qualifier will produce a list of empty directories.  
+This qualifier can be combined with /ALIAS and /VERSION=n.  
+<h3>/FILL_FACTOR=n</h3> 
+Specifies ,in percentage, the filling of directory blocks during  
+a /COMPRESS operation. Fill factor may be between 50 and 100. Omitting  
+this qualifier is the same as /FILL_FACTOR=100 (maximum compression).  
+If the directory has not enough allocated space a low fill factor  
+may result in failure of the Compress operation. DFU will issue  
+a DFU-E-EXTERR error, and the directory file will not be modified.  
+<h3>/FORMAT=format-string</h3> 
+Create an output file in a format described by the format string.  
+The string must contain the !AS directive (this must be uppercase).  
+At the !AS location the resultant filename will be filled in.  
+The /OUTPUT qualifier is required.  
+<h3>/OUTPUT=filename</h3> 
+This qualifier redirects the output to a file. The output will  
+also go to SYS$OUTPUT.  
+<h3>/STATISTICS</h3> 
+This qualifier displays the performance statistics: CPU time, Elapsed  
+Time,  
+I/O and PageFaults.  
+<h3>/TEST</h3> 
+The /TEST can only be used in conjunction with /COMPRESS. The qualifier  
+will show the results of the /COMPRESS but will not compress  
+the directory file.  
+<h3>/TRUNCATE=blocksize</h3> 
+During a compress operation truncate the directory back to the  
+blocksize  
+specified. If blocksize is not specified, the file will be truncated  
+back to the end-of-file block number. Truncation will always be rounded  
+up to the next highest multiple of the disks cluster size.  
+<h3>/VERSION=n</h3> 
+The /VERSION qualifier directs DFU to scan all directories on the  
+device  
+to produce a list of files which have at least 'n' versions. This  
+qualifier  
+can be combined with /ALIAS and /EMPTY.  
+</blockquote> 
+<p> 
+<a name="ch8"></a> 
+
+<p><hr size=5> 
+<a name="chapter_8"><h1>Chapter 8<br>REPORT</h1></a> 
+
+<p> 
+This chapter describes the REPORT command with the related parameters  
+and qualifiers.  
+<a name="hd8_1"></a> 
+
+<a name="heading_8.1"><h1>8.1 Description</h1></a> 
+
+<p> 
+The REPORT command function generates a report of the  
+file and free space fragmentation of the disk. Also a  
+graph may be generated by the /GRAPH qualifier; this  
+visualises the free space distribution on your disk.  
+The /USAGE qualifier will generate a diskspace usage  
+report. This is especially usefull if DISKQUOTA is not  
+enabled on the disk.  
+
+<p> 
+The default report contains information of the Volume, files  
+and the bitmap. This output can be suppressed by the new  
+/NOVOLUME, NOFILE and NOBITMAP qualifiers.  
+Also the /USAGE qualifier can be used by displaying information  
+of a specific UIC or Identifier simply by specifying /USAGE=&lt;uic&gt;  
+or /USAGE=&lt;identifier&gt;.  
+<a name="hd8_2"></a> 
+
+<a name="heading_8.2"><h1>8.2 Syntax and Output</h1></a> 
+
+<p> 
+The syntax of the report command is:  
+
+<p><pre> 
+DFU&gt; REPORT device/QUALIFIERS  
+</pre> 
+
+<p> 
+Below follows an example and output of the report command:  
+
+<p><pre> 
+  
+DFU&gt; REPORT USER3:/GRAPH/USAGE  
+  
+%DFU-I-REPORT, Reporting on USER3: ($1$DUA102:)  
+  
+  ***** Volume info for USER3: (from HOME block) *****  
+ Volume name                      :  USER3        
+ Volume owner                     :  SYSTEM       
+ Structure name                   :               
+ Clustersize                      :  3  
+ Maximum # files                  :  367618  
+ First header VBN                 :  103  
+ Header count                     :  51547 (1)  
+ Free headers                     :  10951 (2)  
+   
+  ***** File statistics (from INDEXF.SYS) *****  
+ INDEXF.SYS fragments /map_in_use :  21 / 61 (39% used)   (3)  
+ Total files                      :  40595  
+ Files with extension headers     :  0  
+ Files marked for delete          :  19 , size : 25/63 blocks  
+ Directory files                  :  1957  
+ Empty files                      :  177  
+ Files with allocation            :  40418  
+ Contiguous files                 :  40326 (4)  
+ Total size used /allocated       :  2492431 /2533209  
+ Total fragments                  :  40770  
+ Average fragments per file       :  1.009  (5)  
+ File fragmentation index         :  0.692 (excellent) (6)  
+ Average size per fragment        :  62  
+ Most fragmented file             :  
+    $1$DUA102:[LARGEUSER]A.DAT;1 ( 180/630 blocks; 30  fragments)  
+   
+  ***** Free space statistics (from BITMAP.SYS) *****  
+ Total blocks on disk             :  2940951  
+ Total free blocks                :  407742  
+ Percentage free (rounded)        :  13  
+ Total free extents               :  260  
+ Largest free extent              :  42912 blocks at LBN: 2463597 (7)  
+ Average extent size (rounded)    :  1568  
+ Free space fragmentation index   :  0.191 (excellent) (6)    
+   
+ %free------------------------------------------------------------------  
+ 100 |                                                                  |  
+  95 |                                                                  |  
+  90 |                                                                  |  
+  85 |                             *                                    |  
+  80 |                             *                                    |  
+  75 |                             *                                    |  
+  70 |                             *                          *         |  
+  65 |                             *                          *         |  
+  60 |                             *                          *         |  
+  55 |                             *                          *         |  
+  50 |                       *     *                        * *         |  
+  45 |                       *     *                        * *    *    |  
+  40 |                       *     **                       * *    *    |  
+  35 |                       *     **                       * *    **   |  
+  30 |                       *   * *** *                 *  * *    **   |  
+  25 |              *       **   * *** *            *   **  ***    ** * |  
+  20 |              *       **   * *** *            * * **  ***    ** * |  
+  15 |      *  *  * *   * * ********** *            * * **  ***    ** * |  
+  10 |      *  *  * *   *** ********** **           * * ** ****    ** * |  
+   5 |      *  *  * * ***** **************          * * ** ****    ** * |  
+      -------------------------------------------------------------------  
+ LBN: 0                                                             2940951  
+ Free space distribution, each * =  2100  free blocks  
+   
+  ***** Disk Usage Table (from INDEXF.SYS and QUOTA.SYS) *****  
+ Identifier/UIC                 Used/Allocated   Headers   Quota Used/Perm  
+ -------------------------------------------------------------------------  
+ [SYSTEM]                       499554/505626     4954     510580/2000000   
+ [SSG,MRX]                       42079/46356      2259      48615/60000     
+ [SSG,TESTJE]                   189306/254742     4935     259677/300000    
+ [SSG,LARGEUSER]                 47961/50238      1648      51886/65000     
+ .  
+ .  
+ .   
+</pre> 
+
+<p> 
+The various items have the following meaning :  
+
+<ol> 
+  <li>The header count is calculated based on the size  
+of INDEXF.SYS. If more headers are needed INDEXF.SYS has to be  
+extended.  
+  <li>The free headers gives the number of free entries in INDEXF.SYS  
+before it has to extend.  
+  <li>The INDEXF.SYS number of fragments and mapwords in use are very  
+important  
+figures to determine if the INDEXF.SYS file can be extended. The  
+theoretical  
+maximum number of mapwords is 155. This value may be less if there are  
+ACL's on INDEXF.SYS. Each fragment, and therefore each retrieval  
+pointer  
+must be in the mapword area. As the size of a retrieval pointer depends  
+on  
+the physical size of a disk, it is not easy to say how many fragments  
+INDEXF.SYS can store in the mapwords area.  
+If the mapword area is full the INDEXF file can no longer extend,  
+and creating new files may result in a SYSTEM-W-HEADERFULL error.  
+  <li>Files which have exactly 1 retrieval pointer are considered  
+to be contiguous. This doesn't mean that the  
+CONTIGUOUS bit is set in the file header.  
+  <li>The average  fragments per file give some  
+indication about the total file fragmentation.  
+  <li>The file and free space fragmentation index classifies your disk  
+as follows :  
+
+  <ul> 
+    <li> 0-1 : Excellent  
+    <li> 1-2 : Good  
+    <li> 2-3 : Fair  
+    <li> 3-4 : Poor  
+    <li> &gt;4  : Bad  
+  </ul> 
+    <br>If your index is greater than 3 you should consider  
+defragmenting the disk  
+using Digitals DFO software, or by performing an Image BACKUP /  
+Restore.  
+  <li>The largest free extent is a usefull figure for  
+defragmentation purposes. You cannot defragment a file when its size is  
+greater than this value.  
+</ul> 
+
+<p> 
+The disks free space distribution as a bar graph. On the horizontal  
+axis  
+the Logical Block Number (LBN) is shown, running from 0 to the maximum  
+block number. Each * represents a certain number of contiguous free  
+blocks.  
+
+<p> 
+If you use the /USAGE qualifier a usage table will be added.  
+Per Identifier / UIC the blocks used/allocated , and the number of file  
+headers are shown. If Diskquota is enabled a third column will be  
+included  
+which shows the blocks used/permitted allowing to QUOTA.SYS.  
+Normally quota should satisfy the following rule :  
+
+<p><pre> 
+ Quota used = blocks allocated + # of file headers  
+</pre> 
+
+<p> 
+<a name="report"></a> 
+
+<hr> 
+<a name="command_4"><h1>REPORT</h1></a> 
+
+<p><blockquote> 
+Create a file and free space report of a disk device.  
+</blockquote> 
+<hr> 
+<h2>Format</h2> 
+<blockquote> 
+<h3>REPORT device[:] </h3> 
+</blockquote> 
+<hr> 
+<h2>PARAMETERS</h2> 
+<blockquote> 
+<h3>device[:]</h3> 
+Device to be reported. You may also specify a logical devicename.  
+</blockquote> 
+<hr> 
+<h2>QUALIFIERS</h2> 
+<blockquote> 
+<h3>/APPEND=filename</h3> 
+This qualifier redirects the output to be appended to an  
+already existing file. If the output file does not exists it will  
+be created. You can use /APPEND or /OUTPUT but not both.  
+<h3>/GRAPH</h3> 
+This qualifier generates a graph table which visualizes the free space  
+distribution on the disk. /NOGRAPH is the default.  
+<h3>/NOBITMAP</h3> 
+The /NOBITMAP qualifier suppresses the "Free space statistics" output.  
+<h3>/NOFILE</h3> 
+The /NOFILE qualifier suppressed the "File Statistics" output.  
+<h3>/NOVOLUME</h3> 
+The /NOVOLUME qualifier suppresses the "Volume info" output.  
+<h3>/OUTPUT=filename</h3> 
+This qualifier redirects the output to a file. The output will  
+also go to SYS$OUTPUT.  
+<h3>/STATISTICS</h3> 
+This qualifier displays the performance statistics: CPU time, Elapsed  
+Time,  
+I/O and PageFaults.  
+<h3>/USAGE(=uic or identifier)</h3> 
+The /USAGE qualifier will generate a diskspace usage report based on  
+Identifiers/UIC. If diskquota is enabled on the disk the blocks  
+used/permitted allowing to QUOTA.SYS will also be shown. /USAGE  
+is very usefull when diskquota is not enabled on the disk. When  
+a uic or identifier is specified only the information for this uic or  
+identifier will be displayed.  
+</blockquote> 
+<p> 
+<a name="ch9"></a> 
+
+<p><hr size=5> 
+<a name="chapter_9"><h1>Chapter 9<br>SEARCH</h1></a> 
+
+<p> 
+This chapter describes the SEARCH command with the related parameters  
+and qualifiers.  
+<a name="hd9_1"></a> 
+
+<a name="heading_9.1"><h1>9.1 Introduction</h1></a> 
+
+<p> 
+The search function allows very quick disk-wide  
+searches for specific files. You can use almost any  
+possible file attribute as a search qualifier.  
+<a name="hd9_2"></a> 
+
+<a name="heading_9.2"><h1>9.2 Syntax and Output</h1></a> 
+
+<p> 
+The command syntax for SEARCH is:  
+
+<p><pre> 
+DFU&gt; SEARCH device/qualifiers  
+</pre> 
+
+<p> 
+The output is displayed on your terminal. You can also sort  
+the output with the /SORT qualifier.  
+The output is shown in 2 or 3 columns eg:  
+
+<p><pre> 
+DFU&gt; SEARCH MYDISK/FILE=X.X/FRAGMENT  
+ .  
+ .  
+$1$DUA102:[USER.COMMAND]X.X;1             1/3               1/1  
+ .  
+ .  
+</pre> 
+
+<p> 
+The first column shows the full file name . As of this version of DFU  
+the  
+device name is included in the file name. The second  
+columns shows the file size as actual/allocated size. The 3rd column  
+is optional and will only be shown when the /FRAGMENT qualifier is  
+used. It  
+shows the number of fileheaders / number of file fragments.  
+<a name="hd9_3"></a> 
+
+<a name="heading_9.3"><h1>9.3 Volume Set processing</h1></a> 
+
+<p> 
+SEARCH checks if the device to-be-searched is member of a  
+volume set. If so, the complete volume set will be processed,  
+starting with Relative Volume Number 1 up to the last  
+member in set. You can override this behaviour with the /NOVOLSET  
+qualifier.  
+<a name="hd9_4"></a> 
+
+<a name="heading_9.4"><h1>9.4 Output formatting</h1></a> 
+
+<p> 
+A new qualifier /FORMAT can be used with SEARCH.  
+This allows the build up of a command procedure directly from the  
+output generated by the SEARCH command. /FORMAT has the following  
+restrictions :  
+
+<ol> 
+  <li>/FORMAT is only valid with the /OUTPUT qualifier, and can not be  
+used  
+together with the /FULL or the /SORT qualifiers.  
+  <li>The format string used must contain the !AS directive (in  
+uppercase).  
+The file found will be substituted at the !AS location  
+</ol> 
+
+<p> 
+Example:  
+
+<p><pre> 
+DFU&gt; SEARCH/OUTP=DEL.COM/FORMAT="$DELETE/CONF !AS"/FILE=*.LOG mydisk  
+</pre> 
+
+<p> 
+<a name="hd9_5"></a> 
+
+<a name="heading_9.5"><h1>9.5 UIC and identifier processing</h1></a> 
+
+<p> 
+This version introduces an improved handling of UIC's. Previous  
+versions  
+of DFU only accepted a numeric UIC in the /OWNER qaulifier or an  
+identifier in the /IDENT qualifier. V2.4 now accepts all valid uic and  
+identifier formats (numeric and alphanumeric) in the /OWNER and /IDENT  
+qualifiers. Technically there is no longer any difference between these  
+two qualifiers, but they will be left in for compatibility reasons.  
+<a name="search"></a> 
+
+<hr> 
+<a name="command_5"><h1>SEARCH</h1></a> 
+
+<p><blockquote> 
+Fast file search through INDEXF.SYS.  
+</blockquote> 
+<hr> 
+<h2>Format</h2> 
+<blockquote> 
+<h3>SEARCH device[:] </h3> 
+</blockquote> 
+<hr> 
+<h2>PARAMETERS</h2> 
+<blockquote> 
+<h3>device[:]</h3> 
+Device to be searched. You may also specify a logical devicename.  
+</blockquote> 
+<hr> 
+<h2>DESCRIPTION</h2> 
+<blockquote> 
+The SEARCH command is used for quick disk-wide searches for specific  
+files.  
+The qualifiers describe the file attributes used as the search  
+criteria. You can combine almost all of the possible  
+qualifiers, unless otherwise specified. Eg.:  
+
+<p><pre> 
+DFU&gt; SEARCH DISK1/SIZE=MIN=10/OWN=[1,4]/CREATED=SINCE=YESTERDAY  
+</pre> 
+
+<p> 
+is a valid command. Note that qualifiers will be used  
+in a logical AND manner, that is, SEARCH will only display files which  
+obey to all qualifiers and options specified.  
+</blockquote> 
+<hr> 
+<h2>QUALIFIERS</h2> 
+<blockquote> 
+<h3>/ALLOCATED</h3> 
+Default, SEARCH will use the actual file size. The /ALLOCATED qualifier  
+forces SEARCH to use the allocated filesize. This qualifier is only  
+meaningfull if you combine it with /SIZE.  
+<h3>/APPEND=filename</h3> 
+This qualifier redirects the output to be appended to an  
+already existing file. If the output file does not exists it will  
+be created. You can use /APPEND or /OUTPUT but not both.  
+<h3>/BACKUP=option(,option)</h3> 
+The /BACKUP qualifier is used to search files depending  
+on their backup date. The possible options are :  
+
+<ul> 
+  <li>/BACKUP=BEFORE=date  
+  <li>/BACKUP=SINCE=date  
+  <li>/BACKUP=NONE  
+</ul> 
+
+<p> 
+The NONE option gives files which don't have a backup  
+date recorded.The other 2 options can be used to get  
+files which have a backup date before or after a  
+specific date. The BEFORE and SINCE option can be  
+combined in one command.  
+<h3>/BAKFID=backlink-file-id</h3> 
+You can use this qualifier to look for a file with a  
+specific backlink. Only the first part of the file id  
+must be specified, that is, if the file id is (x,y,z)  
+you must specify 'x' as the file id. You can use this  
+qualifier to get files from a specific directory. If  
+you use /BAKFID=0 you will get files not belonging to a  
+directory (often temporary files).  
+<h3>/CHARACTERISTIC=(char1,char2...)</h3> 
+This qualifier is used to get files with specific file  
+characteristics.The characteristics can have the  
+following values:  
+
+<ul> 
+  <li>Directory    : directory files  
+  <li>Nobackup     : files marked nobackup  
+  <li>Contiguous   : files marked as contiguous  
+  <li>Erase        : erase file before deletion  
+  <li>Spool        : spool files  
+  <li>Badblock     : files which contain suspected bad block(s)  
+  <li>Badacl       : files with a corrupted ACL  
+  <li>Besttry      : files marked contiguous-best-try  
+  <li>Scratch      : files marked as scratch files  
+  <li>Nocharge     : files not charged against quota  
+  <li>Nomove       : files marked NoMove (VMS 5.5+)  
+  <li>Locked       : files with the deaccess lock bit set  
+  <li>Marked       : files marked for deletion  
+  <li>Noshelvable  : files which can not be shelved  
+  <li>Isshelved    : files which are shelved  
+</ul> 
+
+<p> 
+The several characteristics can be combined in one  
+command.If you want a logical OR behaviour in stead of  
+the default AND behaviour, you can use the special  
+option  MATCH=OR eg:  
+
+<p><pre> 
+  SEARCH disk/CHAR=(NOMOVE,DIR,MATCH=OR)  
+</pre> 
+
+<p> 
+<h3>/CREATED=option(,option)</h3> 
+The /CREATED qualifier is used to search files  
+depending on their creation date. The options are :  
+
+<ul> 
+  <li>/CREATED=BEFORE=date  
+  <li>/CREATED=SINCE=date  
+</ul> 
+
+<p> 
+These 2 options can be used to get files which have a  
+creation date before or after a specific date. The  
+BEFORE and SINCE option can be combined in one command.  
+<h3>/EXCLUDE=(file1,file2...)</h3> 
+This qualifier is used to exclude files from the  
+search. You can use wildcard filenames ; you can also  
+specifiy a list of files.  
+<h3>/EXPIRED=option(,option)</h3> 
+The /EXPIRED qualifier is used to search files  
+depending on their expiration date. The options are :  
+
+<ul> 
+  <li>/EXPIRED=BEFORE=date  
+  <li>/EXPIRED=SINCE=date  
+  <li>/EXPIRED=NONE  
+</ul> 
+
+<p> 
+The NONE option gives files which don't have a  
+expiration date recorded.The other 2 options can be  
+used to get files which have a expiration date before  
+or after a specific date. The BEFORE and SINCE option  
+can be combined in one command.  
+<h3>/FID=file-id</h3> 
+The /FID qualifier is a special function of SEARCH.  It  
+directs SEARCH to go directly to the specified file  
+without processing the rest of the Index file.  
+Therefore, you cannot combine this qualifierwith other  
+search qualifiers such as /FILE. Normally a file-id  
+consists is in the form (x,y,z) where x is the number  
+of the file header within INDEXF.SYS y is the sequence  
+number, and z is the Relative Volume Number. You only  
+need to specifiy the x value in the /FID qualifier.  
+<h3>/FILE=(file1,file2...)</h3> 
+This qualifier is used to search for files with a  
+specific file name.You can use wildcard file  names;  
+also you can specify a list of files.  
+<h3>/FORMAT=format-string</h3> 
+Create an output file in a format described by the format string.  
+The string must contain the !AS directive (this must be uppercase).  
+At the !AS location the resultant filename will be filled in.  
+The /OUTPUT qualifier is required.  
+<h3>/FRAGMENT(=(MINIMUM=nr,MAXIMUM=nr))</h3> 
+This qualifier displays the number of fragments and file headers of  
+each  
+file found. You can further limit the files found by  
+using the MINIMUM and MAXIMUM= options. For example:  
+
+<a name="bottom_001"></a> 
+<p> 
+<hr> <a href="dfu024_002.html">Next page...</a> 
+ |  
+<a href="dfu024_contents.html">Contents</a> 
+</body> 
+</html> 

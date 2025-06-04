@@ -1,0 +1,124 @@
+	.title	lbr_output_mlb_module
+	.ident	"X1-001"
+
+;+
+; Version:	X1-001
+;
+; Facility:	General routines.
+;
+; Abstract:	To display the contents of a macro library module.
+;
+; Environment:	User mode.
+;
+; History:
+;
+;	12-Sep-1991, DBS, Version X1-001
+; 001 -	Original version.
+;-
+
+;++
+; Functional Description:
+;
+; Calling Sequence:
+;	call lib_output_mlb_module (%descr(library_name), %descr(key_name))
+;		- or -
+;	pushaq	key_name
+;	pushaq	library
+;	calls	#2, g^lib_output_mlb_module
+;
+; Formal Argument(s):
+;	fns.rt.ds	The address of the string descriptor of the filename
+;			of the macro library to use.
+;			(Unspecified fields are SYS$LIBRARY:.MLB.)
+;	key.rt.ds	The address of the string descriptor of the name
+;			of the module to display.
+;
+; Implicit Inputs:
+;	None
+;
+; Implicit Outputs:
+;	Output is directed to SYS$OUTPUT.
+;
+; Completion Codes:
+; Routine Value:
+;	As returned by the LBR$ routines.
+;
+; Side Effects:
+;	None
+;--
+
+	.library 	"SYS$LIBRARY:LIB.MLB"
+	.library 	"SYS$LIBRARY:STARLET.MLB"
+	.library 	"DBSLIBRARY:SYS_MACROS.MLB"
+	.link		"SYS$SYSTEM:SYS.STB" /selective_search
+
+	.disable global
+
+	.external	lbr$close
+	.external	lbr$find
+	.external	lbr$ini_control
+	.external	lbr$get_record
+	.external	lbr$lookup_key
+	.external	lbr$open
+
+	$lbrdef
+	$gblini	GLOBAL
+
+	def_psect _sys_data, type=DATA, alignment=LONG
+	def_psect _sys_code, type=CODE, alignment=LONG
+
+fns = 4					; offset to fns argument
+key_name = 8				; offset to key_name argument
+
+	set_psect _sys_data
+
+dns:	.ascid	"SYS$LIBRARY:.MLB"
+
+	alloc_string	inbuf, 512
+
+outbufdes:	.quad	0
+library_index:	.long	0
+txtrfa:		.quad	0
+func:		.long	lbr$c_read
+type:		.long	lbr$c_typ_mlb
+
+	reset_psect
+
+	set_psect _sys_code
+
+	.entry -
+lbr_output_mlb_module, ^m<>
+
+	call lbr$ini_control library_index, func, type
+	blbs	r0, 10$
+	brw	bail_out
+
+10$:	pushaq	dns
+	pushl	#0
+	pushl	fns(ap)
+	pushal	library_index
+	calls	#4, g^lbr$open
+	blbc	r0, bail_out
+
+	pushaq	txtrfa
+	pushl	key_name(ap)
+	pushal	library_index
+	calls	#3, g^lbr$lookup_key
+	blbc	r0, bail_out
+
+	call lbr$find library_index, txtrfa
+
+	call lbr$get_record library_index, inbuf_ds, outbufdes
+
+	while <lbs, r0> do
+		display outbufdes
+
+		call lbr$get_record library_index, inbuf_ds, outbufdes
+	endwhile
+
+	call lbr$close library_index
+
+bail_out:
+	ret
+
+	.end
