@@ -1,0 +1,2342 @@
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+          _____________________________
+          4.2.1__Details_of_the_OpenVMS system time-keeping?
+
+          4.2.1.1__VAX_hardware_time-keeping details...
+
+          4.2.1.1.1  TOY clock
+
+                   This is battery backed up hardware timing circuitry
+                   used to keep the correct time of year during rebooting,
+                   power failures, and system shutdown. This clock only
+                   keeps track of months, days, and time. The time is kept
+                   relative to January 1st, at 00:00:00.00 of the year the
+          _________clock_was_initiailized.
+
+          4.2.1.1.2  EXE$GQ_SYSTIME
+
+                   This is the OpenVMS VAX system time cell. This cell
+                   contains the number of 100ns intervals since a known
+                   reference. This cell is incremented by 100000 every
+          _________10ms_by_an_hardware_interval timer.
+
+          4.2.1.1.3  EXE$GQ_TODCBASE
+
+                   This cell contains the time and date the system time
+                   was last adjusted by EXE$SETTIME. It uses the same
+                   format as EXE$GQ_SYSTIME. On adjustment of the system
+                   time a copy of EXE$GQ_SYSTIME is stored in this cell in
+                   both memory and on disk. This cell is used to get the
+          _________year_for_the_system_time.
+
+          4.2.1.1.4  EXE$GL_TODR
+
+                   This cell contains the time and date the system time
+                   was last adjusted by EXE$SETTIME. It uses the same
+                   format as the time of year clock. On adjustment of the
+                   system time this cell gets saved back to both memory
+                   and disk. The contents of this cell are used to test
+                   the validity of the TOY clock.
+                   The system parameters SETTIME and TIMEPROMPTWAIT
+                   determine how the system time will be set.
+
+          IF SETTIME = 0
+                      THEN the contents of the TOY clock are compared to
+                      those of EXE$GL_TODR.  IF the TOY clock is more than
+                      a day behind EXE$GL_TODR
+                        THEN the TOY clock is presumed invalid.
+
+                     o  IF the TOY clock is within a day of EXE$GL_TODR
+                        THEN the system time is calculated as follows:
+
+                   4-4
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                     o  EXE$GQ_SYSTIME = EXE$GQ_TODCBASE + ((TOY_CLOCK -
+                        EXE$GL_TODR) * 100000)
+
+                   o  IF SETTIME = 1 or the TOY clock is invalid
+                      THEN the value of TIMEPROMPTWAIT determines how to
+                      reset the time of year.  IF TIMEPROMPTWAIT > 0
+                        THEN the user is prompted for the time and date,
+                        for a length of time equal to TIMEPROMPTWAIT
+                        microfortnights.
+
+                     o  IF TIMEPROMPTWAIT = 0
+                        THEN the time of year is the value of EXE$GL_TODR
+                        + 10ms.
+
+                     o  IF TIMEPROMPTWAIT < 0
+                        to proceed until they do so.
+
+                     o  THEN the user is prompted for the time and date
+                        and unable
+
+                   When booting a CD-ROM containing an OpenVMS VAX system,
+                   the system will typically be deliberately configured
+                   prompt the user to input the time - this is necessary
+                   in order to boot with the correct time.
+
+                   If either TIMEPROMPTWAIT or SETTIME are set to zero,
+                   OpenVMS VAX will use the TOY clock to get the time of
+                   year, and the year will be fetched from the CD-ROM.
+                   The value of the year on the CD-ROM media (saved within
+                   the SYS.EXE image) will most likely be that of when
+                   the CD-ROM was made, and cannot be changed. Unless the
+                   current year happens to be the same year as that on
+                   the CD-ROM, most likely the year will be off. (Further,
+                   with the calculation of Leap Year also being dependent
+                   on the current year, there is a possibility that the
+                   date could be off too.)
+
+          _____________________________
+          4.2.1.2  Alpha hardware time-keeping details...
+
+
+
+
+
+                                                                       4-5
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+          _____________________________
+          4.2.1.2.1  Battery-Backed Watch (BB_WATCH) Chip
+
+                   This is battery backed up hardware timing circuitry
+                   used to keep the correct time of year during rebooting,
+                   power failures, and system shutdown. This clock keeps
+          _________track_of_date_and_time in 24 hour binary format.
+
+          4.2.1.2.2  EXE$GQ_SYSTIME
+
+                   This is the OpenVMS Alpha system time cell. This cell
+                   contains the number of 100ns intervals since November
+                   17, 1858 00:00:00.00. This cell is incremented by
+          _________100000_every_10ms_by an hardware interval timer.
+
+          4.2.1.2.3  EXE$GQ_SAVED_HWCLOCK
+
+                   This cell is used by OpenVMS Alpha to keep track of the
+                   last time and date that EXE$GQ_SYSTIME was adjusted. It
+                   keeps the same time format as EXE$GQ_SYSTIME. The value
+                   in this cell gets updated in memory and on disk, every
+                   time EXE$GQ_SYSTIME gets adjusted.
+
+                   o  The system parameters SETTIME and TIMEPROMPTWAIT
+                      determine how the system time will be set.
+
+                   o  If SETTIME = 0 then EXE$INIT_HWCLOCK reads the
+                      hardware clock to set the system time.
+
+                     o  IF TIMEPROMPTWAIT > 0
+                        THEN the value of TIMEPROMPTWAIT determines how
+                        long the user is prompted to enter the time
+                        and date. If time expires and no time has been
+                        entered the system acts as if TIMEPROMPTWAIT = 0.
+
+                     o  IF TIMEPROMPTWAIT = 0
+                        THEN the system time is calculated from the
+                        contents of EXE$GQ_SAVED_HWCLOCK + 1.
+
+                     o  IF TIMEPROMPTWAIT < 0
+                        THEN the user is prompted for the time and date
+                        and unable to continue until the information is
+                        entered.
+
+          Unlike the VAX, the Alpha hardware clock tracks the full date
+          and time, not just the time of year. This means it is possible
+          to boot from the CD-ROM media without entering the time at the
+          CD-ROM bootstrap. (This provided that the time and date have
+          been initialized, of course.)
+
+                   4-6
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                   IA-64 (Itanium) hardware time-keeping details to be
+                   added...
+
+          _____________________________
+          4.2.1.3  Why does VAX need a SET TIME at least once a year?
+
+                   Because the VAX Time Of Year (TOY) has a resolution of
+                   497 days, the VAX system time is stored using both
+                   the TOY and the OpenVMS VAX system image SYS.EXE.
+                   Because of the use of the combination of the TOY and
+                   SYS.EXE, you need to issue a SET TIME command (with
+                   no parameters) at least once between January 1st and
+                   about April 11th of each year, and whenever you change
+                   system images (due to booting another OpenVMS VAX
+                   system, booting the standalone BACKUP image, an ECO
+                   that replaces SYS.EXE, etc).
+
+                   The SET TIME command is automatically issued during
+                   various standard OpenVMS procedures such as SHUTDOWN,
+                   and it can also obviously be issued directly by a
+                   suitably privileged user. Issuing the SET TIME command
+                   resets the value stored in the TOY, and (if necessary)
+                   also updates the portion of the time (the current year)
+                   saved in the SYS.EXE system image.
+
+                   This VAX TOY limit is the reason why OpenVMS VAX
+                   installation kits and standalone BACKUP explicitly
+                   prompt for the time during bootstrap, and why the time
+                   value can "get weird" if the system crashes outside the
+                   497 day window (if no SET TIME was issued to update the
+                   saved values), and why the time value can "get weird"
+                   if a different SYS$SYSTEM:SYS.EXE is used (alternate
+                   system disk, standalone BACKUP, etc).
+
+          _____________________________
+          4.2.2  How does OpenVMS VAX maintain system time?
+
+                   VAX systems maintain an interval clock, and a hardware
+                   clock.
+
+                   The VAX hardware clock is called the TOY ("Time Of
+                   Year") clock. The register associated with the clock is
+                   called the TODR ("Time Of Day Register").
+
+                                                                       4-7
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                   The TOY clock-as used-stores time relative to January
+                   first of the current year, starting at at 00:00:00.00.
+                   It is a 100 Hz, 32-bit counter, incremented every 10ms,
+                   and thus has a capacity of circa 497 days.
+
+                   OpenVMS (on the VAX platform) stores system date
+                   information-and in particular, the current year-in
+                   the system image, SYS$SYSTEM:SYS.EXE.
+
+                   The TOY is used, in conjunction with the base date
+                   that is stored and retrieved from the system image, to
+                   initialize the interval clock value that is stored in
+                   EXE$GQ_SYSTIME.
+
+                   Once the interval clock is loaded, the system does
+                   not typically reference the TOY again, unless a SET
+                   TIME (with no parameters) is issued. The interval
+                   clock value is updated by a periodic IPL22 or IPL24
+                   (depending on the specific implementation) interrupt.
+                   (When these interrupts are blocked as a result of the
+                   activity of higher-IPL code-such as extensive driver
+                   interrupt activity or a hardware error or a correctable
+                   (soft) memory error-the clock will "loose" time, and
+                   the time value reported to the user with appear to have
+                   slowed down.)
+
+                   On most (all?) VAX systems, the battery that is
+                   associated with the TOY clock can be disconnected and
+                   replaced if (when) it fails-TOY clock failures are
+                   quite commonly caused by a failed nickel-cadmium (NiCd)
+                   or lithium battery, or by a failed Dallas chip.
+
+          __________________________________________________________
+          4.3  Keeping the OpenVMS system time synchronized?
+
+                   To help keep more accurate system time or to keep
+                   your system clocks synchronized, TCP/IP Services NTP,
+                   DECnet-Plus DECdtss, DCE DTSS, and other techniques
+                   are commonly used. If you do not have IP access to a
+                   time-base, then you could use dial-up access to NIST or
+                   other authoritative site.
+
+                   There exists code around that processes the digital
+                   (ie: binary) format time that is available via a
+                   modem call into the NIST clock (the Automated Computer
+                   Telephone Service (ACTS)), and code that grabs the
+
+                   4-8
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                   time off a GPS receiver digital link, or a receiver
+                   (effectively a radio and a codec) that processes
+                   the time signals from radio station WWV, WWVH, WWVB,
+                   or similar. (Processing these time protocols often
+                   involves little more than reading from an EIA232
+                   (RS232) serial line from the receiver, something that
+                   is possible from most any language as well as directly
+                   from DCL.)
+
+                   One example of acquring a time-base involves the
+                   IRIG time format (IRIG-A, -B, -G), a binary signal
+                   containing the current time in hours, minutes, seconds
+                   and days since the start of the current year. IRIG
+                   can also contain the time of day as the number of
+                   seconds since midnight. HP Custom Systems and third-
+                   party vendors offer various IRIG-based reader/generator
+                   modules for OpenVMS systems.
+
+                   Differing time servers (DECnet-Plus DTSS, DCE
+                   DTSS, NTP, etc) do not coexist particularly well,
+                   particularly if you try to use all these together
+                   on the same node. Please pick and use just one. (If
+                   needed, you can sometimes configure one package to
+                   acquire its timebase from another protocol, but one
+                   and only one time server package should have direct
+                   control over the management of and drifting of the
+                   local OpenVMS system time. In the specific case of
+                   DECnet-Plus DTSS, older product versions and versions
+                   V7.3 and later provide a provider module, a module
+                   which permits DTSS to acquire its time from NTP. For
+                   details on this, please see the comments in the module
+                   DTSS$NTP_PROVIDER.C.)
+
+                   Useful URLs:
+
+                   o  http://www.boulder.nist.gov/timefreq/service/nts.htm
+
+                   o  http://www.boulder.nist.gov/timefreq/service/acts.htm
+
+                   o  http://www.boulder.nist.gov/timefreq/
+
+                   o  http://www.time.gov/
+
+
+                                                                       4-9
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+          _____________________________
+          4.3.1  Why does my OpenVMS system time drift?
+
+                   Memory errors, hardware problems, or most anything
+                   operating at or above IPL 22 or IPL 24 (clock IPL is
+                   system family dependent; code executing at or above
+                   the clock IPL will block the processing of clock
+                   interrupts), can cause the loss of system time. Clock
+                   drift can also be caused by normal (thermal) clock
+                   variations and even by the expected level of clock
+                   drift.
+
+                   When clock interrupts are blocked as a result of the
+                   activity of high-IPL code-such as extensive driver
+                   interrupt activity or a hardware error or a correctable
+                   (soft) memory error-the clock will "loose" time, and
+                   the time value reported to the user with appear to have
+                   slowed down. Correctable memory errors can be a common
+                   cause of system time loss, in other words. Heavy PCI
+                   bus traffic can also cause lost time.
+
+                   One bug in this area involved the behaviour of certain
+                   graphics controllers including the ELSA GLoria Synergy
+                   PBXGK-BB; the PowerStorm 3D10T effectively stalling
+                   the PCI bus. See Section 5.15 for details on the ELSA
+                   GLoria Synergy controller, and make certain you have
+                   the current GRAPHICS ECO kit installed.
+
+                   Clock drift can also be (deliberately) caused by the
+                   activity of the DTSS or NTP packages.
+
+                   Also see Section 14.8, Section 14.15, and
+                   Section 4.3.2.
+
+          _____________________________
+          4.3.2  How can I drift the OpenVMS system time?
+
+                   With DECdts and TCP/IP Services NTP, the system time
+                   value is "drifted" (rather than changed), to avoid the
+                   obvious problems that would arise with "negative time
+                   changes". The same basic clock drifting technique is
+                   used by most (all?) time servers operating on OpenVMS,
+                   typically using the support for this provided directly
+                   within OpenVMS.
+
+                   4-10
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                   An example of the technique used (on OpenVMS VAX)
+                   to drift the system time is the SETCLOCK tool on the
+                   OpenVMS Freeware.
+
+                   For information on the use of the EXE$GL_TIMEADJUST and
+                   EXE$GL_TICKLENGTH cells on OpenVMS Alpha, see OpenVMS
+                   AXP Internal and Data Structures, located on page 348.
+
+                   For those areas which switch between daylight savings
+                   time (DST) and standard time, the time value is not
+                   drifted. The time is adjusted by the entire interval.
+                   This procedure is inherent in the definition of the
+                   switch between DST and standard time.
+
+          _____________________________
+          4.3.3  How can I configure TCP/IP Services NTP as a time
+                 provider?
+
+                   An NTP time provider provides its idea of the current
+                   time to NTP clients via the NTP protocol. Most systems
+                   are NTP clients, but...
+
+                   NTP has a heirarchy of layers, called strata. The
+                   further away from the actual NTP time source (Internet
+                   time servers are at stratum 1), the lower the strata
+                   (and the larger the number assigned the statum).
+
+                   NTP explicity configured at stratum one provides time
+                   to NTP operating at lower strata, and the provided time
+                   is acquired based on the local system time or via some
+                   locally-accessible external time source.
+
+                   NTP at other (lower) strata both receive time from
+                   higher strata and can provide time to lower strata,
+                   and automatically adjust the local stratum. The highest
+                   stratum is one, and the lowest available stratum is
+                   fifteen.
+
+                   The TCP/IP Services NTP package can operate at any
+                   stratum, and can be configured as a peer, as a client,
+                   or as a broadcast server. NTP can also provide time to
+                   a DECnet-Plus DTSS network, see Section 4.3.
+
+
+                                                                      4-11
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                   With TCP/IP Services V5.0 and later, the only supported
+                   reference clock is the LCL (local system clock). If
+                   your system has an excellent clock or if the system
+                   time is being controlled by some other time service
+                   or peripheral (such as DTSS services, GPS services,
+                   a cesium clock, a GPIB controller or other similar
+                   time-related peripheral), you can configure NTP to use
+                   the system clock as its reference source. This will
+                   mimic the master-clock functionality, and will configre
+                   NTP as a stratum 1 time server. To do this, enter the
+                   following commands in TCPIP$NTP.CONF:
+
+                   server 127.127.1.0 prefer
+                   fudge 127.127.1.0 stratum 0
+
+                   For local-master functionality, the commands are very
+                   similiar. Use:
+
+                   server 127.127.1.0
+                   fudge 127.127.1.0 stratum 8
+
+                   The difference between these two is the stratum, and
+                   the omission of the prefer keyword. Specifying a higher
+                   stratum allows the node to act as a backup NTP server,
+                   or potentially as the sole time server on an isolated
+                   network. The server will become active only when all
+                   other normal synchronization sources are unavailable.
+                   The use of "prefer" causes NTP to always use the
+                   specified clock as the time synchronization source.
+
+                   With the TCP/IP Services versions prior to V5.0,
+                   the NTP management is rather more primitive. To
+                   configure the local OpenVMS system from an NTP
+                   client to an NTP server (on TCP/IP Services versions
+                   prior to V5.0), add the following line to the
+                   sys$specific:[ucx$ntp]ucx$ntp.conf file:
+
+                   master-clock 1
+
+                   Also, for TCP/IP Services prior to V5.0, see the NTP
+                   template file:
+
+                   SYS$SPECIFIC:[UCX$NTP]UCX$NTP.TEMPLATE
+
+                   4-12
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                   Note that NTP does not provide for a Daylight Savings
+                   Time (DST) switch-over, that switch must arise from
+                   the timezone rules on the local system and/or from the
+                   SYS$EXAMPLES:DAYLIGHT_SAVINGS procedure. (Further,
+                   there is a known bug in SYS$EXAMPLES:DAYLIGHT_
+                   SAVINGS.COM in V7.3, please obtain the available ECO
+                   kit.)
+
+                   For current TCP/IP Services and related OpenVMS
+                   documentation, please see:
+
+                   o  http://www.openvms.compaq.com/doc/
+
+                   o  http://www.openvms.compaq.com/commercial/
+
+          __________________________________________________________
+          4.4  Managing Timezones, Timekeeping, UTC, and Daylight Savings?
+
+                   You will want to use the command procedure:
+
+                   o  SYS$MANAGER:UTC$TIME_SETUP.COM
+
+                   to configure the OpenVMS Timezone Differential Factor
+                   (TDF) on OpenVMS V6.0 and later. Select the BOTH
+                   option. This configures the OpenVMS TDF settings,
+                   though it may or may not configure the TDF and the
+                   timezone rules needed or used by other software
+                   packages. Please do NOT directly invoke the following
+                   command procedures:
+
+                   o  SYS$MANAGER:UTC$CONFIGURE_TDF.COM ! do not directly
+                      use
+
+                   o  SYS$MANAGER:UTC$TIMEZONE_SETUP.COM ! do not directly
+                      use
+
+                   TCP/IP Services V5.0 and later use the OpenVMS TDF,
+                   UTC, and timezone support. Earlier versions use a TDF
+                   mechanism and timezone database that is internal to the
+                   TCP/IP Services package. Also on the earlier versions,
+                   the TDF must be manually configured within TCP/IP
+                   Services, in addition to the OpenVMS configuration
+                   of the TDF.
+
+                                                                      4-13
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                   DECnet-Plus in V7.3 and later uses the OpenVMS TDF,
+                   UTC, and timezone support, and displays its timezone
+                   prompts using UTC$TIME_SETUP.COM. Earlier versions use
+                   a TDF TDF mechanism, timezone database, and automatic
+                   switch-over that is internal to the DECnet-Plus
+                   package. Also on earlier versions, the TDF must be
+                   configured within the DECnet-Plus DECdtss package, in
+                   addition to the OpenVMS configuration of the TDF.
+
+                   Application code using HP C (formerly Compaq C,
+                   formerly DEC C) will use the OpenVMS UTC and TDF
+                   mechanisms when the C code is compiled on OpenVMS V7.0
+                   and later (and when the macro _VMS_V6_SOURCE is NOT
+                   defined). HP C does NOT use the OpenVMS UTC and TDF
+                   mechanisms when the C code is compiled on OpenVMS
+                   releases prior to V7.0, or when the preprocessor
+                   declaration _VMS_V6_SOURCE is declared.
+
+                   DCE DTSS TDF details TDB.
+
+                   In OpenVMS Alpha V6.1, V6.2, and V6.2-1Hx, the TDF
+                   value is written to SYS$BASE_IMAGE.EXE. With OpenVMS
+                   Alpha V7.0 and later and with OpenVMS VAX V6.0 and
+                   later, SYS$SYSTEM:SYS$TIMEZONE.DAT contains the TDF.
+                   This means that OpenVMS Alpha systems will need to have
+                   the TDF value reset manually-usually within SYSTARTUP_
+                   VMS.COM-on reboots prior to V7.0.
+
+                   During OpenVMS Bootstrap, the SYSINIT module reads
+                   SYS$TIMEZONE.DAT to acquire the TDF for use in the
+                   system global cell EXE$GQ_TDF. This is done to ensure
+                   that the system boots with a valid TDF (a value which
+                   may be zero). The UTC system services get the TDF
+                   from this cell. These services, as well as the HP C
+                   RTL, must have a valid TDF. (Prior to OpenVMS V7.3,
+                   if either DECnet-Plus or DECnet/VAX Extensions is
+                   configured and run, the image DTSS$SET_TIMEZONE.EXE
+                   is invoked and can override the TDF and timezone rule
+                   settings from SYSINIT or from UTC$TIME_SETUP.COM-
+                   this image runs even if DTSS is disabled. If the
+                   settings do not match (due to inconsistencies in
+                   timezone specification in UTC$TIME_SETUP.COM and
+                   NET$CONFIGURE.COM), DTSS will reset the values to match
+                   its definitions.)
+
+                   4-14
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                   Prior to OpenVMS V7.3, daylight savings time switchover
+                   is handled automatically only when DCE DTSS or DECnet-
+                   Plus DTSS is in use. In V7.3, OpenVMS can be configured
+                   to automatically switch over to daylight savings
+                   time, and also generates an event that interested
+                   applications can use to detect the switch-over between
+                   standard time and daylight time.
+
+                   The manual switchover between daylight savings time
+                   and standard time is correctly accomplished via the
+                   SYS$EXAMPLES:DAYLIGHT_SAVINGS.COM command procedure
+                   procedure.
+
+                   Note: NTP (alone) does NOT provide automatic switch-
+                   over.
+
+                   Note: The DST switch-over does NOT drift the time
+                   value; the switch-over applies the entire difference as
+                   a unit.
+
+                   If you switch the TDF or daylight savings time setting,
+                   you will also want to restart or reconfigure any time-
+                   sensitive applications (those not using the time
+                   differential factor (TDF) change event available in
+                   V7.3 and later). Examples of these applications include
+                   the need to restart the NFS client and (yes) NTP. (NTP
+                   will want to try to "drift" the time (see Section 4.3),
+                   and will find the daylight savings time switch-over to
+                   be far too large to "drift". Hence the NTP restart.)
+                   You can also use the (undocumented) TCP/IP Services
+                   (prior to V5.0) commands:
+
+                   SET TIME/DIFF=[positive or negative TDF integer]
+                   GENERATE TIME
+
+                   to reset the value of the logical name UCX$TDF.
+
+                   Prior to V7.3, the command:
+
+                   $ SETTZ :== $SYS$SYSTEM:DTSS$SET_TIMEZONE
+                   $ SETTZ MODIFY
+
+                   can be used to modify the settings of the SYS$TIMEZONE_
+                   DAYLIGHT_SAVING, SYS$TIMEZONE_DIFFERENTIAL, and
+                   SYS$TIMEZONE_NAME system logical names based on the
+                   SYS$TIMEZONE_RULE.
+
+                                                                      4-15
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                   The following are other TDF-related logical names
+                   used/available on OpenVMS systems, with typical
+                   Daylight Savings and Standard Settings for the US
+                   Eastern Time (ET) timezone.
+
+                   $daylight_time:
+                   $ DEFINE/SYSTEM/EXECUTIVE MAIL$TIMEZONE EDT
+                   $ DEFINE/SYSTEM/EXECUTIVE NOTES$TIMEZONE "-0400 EDT"
+                   $ DEFINE/SYSTEM/EXECUTIVE LISP$DAYLIGHT_SAVING_TIME_P true  ! Not 'EDT'
+                   $ DEFINE/SYSTEM/EXECUTIVE LISP$TIME_ZONE 05   ! Constant
+                   $
+                   $standard_time:
+                   $ DEFINE/SYSTEM/EXECUTIVE MAIL$TIMEZONE EST
+                   $ DEFINE/SYSTEM/EXECUTIVE NOTES$TIMEZONE "-0500 EST"
+                   $ DEFINE/SYSTEM/EXECUTIVE LISP$DAYLIGHT_SAVING_TIME_P false ! Not 'EST'
+                   $ DEFINE/SYSTEM/EXECUTIVE LISP$TIME_ZONE 05   ! Constant
+                   $
+                   $ DEFINE/SYSTEM/EXECUTIVE UCX$NFS_TIME_DIFFERENTIAL -
+                       'f$integer(f$element(0," ",f$logical("notes$timezone"))/-100)'
+
+                   For information on ZIC and related tools used to manage
+                   the OpenVMS Timezone database, please see the DEC C
+                   Run-time Library Utilities Reference Manual-though the
+                   title would imply otherwise, this particular manual
+                   is part of the OpenVMS documentation set, and not
+                   part of the HP C (formerly Compaq C, formerly DEC C)
+                   documentation set.
+
+          _____________________________
+          4.4.1  How to troubleshoot TDF problems on OpenVMS?
+
+                   This is an OpenVMS Alpha system prior to V7.0 and the
+                   startup is not invoking the procedure:
+
+                   SYS$MANAGER:UTC$TIME_SETUP.COM
+
+                   This is an OpenVMS system prior to V6.0, where there is
+                   no OpenVMS TDF nor UTC available.
+
+                   The version of the application does not use the OpenVMS
+                   TDF. This includes TCP/IP Services prior to V5.0,
+                   applications using HP C built on or targeting OpenVMS
+                   prior to V7.0, and systems using the DECnet-Plus DTSS
+                   mechanisms prior to the release associated with OpenVMS
+                   V7.3. (DCE TDF TBD.)
+
+                   4-16
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                   If you should find either of the following two
+                   timezone-related database files located in
+                   SYS$SPECIFIC:[SYSEXE]:
+
+                   o  SYS$SPECIFIC:[SYSEXE]SYS$TIMEZONE.DAT
+
+                   o  SYS$SPECIFIC:[SYSEXE]SYS$TIMEZONE_SRC.DAT
+
+                   These two files are in an erroneous location and must
+                   be recreated in the correct directory:
+
+                   SYS$COMMON:[SYSEXE]
+
+                   If the DCL command:
+
+                   $ DIRECTORY SYS$SYSTEM:SYS$TIMEZONE*.DAT
+
+                   shows these files in SYS$SPECIFIC:[SYSEXE], then delete
+                   them and use SYS$MANAGER:UTC$TIME_SETUP.COM to recreate
+                   them.
+
+                   On OpenVMS versions prior to V7.3, if the file:
+
+                   $ SYS$STARTUP:DTSS$UTC_STARTUP.COM
+
+                   is present on your system, then you may need to invoke:
+
+                   $ @SYS$UPDATE:DTSS$INSTALL_TIMEZONE_RULE.COM
+
+                   to recreate the timezone files correctly. Invoke
+                   this command immediately after [re]executing
+                   SYS$MANAGER:UTC$TIME_SETUP.COM.)
+
+                   If SYS$UPDATE:DTSS$INSTALL_TIMEZONE_RULE.COM is not
+                   present on your system, then you may need to execute
+                   the following commands:
+
+                   $ DELETE SYS$STARTUP:DTSS$UTC_STARTUP.COM
+                   $ DEASSIGN/SYSTEM/EXEC SYS$TIMEZONE_RULE.
+
+                   If your system time is being reported as being off by
+                   one hour (or whatever the local DST change), please see
+                   sections Section 4.1, Section 4.4 and Section 10.22.1.
+
+                                                                      4-17
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+          _____________________________
+          4.4.2  Customizing your TDF (Timezone) Setting?
+
+                   Individual, local, and regional differences on the use
+                   (or the lack of use) of Daylight Savings Time (DST) are
+                   quite common.
+
+                   If you need to add (or remove) daylight savings
+                   time for your area or otherwise alter the rules for
+                   your local area, you will probably end up creating a
+                   variation to an existing timezone rule.
+
+                   The necessary zone line to add for WhereEverLand will
+                   probably look something like this:
+
+                   # Zone  NAME            GMTOFF  RULES/SAVE      FORMAT  [UNTIL]
+                   Zone    WhereEver       2:00    -               WhereEver
+
+                   The OpenVMS source file for the timezone rules here:
+
+                   SYS$COMMON:[SYS$ZONEINFO.SYSTEM.SOURCES]
+
+                   You'll then want to ZIC this to create your own
+                   timezone definiton.
+
+                   ZIC is documented in the OpenVMS Documentation Set, in
+                   the HP C Run-Time Library Reference Manual. (Despite
+                   the name of the manual, it is part of the OpenVMS
+                   documentation set and not the C manuals.)
+
+                   Once you have created the new rule, use
+                   SYS$MANAGER:UTC$TIME_SETUP.COM to select the new
+                   timezone-with V7.3 and later, this tool will notice the
+                   new timezone and will offer it, on earlier releases,
+                   you may/will have to hack the tool somewhat. (Don't
+                   even think of trying to define the TZ logical name
+                   (found on older configurations), or the SYS$TIMEZONE_
+                   NAME logical name, or any other time- or timezone-
+                   related logical names directly yourself.)
+
+                   For various timezone rules, see the tar.gz files (these
+                   are gzipped tar archives) available at:
+
+                   o  ftp://elsie.nci.nih.gov/pub/
+
+                   4-18
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+          __________________________________________________________
+          4.5  Why does the SET TIME command fail? Help managing DTSS?
+
+                   If you try to set the system time with the SET TIME
+                   command, and see one of the following messages:
+
+                   %SET-E-NOTSET, error modifying time
+                   -SYSTEM-F-IVSSRQ, invalid system service request
+
+                   %SET-E-NOTSET, error modifying time
+                   -SYSTEM-E-TIMENOTSET, time service enabled; enter a time service command to update the time
+
+                   This occurs if the time on the local system is
+                   controlled by a time service software, for example
+                   the distributed time service software (DTSS) provided
+                   as part of the DECnet-Plus installation. The DTSS
+                   software communicates with one or more time servers
+                   to obtain the current time. It entirely controls the
+                   local system time (for DECnet-Plus, there is a process
+                   named DTSS$CLERK for this); therefore, the usage of
+                   the SET TIME command (and the underlying $SETTIM system
+                   service) is disabled.
+
+                   The first message is displayed on systems running
+                   DECnet-Plus V6.1 and earlier. On systems with newer
+                   DECnet-Plus software, the second (and more informative)
+                   message is given.
+
+                   You shouldn't have to change the time manually - you
+                   should be doing this through the time server - but if
+                   you insist... you'll have to shutdown DTSS:
+
+                   $ RUN SYS$SYSTEM:NCL
+                   DISABLE DTSS
+                   DELETE DTSS
+
+                   This will shutdown DTSS$CLERK. You may then change the
+                   system time as usual. To restart the DTSS software,
+                   type
+
+                   $ @SYS$STARTUP:DTSS$STARTUP
+
+                   You will need a number of privileges to ussue this
+                   command, and you must also be granted the NET$MANAGE
+                   identifer to shutdown and to restart DTSS.
+
+                                                                      4-19
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                   If you wish to "permanently" disable DTSS on a system
+                   running DECnet-Plus, the above NCL sequence must be
+                   performed each time the system is bootstrapped. (On
+                   DECnet-Plus V7.3 and later, you can define the logical
+                   name NET$DISABLE_DTSS to disable the DTSS startup. This
+                   logical name must be defined in the command procedure
+                   SYLOGICALS.COM, as this logical name must be present
+                   and defined sufficiently early in the OpenVMS system
+                   bootstrap sequence for it to function.)
+
+                   If DTSS is running and no time servers are configured,
+                   you can (and will) see the following messages at
+                   regular intervals:
+
+                   %%%%%%%%%%%  OPCOM   2-SEP-1999 19:41:20.29  %%%%%%%%%%%
+                   Message from user SYSTEM on UNHEDI
+                   Event: Too Few Servers Detected from: Node LOCAL:.mynode DTSS,
+                           at: 1999-09-02-19:41:20.296-04:00Iinf
+                           Number Detected=0,
+                           Number Required=1
+                           eventUid   5FA70F4F-616E-11D3-A80E-08002BBEDB0F
+                           entityUid  DE9E97DE-6135-11D3-8004-AA000400BD1B
+                           streamUid  D6513A46-6135-11D3-8003-AA000400BD1B
+
+                   You can either configure the appropriate number of time
+                   servers, or you can disable DTSS, or you can ignore it
+                   and (if OPCOM is set to write to the log via via the
+                   logical names in SYLOGICALS.COM/SYLOGICALS.TEMPLATE)
+                   clean out OPERATOR.LOG regularly.
+
+                   You can also simply disable the display of these
+                   messages:
+
+                   $ run sys$system:ncl
+                   block event dispatcher outbound stream local_stream global filter -
+                       ((Node, DTSS), Too Few Servers Detected)
+
+                   If you wish to disable the automatic TDF adjustment
+                   for daylight savings time (on OpenVMS versions prior to
+                   V7.3), you can use the command:
+
+                   $ run sys$system:ncl
+                   set dtss automatic TDF change = false
+
+                   or alternatively, you can set the local timezone to one
+                   that does not include the automatic daylight savings
+                   time change-over.
+
+                   4-20
+
+ 
+
+
+
+
+
+                   Time and Timekeeping
+
+
+
+
+                   OpenVMS V7.3 and later simplify time and timezone
+                   management.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                      4-21
+
+ 
+
+
+
+
+
+
+
+
+
+
+                   _______________________________________________________
+
+          5        System Management Information
+
+
+
+          __________________________________________________________
+          5.1  What is an installed image?
+
+                   The term "install" has two distinct meanings in
+                   OpenVMS. The first relates to "installing a product",
+                   which is done with either the SYS$UPDATE:VMSINSTAL.COM
+                   command procedure or the POLYCENTER Software
+                   Installation (PCSI) utility (PRODUCT command). The
+                   second meaning relates to the use of the INSTALL
+                   utility, which is what concerns us here.
+
+                   The INSTALL utility is used to identify to OpenVMS
+                   a specific copy of an image, either executable or
+                   shareable, which is to be given some set of enhanced
+                   properties. For example, when you issue the SET
+                   PASSWORD command, the image SYS$SYSTEM:SETP0.EXE is
+                   run. That image needs to have elevated privileges to
+                   perform its function.
+
+                   The other important attribute is /SHARED. This means
+                   that shareable parts of the image (typically read-only
+                   code and data) are loaded into memory only once and are
+                   shared among all users on a system. Executable images
+                   can be installed /SHARED as well as shareable library
+                   images. (The term "shareable" has dual meanings here,
+                   too. See the OpenVMS Programming Concepts Manual for
+                   further details.)
+
+                   It's important to note that there is no such thing as
+                   "installing a shareable image with privileges". The
+                   INSTALL utility will let you do it, but the privileges
+                   you specify will be ignored. To have a callable routine
+                   run with enhanced privileges that are not available to
+                   its caller, you must construct your routines as "user-
+                   written system services" and install the shareable
+                   image with the /PROTECT qualifier. See the OpenVMS
+                   Programming Concepts Manual for more information
+                   on user-written system services. Note also that
+                   in many cases the need to grant privileges to an
+
+                                                                       5-1
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   image can be replaced with the use of the "Protected
+                   Subsystems" feature that grants a rights identifier to
+                   an image. See the OpenVMS Guide to System Security for
+                   information on Protected Subsystems.
+
+          __________________________________________________________
+          5.2  Are there any known viruses for OpenVMS?
+
+                   Viruses and worms are common on personal computers
+                   because the operating systems involved, such as
+                   the Microsoft MS-DOS, Windows 95, Windows 98 and
+                   Windows ME variants, do not particularly protect
+                   the operating system or the file system against
+                   hostile action by programs. Microsoft Windows NT,
+                   Windows 2000 and Windows XP do implement protections
+                   for specific configurations and do implement memory
+                   protection models, but many users of these systems
+                   choose to operate with full adminstrator access and
+                   thus the available protections are entirely defeated
+                   and entirely not relevent, and any program that can
+                   activate itself or can cause the user to activate the
+                   code can subvert the operating system and take over the
+                   hardware, at which point the malicious code can do most
+                   anything it wishes, including hiding copies of itself
+                   in other programs or in the file system, redistributing
+                   itself via mail, IM, or network connections, or can be
+                   used as a zombie in staging attacks on other systems.
+
+                   This is less likely with multi-user systems such as
+                   OpenVMS, Unix, Linux, MVS and other platforms for
+                   various reasons. First, the operating system runs in a
+                   privileged mode in memory that is protected against
+                   modification by normal user programs. Any program
+                   cannot simply take over the hardware as it can on
+                   operating systems without security and particularly
+                   without memory page protections. Secondly, multi-
+                   user systems can be set up so that non-privileged
+                   programs cannot modify system programs and files on
+                   disk, and this is normal for most installations. Both
+                   of these protection schemes mean that traditional viral
+                   infections don't work on these OSes. Third, typical
+                   applications and configurations tend to prevent the
+                   uncontrolled execution of untrusted code as part
+                   of received mail messages or web access; one of the
+
+                   5-2
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   central vulnerabilities of the Microsoft Windows
+                   platform involves its intentionally easy ability to
+                   dynamically (and transparently) activate code and
+                   macros that are embedded within mail messages and
+                   within data files.
+
+                   It is possible for OpenVMS and other multi-user systems
+                   to become infected by viruses or worms, but to do so,
+                   the program containing the virus must be run from a
+                   user account that has amplified privileges. So long as
+                   the system administrator is careful that only trusted
+                   applications are run from such accounts (and this
+                   is generally the case) and so long as there are no
+                   OpenVMS system security breaches (due to malicious
+                   operator activity, OpenVMS errors, or errors within
+                   trusted and privileged product packages) there is
+                   no of modifications to the operating system or other
+                   protected files from the virus or the worm.
+
+                   The FAQ maintainer is aware of a few (and very old)
+                   DECnet worms that have affected OpenVMS systems on
+                   DECnet networks, but is aware of no OpenVMS viruses
+                   that are loose in the field.
+
+                   To protect against viruses and other attempts at
+                   system interference or misuse, please follow the
+                   security recommendations in the OpenVMS Guide to System
+                   Security. Additionally, you will want to keep your
+                   OpenVMS ECOs current and you will want to apply all
+                   mandatory ECO kits and any security MUPs for OpenVMS
+                   and OpenVMS products, and you will want to keep to
+                   OpenVMS releases with Prior Version Support (PVS) or
+                   with Current Version Support. (This is obviously a
+                   general system maintenance recommendation, in addition
+                   to being a good system security recommendation-new
+                   security features and capabilities are implemented in
+                   more recent OpenVMS releases, for instance.) You may
+                   also want to consider optional software products which
+                   can monitor your system for intrusion or infection
+                   attempts. Computer Associates (CA) offers various
+                   products in this area, as to other vendors.
+
+                   Rocksoft offers the Veracity data integrity tool (for
+                   info, send mail to demo@rocksoft.com). MD5 tools are
+                   also available.
+
+                                                                       5-3
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   Tools to scan OpenVMS file systems for Microsoft
+                   Windows infections are also available, including a
+                   commercial package from Sophos. These scanning tools
+                   are particularly useful for systems running Samba or
+                   Advanced Server (PATHWORKS), as these servers tend
+                   to have a higher population of files intended for
+                   Microsoft Windows systems users, and as common virus
+                   and worm attacks can find and infect files on the
+                   file shares that these products can provide. These
+                   infections do not target OpenVMS itself, though the
+                   OpenVMS server (and any other platform and any other
+                   server capable of storing files for Windows systems)
+                   can silently host files containing common Microsoft
+                   Windows infections.
+
+          __________________________________________________________
+          5.3  How do I mount an ISO-9660 CD on OpenVMS?
+
+                   ISO-9660 support was added in the following releases:
+
+                   o  OpenVMS VAX V6.0
+
+                   o  OpenVMS AXP V1.5
+
+                   An add-on ISO-9960 kit was also available for OpenVMS
+                   VAX V5.5, V5.5-1, V5.5-2, and V5.5-2H4. This requires
+                   the installation of the F11CD kit from the InfoServer
+                   CD, from the Consolidated Distribution CD under the
+                   InfoServer area, Customer Support Center kit CSCPAT
+                   #1071012, or the F11CD ECO kit. (Upgrades to V6 and
+                   later are strongly recommended.)
+
+                   By default, OpenVMS senses the specific type of media.
+                   If you are working with dual-format media-media that
+                   uses both the ODS-2 and ISO-9660 formats on the same
+                   CD-ROM-then MOUNT will first detect and then default
+                   to the ODS-2 format. If you wish to override this and
+                   explicitly mount the media using ISO-9660, use the
+                   command:
+
+                   $ MOUNT/MEDIA_FORMAT=CDROM  device-name[:] [volume-label]
+
+
+
+                   5-4
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   In most circumstances, you will not need nor will
+                   you want to include an explicit /MEDIA_FORMAT
+                   specification. For further information, please refer to
+                   the OpenVMS MOUNT Utility Manual. Particularly note the
+                   information on the MOUNT /MEDIA_FORMAT and /UNDEFINED_
+                   FAT qualifiers.
+
+                   The MOUNT /UNDEFINED_FAT qualifier is of interest
+                   because ISO-9660 media can be mastered on a wide
+                   variety of operating system platforms, and these
+                   platforms do not necessarily support the semantics
+                   needed for files containing predefined record formats.
+                   The /UNDEFINED_FAT allows you to specify the default
+                   attributes for files accessed from volumes using the
+                   ISO-9660 format.
+
+                   An example which works for most CD-ROMs is:
+
+                   $ MOUNT/MEDIA_FORMAT=CDROM/UNDEFINED_FAT=STREAM:2048 DUA0: FREEWARE
+
+                   This particular MOUNT command forces access to the
+                   CD-ROM media using the ISO-9660 volume structure, and
+                   the use of the MOUNT /UNDEFINED_FAT qualifier causes
+                   any file whose file attributes are "undefined" to be
+                   returned with "stream" attributes with a maximum record
+                   length 2048.
+
+                   On OpenVMS, the ISO-9660 format is (internally)
+                   considered to be the ODS-3 file structure, while the
+                   High Sierra extensions to the standard are considered
+                   to be the ODS-4 file structure. The Rock Ridge
+                   extensions are not currently available on OpenVMS.
+
+                   For details on ODS-1 and ODS-2 file specifications,
+                   see Kirby McCoy's VMS File System Internals Manual
+                   (published by Digital Press, but potentially out of
+                   print), and see:
+
+                   o  http://pdp-11.trailing-edge.com/www/ods1.txt
+
+                   o  http://www.hp.com/go/openvms/freeware/, look in
+                      Freeware V5.0 directory /ods2/.
+
+
+                                                                       5-5
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+          __________________________________________________________
+          5.4  How do I extract the contents of a PCSI kit?
+
+                   A growing number of OpenVMS products are being provided
+                   in PCSI (POLYCENTER Software Installation) kits which
+                   are installed using the PRODUCT INSTALL command. These
+                   are alternatives to or replacement for VMSINSTAL kits
+                   which were BACKUP savesets. PCSI kits are not BACKUP
+                   savesets and are structured differently from VMSINSTAL
+                   kits.
+
+                   If you want to extract product files from a PCSI
+                   kit, create a directory into which the kit should be
+                   expanded and use the following command:
+
+                   $ PRODUCT COPY prodname /SOURCE=[where-the-kit-is] -
+                       /DEST=[destination-directory] /FORMAT=REFERENCE
+
+                   A PCSI kit file has a file specification of the
+                   following form:
+
+                   DEC-VAXVMS-FORTRAN-V0603-141-1.PCSI
+
+                   In this example, "FORTRAN" is the "prodname". PCSI
+                   will expand the kit files into the directory you
+                   specify and subdirectories beneath such as [SYSEXE],
+                   [SYSLIB], etc., reflecting the eventual destination
+                   of files found there. Most of the actual product
+                   files (images, etc.) will be in the subdirectories.
+                   In the top-level directory will be a file with the
+                   file type PCSI$DESCRIPTION that specifies where various
+                   files should go. For more details, see the POLYCENTER
+                   Software Installation Developer's Guide for OpenVMS,
+                   which can be found in the OpenVMS documentation on the
+                   Consolidated Online Documentation CD-ROM.
+
+          __________________________________________________________
+          5.5  Emergency (Conversational) System Startup?
+
+                   If you need to perform system management operations
+                   on an OpenVMS system and cannot access the system
+                   through normal means-the password on the SYSTEM
+                   username was forgetten and no other privileged
+                   usernames are available, or one or more core system
+                   product authorization key (PAK) software licenses
+                   are unavailable or expired-then you must perform a
+                   conversational (emergency) bootstrap.
+
+                   5-6
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   Here are the steps:
+
+                   1  Halt the system. Exactly how this is done depends
+                      on the specific system model: Depending on the
+                      model, this can involve pressing the <HALT> button,
+                      entering <CTRL/P> on the console, or pressing the
+                      <BREAK> key on the console.
+
+                   2  At the console prompt, use a console command to
+                      boot into the SYSBOOT utility. (SYSBOOT allows
+                      conversational changes to system parameters.) The
+                      syntax for the conversational bootstrap varies by
+                      system model-this typically involves specifying a
+                      flag of 1, for example:
+
+                      On VAX, use one of the following three commands
+                      depending on the particular model of VAX system
+                      involved:
+
+                      B/R5:1
+                      B/1
+                      @GENBOO
+
+                      On Alpha:
+
+                      b -flags 0,1
+
+                      If your system has a non-zero system root (such
+                      as root SYSE, shown here), you will have to use a
+                      console command such as the following:
+
+                      On VAX:
+
+                      B/E0000001
+                      B/R5:E0000001
+                      @<console media procedure name varies widely>
+
+                      On Alpha:
+
+                      b -flags e,1
+
+                      If your system has a hardware password (various
+                      systems support a password that prevents
+                      unauthorized access to the console), you will
+                      need to know theis password and will need to enter
+                      it using the LOGIN command at the console. If
+                      you get an "Inv Cmd" error trying to perform a
+                      conversational bootstrap, and you do not have the
+                      hardware console password for the console LOGIN
+
+                                                                       5-7
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                      command, you are stuck-you will need to call for
+                      hardware service in order to reset the hardware
+                      console password. The syntax used for the console
+                      password mechanism varies.
+
+                   3  Once at the SYSBOOT prompt, request that OpenVMS
+                      read the system startup commands directly from the
+                      system console, that the window system (if any)
+                      not be started, and that OpenVMS not record these
+                      particular parameter changes for subsequent system
+                      reboots:
+
+                      SET/STARTUP OPA0:
+                      SET WINDOW_SYSTEM 0
+                      SET WRITESYSPARAMS 0
+                      CONTINUE
+
+                   4  At the $ prompt, the system will now be accepting
+                      startup commands directly from the console. Type the
+                      following two DCL commands:
+
+                      $ SPAWN
+                      $ @SYS$SYSTEM:STARTUP
+
+                   5  You should now see the dollar ($) prompt of DCL.
+
+                      The result of these two commands will be the normal
+                      system startup, but you will be left logged in
+                      on the console, running under a fully privileged
+                      username. Without the use of the SPAWN command, you
+                      would be logged out when the startup completes.
+
+                      Perform the task(s) required, such as resetting
+                      the password on the SYSTEM username as described
+                      in Section 5.5.1 or registering one or more license
+                      product authorization keys (PAKs) as described in
+                      Section 5.5.2.
+
+                   6  Once you log out of this session, the system will
+                      complete the startup and can be used normally. You
+                      can choose to reboot the system, but that is not
+                      necessary.
+
+
+                   5-8
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   Some system managers will suggest a method using
+                   the UAFALTERNATE system parameter rather than the
+                   SET/STARTUP OPA0: command shown. This approach is
+                   not always available and is accordingly less commonly
+                   recommended, as there can easily be an alternate user
+                   authorization database (SYS$SYSTEM:SYSUAFALT.DAT)
+                   configured on the system. With a system manager that
+                   has configured an alternate SYSUAFALT.DAT file, the
+                   UAFALTERNATE method will fail-well, assuming you do
+                   not know the password of a privileged username stored
+                   within SYSUAFALT.DAT, of course.
+
+                   The UAFALTERNATE system parameter is used to trigger
+                   what is sometimes known as the console backdoor. The
+                   OPA0: system console is critical to system operations
+                   and system security, and will allow access when the
+                   SYSUAF system authorization database is unavailable
+                   or corrupted, when core product license PAKs are not
+                   registered, expired or disabled (NOLICENSE errors), or
+                   in various other cases of system failures. All this is
+                   in addition to the role of the console in the display
+                   of certain system-critical event messages. Access
+                   to the OPA0: console has a security exposure that is
+                   equivalent to direct access to the system hardware.
+
+                   When LOGINOUT detects an error (such as a SYSUAF
+                   corruption, by a missing SYSUAF, missing product
+                   licenses, or other trigger), it will prevent access
+                   to the OpenVMS system from all terminals except the
+                   system console. The OPA0: system console will be
+                   allowed access, and the resulting process will be
+                   fully privileged. Resetting the UAFALTERNATE system
+                   parameter-in the absence of an alternate SYSUAF system
+                   authorization database-will cause the console backdoor
+                   to be opened simply because LOGINOUT cannot locate
+                   SYS$SYSTEM:SYSUAFALT.DAT. When the authorization
+                   database cannot be located, access will be granted
+                   from the console only.
+
+                   For further information on emergency startup and
+                   shutdown, as well as for the official OpenVMS
+                   documentation on how to change the SYSTEM password from
+                   the console in an emergency, please see the OpenVMS
+
+                                                                       5-9
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   System Manager's Manual in the OpenVMS documentation
+                   set.
+
+                   For information and recommendations on setting up
+                   OpenVMS system security, please see the NCSC Class
+                   C2 appendix of the Guide to OpenVMS System Security
+                   manual, also in the OpenVMS documentation set.
+
+                   You can also use the conversational bootstrap technique
+                   shown earlier (the steps until SET/STARTUP) to alter
+                   various system parameters, as well. At the SYSBOOT
+                   prompt, you can enter new parameters values:
+
+                   SHOW MAXPROCESSCNT
+                   SET . 64
+                   CONTINUE
+
+                   The "." is a shorthand notation used for the last
+                   parameter examined within SYSGEN and SYSBOOT.
+
+          _____________________________
+          5.5.1  I've forgotten the SYSTEM password - what can I do?
+
+                   If you have forgotten or do not have the password
+                   for the SYSTEM username, you must perform the
+                   conversational bootstrap as described in Section 5.5,
+                   and must enter the following commands once you have
+                   reached the dollar ($) prompt:
+
+                   $ SET DEFAULT SYS$SYSTEM:  ! or wherever your SYSUAF.DAT resides
+                   $ RUN SYS$SYSTEM:AUTHORIZE
+                   MODIFY SYSTEM /PASSWORD=newpassword
+                   EXIT
+
+                   You have now reset the password on the SYSTEM
+                   username.
+
+          _____________________________
+          5.5.2  My product licenses have expired - what can I do?
+
+                   If you have a system with no licenses for OpenVMS or
+                   for OpenVMS users and thus cannot log into the OpenVMS
+                   system normally, you should be able to log into the
+                   console serial terminal-this is the terminal device
+                   known as OPA0:-and perform the commands necessary.
+
+                   5-10
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   For systems that are not configured with an accessable
+                   console serial terminal-as can be the case with how
+                   some DECwindows workstations are configured-you
+                   must log in over the network or from a local serial
+                   connection. If you cannot log in over a network
+                   connection (SET HOST, telnet, etc) or from another
+                   local serial terminal connection, you will have to
+                   halt the system and perform a conversational bootstrap
+                   as described in Section 5.5. You must then enter
+                   licensing-related commands once the conversational
+                   bootstrap has reached the dollar ($) prompt.
+
+                   Use the following DCL command to invoke a menu that
+                   allows you to manage and to register new or replacement
+                   license PAKs:
+
+                   $ @SYS$UPDATE:VMSLICENSE
+
+                   You have now registered the license PAKs. Direct use of
+                   the DCL commands LICENSE and SHOW LICENSE and such is
+                   also obviously available.
+
+                   If you wish to connect a serial console on your
+                   DECwindows workstation, please see Section 14.3.3.3,
+                   Section 14.3.6, Section 11.11, and Section 14.19.
+
+                   For information on troubleshooting DECwindows, please
+                   see Section 11.6.
+
+          __________________________________________________________
+          5.6  How do I change the node name of an OpenVMS System?
+
+                   The first step is to get a BACKUP of the system
+                   disk before making any changes-use the system disk
+                   backup procedures as documented in the OpenVMS System
+                   Management Manual, making sure to use the procedures
+                   and commands appropriate for the system disk.
+
+                   Changing the node name involves a number of steps-the
+                   node name tends to be imbedded in a number of different
+                   data files around the system.
+
+                   o  Update the SCSNODE in MODPARAMS.DAT, and then run
+                      AUTOGEN as far as the SETPARAMS phase. (Do not
+                      reboot yet.)
+
+                                                                      5-11
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   o  Modify the DECnet node name. (NETCONFIG is the
+                      DECnet Phase IV tool, and NET$CONFIGURE is the
+                      DECnet-Plus tool.)
+
+                   o  Modify the IP node name. (The TCP/IP Services tool
+                      is UCX$CONFIG prior to V5.0, and is TCPIP$CONFIG in
+                      V5.0 and later releases.)
+
+                   o  Modify the host node name on the various queues in
+                      the queue database. (each queue has a host name,
+                      and it defaults to the SCS node name of the queue's
+                      host system. See the command INIT/QUEUE/ON=node for
+                      information.)
+
+                   o  Modify the node name saved in any application
+                      databases, or any local node-conditional operations
+                      present in the site-specific system startup, etc.
+                      (SEARCH for the node name, specifying all types of
+                      files.)
+
+                   o  Use the AUTHORIZE utility command RENAME/IDENTIFIER
+                      to rename the SYS$NODE_oldnodename rightslist
+                      identifier to match the new node name. (Do not
+                      change the binary value of this identifier, and
+                      do not delete the identifier.)
+
+                      If you have erroneously deleted or duplicate the
+                      identifier, you can locate existing references to
+                      the binary identifier value using the Freeware DFU
+                      package, and specifically the commands SEARCH/ACE
+                      and /OWNER. You must (re)create the correctly-named
+                      identifier using the binary value that is often
+                      stored in various Access Control List Entry (ACE)
+                      structures and object owner fields associated with
+                      files and objects present in the OpenVMS system.
+
+                   o  Reset any license PAKs that are restricted to the
+                      old node name to the new node name.
+
+                   o  If the node name is part of a disk volume label, see
+                      Section 5.12.
+
+                   o  Reboot the node or-if in a VMScluster-reboot the
+                      whole VMScluster. (This tends to catch any errors
+                      immediately.)
+
+                   5-12
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   There are likely a few other areas where the nodename
+                   will be stored.
+
+                   If the system is configured in a VMScluster and you
+                   change either the SCSNODE or the SCSSYSTEMID-but not
+                   both values-then you will have to reboot the entire
+                   VMScluster. (The VMScluster remembers the mapping
+                   between these two values, and will assume that a
+                   configuration problem has occured if a mismatched
+                   pair appears, and will refuse to let a node with a
+                   mismatched pair join the VMScluster.)
+
+                   To calculate the correct SCSSYSTEMID value, multiply
+                   the DECnet Phase IV area number by 1024, and add
+                   the DECnet Phase IV node number. For example, the
+                   SCSSYSTEMID value for a DECnet node with address 19.22
+                   is 19478. ((19 * 1024) + 22 = 19478)
+
+                   This may well have missed one or two configuration
+                   tools (or more!) that are needed at your site-the node
+                   name tends to get stored all over the place, in layered
+                   products, and in local software...
+
+                   Also see Section 15.6.3 and Section 15.6.4.
+
+          __________________________________________________________
+          5.7  Why doesn't OpenVMS see the new memory I just added?
+
+          When adding memory to an OpenVMS system, one should check
+          for an existing definition of the PHYSICALPAGES (OpenVMS
+          VAX) or PHYSICAL_MEMORY (OpenVMS Alpha) parameter in the
+          SYS$SYSTEM:MODPARAMS.DAT parameter database, use a text editor
+          to reset the value in the file to the new correct value as
+          required, and then perform the following command:
+                   $ @SYS$UPDATE:AUTOGEN GETDATA REBOOT FEEDBACK
+
+                   This AUTOGEN command will reset various system
+                   parameters based on recent system usage (FEEDBACK),
+                   and it will reset the value for the PHYSICALPAGES
+                   parameter to the new value. It will also reboot the
+                   OpenVMS system.
+
+                   PHYSICALPAGES and PHYSICAL_MEMORY can also be used to
+                   deliberately lower the amount of memory available for
+                   use by OpenVMS. This ability can be useful in a few
+                   specific circumstances, such as testing the behaviour
+
+                                                                      5-13
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   of an application in a system environment with a
+                   particular (lower) amount of system memory available.
+
+                   PHYSICALPAGES and PHYSICAL_MEMORY can be set to -1 (on
+                   OpenVMS Alpha) or (better and simpler) the entry can be
+                   removed from the MODPARAMS.DAT file, to indicate that
+                   all available memory should be used.
+
+          __________________________________________________________
+          5.8  How do I change the text in a user's UIC identifier?
+
+                   The text translations of the numeric User
+                   Identification Code (UIC) are based on identifiers
+                   present in the OpenVMS rightslist. Documentation on
+                   this area is included in the _Guide to OpenVMS System
+                   Security_ manual.
+
+                   To control the identifiers shown for a user's UIC,
+                   you use AUTHORIZE. Each user has an associated group
+                   identifier, and an identifier specific to the user. And
+                   each user should have a unique UIC.
+
+                   To alter the text of a user or group identifier, use
+                   commands such as:
+
+                   $ RUN SYS$SYSTEM:AUTHORIZE
+                   UAF> rename/ident oldgroupid newgroupid
+                   UAF> rename/ident olduserid  newuserid
+
+                   If you should find yourself missing an identifier for
+                   a particular user, you can add one for the user's UIC
+                   using a command such as:
+
+                   UAF> add/ident/value=uic=[group,user] newuserid
+
+                   The UIC user identifier text is assigned when the
+                   username is created, and is the text of the username.
+                   The UIC group group identifier is assigned when the
+                   first username is created in the UIC group, and the
+                   text is based on the account name specified for the
+                   first user created in the group. The value of this
+                   identifier is [groupnumber, 177777]. To add a missing
+                   group identifier, use an asterisk as follows:
+
+                   UAF> add/ident/value=uic=[group,*] newgroupid
+
+                   5-14
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   You may find cases where an identifier is missing from
+                   time to time, as there are cases where the creation
+                   of a UIC group name identifier might conflict with
+                   an existing username, or a user identifier might
+                   conflict with an existing group identifier. When these
+                   conflicts arise, the AUTHORIZE utility will not create
+                   the conflicting group and/or user identifier when the
+                   username is created.
+
+                   You can can add and remove user-specified identifiers,
+                   but you should avoid changing the numeric values
+                   associated with any existing identifiers. You should
+                   also avoid reusing UICs or identifiers when you add
+                   new users, as any existing identifiers that might be
+                   present on objects in the system from the old user will
+                   grant the same access to the new user. Please see the
+                   security manual for details.
+
+          __________________________________________________________
+          5.9__What_are_the_OpenVMS_version upgrade paths?
+
+          5.9.1  OpenVMS Alpha Upgrade (or Update) Paths
+
+                   From V1.0,
+                       you can upgrade to V1.5.
+                   From V1.5, or V1.5-1H1,
+                       you can upgrade to V6.1.
+                   From V6.1,
+                       you can upgrade to V6.2.
+                   From V6.1, or V6.2,
+                       you can upgrade to V7.0.
+                   From V6.1, V6.2, V6.2-1H(1,2,3), or V7.0,
+                       you can upgrade to V7.1.
+                   From V6.2,
+                       you can update to V6.2-1H1, V6.2-1H2, or V6.2-1H3.
+                   From V6.2, V6.2-1H(1,2,3), V7.1, V7.1-1H(1,2), or V7.2,
+                       to V7.2-1.
+                   From V6.2, ... or V7.2,
+                       to V7.2-1H1, to 7.3.
+                   From V7.1, one can update to V7.1-1H(1,2), ...
+                       to V7.2-1H1, to 7.3.
+                   From V7.3, V7.2-2, V7.2-1H1, V7.2-1, and V7.1-2,
+                       you can update to V7.3-1 or to V7.3-2.
+                   From V7.3-1,
+                       you can update to V7.3-2.
+
+                                                                      5-15
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   Some typical OpenVMS Alpha upgrade (or update) paths
+                   are:
+
+                   V1.0 -> V1.5 -> V6.1 -> (V6.2, V7.0, V7.1, V7.2, V7.3)
+                   V1.5-1H1 -> V6.1 -> (V6.2, V7.0, V7.1, V7.2, V7.3)
+                   V6.2 -> V6.2-1H3
+                   V6.2 -> V7.2-1
+                   V6.2 -> V7.3
+                   V6.2-1H(1,2,3) -> V7.1
+                   V6.2-1H(1,2,3) -> V7.2-1
+                   V7.1 -> V7.1-2
+                   V7.1 -> V7.2-1
+                   V7.1-1H(1,2) -> V7.1-2
+                   V7.1-1H(1,2) -> V7.2-1
+                   V7.1-2 -> V7.3-1
+                   V7.2 -> V7.2-1H1
+                   V7.2 -> V7.3 -> V7.3-1
+                   V7.2-1 -> V7.3-1
+                   V7.2-2 -> V7.3
+                   V7.3 -> V7.3-1
+                   V7.3 -> V7.3-2
+                   V7.2-2 -> V7.3-1
+                   V7.3-1 -> V7.3-2
+
+                   Note that OpenVMS Alpha V7.0 does not include support
+                   for hardware and/or configurations first supported in
+                   OpenVMS Alpha V6.2-1H1, V6.2-1H2, or V6.2-1H3; one must
+                   upgrade to OpenVMS VAX V7.1.
+
+                   One cannot update directly to a V6.2-1Hx Limited
+                   Hardware Release (LHR) from any release prior to the
+                   baseline V6.2 release. The same prohibition holds
+                   for performing updates directly to V7.1-1Hx from
+                   any release prior to V7.1-this is not supported, and
+                   does not produce the expected results. The LHR kits
+                   can, however, be directly booted and can be directly
+                   installed, without regard to any operating system that
+                   might be present on the target disk.
+
+                   OpenVMS Alpha updates for LHRs (through V7.1-1Hx)
+                   require the use of VMSINSTAL for the update. These
+                   LHR releases use PCSI for the installation, but not for
+                   the update. Non-LHR releases use PCSI for installs and
+                   upgrades.
+
+                   5-16
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   OpenVMS Alpha V7.1-2 and later use PCSI for LHRs
+                   and for OpenVMS upgrades and for all OpenVMS ECO kit
+                   installations. VMSINSTAL OpenVMS ECO kits are not used
+                   on OpenVMS Alpha V7.1-2 and later. Prior to V7.1-2,
+                   VMSINSTAL-based ECO kits are used for OpenVMS.
+
+          _____________________________
+          5.9.2  OpenVMS VAX Release Upgrade Paths
+
+                   From V5.0 through V5.4-
+          3 inclusive, one can upgrade to V5.5.
+                   From V5.5, V5.5-1, or V5.5-
+          2HW, one can upgrade to V5.5-2.
+                   From V5.5, V5.5-1, or V5.5-2, one can upgrade to V6.0.
+                   From V5.5-2, V5.5-
+          2H4, or V6.0, one can upgrade to V6.1.
+                   From V6.0, or V6.1, one can upgrade to V6.2.
+                   From V6.1, or V6.2, one can upgrade to V7.0.
+                   From V6.1, V6.2, or V7.0, one can upgrade to V7.1.
+                   From V6.1, one can upgrade to V7.3 (with VAXBACK ECO for V6.1).
+
+                   Some typical OpenVMS VAX upgrade paths are:
+
+                   V5.x -> V5.5 -> V6.0 -> V6.2 -> (V7.1, V7.2, V7.3)
+                   V5.5-2HW -> V5.5-2
+                   V5.5-2, or V5.5-2H4 -> V6.1 -> (V6.2, V7.0, or V7.1)
+                   V6.1 -> V6.1 with VAXBACK ECO -> (V7.2, V7.3)
+                   V6.2 -> V7.2
+                   V6.2 -> V7.3
+
+                   Note that OpenVMS VAX V6.0 does not include support for
+                   hardware and/or configurations first added in OpenVMS
+                   VAX V5.5-2H4, one must upgrade to OpenVMS VAX V6.1.
+
+                   Note that OpenVMS VAX V5.5-2HW is a pre-release version
+                   of V5.5-2. Any system running it should be upgraded to
+                   V5.5-2, or later.
+
+                   If you attempt a direct upgrade from OpenVMS VAX V6.1
+                   to V7.2 or later without having first applied the
+                   VAXBACK ECO kit to your V6.1 system, you will receive
+                   an error message:
+
+                   %BACKUP-E-INVRECTYP, invalid record type in save set
+
+                                                                      5-17
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   and the upgrade will fail. Acquire and apply the
+                   VAXBACK ECO kit for OpenVMS VAX V6.1. OpenVMS VAX V6.2
+                   and later do not require an application of an ECO for
+                   an upgrade to V7.2 and later.
+
+          _____________________________
+          5.9.3  OpenVMS Cluster Rolling Upgrade Paths
+
+                   Rolling Upgrades require multiple system disks. Rolling
+                   upgrades permit the OpenVMS Cluster to remain available
+                   while individual systems are being upgraded to a new
+                   OpenVMS release.
+
+                   OpenVMS Cluster rolling upgrades for both OpenVMS
+                   VAX and OpenVMS Alpha may (will) have different, or
+                   additional upgrade requirements, and have requirements
+                   around which versions of OpenVMS can coexist in a
+                   OpenVMS Cluster than what is listed here.
+
+                   See the OpenVMS Upgrade and Installation Manual for the
+                   particular release, and the OpenVMS Software Product
+                   Descriptions for OpenVMS and for OpenVMS Cluster
+                   software:
+
+                   o  http://www.compaq.com/info/spd/
+                      OpenVMS typically uses SPD 25.01.xx and/or SPD
+                      41.87.xx.
+
+                   for further details on the rolling upgrade, and for
+                   support information. The documentation for older
+                   releases of OpenVMS VAX includes various platform-
+                   specific manuals, manuals that include instructions
+                   that are specific to installing and upgrading on the
+                   platform.
+
+          _____________________________
+          5.9.4  OpenVMS Product Version and Support Information
+
+                   For information on Prior Version Support (PVS) and
+                   Mature Product Support (including information on
+                   support end dates for OpenVMS and various layered
+                   products), please see:
+
+                   o  http://www.hp.com/hps/os/os_ovms.html
+
+                   o  http://www.hp.com/go/openvms/
+
+                   5-18
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   o  http://www.compaq.com/services/software/ss_
+                      mature.html
+
+                   o  http://www.compaq.com/services/software/ss_pvs_se_
+                      amap.html
+
+                   o  http://www.compaq.com/services/software/ss_mps_pvs_
+                      eur.html
+
+                   For information on supported versions of layered
+                   products, and minimum required layered product
+                   versions, see:
+
+                   o  http://www.openvms.compaq.com/openvms/os/swroll/index.html
+
+                   For information on the release history of OpenVMS,
+                   including information on the code names of various
+                   releases and the major features:
+
+                   o  http://www.openvms.compaq.com/openvms/os/openvms-
+                      release-history.html
+
+                   Additional release history information, as well as a
+                   variety of other trivia, is available in the VAX 20th
+                   anniversary book:
+
+                   o  http://www.openvms.compaq.com/openvms/20th/vmsbook.pdf
+
+          _____________________________
+          5.9.5  OpenVMS Alpha Terminology
+
+                   The following terms apply to OpenVMS Alpha upgrades and
+                   installations.
+
+                   o  Update
+                      Typically used for Limited Hardware Releases (LHR)
+                      releases. Performed via VMSINSTAL. Applies only to
+                      the OpenVMS release that the LHR is based on, or to
+                      an intermediate LHR. (eg: V7.1-1H2 applies only to
+                      V7.1-1H1 and to V7.1, not to any other releases.)
+                      LHRs within a series are cumulative, containing
+                      all files and features of previous LHRs in the same
+                      series.
+
+                                                                      5-19
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   o  Upgrade
+                      Performed via PCSI. Upgrades can typically be
+                      applied to a release-specific (and documented) range
+                      of prior OpenVMS releases.
+
+                   o  Install
+                      Performed via PCSI. With an installation, no
+                      existing version of the operating system is assumed
+                      present, nor are any files from any copy of the
+                      operating system might be present preserved, and the
+                      entire contents of the target disk are destroyed via
+                      a disk initialization.
+
+                   o  preserve
+                      Performed via PCSI. Otherwise similar to an
+                      installation, this option skips the disk
+                      reinitialization. User files on the target disk
+                      are preserved. Any existing operating system files
+                      on the target disk are clobbered.
+
+                   o  LHR
+                      Limited Hardware Release. LHRs are specific to and
+                      are targeted at new hardware configurations, and are
+                      not shipped to customers with support contracts. At
+                      least one LHR kit must be specifically acquired when
+                      purchasing new hardware, new hardware that is not
+                      (yet) supported by any mainline (non-LHR) release.
+                      LHRs have an "H" in the OpenVMS version string,
+                      indicating a "Hardware" release.
+
+          For minimum OpenVMS versions for various platforms, see
+          Section 2.11.
+
+          __________________________________________________________
+          5.10  Why do I have a negative number in the pagefile reservable
+                pages?
+
+                   Seeing a negative number in the reservable pages
+                   portion of the SHOW MEMORY/FULL command can be normal
+                   and expected, and is (even) documented behaviour. A
+                   pagefile with a negative number of reservable pages
+                   is overcommitted, which is generally goodness assuming
+                   that every process with reserved pages does not try to
+                   occupy all of the reserved pagefile space at the same
+                   time.
+
+                   5-20
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+
+                   To understand how the pagefile reservation process
+                   works, think about how a traditional bank operates when
+                   accepting customer deposits and making loans. It's the
+                   same idea with the pagefile space. There is less money
+                   in the bank vault than the total deposits, because much
+                   of the money has been loaned out to other customers
+                   of the bank. And the behaviour parallels that of the
+                   pagefile down to the problems that a "run on the bank"
+                   can cause for banking customers. (Though there is no
+                   deposit insurance available for pagefile users.)
+
+                   If all of the running applications try to use the
+                   reserved space, the system manager will need to enlarge
+                   the pagefile or add one or more additional pagefules.
+
+                   To determine if the pagefile is excessively
+                   overcommitted, watch for "double overcommitment"-
+                   when the reservable space approaches the negatation
+                   of the available total space-and watch that the
+                   total amount of free space available in the pagefile
+                   remains adequate. If either of these situations arises,
+                   additional pagefile storage is required.
+
+                   Additional pagefile information: Additional pagefiles
+                   can typically be created and connected on a running
+                   OpenVMS system. New processes and new applications will
+                   tend to use the new pagefile, and existing applications
+                   can be restarted to migrate out of the more congested
+                   pagefiles. Pagefiles are generally named PAGEFILE.SYS,
+                   and multiple pagefiles are generally configured on
+                   separate disk spindles to spread the paging I/O load
+                   across the available disk storage. When multiple
+                   pagefiles are present on recent OpenVMS versions, each
+                   pagefile file should be configured to be approximately
+                   the same total size as the other pagefiles.
+
+                   For additional information on pagefile operations
+                   and related commands, see the system management
+                   and performance management manuals in the OpenVMS
+                   documentation set.
+
+                   With OpenVMS V7.3 and later, the displays have been
+                   changed and these negative values are no longer
+                   visible.
+
+                                                                      5-21
+
+ 
+
+
+
+
+
+                   System Management Information
+
+
+
+          __________________________________________________________
+          5.11  Do I have to update layered products when updating
+                OpenVMS?
+
+                   The Software Public Rollout Reports for OpenVMS list
+                   the current and future availability of HP software
+                   products shipping on the OpenVMS Software Products
+                   Library kits (CDROM consolidations) for OpenVMS Alpha
+                   and/or OpenVMS VAX. Specifically, the required minimum
+                   versions for product support are listed.
+
+                   Comprehensive Public Rollout Information, listing
+                   previous product versions as well as currently shipping
+                   versions, has been compiled into a separate set of
+                   reports. The product information is grouped to show
+                   Operating System support.
+
+                   You may or may not be able to use older versions of
+                   local applications, third-party products, and various
+                   HP OpenVMS layered products with more recent versions
+                   of OpenVMS. User-mode code is expected to be upward
+                   compatible. Code executing in a privileged processor
+                   mode-typically either executive or kernel mode-may
+                   or may not be compatible with more recent OpenVMS
+                   versions.
+
+                   These reports are updated regularly. Please see:
+
+                   o  http://www.openvms.compaq.com/openvms/os/swroll/index.html
+
+          __________________________________________________________
+          5.12  How do I change the volume label of a disk?
+
+                   Dismount the disk, and mount it privately. If the disk
+                   is mounted by more than one node in an OpenVMS Cluster,
+                   dismount it from all other nodes. If this disk is an
+                   OpenVMS system disk, shut down all other nodes that are
+                   bootstrapped from this disk.
+
+                   Issue the SET VOLUME/LABEL command, specifying the new
+                   label.
+
+                   On OpenVMS V6.0 and later, issue the following PCSI
+                   command to reset the label information stored within
+                   the PCSI database to reflect the new disk volume label:
+
+                   $ PRODUCT REGISTER VOLUME old-label device
+
+                   5-22
+

@@ -1,0 +1,132 @@
+1	! copy - copy database information given a text file with
+	!
+	! $INPUT  structure_name
+	! $OUTPUT structure_name
+	! $MODE   mode_name
+	! OUT_FIELD   IN_FIELD
+        !
+        ! Mode names are:  add      add new records
+        !                  find     find and update existing records
+        !                  merge    try find, if not there...add records
+10  option arithmetic integer
+
+1000  clear
+      modes$ = 'ADD, FIND, MERGE'
+      add_mode   = 1
+      find_mode  = 2
+      merge_mode = 3
+      mode = add_mode
+      do
+        line input 'Copy instruction file': cfile$
+        when exception in
+          cfile_ch = 1
+          open #cfile_ch: name cfile$
+        use
+          message error: extext$ + '  for  ' + cfile$
+        end when
+      loop while _error
+
+1200  do
+        when exception in
+          line input #cfile_ch: cmd$
+        use
+        end when
+        if _error then exit do
+
+1220    cmd$ = EDIT$(ucase$(parse$(cmd$)), 16)
+        if cmd$[1:1]  = '' or  cmd$[1:1] = '!' then repeat do
+        cmd_arg1$ = element$(cmd$, 1, ' ')
+        cmd_arg2$ = element$(cmd$, 2, ' ')
+        select case cmd_arg1$
+        case '$INPUT'
+          in_file$ = change$(cmd_arg2$, '"', '')
+          open structure input: name in_file$
+          ask structure input: fields z0
+          dim in_field(z0)
+          repeat do
+        case '$OUTPUT'
+          out_file$ = change$(cmd_arg2$, '"', '')
+          open structure output: name out_file$, access outin
+          ask structure output: fields z0
+          dim out_field(z0)
+          repeat do
+        case '$MODE'
+          mode_name$ = cmd_arg2$
+          new_mode = match(modes$, mode_name$)
+          if new_mode = 0 then 
+            message error: 'Invalid mode: ' + cmd$
+            stop
+          end if
+          mode = new_mode
+        case else
+          fields = fields + 1
+          ask structure output, field #cmd_arg1$: number out_field(fields)
+          ask structure input,  field #cmd_arg2$: number  in_field(fields)
+        end select
+
+1290  loop
+
+3000  ! start the actual copy
+      message 'Copying  ' + in_file$ + '  to  ' + out_file$
+
+3100  extract structure input
+
+3150    select case mode
+        case add_mode
+          gosub do_add
+        case find_mode
+          set structure output, field #out_field(1): key input(#in_field(1))+''
+          if _extracted = 0 then
+            message error: 'Key  ' + input(#in_field(1)) + '  not found'
+          else
+            gosub do_copy_fields
+          end if
+        case merge_mode
+          set structure output, field #out_field(1): key input(#in_field(1))+''
+          if _extracted = 0 then
+            gosub do_add
+          else
+            gosub do_copy_fields
+          end if
+        end select
+
+3180    rec = rec + 1
+        sta = sta + 1
+        if  sta = 100  then
+          message 'On record ' + str$(rec)
+          sta = 0
+        end if
+
+3185    exclude true  ! no collection
+3190  end extract
+      message 'Total records processed: ' + str$(rec)
+9999  stop
+
+
+
+12000  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+       ! D o   a d d   r e c o r d s
+       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  do_add:
+
+12020   when exception in
+          add structure output
+            gosub do_copy_fields
+          end add
+        use
+          message error: extext$ + '  for  ' + out_file$
+        end when
+12099   return
+
+
+13000  !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+       ! c o p y   f i e l d s
+       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  do_copy_fields:
+
+13020   for fld = 1 to fields
+          output(#out_field(fld)) = input(#in_field(fld))+''
+        next fld
+13099   return
+
+

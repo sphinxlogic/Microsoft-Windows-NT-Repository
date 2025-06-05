@@ -1,0 +1,744 @@
+<!-- VMSFAQ_009.HTML continuation of SRH:[FAQ]VMSFAQ.HTML -->
+<html>
+<head>
+<title>The OpenVMS Frequently Asked Questions(FAQ)</title>
+<style>
+A:hover {color: green}
+A:active {color: red; background-color: white}
+</style>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">The OpenVMS Frequently Asked Questions(FAQ)</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_008.html#bottom_008">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+
+<hr>
+
+<a name="mgmt20"><h2>5.41.4 How do I fix a corrupt BACKUP saveset?</h2></a>
+<a name="index_x_456"></a>
+
+<p>
+BACKUP savesets can be corrupted by FTP file transfers and by tools 
+such as zip (particularly when the zip tool has not been asked to save 
+and restore OpenVMS file attributes or when it does not support OpenVMS 
+file attributes), as well as via other means of corruptions.
+
+<p>
+If you have problems with the BACKUP savesets after unzipping them or 
+after an FTP file transfer, you can try restoring the appropriate 
+saveset attributes using the tool:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ @RESET_BACKUP_SAVESET_FILE_ATTRIBUTES.COM 
+</pre>
+</font>
+</table>
+
+<p>
+This tool is available on the OpenVMS Freeware (in the [000TOOLS] 
+directory). The Freeware is available at various sites---see the 
+Freeware location listings elsewhere in the FAQ---and other similar 
+tools are also available from various sources.
+
+<p>
+In various cases, a SET FILE/ATTRIBUTES command can also be used. As 
+the parameters of this command must be varied as the target BACKUP 
+saveset attributes vary, this approach is not recommended.
+
+<p>
+Also see the "SITE VMS", /FDL, and various other file-attributes 
+options available in various FTP tools. (Not all available FTP tools 
+support any or all of these options.)
+
+<p>
+Browser downloads (via FTP) and incorrect (binary or ascii FTP transfer 
+modes) are notorious for causing RMS file corruptions and particularly 
+BACKUP saveset corruptions. You can sometimes help encourage the 
+browser to select the correct FTP transfer type code (via RFC1738):
+
+<ul>
+  <li>ftp://host/urlname.ext;type=i ! request ftp image/binary transfer
+  <li>ftp://host/urlname.ext;type=a ! request ftp ascii/text transfer
+</ul>
+
+<p>
+You can also often configure the particular web browser to choose the 
+appropriate transfer mode by default, based on the particular file 
+extensions, using a customization menu available in most web browsers. 
+You can select that the specific file extentions involved use the FTP 
+binary transfer mode, which will reduce the number of corruptions seen.
+
+<a name="mgmt12"><h2>5.41.5 How do I write a BACKUP saveset to a remote tape?</h2></a>
+<a name="index_x_457"></a>
+
+<p>
+How to do this correctly was described at DECUS long ago. On the 
+OpenVMS host with the tape drive, create the following SAVE-SET.FDL 
+file:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+RECORD 
+        FORMAT                  fixed 
+        SIZE                    8192 
+</pre>
+</font>
+</table>
+
+<p>
+Then create BACKUP_SERVER.COM:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ ! 
+$ ! BACKUP_SERVER.COM - provide remote tape service for BACKUP. 
+$ ! 
+$ set noon 
+$ set rms/network=16 
+$ allocate mka500 tapedev 
+$ mount/nounload/over:id/block=8192/assist tapedev 
+$ convert/fdl=SAVE-SET sys$net tapedev:save-set. 
+$ dismount/unload tapedev 
+$ stop/id=0 
+</pre>
+</font>
+</table>
+
+<p>
+On the node where you want to do the backup, use the DCL command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ backup - 
+    srcfilespec - 
+    node"user pwd"::"task=backup_server"/block=8192/save 
+</pre>
+</font>
+</table>
+
+<p>
+One area which does not function here is the volume switch; multi-reel 
+or multi-cartridge savesets. Since the tape is being written through 
+DECnet and RMS and the magtape ACP, BACKUP won't see the media switch 
+and will split an XOR group across the reel boundary. BACKUP might well 
+be willing to read such a multi-reel or multi-cartridge saveset 
+(directly, not over the net) as the XOR blocks are effectively ignored 
+until and unless needed for error recovery operations. BACKUP likely 
+will not be able to perform an XOR-based recovery across reel or 
+cartridge boundaries.
+
+<p>
+Unfortunately BACKUP can't read tapes over the network because the RMS 
+file attributes on a network task access look wrong; the attributes 
+reported include variable length records.
+
+<a name="mgmterase"><h2>5.41.6 How to perform a security disk erasure?</h2></a>
+
+<p>
+Sometimes refered to as disk, tape, or media declassification, as 
+formatting, as pattern erasure, or occasionally by the generic 
+reference of data remanence. While initially easy, characteristics of 
+the media and of the device error recovery and bad block handling can 
+make this effort far more difficult than it might initially appear.
+
+<p>
+Security and sensitivity of the data is central to this discussion, as 
+is the value of the storage hardware involved---with data of greater 
+value than the disks involved, physical destruction of the platters may 
+be the most expedient, economical, and appropriate approach.
+
+<p>
+Other potential options include the Freeware RZDISK package, the 
+OpenVMS INITIALIZE/ERASE command (and potentially in conjunction with 
+the $erapat system service)
+<a name="index_x_458"></a>
+ and OpenVMS Ask The Wizard topics such as (841), (3926), (4286), 
+ (4598), and (7320).
+
+<a name="mgmtelnetvt"><h2>5.41.7 How to enable telnet virtual terminals?</h2></a>
+
+<p>
+To enable virtual terminal support for telnet and rlogin devices,
+<a name="index_x_459"></a>
+<a name="index_x_460"></a>
+<a name="index_x_461"></a>
+add the following logical name definitions into SYLOGICALS.COM:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ DEFINE/SYSTEM/EXECUTIVE TCPIP$RLOGIN_VTA TRUE 
+$ DEFINE/SYSTEM/EXECUTIVE TCPIP$TELNET_VTA TRUE 
+</pre>
+</font>
+</table>
+
+<p>
+See SYS$STARTUP:SYLOGICALS.TEMPLATE for details on the typical contents 
+of SYLOGICALS.COM.
+<a name="index_x_462"></a>
+
+<p>
+In SYSTARTUP_VMS.COM, ensure that a command similar to the following is 
+invoked:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ SYSMAN IO CONNECT VTA0/NOADAPTER/DRIVER=SYS$LOADABLE_IMAGES:SYS$TTDRIVER.EXE 
+</pre>
+</font>
+</table>
+
+<p>
+In MODPARAMS.DAT, add the following line or (if already present) mask 
+the specified hexidecimal value into an existing TTY_DEFCHAR2, and 
+perform a subsequent AUTOGEN with an eventual reboot:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+TTY_DEFCHAR2 = %X20000 
+</pre>
+</font>
+</table>
+
+<p>
+This value is TT2$M_DISCONNECT.
+<a name="index_x_463"></a>
+<a name="index_x_464"></a>
+
+<p>
+On older TCP/IP Services---versions prior to V5.0---you will have to 
+perform the following UCX command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ UCX 
+UCX&gt; SET CONF COMM/REMOTE=VIRTUAL 
+</pre>
+</font>
+</table>
+
+<a name="mgmt63"><h3>5.41.7.1 Volume Shadowing MiniCopy vs MiniMerge?</h3></a>
+<a name="index_x_465"></a>
+
+<p>
+MiniMerge support has been available for many years with OpenVMS 
+host-based volume shadowing, so long as you had MSCP controllers (eg: 
+HSC, HSJ, or HSD) which supported the Volume Shadowing Assist known as 
+&quot;Write History Logging&quot;.
+<a name="index_x_466"></a>
+<a name="index_x_467"></a>
+<a name="index_x_468"></a>
+<a name="index_x_469"></a>
+<a name="index_x_470"></a>
+
+<p>
+If you are interested in minimerge and similar technologies, please see 
+the Fibre Channel webpage and the information available there:
+
+<ul>
+  <li>http://www.openvms.compaq.com/openvms/fibre/
+</ul>
+
+<p>
+Minimerge support was originally expected with HSG80 series storage
+<a name="index_x_471"></a>
+<a name="index_x_472"></a>
+controllers and was expected to require ACS 8.7 and OpenVMS Alpha 
+V7.3-1. These plans, the original design, and the implementation that 
+was under development have been revisited, and it is expected that a 
+future OpenVMS release will implement minimerge using the existing 
+storage bitmaps technologies; using a different, new and 
+controller-independent design.
+
+<p>
+Updated information and the current progress of the development work on 
+minimerge is not available as of this writing.
+
+<p>
+The following sections describe both MiniCopy and MiniMerge, and can 
+provide a basis for discussions.
+
+<a name="mgmt63_mc"><h4>5.41.7.1.1 MiniCopy?</h4></a>
+
+<p>
+A Shadowing Full Copy occurs when you add a disk to an existing 
+shadowset using a MOUNT command; the entire contents of the disk are 
+effectively copied to the new member (using an algorithm that goes 
+through in 127-block increments and reads one member, compares with the 
+target disk, and if the data differs, writes the data to the target 
+disk and loops back to the read step, until the data is equal for that 
+127-block section). (This is one of the reasons why the traditional 
+recommendation for adding new volumes to a shadowset was to use a 
+BACKUP/PHYSICAL copy of an existing shadowset volume, simply because 
+the reads then usually matched and thus shadowing usually avoided the 
+need for the writes.)
+
+<p>
+If you warn OpenVMS ahead of time (at dismount time) that you're 
+planning to remove a disk from a shadowset but re-add it later, OpenVMS 
+will keep a bitmap tracking what areas of the disk have been modified 
+while the disk was out of the shadowset, and when you re-add it later 
+with a MOUNT command OpenVMS only has to update the areas of the 
+returned disk that the bit-map indicates are now out-of-date. OpenVMS 
+does this with a read source / write target algorithm, which is much 
+faster than the shenanigans the Full Copy does, so even if all of the 
+disk has changed, a MiniCopy is faster than a Full Copy.
+<a name="index_x_473"></a>
+
+<a name="mgmt63_mm"><h4>5.41.7.1.2 MiniMerge?</h4></a>
+
+<p>
+A Shadowing Merge is initiated when an OpenVMS node in the cluster 
+(which had a shadowset mounted) crashes or otherwise leaves 
+unexpectedly, without dismounting the shadowset first. In this case, 
+OpenVMS must ensure that the data is identical, since Shadowing 
+guarantees that the data on the disks in a shadowset will be identical. 
+In a regular Merge operation, Shadowing uses an algorithm similar to 
+the Full Copy algorithm (except that it can choose either of the 
+members' contents as the source data, since both are considered equally 
+valid), and scans the entire disk. Also, to make things worse, for any 
+read operations in the area ahead of what has been merged, Shadowing 
+will first merge the area containing the read data, then allow the read 
+to occur.
+
+<p>
+A Merge can be very time-consuming and very I/O intensive, so some 
+controllers have Shadowing Assists to make it faster. If the 
+controllers support Write History Logging, the controllers record the 
+areas (LBNs) that are the subject of Shadowing writes, and if a node 
+crashes, the surviving nodes can query the controllers to find out what 
+exact areas of the disk the departed node was writing to just before 
+the crash, and thus Shadowing only needs to merge just those few areas, 
+so this tends to take seconds as opposed to hours for a regular Merge.
+<a name="index_x_474"></a>
+
+<p>
+<hr size=5>
+<font color=maroon>
+<a name="faq_mail"><h1>Chapter 6<br>Information on Mail</h1></a>
+</font>
+
+<a name="mail7"><h1><font color=maroon>6.1 MAIL keeps saying I have new messages, but I don't.  What do I do?</font></h1></a>
+<a name="index_x_475"></a>
+<a name="index_x_476"></a>
+<a name="index_x_477"></a>
+<a name="index_x_478"></a>
+
+<p>
+if you see the <em>%MAIL-W-NONEWMAIL, no new messages</em> error 
+reported when MAIL indicates you have messages, then the NEWMAIL count 
+has become skewed from reality.
+
+<p>
+The count of new mail messages is kept separately from your mail 
+folder, and is stored in VMSMAIL_PROFILE.DATA. It sometimes happens 
+that this count differs from what is stored in your mail folder. If 
+this arises, invoke MAIL and repeatedly enter the READ/NEW command (or 
+press the keypad hyphen key on an LK-compatible keyboard) until you see 
+no new mail messages. Then enter the command one more time. This will 
+resynchronize the counters.
+
+<p>
+If you are operating in a cluster and find your mail counts 
+inconsistent across cluster members, your customer is likely missing a 
+definition of the VMSMAIL_PROFILE logical name---and is probably also 
+missing definitions of other logical names associated with other shared 
+files---or has one or more inconsistent definitions of this and likely 
+of other logical names.
+
+<p>
+For details on the configuration data files that must be shared within 
+a cluster, please see SYS$STARTUP:SYLOGICALS.TEMPLATE on V7.2 and later.
+<a name="index_x_479"></a>
+
+<a name="mail9"><h1><font color=maroon>6.2 How do I send or read attachments in VMS MAIL?</font></h1></a>
+<a name="index_x_480"></a>
+
+<p>
+Is there any way to send or read mail with files as attachments from 
+VMS?
+
+<p>
+Not directly with the OpenVMS MAIL facility, but there are several 
+other options:
+
+<ul>
+  <li>Install PINE, available commercially from Innosoft or free from 
+  Andy Harper. With PINE you can both send and receive MIME messages, if 
+  you have the appropriate viewers available.
+
+  <ul>
+    <li>http://www.process.com/
+    <li>http://www.agh.cc.kcl.ac.uk/files/vms/pine-vms/
+    <li>ftp://ftp2.kcl.ac.uk/pub/vms/pine-vms/
+  </ul>
+  <li>If you are working from an X11 server, use the OpenVMS version of 
+  Netscape Navigator or Mozilla. The mail download protocol chosen to 
+  access the mail server from the Navigator or Mozilla mail client can be 
+  POP or IMAP, with the former causing messages to be downloaded while 
+  the latter permits messages to be retained on the mail server. Most 
+  folks prefer IMAP for this reason.
+  <li>MPACK/MUNPACK. To send a MIME mail, construct the message with 
+  attachments manually using MPACK. You cannot send the resulting file 
+  directly through MAIL because an extra blank header line will be 
+  inserted between your message and the OpenVMS MAIL headers, which will 
+  cause the message to appear as plain text in most mail programs. Some 
+  TCP/IP stacks provide a work around for this problem, and if that 
+  doesn't work, you should generally be able to force the message 
+  directly into the SMTP port of your mail machine. Examples of both 
+  methods are in:
+
+  <ul>
+    <li>http://seqaxp.bio.caltech.edu/pub/SOFTWARE/mmail.com
+  </ul>
+    <br>To read a MIME mail message, open it in MAIL, extract it to a file, 
+    then use MUNPACK to break out and decode the attachments. 
+    <br>MPACK/MUNPACK tools are also available on OpenVMS Freeware V5.0.
+  <li>With OpenVMS V7.2 and later, use the MIME tool supplied with 
+  OpenVMS.
+</ul>
+
+<a name="mail10"><h1><font color=maroon>6.3 How can I block SMTP mail relay spam?</font></h1></a>
+<a name="index_x_481"></a>
+
+<p>
+Use the anti-spam capabilities present in the TCP/IP Services V5.1 and 
+later SMTP servers.
+
+<p>
+Use a firewall.
+
+<p>
+On earlier TCP/IP Services releases, some simple DCL can reportedly 
+prevent relay SMTP spam. Use the UCX command SHOW SERVICE SMTP/FULL to 
+find the directory containing the UCX$SMTP_RECV_STARTUP.COM file, and 
+insert the following DCL:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$       ! 
+$       ! Block spam. 
+$       ! 
+$       MY_ADDRESS_LONG[0,32]=F$INTEGER(F$TRNLNM("SYS$REM_NODE")-"::") 
+$       MY_ADDRESS=F$FAO("!UB.!UB.!UB.!UB",F$CVUI(0,8,MY_ADDRESS_LONG),- 
+         F$CVUI(8,8,MY_ADDRESS_LONG),F$CVUI(16,8,MY_ADDRESS_LONG),- 
+         F$CVUI(24,8,MY_ADDRESS_LONG))'" 
+$       MY_ADDRESS_REVERSE=F$FAO("!UB.!UB.!UB.!UB",- 
+         F$CVUI(24,8,MY_ADDRESS_LONG),F$CVUI(16,8,MY_ADDRESS_LONG),- 
+         F$CVUI(8,8,MY_ADDRESS_LONG),F$CVUI(0,8,MY_ADDRESS_LONG))'" 
+$       WRITE SYS$OUTPUT F$TIME()+" "+F$TRNLNM("SYS$REM_NODE")+MY_ADDRESS 
+$       UCX SHOW HOST 'MY_ADDRESS_REVERSE'.INPUTS.ORBS.ORG 
+$       IF $STATUS.EQ.1 
+$       THEN 
+$         WRITE SYS$OUTPUT "SPAM from relay rejected" 
+$         EXIT 
+$       ENDIF 
+$       UCX SHOW HOST 'MY_ADDRESS_REVERSE'.SPAMSOURCES.ORBS.ORG 
+$       IF $STATUS.EQ.1 
+$       THEN 
+$         WRITE SYS$OUTPUT "SPAM source relay rejected" 
+$         EXIT 
+$       ENDIF 
+$       ! 
+$       ! Run receiver. 
+$       ! 
+$       run sys$system:ucx$smtp_receiver.exe 
+$       goto exit 
+</pre>
+</font>
+</table>
+
+<p>
+<hr size=5>
+<font color=maroon>
+<a name="faq_utilities"><h1>Chapter 7<br>Information on Utilities</h1></a>
+</font>
+
+<a name="util1"><h1><font color=maroon>7.1 How do I play an audio CD on my workstation?</font></h1></a>
+<a name="index_x_482"></a>
+
+<p>
+If you've installed the DECwindows examples, you'll find 
+DECW$CDPLAYER.C, .DAT, .EXE, .UIL, and .UID. Copy the .UID and .DAT 
+files to DECW$USER_DEFAULTS: (typically SYS$LOGIN:), define the logical 
+name DECW$CD_PLAYER to be the device name of your CD-ROM drive (eg. 
+DKA400:), give yourself PHY_IO and DIAGNOSE privileges, and run the 
+.EXE. (These privileges are required, as the access to the CD-related 
+extensions will require the use of the privilege-protected IO$_DIAGNOSE 
+I/O function code.) You can also install the image with these 
+privileges. See the source for additional details - note that the 
+comments regarding the need for SYSGEN CONNECT are no longer applicable 
+(at least as of VMS V5.5-2).
+<a name="index_x_483"></a>
+
+<p>
+There's also SYS$EXAMPLES:CDROM_AUDIO.C and .EXE, a non-Motif program, 
+available on OpenVMS VAX, and DECW$EXAMPLES:DECW$CDPLAYER.* on OpenVMS 
+VAX and OpenVMS Alpha.
+
+<p>
+The standard OpenVMS ATA (IDE) SYS$DQDRIVER device driver does not 
+support the necessary
+<a name="index_x_484"></a>
+<a name="index_x_485"></a>
+<a name="index_x_486"></a>
+<a name="index_x_487"></a>
+<a name="index_x_488"></a>
+<a name="index_x_489"></a>
+<a name="index_x_490"></a>
+<a name="index_x_491"></a>
+does not support the necessary IO$_DIAGNOSE
+<a name="index_x_492"></a>
+ function code that is required for access to audio CD
+<a name="index_x_493"></a>
+media commands (on OpenVMS versions prior to V7.3), but an updated 
+SYS$DQDRIVER device driver (source code and all) with this capability 
+and with the source code of an updated
+<a name="index_x_494"></a>
+DECW$CDPLAYER CD audio player is available on the OpenVMS Freeware 
+website (www.hp.com/go/openvms/freeware/, look for the directory 
+/dqdriver/), and these updates are also included on OpenVMS Freeware 
+V5.0, and OpenVMS ECO kits containing newer versions of the driver are 
+available. Freeware V6.0 has a version of DQDRIVER that is newer than 
+that of the OpenVMS Alpha V7.3-2 release, with additional capabilities 
+and with improved error diagnostics.
+
+<p>
+OpenVMS Alpha V7.3 and later include a version of SYS$DQDRIVER with the 
+necessary IO$_DIAGNOSE support.
+
+<a name="util2"><h1><font color=maroon>7.2 How do I access a Microsoft Windows floppy disk from OpenVMS?</font></h1></a>
+<a name="index_x_495"></a>
+
+<p>
+The HP Advanced Server (formerly known as PATHWORKS) for OpenVMS 
+product includes an unsupported and undocumented utility called PCDISK, 
+and this tool can read and write various Microsoft MS-DOS and Microsoft 
+Windows FAT-format diskettes.
+<a name="index_x_496"></a>
+<a name="index_x_497"></a>
+<a name="index_x_498"></a>
+<a name="index_x_499"></a>
+<a name="index_x_500"></a>
+<a name="index_x_501"></a>
+<a name="index_x_502"></a>
+<a name="index_x_503"></a>
+<a name="index_x_504"></a>
+<a name="index_x_505"></a>
+
+<p>
+ProGIS in Germany sells a product called VMove which supports DOS files 
+on many different device types. For more information, send mail to 
+info@progis.de.
+<a name="index_x_506"></a>
+<a name="index_x_507"></a>
+
+<p>
+Engineering Software has a product called VAKSAT which will read, 
+write, and erase files on MS-DOS FAT diskettes. Available for both VAX 
+and Alpha. Contact ed@cityscape.co.uk for more information.
+<a name="index_x_508"></a>
+<a name="index_x_509"></a>
+
+<p>
+MadGoat PC Exchange (PCX) is a utility for copying files to and from
+<a name="index_x_510"></a>
+<a name="index_x_511"></a>
+<a name="index_x_512"></a>
+MS-DOS and Microsoft Windows (FAT) format diskettes under OpenVMS, 
+using an RX23 (3.5"), RX26 (3.5"), or RX33 (5.25") diskette drive. For 
+3.5" diskettes, high-density disks can be read or written; 
+double-density disks are read-only. Only high-density disks are 
+supported on the RX33.
+
+<ul>
+  <li>http://www.madgoat.com/
+</ul>
+
+<p>
+The Freeware package WINFX is available on Freeware V6.0, and can read 
+the FAT volume structure.
+
+<ul>
+  <li>http://www.hp.com/go/openvms/freeware/
+</ul>
+
+<a name="util3"><h1><font color=maroon>7.3 How do I play sound files on an AlphaStation?  DECsound doesn't work.</font></h1></a>
+<a name="index_x_513"></a>
+
+<p>
+The new AlphaStation systems use a different sound board (Microsoft 
+Sound System) than the earlier DEC 3000 series systems, and DECsound, 
+as supplied by DECwindows Motif, doesn't support this board. HP offers 
+an optional product, Multimedia Services for OpenVMS:
+
+<ul>
+  <li>http://www.compaq.com/info/spd/
+<br>
+OpenVMS typically uses SPD 25.01.xx and/or SPD 41.87.xx.
+</ul>
+
+<p>
+which provides a replacement DECsound for this card as well as many 
+other features (an AVI and MPEG player, video capture support, etc.)
+<a name="index_x_514"></a>
+<a name="index_x_515"></a>
+
+<p>
+Ensoniq sound support is also available.
+<a name="index_x_516"></a>
+
+<a name="util4"><h1><font color=maroon>7.4 Why is DECmigrate not working with Fortran?</font></h1></a>
+<a name="index_x_517"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+%OTS-F-INDATCOR internal data corrupted in Run-time Library 
+</pre>
+</font>
+</table>
+
+<p>
+This error can arise with Fortran programs if you are running a recent 
+version of OpenVMS Alpha, and are using DECmigrate to translate Fortran 
+applications. The DECmigrate Run-Time Library
+<a name="index_x_518"></a>
+attempts to support mixed translated-native I/O to the same unit by 
+sharing the native Fortran RTL's internal data structures, and in 
+OpenVMS 7.2 these structures changed and the translated RTL was not 
+updated accordingly.
+
+<p>
+You can copy DEC$FORRTL.EXE from OpenVMS 7.1, copying it to some spare 
+directory, and then defining the logical name DEC$FORRTL to point to it 
+before running your translated application. Or rebuilding the 
+application to use the available native Fortran compiler. Or you can 
+apply the current Fortran RTL kit, which has a fix for this.
+
+<p>
+See <a href="vmsfaq_016.html#soft13">Section 13.11</a>.
+
+<a name="util5"><h1><font color=maroon>7.5 How do I read IBM EBCDIC tapes on OpenVMS?</font></h1></a>
+<a name="index_x_519"></a>
+
+<p>
+Most (all?) IBM EBCDIC-based systems can read and write ANSI-labeled 
+ASCII magtapes. Fixed-length records (MOUNT /FOREIGN /BLOCKSIZE=512 
+/RECORDSIZE=512, for one-block records) and the DCL COPY command can be 
+used to transfer fixed-record-size text files out onto tape media, or 
+to read from fixed-record tape media. Please consult the IBM 
+documentation for the details and command syntax needed when reading 
+and writing ANSI media using IBM JCL
+<a name="index_x_520"></a>
+ or other applicable IBM command language.
+<a name="index_x_521"></a>
+<a name="index_x_522"></a>
+<a name="index_x_523"></a>
+<a name="index_x_524"></a>
+<a name="index_x_525"></a>
+<a name="index_x_526"></a>
+<a name="index_x_527"></a>
+
+<p>
+There exists various freeware around (TAPECOPY, ETAPE, TCOPY, MTEXCH) 
+that can read and write EBCDIC tapes. Visit the Encompasserve (DECUS) 
+website software archives search engine (via http://www.decus.org/), 
+and search for &quot;EBCDIC&quot; for details.
+
+<p>
+OpenVMS does not include an integrated tool for EBCDIC tape processing, 
+but does provide a character conversion API useful within application 
+programs.
+
+<p>
+One source for ETAPE is:
+
+<ul>
+  <li>http://www.ualr.edu/ftp/vms/ETAPE_SRC/
+</ul>
+
+<p>
+The OpenVMS Freeware V5.0 distribution included this ETAPE tool, as 
+well.
+
+<a name="util6"><h1><font color=maroon>7.6 How can I patch an OpenVMS Alpha image?</font></h1></a>
+<a name="index_x_528"></a>
+
+<p>
+Using the OpenVMS Freeware tool ZAP:
+<a name="index_x_529"></a>
+<a name="index_x_530"></a>
+
+<ul>
+  <li>http://www.hp.com/go/openvms/freeware/, look for the Freeware V5.0 
+  directory /rms_tools/.
+</ul>
+
+<p>
+tell ZAP to read a block (bucket) of information based on the virtual 
+block number (VBN), using X for hexadecimal. Dump yourself into the 
+OpenVMS debugger with R2 pointing into the buffer, EXAMINE/INSTRUCTION 
+as needed, alter the buffer as required, GO to get out of the debugger 
+and back into ZAP, and use the ZAP W command to write the updated block.
+
+<a name="bottom_009"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_008.html#bottom_008">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vmsfaq_010.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+</body>
+</html>

@@ -1,0 +1,642 @@
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program: Freeware_menu
+        ! System : FREEWARE CD-ROM
+        ! Author : Daniel Esbensen
+        ! Date   : 16-AUG-1994
+        ! Purpose: User interface for the Freeware CD-ROM
+        ! Updated: Stephen Hoffman 15-Dec-1998
+        ! Updated: Stephen Hoffman 07-Oct-2003 (V6.0)
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+900     ! category data
+        max_cats = 30
+        dim cats(max_cats)
+        dim cats$(max_cats)
+
+        menu_title$ = '%at 1,1,%title "OpenVMS Freeware CD-ROM V6.0",' &
+            + '%heading "http://www.hp.com/go/openvms/",' &
+            + '%heading "", "General"={"Freeware Read Me","Search",' &
+            + '"Show All Packages","Freeware Submission Process","Freeware Contributors", ' &
+            + '"Copyright Notice","Help","Exit"}, '
+        try_it$ = '%at 10,20, %title "Try this package?", "yes","no"'
+
+        first_disp_line = 2
+        hline$ = chr$(0)
+        desc_len = 50   ! maximum menu description length
+
+1000    !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  M a i n   l o g i c   a r e a
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        clear
+        ask pagesize maxpage
+        set messageline maxpage
+        maxpage = maxpage - 2  ! (go for a shorter pagesize)
+        ask margin maxscreen
+        message 'Initializing Freeware CD-ROM Menu System...'
+        open structure menu_info: name 'freeware$loc:menu_info'
+        build_menus
+
+        message delay: 'Freeware Menu System -- Written in INTOUCH 4GL'
+
+2000    last_choice$ = ''
+        do
+          message 'Use ARROW keys to navigate, RETURN to select.  ' + &
+            'LEFT-ARROW goes to Main Menu'
+          line input menu main_menu$, default last_choice$: choice$
+          if _exit then exit do
+          if _help then
+            do_help
+            last_choice$ = ''
+            repeat do
+          end if
+          last_choice$ = _string
+          process_choice
+        loop
+9999    stop
+
+
+12000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B U I L D   M E N U S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Build the interactive menus for the user
+        ! 
+        ! Expected:
+        !   menu_info() = menu information structure
+        !   cats$()     = package names within each category
+        !   cats()      = number of packages in a given category
+        ! 
+        ! Results:
+        !   cats$(), cats() are set up
+        !   categories$ = list of categories
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine build_menus
+          setup_categories
+          main_menu$ = menu_title$
+          for catidx = 1 to elements(categories$)
+            cat$ = element$(categories$, catidx)
+            sub_menu$ = quote$(cat$) + '={' + cats$(catidx) + '}'
+            main_menu$ = main_menu$ + sub_menu$ + ','
+          next catidx
+          main_menu$ = left(main_menu$, len(main_menu$)-1)
+        end routine
+
+
+
+
+
+12100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   C H O I C E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Process the user's choice of a package
+        ! 
+        ! Expected:
+        !   choice$  = user's choice
+        ! 
+        ! Results:
+        !   The chosen package is described and (if available)
+        !   an offer to run a demo of the package is made.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_choice
+          select case ucase$(choice$)
+          case 'SEARCH'
+            clear
+            print at 1,1, reverse, bold: cpad$('Search for a Package', 80);
+            do_search
+            clear
+          case 'SHOW ALL PACKAGES'
+            show_all
+            clear
+          case 'COPYRIGHT NOTICE'
+            do_copyright
+	    clear
+          case 'FREEWARE CONTRIBUTORS'
+            do_contributors
+	    clear
+          case 'FREEWARE SUBMISSION PROCESS'
+            do_submission_process
+	    clear
+          case 'FREEWARE READ ME'
+            do_freeware_read_me
+	    clear
+          case else
+            process_package
+          end select
+        end routine
+
+
+
+12300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   S E A R C H
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Search for a given package
+        ! 
+        ! Expected:
+        !
+        ! Locals:
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_search
+          message &
+            'Enter package name (use "*" for wildcard searches, CTRL/Z to exit)'
+          line input 'Package name (or search pattern)', at 4,1, erase, &
+             default spattern$: spattern$
+          if _exit or _back or _reply = '' then exit routine
+          if _help then
+            do_help
+            repeat routine
+          end if
+          low_level_search
+          if _error then repeat routine
+          line input menu smenu$: choice$
+          if _exit or _back or _reply = '' then exit routine
+          if _help then
+            do_help
+            repeat routine
+          end if
+          process_package
+        end routine
+
+
+
+
+
+12350   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L O W   L E V E L   S E A R C H
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Do a low-level search
+        ! 
+        ! Expected:
+        !  spattern$  = search pattern (VMS style)
+        ! 
+        ! Locals:
+        !
+        ! Results:
+        !  smenu$  = search menu (filled with FOUND items)
+        !  _error = true  if an error
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine low_level_search
+          real_pat$ = ucase$(spattern$)
+          real_pat$ = replace$(real_pat$, '~*=?**')  ! VMS wild_card format
+          search_for_pattern
+          if _extracted = 0 then
+            message error: 'No match for '; spattern$
+            exit routine
+          end if
+          smenu$ [1:1] = ''
+          smenu$ = '%title "Pattern Matches for ' + spattern$ +'"' &
+                 + ',%at 4,10,' + smenu$
+        end routine
+
+
+
+12375   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   A L L
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Show all packages
+        ! 
+        ! Expected:
+        !  nothing
+        ! 
+        ! Locals:
+        !
+        ! Results:
+        !  A package is displayed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_all
+          out_pagesize = 60
+          package_tab   = 1
+          category_tab  = 17
+          desc_tab      = 33
+          message 'Building Freeware CD-ROM Package Listing...'
+          out_ch = _channel
+          open #out_ch: name 'sys$scratch:show_all', unique, access output
+          set #out_ch: margin maxscreen
+          ask #out_ch: name out_file$
+          pagecount = 0
+          lcount = 9999
+          extract structure menu_info
+            if lcount > out_pagesize then show_all_heading
+            lcount = lcount + 1
+            print #out_ch: tab(package_tab); menu_info(package); &
+                tab(category_tab); menu_info(category); &
+                tab(desc_tab); left(menu_info(desc), maxscreen-desc_tab)
+          end extract
+          close #out_ch
+          u_str$ = out_file$
+          ask margin u_scr_width%
+          tti_delete_after_print = true
+          message ''
+          prnt_ask_option
+
+        end routine
+
+
+12387   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   A L L   H E A D I N G
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Build up the heading line for SHOW_ALL
+        ! 
+        ! Expected:
+        !   *_tab  = tab locations
+        !   maxscreen = maximum screen width
+        !   pagecount = page counter
+        !   out_ch    = output channel
+        ! 
+        ! Locals:
+        !
+        ! Results:
+        !   heading lines are generated
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_all_heading
+          z0$ = space$(maxscreen)
+          pagecount = pagecount + 1
+          lset z0$          = 'Show All Packages'
+          cset fill '': z0$ = 'OpenVMS Freeware CD-ROM'
+          rset fill '': z0$ = 'Page: ' + str$(pagecount)
+          print #out_ch: chr$(12);z0$; hline$
+
+          print #out_ch: hline$
+
+          print #out_ch: tab(package_tab); 'Package'; &
+              tab(category_tab); 'Category'; &
+              tab(desc_tab); 'Description'; hline$
+
+          print #out_ch: tab(package_tab); repeat$('-', 15); &
+              tab(category_tab); repeat$('-', 15); &
+              tab(desc_tab); repeat$('-',maxscreen-desc_tab); hline$
+
+          lcount = 4
+        end routine
+
+
+
+
+
+
+12400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E A R C H   F O R   P A T T E R N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Search for a pattern
+        ! 
+        ! Expected:
+        !  spattern$ = what to search for
+        ! 
+        ! Locals:
+        !
+        ! Results:
+        !   _extracted = number of packages found
+        !   smenu$ = pattern search menu of choices
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine search_for_pattern
+          smenu$ = ''
+          message 'Searching for  '; spattern$;'...'
+          extract structure menu_info
+            include (pattern(menu_info(package),      real_pat$) > 0) or &
+                    (pattern(ucase$(menu_info(desc)), real_pat$) > 0)
+            package$ = menu_info(package)
+            smenu$ = smenu$ + ',' &
+                   + quote$(package$ + ' - ' &
+                   + menu_info(desc)[1:desc_len]) + '=' &
+                   + quote$(package$)
+          end extract   
+          message ''
+        end routine
+
+
+
+13000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S E T U P   C A T E G O R I E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Set up categories and their packages
+        ! 
+        ! Expected:
+        !   menu_info() = menu information
+        !   cats$()     = package names within each category
+        !   cats()      = number of packages in a given category
+        ! 
+        ! Results:
+        !   cats$(), cats() are set up
+        !   categories$ = list of categories
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine setup_categories
+          categories$ = ''
+          extract structure menu_info
+            sort by menu_info(category)
+            sort by menu_info(package)
+          end extract
+          for each menu_info
+            build_category
+          next menu_info
+          categories$ = left(categories$, len(categories$)-1)
+          for i = 1 to elements(categories$)
+            z0$ = cats$(i)
+            cats$(i) = left(z0$, len(z0$)-1)
+          next i
+        end routine
+
+
+14000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! B U I L D   C A T E G O R Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Given a menu)info() record, build up the category
+        ! 
+        ! Expected:
+        !  menu_info() record is current
+        !  categories$  = list of known categories
+        !  cats$()      = stored categories with each package
+        ! 
+        ! Results:
+        !   cats$() and categories$ are updated.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine build_category
+          cat$ = menu_info(category)
+          package$ = menu_info(package)
+          catidx   = match(categories$, cat$)
+          if catidx = 0 then
+            categories$ = categories$ + cat$ + ','
+            catidx = match(categories$, cat$)
+          end if
+          cats(catidx) = cats(catidx) + 1
+          cats$(catidx) = cats$(catidx) &
+            + quote$(package$ + ' - ' &
+            + menu_info(desc)[1:desc_len]) + '=' &
+            + quote$(package$) + ','
+        end routine
+
+19000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   P A C K A G E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Process a given package name
+        ! 
+        ! Expected:
+        !   choice$  = name of the package
+        ! 
+        ! Locals:
+        !
+        ! Results:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_package
+          set structure menu_info, field package: key choice$
+          if _extracted = 0 then
+            message error: 'Package missing: '; choice$
+            exit routine
+          end if
+          loc$ = 'freeware$cd:' + menu_info(dir)
+          disp_location$ = loc$
+          display_file$ = loc$ + 'freeware_readme.txt'
+          display_file
+          if _exit then exit routine
+          if menu_info(demo_txt) <> 'Y' then exit routine
+          display_file$ = loc$ + 'freeware_demo.txt'
+          display_file
+          if _exit then exit routine
+          if menu_info(demo_com) <> 'Y' then exit routine
+          message menu_info(desc)
+          line input menu try_it$: ans$
+          if _exit or ans$ <> 'yes' then exit routine
+          ask window: current z0$
+          clear
+          pass 'set control=y'
+          pass '@' + loc$ + 'freeware_demo.com'
+          pass 'set nocontrol=y'
+          delay
+          clear
+          set window: current z0$
+        end routine
+
+
+
+
+
+49000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   H E L P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Tell a bit about this menu system and how to use it
+        !   
+        ! Expected:
+        !   nothing
+        ! 
+        ! Results:
+        !   Help is displayed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_help
+          display_file$ = 'freeware$loc:freeware_help.txt'
+          display_file
+        end routine
+
+
+49100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   C O P Y R I G H T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Tell a bit about this menu system and how to use it
+        !   
+        ! Expected:
+        !   nothing
+        ! 
+        ! Results:
+        !   Help is displayed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_copyright
+          display_file$ = 'freeware$loc:freeware_copyright.txt'
+          display_file
+        end routine
+
+
+49200   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   C O N T R I B U T O R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Tell a bit about this menu system and how to use it
+        !   
+        ! Expected:
+        !   nothing
+        ! 
+        ! Results:
+        !   Help is displayed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_contributors
+          display_file$ = 'freeware$loc:freeware_contributors.txt'
+          display_file
+        end routine
+
+
+49300   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   S U B M I S S I O N  _  P R O C E S S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Tell a bit about this menu system and how to use it
+        !   
+        ! Expected:
+        !   nothing
+        ! 
+        ! Results:
+        !   Help is displayed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_submission_process
+          display_file$ = 'freeware$loc:freeware_submission_instructions.txt'
+          display_file
+        end routine
+
+
+49400   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   F R E E W A R E   R E A D    M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Tell a bit about this menu system and how to use it
+        !   
+        ! Expected:
+        !   nothing
+        ! 
+        ! Results:
+        !   Help is displayed
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_freeware_read_me
+          display_file$ = 'freeware$loc:freeware_read_me.txt'
+          display_file
+        end routine
+
+
+50000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Display a text file
+        ! 
+        ! Expected:
+        !   display_file$ = the name of the file to be displayed
+        !   disp_location$ = package location  (cleared on exit)
+        !   maxpage = maximum number of lines to display on a screen
+        ! 
+        ! Results:
+        !   The screen is saved.  The file is displayed.  The
+        !   screen is restored.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine display_file
+          pack_location$ = disp_location$
+          disp_location$ = ''
+          ask window: current disp_window$
+          pagecount = 0
+          do_newpage
+          disp_ch = _channel
+          open #disp_ch: name display_file$
+          do
+            line input #disp_ch, eof eof?: dline$
+            if eof? then exit do
+            if dline$ = chr$(12) then
+              do_newpage
+              if _exit then exit do
+              repeat do
+            end if
+            if lcount > maxpage then 
+              do_newpage
+              if _exit then exit do
+            end if
+            lcount = lcount + 1
+            display_line
+          loop
+          close #disp_ch
+          if lcount > first_disp_line then delay
+          set window: current disp_window$
+        end routine
+
+
+
+50100   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D I S P L A Y   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !  Display a test line.  Anything between {} will be "highlighted"
+        ! 
+        ! Expected:
+        !   lcount = where to display the line
+        !   dline$ = dataline to be displayed
+        ! 
+        ! Locals:
+        !
+        ! Results:
+        !  The data line is displayed.  The parts between {} are 
+        !  highlighted.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine display_line
+          print at lcount,1:;
+          do
+            z0 = pos(dline$, '{')
+            z1 = pos(dline$, '}')
+            if z0 = 0 and z1 = 0 then
+              print dline$
+              exit do
+            end if
+            print left(dline$, z0-1);
+            print reverse,bold: dline$[z0+1:z1-1];
+            dline$ = mid(dline$, z1+1)
+          loop
+        end routine
+
+
+
+
+
+51000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D O   N E W P A G E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Brief description:
+        !   Build a new page
+        ! 
+        ! Expected:
+        !   pagecount = current screen page
+        !   first_disp_line = line# for the first text on a screen
+        !   pack_location$  = package location
+        ! 
+        ! Results:
+        !  screen is cleared
+        !   lcount is initialized
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine do_newpage
+          if pagecount > 0 then delay
+          clear
+          pagecount = pagecount + 1
+          if pack_location$ <> '' then
+            print at 1,1, reverse, bold: &
+               cpad$('Package Location:  ' + pack_location$, 80);
+          end if
+          lcount = first_disp_line
+        end routine
+
+
+
+999900  %include 'freeware$loc:print_option.inc'
+
+999999  end

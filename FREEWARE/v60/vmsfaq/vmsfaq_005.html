@@ -1,0 +1,802 @@
+<!-- VMSFAQ_005.HTML continuation of SRH:[FAQ]VMSFAQ.HTML -->
+<html>
+<head>
+<title>The OpenVMS Frequently Asked Questions(FAQ)</title>
+<style>
+A:hover {color: green}
+A:active {color: red; background-color: white}
+</style>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">The OpenVMS Frequently Asked Questions(FAQ)</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_004.html#bottom_004">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+
+<hr>
+
+<a name="time10"><h1><font color=maroon>4.5 Why does the SET TIME command fail?  Help managing DTSS?</font></h1></a>
+<a name="index_x_286"></a>
+
+<p>
+If you try to set the system time with the SET TIME command, and see 
+one of the following messages:
+<a name="index_x_287"></a>
+<a name="index_x_288"></a>
+<a name="index_x_289"></a>
+<a name="index_x_290"></a>
+<a name="index_x_291"></a>
+<a name="index_x_292"></a>
+<a name="index_x_293"></a>
+<a name="index_x_294"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+%SET-E-NOTSET, error modifying time 
+-SYSTEM-F-IVSSRQ, invalid system service request 
+ 
+%SET-E-NOTSET, error modifying time 
+-SYSTEM-E-TIMENOTSET, time service enabled; enter a time service command to update the time 
+</pre>
+</font>
+</table>
+
+<p>
+This occurs if the time on the local system is controlled by a time 
+service software, for example the distributed time service software 
+(DTSS) provided as part of the DECnet-Plus installation. The DTSS 
+software communicates with one or more time servers to obtain the 
+current time. It entirely controls the local system time (for 
+DECnet-Plus, there is a process named DTSS$CLERK for this);
+<a name="index_x_295"></a>
+<a name="index_x_296"></a>
+therefore, the usage of the SET TIME command (and the underlying 
+$SETTIM system service) is disabled.
+<a name="index_x_297"></a>
+<a name="index_x_298"></a>
+
+<p>
+The first message is displayed on systems running DECnet-Plus V6.1 and 
+earlier. On systems with newer DECnet-Plus software, the second (and 
+more informative) message is given.
+
+<p>
+You shouldn't have to change the time manually - you should be doing 
+this through the time server - but if you insist... you'll have to 
+shutdown DTSS:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ RUN SYS$SYSTEM:NCL 
+DISABLE DTSS 
+DELETE DTSS 
+</pre>
+</font>
+</table>
+
+<p>
+This will shutdown DTSS$CLERK. You may then change the system time as 
+usual. To restart the DTSS software, type
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ @SYS$STARTUP:DTSS$STARTUP 
+</pre>
+</font>
+</table>
+
+<a name="index_x_299"></a>
+
+<p>
+You will need a number of privileges to ussue this command, and you 
+must also be granted the NET$MANAGE identifer to shutdown and to 
+restart DTSS.
+
+<p>
+If you wish to &quot;permanently&quot; disable DTSS on a system running 
+DECnet-Plus, the above NCL sequence must be performed each time the 
+system is bootstrapped. (On DECnet-Plus V7.3 and later, you can define 
+the logical name NET$DISABLE_DTSS
+<a name="index_x_300"></a>
+ to disable the DTSS startup. This logical name must be defined in the 
+ command procedure SYLOGICALS.COM,
+<a name="index_x_301"></a>
+ as this logical name must be present and defined sufficiently early in 
+ the OpenVMS system bootstrap sequence for it to function.)
+
+<p>
+If DTSS is running and no time servers are configured, you can (and 
+will) see the following messages at regular intervals:
+<a name="index_x_302"></a>
+<a name="index_x_303"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+%%%%%%%%%%%  OPCOM   2-SEP-1999 19:41:20.29  %%%%%%%%%%% 
+Message from user SYSTEM on UNHEDI 
+Event: Too Few Servers Detected from: Node LOCAL:.mynode DTSS, 
+        at: 1999-09-02-19:41:20.296-04:00Iinf 
+        Number Detected=0, 
+        Number Required=1 
+        eventUid   5FA70F4F-616E-11D3-A80E-08002BBEDB0F 
+        entityUid  DE9E97DE-6135-11D3-8004-AA000400BD1B 
+        streamUid  D6513A46-6135-11D3-8003-AA000400BD1B 
+</pre>
+</font>
+</table>
+
+<p>
+You can either configure the appropriate number of time servers, or you 
+can disable DTSS, or you can ignore it and (if OPCOM is set to write to 
+the log via via the logical names in 
+SYLOGICALS.COM/SYLOGICALS.TEMPLATE) clean out OPERATOR.LOG regularly.
+<a name="index_x_304"></a>
+<a name="index_x_305"></a>
+
+<p>
+You can also simply disable the display of these messages:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ run sys$system:ncl 
+block event dispatcher outbound stream local_stream global filter - 
+    ((Node, DTSS), Too Few Servers Detected) 
+</pre>
+</font>
+</table>
+
+<p>
+If you wish to disable the automatic TDF adjustment for daylight 
+savings time (on OpenVMS versions prior to V7.3), you can use the 
+command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ run sys$system:ncl 
+set dtss automatic TDF change = false 
+</pre>
+</font>
+</table>
+
+<p>
+or alternatively, you can set the local timezone to one that does not 
+include the automatic daylight savings time change-over.
+
+<p>
+OpenVMS V7.3 and later simplify time and timezone management.
+
+<p>
+<hr size=5>
+<font color=maroon>
+<a name="faq_management"><h1>Chapter 5<br>System Management Information</h1></a>
+</font>
+
+<a name="mgmt1"><h1><font color=maroon>5.1 What is an installed image?</font></h1></a>
+<a name="index_x_306"></a>
+
+<p>
+The term "install" has two distinct meanings in OpenVMS. The first 
+relates to "installing a product", which is done with either the 
+SYS$UPDATE:VMSINSTAL.COM command procedure or the POLYCENTER Software 
+Installation (PCSI) utility (PRODUCT command). The second meaning 
+relates to the use of the INSTALL utility, which is what concerns us 
+here.
+
+<p>
+The INSTALL utility is used to identify to OpenVMS a specific copy of 
+an image, either executable or shareable, which is to be given some set 
+of enhanced properties. For example, when you issue the SET PASSWORD 
+command, the image SYS$SYSTEM:SETP0.EXE is run. That image needs to 
+have elevated privileges to perform its function.
+
+<p>
+The other important attribute is /SHARED. This means that shareable 
+parts of the image (typically read-only code and data) are loaded into 
+memory only once and are shared among all users on a system. Executable 
+images can be installed /SHARED as well as shareable library images. 
+(The term "shareable" has dual meanings here, too. See the <em>OpenVMS 
+Programming Concepts Manual</em> for further details.)
+
+<p>
+It's important to note that there is no such thing as "installing a 
+shareable image with privileges". The INSTALL utility will let you do 
+it, but the privileges you specify will be ignored. To have a callable 
+routine run with enhanced privileges that are not available to its 
+caller, you must construct your routines as "user-written system 
+services" and install the shareable image with the /PROTECT qualifier. 
+See the <em>OpenVMS Programming Concepts Manual</em> for more 
+information on user-written system services. Note also that in many 
+cases the need to grant privileges to an image can be replaced with the 
+use of the "Protected Subsystems" feature that grants a rights 
+identifier to an image. See the <em>OpenVMS Guide to System 
+Security</em> for information on Protected Subsystems.
+
+<a name="mgmt2"><h1><font color=maroon>5.2 Are there any known viruses for OpenVMS?</font></h1></a>
+<a name="index_x_307"></a>
+
+<p>
+Viruses and worms are common on personal computers because the 
+operating systems involved, such as the Microsoft MS-DOS, Windows 95, 
+Windows 98 and Windows ME variants, do not particularly protect the 
+operating system or the file system against hostile action by programs. 
+Microsoft Windows NT, Windows 2000 and Windows XP do implement 
+protections for specific configurations and do implement memory 
+protection models, but many users of these systems choose to operate 
+with full adminstrator access and thus the available protections are 
+entirely defeated and entirely not relevent, and any program that can 
+activate itself or can cause the user to activate the code can subvert 
+the operating system and take over the hardware, at which point the 
+malicious code can do most anything it wishes, including hiding copies 
+of itself in other programs or in the file system, redistributing 
+itself via mail, IM, or network connections, or can be used as a zombie 
+in staging attacks on other systems.
+
+<p>
+This is less likely with multi-user systems such as OpenVMS, Unix, 
+Linux, MVS and other platforms for various reasons. First, the 
+operating system runs in a privileged mode in memory that is protected 
+against modification by normal user programs. Any program cannot simply 
+take over the hardware as it can on operating systems without security 
+and particularly without memory page protections. Secondly, multi-user 
+systems can be set up so that non-privileged programs cannot modify 
+system programs and files on disk, and this is normal for most 
+installations. Both of these protection schemes mean that traditional 
+viral infections don't work on these OSes. Third, typical applications 
+and configurations tend to prevent the uncontrolled execution of 
+untrusted code as part of received mail messages or web access; one of 
+the central vulnerabilities of the Microsoft Windows platform involves 
+its intentionally easy ability to dynamically (and transparently) 
+activate code and macros that are embedded within mail messages and 
+within data files.
+
+<p>
+It is possible for OpenVMS and other multi-user systems to become 
+infected by viruses or worms, but to do so, the program containing the 
+virus must be run from a user account that has amplified privileges. So 
+long as the system administrator is careful that only trusted 
+applications are run from such accounts (and this is generally the 
+case) and so long as there are no OpenVMS system security breaches (due 
+to malicious operator activity, OpenVMS errors, or errors within 
+trusted and privileged product packages) there is no of modifications 
+to the operating system or other protected files from the virus or the 
+worm.
+
+<p>
+The FAQ maintainer is aware of a few (and very old) DECnet worms that 
+have affected OpenVMS systems on DECnet networks, but is aware of no 
+OpenVMS viruses that are loose in the field.
+
+<p>
+To protect against viruses and other attempts at system interference or 
+misuse, please follow the security recommendations in the <em>OpenVMS 
+Guide to System Security</em>. Additionally, you will want to keep your 
+OpenVMS ECOs current and you will want to apply all mandatory ECO kits 
+and any security MUPs
+<a name="index_x_308"></a>
+ for OpenVMS and OpenVMS products, and you will want to keep to OpenVMS 
+ releases with Prior Version Support (PVS) or with Current Version 
+ Support. (This is obviously a general system maintenance 
+ recommendation, in addition to being a good system security 
+ recommendation---new security features and capabilities are implemented 
+ in more recent OpenVMS releases, for instance.) You may also want to 
+ consider optional software products which can monitor your system for 
+ intrusion or infection attempts. Computer Associates (CA)
+<a name="index_x_309"></a>
+<a name="index_x_310"></a>
+offers various products in this area, as to other vendors.
+
+<p>
+Rocksoft offers the Veracity data integrity tool (for info, send mail to
+<a name="index_x_311"></a>
+<a name="index_x_312"></a>
+ demo@rocksoft.com). MD5
+<a name="index_x_313"></a>
+ tools are also available.
+
+<p>
+Tools to scan OpenVMS file systems for Microsoft Windows infections are 
+also available, including a commercial package from Sophos.
+<a name="index_x_314"></a>
+These scanning tools are particularly useful for systems running Samba 
+or Advanced Server (PATHWORKS), as these servers tend to have a higher 
+population of files intended for Microsoft Windows systems users, and 
+as common virus and worm attacks can find and infect files on the file 
+shares that these products can provide.
+<a name="index_x_315"></a>
+<a name="index_x_316"></a>
+<a name="index_x_317"></a>
+These infections do not target OpenVMS itself, though the OpenVMS 
+server (and any other platform and any other server capable of storing 
+files for Windows systems) can silently host files containing common 
+Microsoft Windows infections.
+
+<a name="mgmt3"><h1><font color=maroon>5.3 How do I mount an ISO-9660 CD on OpenVMS?</font></h1></a>
+<a name="index_x_318"></a>
+
+<p>
+ISO-9660 support was added in the following releases:
+
+<ul>
+  <li>OpenVMS VAX V6.0
+  <li>OpenVMS AXP V1.5
+</ul>
+
+<p>
+An add-on ISO-9960 kit was also available for OpenVMS VAX V5.5, V5.5-1, 
+V5.5-2, and V5.5-2H4. This requires the installation of the F11CD kit 
+from the InfoServer CD, from the Consolidated Distribution CD under the 
+InfoServer area, Customer Support Center kit CSCPAT #1071012, or the 
+F11CD ECO kit. (Upgrades to V6 and later are strongly recommended.)
+
+<p>
+By default, OpenVMS senses the specific type of media. If you are 
+working with dual-format media---media that uses both the ODS-2 and 
+ISO-9660 formats on the same CD-ROM---then MOUNT will first detect and 
+then default to the ODS-2 format. If you wish to override this and 
+explicitly mount the media using ISO-9660, use the command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ MOUNT/MEDIA_FORMAT=CDROM  device-name[:] [volume-label] 
+</pre>
+</font>
+</table>
+
+<p>
+In most circumstances, you will not need nor will you want to include 
+an explicit /MEDIA_FORMAT specification. For further information, 
+please refer to the OpenVMS MOUNT Utility Manual. Particularly note the 
+information on the MOUNT /MEDIA_FORMAT and /UNDEFINED_FAT qualifiers.
+
+<p>
+The MOUNT /UNDEFINED_FAT qualifier is of interest because ISO-9660 
+media can be mastered on a wide variety of operating system platforms, 
+and these platforms do not necessarily support the semantics needed for 
+files containing predefined record formats. The /UNDEFINED_FAT allows 
+you to specify the default attributes for files accessed from volumes 
+using the ISO-9660 format.
+
+<p>
+An example which works for most CD-ROMs is:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ MOUNT/MEDIA_FORMAT=CDROM/UNDEFINED_FAT=STREAM:2048 DUA0: FREEWARE 
+</pre>
+</font>
+</table>
+
+<p>
+This particular MOUNT command forces access to the CD-ROM media using 
+the ISO-9660 volume structure, and the use of the MOUNT /UNDEFINED_FAT 
+qualifier causes any file whose file attributes are "undefined" to be 
+returned with "stream" attributes with a maximum record length 2048.
+
+<p>
+On OpenVMS, the ISO-9660 format is (internally) considered to be the 
+ODS-3 file structure, while the High Sierra extensions to the standard 
+are considered to be the ODS-4 file structure. The Rock Ridge 
+extensions are not currently available on OpenVMS.
+
+<p>
+For details on ODS-1 and ODS-2 file specifications, see Kirby McCoy's 
+<em>VMS File System Internals Manual</em> (published by Digital Press, 
+but potentially out of print), and see:
+
+<ul>
+  <li>http://pdp-11.trailing-edge.com/www/ods1.txt
+  <li>http://www.hp.com/go/openvms/freeware/, look in Freeware V5.0 
+  directory /ods2/.
+</ul>
+
+<a name="mgmt4"><h1><font color=maroon>5.4 How do I extract the contents of a PCSI kit?</font></h1></a>
+<a name="index_x_319"></a>
+
+<p>
+A growing number of OpenVMS products are being provided in PCSI 
+(POLYCENTER Software Installation) kits which are installed using the 
+PRODUCT INSTALL command. These are alternatives to or replacement for 
+VMSINSTAL kits which were BACKUP savesets. PCSI kits are not BACKUP 
+savesets and are structured differently from VMSINSTAL kits.
+
+<p>
+If you want to extract product files from a PCSI kit, create a 
+directory into which the kit should be expanded and use the following 
+command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ PRODUCT COPY prodname /SOURCE=[where-the-kit-is] - 
+    /DEST=[destination-directory] /FORMAT=REFERENCE 
+</pre>
+</font>
+</table>
+
+<p>
+A PCSI kit file has a file specification of the following form:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+DEC-VAXVMS-FORTRAN-V0603-141-1.PCSI 
+</pre>
+</font>
+</table>
+
+<p>
+In this example, "FORTRAN" is the "prodname". PCSI will expand the kit 
+files into the directory you specify and subdirectories beneath such as 
+[SYSEXE], [SYSLIB], etc., reflecting the eventual destination of files 
+found there. Most of the actual product files (images, etc.) will be in 
+the subdirectories. In the top-level directory will be a file with the 
+file type PCSI$DESCRIPTION that specifies where various files should 
+go. For more details, see the <em>POLYCENTER Software Installation 
+Developer's Guide for OpenVMS</em>, which can be found in the OpenVMS 
+documentation on the Consolidated Online Documentation CD-ROM.
+
+<a name="mgmt5"><h1><font color=maroon>5.5 Emergency (Conversational) System Startup?</font></h1></a>
+<a name="index_x_320"></a>
+
+<p>
+If you need to perform system management operations on an OpenVMS 
+system and cannot access the system through normal means---the password 
+on the SYSTEM username was forgetten and no other privileged usernames 
+are available, or one or more core system product authorization key 
+(PAK) software licenses are unavailable or expired---then you must 
+perform a conversational (emergency) bootstrap.
+
+<p>
+Here are the steps:
+
+<ol start=1 >
+  <li>Halt the system. Exactly how this is done depends on the specific 
+  system model: Depending on the model, this can involve pressing the 
+  <kbd>[HALT]</kbd> button, entering <kbd>[CTRL/P]</kbd> on the console, 
+  or pressing the <kbd>[BREAK]</kbd> key on the console.
+  <li>At the console prompt, use a console command to boot into the 
+  SYSBOOT utility. (SYSBOOT allows conversational changes to system 
+  parameters.) The syntax for the conversational bootstrap varies by 
+  system model---this typically involves specifying a flag of 1, for 
+  example: <br>On VAX, use one of the following three commands depending 
+  on the particular model of VAX system involved:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+B/R5:1 
+B/1 
+@GENBOO 
+</pre>
+</font>
+</table>
+
+    <br>On Alpha:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+b -flags 0,1 
+</pre>
+</font>
+</table>
+
+    <br>If your system has a non-zero system root (such as root SYSE, shown 
+    here), you will have to use a console command such as the following: 
+    <br>On VAX:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+B/E0000001 
+B/R5:E0000001 
+@&lt;console media procedure name varies widely&gt; 
+</pre>
+</font>
+</table>
+
+    <br>On Alpha:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+b -flags e,1 
+</pre>
+</font>
+</table>
+
+    <br>If your system has a hardware password (various systems support a 
+    password that prevents unauthorized access to the console), you will 
+    need to know theis password and will need to enter it using the LOGIN 
+    command at the console. If you get an "Inv Cmd" error trying to perform 
+    a conversational bootstrap, and you do not have the hardware console 
+    password for the console LOGIN command, you are stuck---you will need 
+    to call for hardware service in order to reset the hardware console 
+    password. The syntax used for the console password mechanism varies.
+  <li>Once at the SYSBOOT prompt, request that OpenVMS read the system 
+  startup commands directly from the system console, that the window 
+  system (if any) not be started, and that OpenVMS not record these 
+  particular parameter changes for subsequent system reboots:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+SET/STARTUP OPA0: 
+SET WINDOW_SYSTEM 0 
+SET WRITESYSPARAMS 0 
+CONTINUE 
+</pre>
+</font>
+</table>
+
+<a name="index_x_321"></a>
+<a name="index_x_322"></a>
+<a name="index_x_323"></a>
+<a name="index_x_324"></a>
+  <li>At the $ prompt, the system will now be accepting startup commands 
+  directly from the console. Type the following two DCL commands:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ SPAWN 
+$ @SYS$SYSTEM:STARTUP 
+</pre>
+</font>
+</table>
+
+  <li>You should now see the dollar ($) prompt of DCL. <br>The result of 
+  these two commands will be the normal system startup, but you will be 
+  left logged in on the console, running under a fully privileged 
+  username. Without the use of the SPAWN command, you would be logged out 
+  when the startup completes. <br>Perform the task(s) required, such as 
+  resetting the password on the SYSTEM username as described in 
+  <a href="vmsfaq_005.html#mgmt5a">Section 5.5.1</a> or registering one or more license product authorization 
+  keys (PAKs) as described in <a href="vmsfaq_005.html#mgmt5b">Section 5.5.2</a>.
+  <li>Once you log out of this session, the system will complete the 
+  startup and can be used normally. You can choose to reboot the system, 
+  but that is not necessary.
+</ol>
+
+<p>
+Some system managers will suggest a method using the UAFALTERNATE 
+system parameter rather than the SET/STARTUP OPA0: command shown.
+<a name="index_x_325"></a>
+<a name="index_x_326"></a>
+This approach is not always available and is accordingly less commonly 
+recommended, as there can easily be an alternate user authorization 
+database (SYS$SYSTEM:SYSUAFALT.DAT) configured on the system. With a 
+system manager that has configured an alternate SYSUAFALT.DAT file, the 
+UAFALTERNATE method will fail---well, assuming you do not know the 
+password of a privileged username stored within SYSUAFALT.DAT, of 
+course.
+
+<p>
+The UAFALTERNATE system parameter is used to trigger what is sometimes 
+known as the console backdoor.
+<a name="index_x_327"></a>
+<a name="index_x_328"></a>
+The OPA0: system console is critical to system operations and system 
+security, and will allow access when the SYSUAF system authorization 
+database is unavailable or corrupted, when core product license PAKs 
+are not registered, expired or disabled (NOLICENSE errors),
+<a name="index_x_329"></a>
+ or in various other cases of system failures.
+<a name="index_x_330"></a>
+<a name="index_x_331"></a>
+All this is in addition to the role of the console in the display of 
+certain system-critical event messages. <em>Access to the OPA0: console 
+has a security exposure that is equivalent to direct access to the 
+system hardware.</em>
+
+<p>
+When LOGINOUT detects an error (such as a SYSUAF corruption, by a 
+missing SYSUAF, missing product licenses, or other trigger), it will 
+prevent access to the OpenVMS system from all terminals except the 
+system console.
+<a name="index_x_332"></a>
+<a name="index_x_333"></a>
+The OPA0: system console will be allowed access, and the resulting 
+process will be fully privileged. Resetting the UAFALTERNATE system 
+parameter---in the absence of an alternate SYSUAF system authorization 
+database---will cause the console backdoor to be opened simply because 
+LOGINOUT cannot locate
+<a name="index_x_334"></a>
+<a name="index_x_335"></a>
+SYS$SYSTEM:SYSUAFALT.DAT. When the authorization database cannot be 
+located, access will be granted from the console only.
+
+<p>
+For further information on emergency startup and shutdown, as well as 
+for the official OpenVMS documentation on how to change the SYSTEM 
+password from the console in an emergency, please see the <em>OpenVMS 
+System Manager's Manual</em> in the OpenVMS documentation set.
+
+<p>
+For information and recommendations on setting up OpenVMS system 
+security, please see the NCSC Class C2 appendix of the
+<a name="index_x_336"></a>
+<a name="index_x_337"></a>
+<a name="index_x_338"></a>
+Guide to OpenVMS System Security manual, also in the OpenVMS 
+documentation set.
+
+<p>
+You can also use the conversational bootstrap technique shown earlier 
+(the steps until SET/STARTUP) to alter various system parameters, as 
+well. At the SYSBOOT
+<a name="index_x_339"></a>
+<a name="index_x_340"></a>
+prompt, you can enter new parameters values:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+SHOW MAXPROCESSCNT 
+SET . 64 
+CONTINUE 
+</pre>
+</font>
+</table>
+
+<p>
+The "." is a shorthand notation used for the last parameter examined 
+within SYSGEN and SYSBOOT.
+<a name="index_x_341"></a>
+<a name="index_x_342"></a>
+
+<a name="mgmt5a"><h2>5.5.1 I've forgotten the SYSTEM password - what can I do?</h2></a>
+<a name="index_x_343"></a>
+
+<p>
+If you have forgotten or do not have the password for the SYSTEM 
+username, you must perform the conversational bootstrap as described in 
+<a href="vmsfaq_005.html#mgmt5">Section 5.5</a>, and must enter the following commands once you have 
+reached the dollar ($) prompt:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ SET DEFAULT SYS$SYSTEM:  ! or wherever your SYSUAF.DAT resides 
+$ RUN SYS$SYSTEM:AUTHORIZE 
+MODIFY SYSTEM /PASSWORD=newpassword 
+EXIT 
+</pre>
+</font>
+</table>
+
+<p>
+You have now reset the password on the SYSTEM username.
+
+<a name="mgmt5b"><h2>5.5.2 My product licenses have expired - what can I do?</h2></a>
+
+<p>
+If you have a system with no licenses for OpenVMS or for OpenVMS users 
+and thus cannot log into the OpenVMS system normally, you should be 
+able to log into the console serial terminal---this is the terminal 
+device known as OPA0:---and perform the commands necessary.
+
+<p>
+For systems that are not configured with an accessable console serial 
+terminal---as can be the case with how some DECwindows workstations are 
+configured---you must log in over the network or from a local serial 
+connection. If you cannot log in over a network connection (SET HOST, 
+telnet, etc) or from another local serial terminal connection, you will 
+have to halt the system and perform a conversational bootstrap as 
+described in <a href="vmsfaq_005.html#mgmt5">Section 5.5</a>. You must then enter licensing-related 
+commands once the conversational bootstrap has reached the dollar ($) 
+prompt.
+
+<p>
+Use the following DCL command to invoke a menu that allows you to 
+manage and to register new or replacement license PAKs:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ @SYS$UPDATE:VMSLICENSE 
+</pre>
+</font>
+</table>
+
+<a name="index_x_344"></a>
+
+<p>
+You have now registered the license PAKs. Direct use of the DCL 
+commands LICENSE and SHOW LICENSE and such is also obviously available.
+
+<p>
+If you wish to connect a serial console on your DECwindows workstation, 
+please see <a href="vmsfaq_017.html#vax10">Section 14.3.3.3</a>, <a href="vmsfaq_017.html#alpha7">Section 14.3.6</a>, <a href="vmsfaq_014.html#decw13">Section 11.11</a>, and <a href="vmsfaq_019.html#supp3">Section 14.19</a>.
+
+<p>
+For information on troubleshooting DECwindows, please see <a href="vmsfaq_013.html#decw6">Section 11.6</a>.
+<a name="index_x_345"></a>
+<a name="index_x_346"></a>
+<a name="index_x_347"></a>
+<a name="index_x_348"></a>
+
+<a name="bottom_005"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_004.html#bottom_004">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vmsfaq_006.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+</body>
+</html>

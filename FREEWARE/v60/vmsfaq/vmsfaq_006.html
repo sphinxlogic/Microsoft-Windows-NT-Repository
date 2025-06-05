@@ -1,0 +1,777 @@
+<!-- VMSFAQ_006.HTML continuation of SRH:[FAQ]VMSFAQ.HTML -->
+<html>
+<head>
+<title>The OpenVMS Frequently Asked Questions(FAQ)</title>
+<style>
+A:hover {color: green}
+A:active {color: red; background-color: white}
+</style>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">The OpenVMS Frequently Asked Questions(FAQ)</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_005.html#bottom_005">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+
+<hr>
+
+<a name="mgmt9"><h1><font color=maroon>5.6 How do I change the node name of an OpenVMS System?</font></h1></a>
+<a name="index_x_349"></a>
+
+<p>
+The first step is to get a BACKUP of the system disk before making any 
+changes---use the system disk backup procedures as documented in the 
+OpenVMS System Management Manual, making sure to use the procedures and 
+commands appropriate for the system disk.
+
+<p>
+Changing the node name involves a number of steps---the node name tends 
+to be imbedded in a number of different data files around the system.
+<a name="index_x_350"></a>
+<a name="index_x_351"></a>
+
+<ul>
+  <li>Update the SCSNODE in MODPARAMS.DAT, and then run AUTOGEN as far as 
+  the SETPARAMS phase. (Do not reboot yet.)
+  <li>Modify the DECnet node name. (NETCONFIG is the DECnet Phase IV 
+  tool, and NET$CONFIGURE is the DECnet-Plus tool.)
+  <li>Modify the IP node name. (The TCP/IP Services tool is UCX$CONFIG 
+  prior to V5.0, and is TCPIP$CONFIG in V5.0 and later releases.)
+  <li>Modify the host node name on the various queues in the queue 
+  database. (each queue has a host name, and it defaults to the SCS node 
+  name of the queue's host system. See the command INIT/QUEUE/ON=node for 
+  information.)
+  <li>Modify the node name saved in any application databases, or any 
+  local node-conditional operations present in the site-specific system 
+  startup, etc. (SEARCH for the node name, specifying all types of files.)
+  <li>Use the AUTHORIZE utility command RENAME/IDENTIFIER to rename the 
+  SYS$NODE_oldnodename rightslist identifier to match the new node name. 
+  (Do not change the binary value of this identifier, and do not delete 
+  the identifier.) <br>If you have erroneously deleted or duplicate the 
+  identifier, you can locate existing references to the binary identifier 
+  value using the Freeware DFU package, and specifically the commands 
+  SEARCH/ACE and /OWNER. You must (re)create the correctly-named 
+  identifier using the binary value that is often stored in various 
+  Access Control List Entry (ACE)
+<a name="index_x_352"></a>
+<a name="index_x_353"></a>
+structures and object owner fields associated with files and objects 
+present in the OpenVMS system.
+  <li>Reset any license PAKs that are restricted to the old node name to 
+  the new node name.
+  <li>If the node name is part of a disk volume label, see <a href="vmsfaq_006.html#mgmt19">Section 5.12</a>.
+  <li>Reboot the node or---if in a VMScluster---reboot the whole 
+  VMScluster. (This tends to catch any errors immediately.)
+</ul>
+
+<p>
+There are likely a few other areas where the nodename will be stored.
+
+<p>
+If the system is configured in a VMScluster and you change 
+<em>either</em> the SCSNODE or the SCSSYSTEMID---but <em>not</em> both 
+values---then you
+<a name="index_x_354"></a>
+<a name="index_x_355"></a>
+<a name="index_x_356"></a>
+<a name="index_x_357"></a>
+will have to reboot the entire VMScluster. (The VMScluster remembers 
+the mapping between these two values, and will assume that a 
+configuration problem has occured if a mismatched pair appears, and 
+will refuse to let a node with a mismatched pair join the VMScluster.)
+
+<p>
+To calculate the correct SCSSYSTEMID value, multiply the DECnet Phase
+<a name="index_x_358"></a>
+<a name="index_x_359"></a>
+<a name="index_x_360"></a>
+<a name="index_x_361"></a>
+IV area number by 1024, and add the DECnet Phase IV node number. For 
+example, the SCSSYSTEMID value for a DECnet node with address 19.22 is 
+19478. ((19 * 1024) + 22 = 19478)
+
+<p>
+This may well have missed one or two configuration tools (or more!) 
+that are needed at your site---the node name tends to get stored all 
+over the place, in layered products, and in local software...
+
+<p>
+Also see <a href="vmsfaq_022.html#mgmt13">Section 15.6.3</a> and <a href="vmsfaq_022.html#mgmt26">Section 15.6.4</a>.
+
+<a name="mgmt11"><h1><font color=maroon>5.7 Why doesn't OpenVMS see the new memory I just added?</font></h1></a>
+<a name="index_x_362"></a>
+When adding memory to an OpenVMS system, one should check for an 
+existing
+<a name="index_x_363"></a>
+<a name="index_x_364"></a>
+<a name="index_x_365"></a>
+<a name="index_x_366"></a>
+definition of the PHYSICALPAGES (OpenVMS VAX) or PHYSICAL_MEMORY 
+(OpenVMS Alpha) parameter in the SYS$SYSTEM:MODPARAMS.DAT parameter 
+database, use a text editor to reset the value in the file to the new 
+correct value as required, and then perform the following command:
+<a name="index_x_367"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ @SYS$UPDATE:AUTOGEN GETDATA REBOOT FEEDBACK 
+</pre>
+</font>
+</table>
+
+<p>
+This AUTOGEN command will reset various system parameters based on 
+recent system usage (FEEDBACK), and it will reset the value for the 
+PHYSICALPAGES parameter to the new value. It will also reboot the 
+OpenVMS system.
+
+<p>
+PHYSICALPAGES and PHYSICAL_MEMORY can also be used to deliberately 
+lower the amount of memory available for use by OpenVMS. This ability 
+can be useful in a few specific circumstances, such as testing the 
+behaviour of an application in a system environment with a particular 
+(lower) amount of system memory available.
+
+<p>
+PHYSICALPAGES and PHYSICAL_MEMORY can be set to -1 (on OpenVMS Alpha) 
+or (better and simpler) the entry can be removed from the MODPARAMS.DAT 
+file, to indicate that all available memory should be used.
+
+<a name="mgmt15"><h1><font color=maroon>5.8 How do I change the text in a user's UIC identifier?</font></h1></a>
+<a name="index_x_368"></a>
+
+<p>
+The text translations of the numeric User Identification Code (UIC) are 
+based on identifiers present in the OpenVMS rightslist. Documentation 
+on this area is included in the _Guide to OpenVMS System Security_ 
+manual.
+
+<p>
+To control the identifiers shown for a user's UIC, you use AUTHORIZE. 
+Each user has an associated group identifier, and an identifier 
+specific to the user. And each user should have a unique UIC.
+
+<p>
+To alter the text of a user or group identifier, use commands such as:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ RUN SYS$SYSTEM:AUTHORIZE 
+UAF&gt; rename/ident oldgroupid newgroupid 
+UAF&gt; rename/ident olduserid  newuserid 
+</pre>
+</font>
+</table>
+
+<p>
+If you should find yourself missing an identifier for a particular 
+user, you can add one for the user's UIC using a command such as:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+UAF&gt; add/ident/value=uic=[group,user] newuserid 
+</pre>
+</font>
+</table>
+
+<p>
+The UIC user identifier text is assigned when the username is created, 
+and is the text of the username. The UIC group group identifier is 
+assigned when the first username is created in the UIC group, and the 
+text is based on the account name specified for the first user created 
+in the group. The value of this identifier is [groupnumber, 177777]. To 
+add a missing group identifier, use an asterisk as follows:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+UAF&gt; add/ident/value=uic=[group,*] newgroupid 
+</pre>
+</font>
+</table>
+
+<p>
+You may find cases where an identifier is missing from time to time, as 
+there are cases where the creation of a UIC group name identifier might 
+conflict with an existing username, or a user identifier might conflict 
+with an existing group identifier. When these conflicts arise, the 
+AUTHORIZE utility will not create the conflicting group and/or user 
+identifier when the username is created.
+
+<p>
+You can can add and remove user-specified identifiers, but you should 
+avoid changing the numeric values associated with any existing 
+identifiers. You should also avoid reusing UICs or identifiers when you 
+add new users, as any existing identifiers that might be present on 
+objects in the system from the old user will grant the same access to 
+the new user. Please see the security manual for details.
+
+<a name="mgmt16"><h1><font color=maroon>5.9 What are the OpenVMS version upgrade paths?</font></h1></a>
+<a name="index_x_369"></a>
+
+<a name="alpha_path"><h2>5.9.1 OpenVMS Alpha Upgrade (or Update) Paths</h2></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+From V1.0, 
+    you can upgrade to V1.5. 
+From V1.5, or V1.5-1H1, 
+    you can upgrade to V6.1. 
+From V6.1, 
+    you can upgrade to V6.2. 
+From V6.1, or V6.2, 
+    you can upgrade to V7.0. 
+From V6.1, V6.2, V6.2-1H(1,2,3), or V7.0, 
+    you can upgrade to V7.1. 
+From V6.2, 
+    you can update to V6.2-1H1, V6.2-1H2, or V6.2-1H3. 
+From V6.2, V6.2-1H(1,2,3), V7.1, V7.1-1H(1,2), or V7.2, 
+    to V7.2-1. 
+From V6.2, ... or V7.2, 
+    to V7.2-1H1, to 7.3. 
+From V7.1, one can update to V7.1-1H(1,2), ... 
+    to V7.2-1H1, to 7.3. 
+From V7.3, V7.2-2, V7.2-1H1, V7.2-1, and V7.1-2, 
+    you can update to V7.3-1 or to V7.3-2. 
+From V7.3-1, 
+    you can update to V7.3-2. 
+</pre>
+</font>
+</table>
+
+<p>
+Some typical OpenVMS Alpha upgrade (or update) paths are:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+V1.0 -&gt; V1.5 -&gt; V6.1 -&gt; (V6.2, V7.0, V7.1, V7.2, V7.3) 
+V1.5-1H1 -&gt; V6.1 -&gt; (V6.2, V7.0, V7.1, V7.2, V7.3) 
+V6.2 -&gt; V6.2-1H3 
+V6.2 -&gt; V7.2-1 
+V6.2 -&gt; V7.3 
+V6.2-1H(1,2,3) -&gt; V7.1 
+V6.2-1H(1,2,3) -&gt; V7.2-1 
+V7.1 -&gt; V7.1-2 
+V7.1 -&gt; V7.2-1 
+V7.1-1H(1,2) -&gt; V7.1-2 
+V7.1-1H(1,2) -&gt; V7.2-1 
+V7.1-2 -&gt; V7.3-1 
+V7.2 -&gt; V7.2-1H1 
+V7.2 -&gt; V7.3 -&gt; V7.3-1 
+V7.2-1 -&gt; V7.3-1 
+V7.2-2 -&gt; V7.3 
+V7.3 -&gt; V7.3-1 
+V7.3 -&gt; V7.3-2 
+V7.2-2 -&gt; V7.3-1 
+V7.3-1 -&gt; V7.3-2 
+</pre>
+</font>
+</table>
+
+<p>
+Note that OpenVMS Alpha V7.0 does not include support for hardware 
+and/or configurations first supported in OpenVMS Alpha V6.2-1H1, 
+V6.2-1H2, or V6.2-1H3; one must upgrade to OpenVMS VAX V7.1.
+
+<p>
+One cannot update directly to a V6.2-1Hx Limited Hardware Release (LHR) 
+from any release prior to the baseline V6.2 release. The same 
+prohibition holds for performing updates directly to V7.1-1Hx from any 
+release prior to V7.1---this is not supported, and does not produce the 
+expected results. The LHR kits can, however, be directly booted and can 
+be directly installed, without regard to any operating system that 
+might be present on the target disk.
+
+<p>
+OpenVMS Alpha updates for LHRs (through V7.1-1Hx) require the use of 
+VMSINSTAL for the update. These LHR releases use PCSI for the 
+installation, but not for the update. Non-LHR releases use PCSI for 
+installs and upgrades.
+
+<p>
+OpenVMS Alpha V7.1-2 and later use PCSI for LHRs and for OpenVMS 
+upgrades and for all OpenVMS ECO kit installations. VMSINSTAL OpenVMS 
+ECO kits are not used on OpenVMS Alpha V7.1-2 and later. Prior to 
+V7.1-2, VMSINSTAL-based ECO kits are used for OpenVMS.
+
+<a name="vax_path"><h2>5.9.2 OpenVMS VAX Release Upgrade Paths</h2></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+From V5.0 through V5.4-3 inclusive, one can upgrade to V5.5. 
+From V5.5, V5.5-1, or V5.5-2HW, one can upgrade to V5.5-2. 
+From V5.5, V5.5-1, or V5.5-2, one can upgrade to V6.0. 
+From V5.5-2, V5.5-2H4, or V6.0, one can upgrade to V6.1. 
+From V6.0, or V6.1, one can upgrade to V6.2. 
+From V6.1, or V6.2, one can upgrade to V7.0. 
+From V6.1, V6.2, or V7.0, one can upgrade to V7.1. 
+From V6.1, one can upgrade to V7.3 (with VAXBACK ECO for V6.1). 
+</pre>
+</font>
+</table>
+
+<p>
+Some typical OpenVMS VAX upgrade paths are:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+V5.x -&gt; V5.5 -&gt; V6.0 -&gt; V6.2 -&gt; (V7.1, V7.2, V7.3) 
+V5.5-2HW -&gt; V5.5-2 
+V5.5-2, or V5.5-2H4 -&gt; V6.1 -&gt; (V6.2, V7.0, or V7.1) 
+V6.1 -&gt; V6.1 with VAXBACK ECO -&gt; (V7.2, V7.3) 
+V6.2 -&gt; V7.2 
+V6.2 -&gt; V7.3 
+</pre>
+</font>
+</table>
+
+<p>
+Note that OpenVMS VAX V6.0 does not include support for hardware and/or 
+configurations first added in OpenVMS VAX V5.5-2H4, one must upgrade to 
+OpenVMS VAX V6.1.
+
+<p>
+Note that OpenVMS VAX V5.5-2HW is a pre-release version of V5.5-2. Any 
+system running it should be upgraded to V5.5-2, or later.
+
+<p>
+If you attempt a direct upgrade from OpenVMS VAX V6.1 to V7.2 or later 
+without having first applied the VAXBACK ECO kit to your V6.1 system, 
+you will receive an error message:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+%BACKUP-E-INVRECTYP, invalid record type in save set 
+</pre>
+</font>
+</table>
+
+<p>
+and the upgrade will fail. Acquire and apply the VAXBACK ECO kit for 
+OpenVMS VAX V6.1. OpenVMS VAX V6.2 and later do not require an 
+application of an ECO for an upgrade to V7.2 and later.
+
+<a name="cluster_path"><h2>5.9.3 OpenVMS Cluster Rolling Upgrade Paths</h2></a>
+
+<p>
+Rolling Upgrades require multiple system disks. Rolling upgrades permit 
+the OpenVMS Cluster to remain available while individual systems are 
+being upgraded to a new OpenVMS release.
+
+<p>
+OpenVMS Cluster rolling upgrades for both OpenVMS VAX and OpenVMS Alpha 
+may (will) have different, or additional upgrade requirements, and have 
+requirements around which versions of OpenVMS can coexist in a OpenVMS 
+Cluster than what is listed here.
+
+<p>
+See the OpenVMS Upgrade and Installation Manual for the particular 
+release, and the OpenVMS Software Product Descriptions for OpenVMS and 
+for OpenVMS Cluster software:
+
+<ul>
+  <li>http://www.compaq.com/info/spd/
+<br>
+OpenVMS typically uses SPD 25.01.xx and/or SPD 41.87.xx.
+</ul>
+
+<p>
+for further details on the rolling upgrade, and for support 
+information. The documentation for older releases of OpenVMS VAX 
+includes various platform-specific manuals, manuals that include 
+instructions that are specific to installing and upgrading on the 
+platform.
+
+<a name="support"><h2>5.9.4 OpenVMS Product Version and Support Information</h2></a>
+
+<p>
+For information on Prior Version Support (PVS)
+<a name="index_x_370"></a>
+<a name="index_x_371"></a>
+<a name="index_x_372"></a>
+and Mature Product Support
+<a name="index_x_373"></a>
+(including information on support end dates for OpenVMS and various 
+layered products), please see:
+
+<ul>
+  <li>http://www.hp.com/hps/os/os_ovms.html
+  <li>http://www.hp.com/go/openvms/
+  <li>http://www.compaq.com/services/software/ss_mature.html
+  <li>http://www.compaq.com/services/software/ss_pvs_se_amap.html
+  <li>http://www.compaq.com/services/software/ss_mps_pvs_eur.html
+</ul>
+
+<p>
+For information on supported versions of layered products, and minimum 
+required layered product versions, see:
+
+<ul>
+  <li>http://www.openvms.compaq.com/openvms/os/swroll/index.html
+</ul>
+
+<p>
+For information on the release history of OpenVMS, including 
+information on the code names of various releases and the major 
+features:
+
+<ul>
+  <li>http://www.openvms.compaq.com/openvms/os/openvms-release-history.html
+</ul>
+
+<p>
+Additional release history information, as well as a variety of other 
+trivia, is available in the VAX 20th anniversary book:
+
+<ul>
+  <li>http://www.openvms.compaq.com/openvms/20th/vmsbook.pdf
+</ul>
+
+<a name="terminology"><h2>5.9.5 OpenVMS Alpha Terminology</h2></a>
+
+<p>
+The following terms apply to OpenVMS Alpha upgrades and installations.
+
+<ul>
+  <li>Update
+<br>
+Typically used for Limited Hardware Releases (LHR) releases. Performed 
+via VMSINSTAL. Applies only to the OpenVMS release that the LHR is 
+based on, or to an intermediate LHR. (eg: V7.1-1H2 applies only to 
+V7.1-1H1 and to V7.1, not to any other releases.) LHRs within a series 
+are cumulative, containing all files and features of previous LHRs in 
+the same series.
+  <li>Upgrade
+<br>
+Performed via PCSI. Upgrades can typically be applied to a 
+release-specific (and documented) range of prior OpenVMS releases.
+  <li>Install
+<br>
+Performed via PCSI. With an installation, no existing version of the 
+operating system is assumed present, nor are any files from any copy of 
+the operating system might be present preserved, and the entire 
+contents of the target disk are destroyed via a disk initialization.
+  <li>preserve
+<br>
+Performed via PCSI. Otherwise similar to an installation, this option 
+skips the disk reinitialization. User files on the target disk are 
+preserved. Any existing operating system files on the target disk are 
+clobbered.
+  <li>LHR
+<br>
+Limited Hardware Release. LHRs are specific to and are targeted at new 
+hardware configurations, and are not shipped to customers with support 
+contracts. At least one LHR kit must be specifically acquired when 
+purchasing new hardware, new hardware that is not (yet) supported by 
+any mainline (non-LHR) release. LHRs have an "H" in the OpenVMS version 
+string, indicating a "Hardware" release.
+</ul>
+
+  For minimum OpenVMS versions for various platforms, see <a href="vmsfaq_002.html#vms13">Section 2.11</a>.
+
+<a name="mgmt17"><h1><font color=maroon>5.10 Why do I have a negative number in the pagefile reservable pages?</font></h1></a>
+<a name="index_x_374"></a>
+
+<p>
+Seeing a negative number in the reservable pages portion of the SHOW 
+MEMORY/FULL command can be normal and expected, and is (even) 
+documented behaviour. A pagefile with a negative number of reservable 
+pages is overcommitted, which is generally goodness assuming that every 
+process with reserved pages does not try to occupy all of the reserved 
+pagefile space at the same time.
+
+<p>
+To understand how the pagefile reservation process works, think about 
+how a traditional bank operates when accepting customer deposits and 
+making loans. It's the same idea with the pagefile space. There is less 
+money in the bank vault than the total deposits, because much of the 
+money has been loaned out to other customers of the bank. And the 
+behaviour parallels that of the pagefile down to the problems that a 
+"run on the bank" can cause for banking customers. (Though there is no 
+deposit insurance available for pagefile users.)
+
+<p>
+If all of the running applications try to use the reserved space, the 
+system manager will need to enlarge the pagefile or add one or more 
+additional pagefules.
+
+<p>
+To determine if the pagefile is excessively overcommitted, watch for 
+"double overcommitment"---when the reservable space approaches the 
+negatation of the available total space---and watch that the total 
+amount of free space available in the pagefile remains adequate. If 
+either of these situations arises, additional pagefile storage is 
+required.
+
+<p>
+Additional pagefile information: Additional pagefiles can typically be 
+created and connected on a running OpenVMS system. New processes and 
+new applications will tend to use the new pagefile, and existing 
+applications can be restarted to migrate out of the more congested 
+pagefiles. Pagefiles are generally named PAGEFILE.SYS, and multiple 
+pagefiles are generally configured on separate disk spindles to spread 
+the paging I/O load across the available disk storage. When multiple 
+pagefiles are present on recent OpenVMS versions, each pagefile file 
+should be configured to be approximately the same total size as the 
+other pagefiles.
+
+<p>
+For additional information on pagefile operations and related commands, 
+see the system management and performance management manuals in the 
+OpenVMS documentation set.
+
+<p>
+With OpenVMS V7.3 and later, the displays have been changed and these 
+negative values are no longer visible.
+
+<a name="mgmt18"><h1><font color=maroon>5.11 Do I have to update layered products when updating OpenVMS?</font></h1></a>
+<a name="index_x_375"></a>
+
+<p>
+The Software Public Rollout Reports for OpenVMS list the current and 
+future availability of HP software products shipping on the OpenVMS 
+Software Products Library kits (CDROM consolidations) for OpenVMS Alpha 
+and/or OpenVMS VAX. Specifically, the required minimum versions for 
+product support are listed.
+
+<p>
+Comprehensive Public Rollout Information, listing previous product 
+versions as well as currently shipping versions, has been compiled into 
+a separate set of reports. The product information is grouped to show 
+Operating System support.
+
+<p>
+You may or may not be able to use older versions of local applications, 
+third-party products, and various HP OpenVMS layered products with more 
+recent versions of OpenVMS. User-mode code is expected to be upward 
+compatible. Code executing in a privileged processor mode---typically 
+either executive or kernel mode---may or may not be compatible with 
+more recent OpenVMS versions.
+
+<p>
+These reports are updated regularly. Please see:
+
+<ul>
+  <li>http://www.openvms.compaq.com/openvms/os/swroll/index.html
+</ul>
+
+<a name="mgmt19"><h1><font color=maroon>5.12 How do I change the volume label of a disk?</font></h1></a>
+<a name="index_x_376"></a>
+
+<p>
+Dismount the disk, and mount it privately. If the disk is mounted by 
+more than one node in an OpenVMS Cluster, dismount it from all other 
+nodes. If this disk is an OpenVMS system disk, shut down all other 
+nodes that are bootstrapped from this disk.
+
+<p>
+Issue the SET VOLUME/LABEL command, specifying the new label.
+
+<p>
+On OpenVMS V6.0 and later, issue the following PCSI command to reset 
+the label information stored within the PCSI database to reflect the 
+new disk volume label:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ PRODUCT REGISTER VOLUME old-label device 
+</pre>
+</font>
+</table>
+
+<p>
+Locate any references in the system startup (typically including the 
+disk MOUNT commands) and any DISK$label references in application 
+files, and change the references appropriately.
+
+<p>
+If this is a system disk (for the host or for a satellite), also check 
+the DECnet MOP or LANCP boot database, as well as any references to the 
+disk created by CLUSTER_CONFIG*.COM.
+
+<p>
+If Compaq Analyze is in use, check the system startup procedures for 
+the Compaq Analyze tool. Certain versions of Compaq Analyze will record 
+specific disk volume labels within the startup procedures.
+
+<p>
+Remount the disk appropriately.
+
+<a name="mgmt21"><h1><font color=maroon>5.13 How can I set up a shared directory?</font></h1></a>
+<a name="index_x_377"></a>
+
+<p>
+To set up a shared directory---where all files created in the directory 
+are accessible to the members of specified group of users---you can use 
+an access control list (ACL) and an identifier.
+
+<p>
+The following also shows how to set up a resource identifier, which 
+further allows the disk resources to be charged to the specified 
+identifier rather than each individual user. (If you don't want this, 
+then omit the attributes option on the identifier creation and omit the 
+entry added in the disk quota database.
+
+<p>
+Add an identifier using the AUTHORIZE utility:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+ADD/IDENTIFER/ATTRIBUTES=RESOURCE groupidentifier 
+</pre>
+</font>
+</table>
+
+<p>
+Grant the identifier to each user in the group using AUTHORIZE:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+GRANT/IDENTIFIER groupidentifier username 
+</pre>
+</font>
+</table>
+
+<p>
+If disk quotas are in use, add an entry via SYSMAN for each disk:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+DISKQUOTA ADD groupidentifier/PERMQUOTA=pq/OVERDRAFT=od/DEVICE=ddcu: 
+</pre>
+</font>
+</table>
+
+<p>
+Set the shared directory to have an ACL similar to the following using 
+the SET SECURITY (V6.0 and later) or SET ACL (versions prior to V6.0) 
+command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+(DEFAULT_PROTECTION,S:RWED,O:RWED,G,W) 
+(IDENTIFIER=groupidentifier,OPTIONS=DEFAULT,ACCESS=READ+WRITE+EXECUTE+DELETE) 
+(IDENTIFIER=groupidentifier,ACCESS=READ+WRITE+EXECUTE+DELETE) 
+(CREATOR,ACCESS=READ+WRITE+ACCESS+DELETE) 
+</pre>
+</font>
+</table>
+
+<p>
+If there are files already resident in the directory, set their 
+protections similarly. (The OPTIONS=DEFAULT, DEFAULT_PROTECTION, and 
+CREATOR ACEs apply to directories.)
+
+<p>
+The default protection mask is used to establish the default file 
+protection mask, this mask does not prevent the users holding the 
+specified groupidentifier from accessing the file(s), as they can 
+access the file via the explicit identifier granting access that is 
+present in the ACL.
+
+<p>
+For further information, see the <em>OpenVMS Guide to System Security 
+Manual</em>, specifically the sections on ACLs and identifiers, and 
+resource identifiers.
+
+<a name="mgmt23"><h1><font color=maroon>5.14 Why do I get extra blank pages on my HP Printer?</font></h1></a>
+<a name="index_x_378"></a>
+
+<p>
+For information on configuring telnet print symbiont, on device control 
+libraries such as SYSDEVCTL.TLB, and for ways of dealing with the extra 
+blank pages that can arise on various HP printers, please see the 
+OpenVMS Ask The Wizard area, starting particularly with topic (1020):
+
+<ul>
+  <li>http://www.hp.com/go/openvms/wizard/
+</ul>
+
+<p>
+For additional information on the OpenVMS Ask The Wizard (ATW) area and 
+for a pointer to the available ATW Wizard.zip archive, please see 
+<a href="vmsfaq_003.html#doc14">Section 3.9</a>.
+<a name="index_x_379"></a>
+<a name="index_x_380"></a>
+
+<p>
+There are a variety of discussions of this and of related printing 
+topics in the Ask The Wizard area, in addition to topic (1020).
+
+<p>
+Also see <a href="vmsfaq_008.html#mgmt51">Section 5.33</a>.
+
+<a name="bottom_006"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_005.html#bottom_005">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vmsfaq_007.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+</body>
+</html>

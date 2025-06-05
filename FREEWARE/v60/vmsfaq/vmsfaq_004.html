@@ -1,0 +1,851 @@
+<!-- VMSFAQ_004.HTML continuation of SRH:[FAQ]VMSFAQ.HTML -->
+<html>
+<head>
+<title>The OpenVMS Frequently Asked Questions(FAQ)</title>
+<style>
+A:hover {color: green}
+A:active {color: red; background-color: white}
+</style>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">The OpenVMS Frequently Asked Questions(FAQ)</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_003.html#bottom_003">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+
+<hr>
+
+<a name="alpha_details"><h3>4.2.1.2 Alpha hardware time-keeping details...</h3></a>
+
+<a name="bb_watch"><h4>4.2.1.2.1 Battery-Backed Watch (BB_WATCH) Chip</h4></a>
+<a name="index_x_193"></a>
+This is battery backed up hardware timing circuitry used to keep the 
+correct time of year during rebooting, power failures, and system 
+shutdown. This clock keeps track of date and time in 24 hour binary 
+format.
+
+<a name="alpha_systime"><h4>4.2.1.2.2 EXE$GQ_SYSTIME</h4></a>
+<a name="index_x_194"></a>
+This is the OpenVMS Alpha system time cell. This cell contains the 
+number of 100ns intervals since November 17, 1858 00:00:00.00. This 
+cell is incremented by 100000 every 10ms by an hardware interval timer.
+
+<a name="hwclock"><h4>4.2.1.2.3 EXE$GQ_SAVED_HWCLOCK</h4></a>
+<a name="index_x_195"></a>
+This cell is used by OpenVMS Alpha to keep track of the last time and 
+date that EXE$GQ_SYSTIME was adjusted. It keeps the same time format as 
+EXE$GQ_SYSTIME. The value in this cell gets updated in memory and on 
+disk, every time EXE$GQ_SYSTIME gets adjusted.
+
+<ul>
+  <li>The system parameters SETTIME and TIMEPROMPTWAIT determine how the 
+  system time will be set.
+  <li>If SETTIME = 0 then EXE$INIT_HWCLOCK reads the hardware clock to 
+  set the system time.
+
+  <ul>
+    <li>IF TIMEPROMPTWAIT &gt; 0
+<br>
+THEN the value of TIMEPROMPTWAIT determines how long the user is 
+prompted to enter the time and date. If time expires and no time has 
+been entered the system acts as if TIMEPROMPTWAIT = 0.
+    <li>IF TIMEPROMPTWAIT = 0
+<br>
+THEN the system time is calculated from the contents of 
+EXE$GQ_SAVED_HWCLOCK + 1.
+    <li>IF TIMEPROMPTWAIT &lt; 0
+<br>
+THEN the user is prompted for the time and date and unable to continue 
+until the information is entered.
+  </ul>
+</ul>
+
+Unlike the VAX, the Alpha hardware clock tracks the full date and time, 
+not just the time of year. This means it is possible to boot from the 
+CD-ROM media without entering the time at the CD-ROM bootstrap. (This 
+provided that the time and date have been initialized, of course.)
+
+<p>
+IA-64 (Itanium) hardware time-keeping details to be added...
+
+<a name="time9"><h3>4.2.1.3 Why does VAX need a SET TIME at least once a year?</h3></a>
+<a name="index_x_196"></a>
+
+<p>
+Because the VAX Time Of Year (TOY) has a resolution of 497 days, the 
+VAX system time is stored using both the TOY and the OpenVMS VAX system 
+image SYS.EXE. Because of the use of the combination of the TOY and 
+SYS.EXE, you need to issue a SET TIME command (with no parameters) at 
+least once between January 1st and about April 11th of each year, and 
+whenever you change system images (due to booting another OpenVMS VAX 
+system, booting the standalone BACKUP image, an ECO that replaces 
+SYS.EXE, etc).
+
+<p>
+The SET TIME command is automatically issued during various standard 
+OpenVMS procedures such as SHUTDOWN, and it can also obviously be 
+issued directly by a suitably privileged user. Issuing the SET TIME 
+command resets the value stored in the TOY, and (if necessary) also 
+updates the portion of the time (the current year) saved in the SYS.EXE 
+system image.
+
+<p>
+This VAX TOY limit is the reason why OpenVMS VAX installation kits and 
+standalone BACKUP explicitly prompt for the time during bootstrap, and 
+why the time value can "get weird" if the system crashes outside the 
+497 day window (if no SET TIME was issued to update the saved values), 
+and why the time value can "get weird" if a different 
+SYS$SYSTEM:SYS.EXE is used (alternate system disk, standalone BACKUP, 
+etc).
+
+<a name="time2"><h2>4.2.2 How does OpenVMS VAX maintain system time?</h2></a>
+<a name="index_x_197"></a>
+
+<p>
+VAX systems maintain an interval clock, and a hardware clock.
+
+<p>
+The VAX hardware clock is called the TOY ("Time Of Year") clock. The 
+register associated with the clock is called the TODR ("Time Of Day 
+Register").
+<a name="index_x_198"></a>
+<a name="index_x_199"></a>
+<a name="index_x_200"></a>
+<a name="index_x_201"></a>
+<a name="index_x_202"></a>
+<a name="index_x_203"></a>
+
+<p>
+The TOY clock---as used---stores time relative to January first of the 
+current year, starting at at 00:00:00.00. It is a 100 Hz, 32-bit 
+counter, incremented every 10ms, and thus has a capacity of circa 497 
+days.
+
+<p>
+OpenVMS (on the VAX platform) stores system date information---and in 
+particular, the current year---in the system image, SYS$SYSTEM:SYS.EXE.
+
+<p>
+The TOY is used, in conjunction with the base date that is stored and 
+retrieved from the system image, to initialize the interval clock value 
+that is stored in EXE$GQ_SYSTIME.
+
+<p>
+Once the interval clock is loaded, the system does not typically 
+reference the TOY again, unless a SET TIME (with no parameters) is 
+issued. The interval clock value is updated by a periodic IPL22 or 
+IPL24 (depending on the specific implementation) interrupt. (When these 
+interrupts are blocked as a result of the activity of higher-IPL 
+code---such as extensive driver interrupt activity or a hardware error 
+or a correctable (soft) memory error---the clock will &quot;loose&quot; 
+time, and the time value reported to the user with appear to have 
+slowed down.)
+
+<p>
+On most (all?) VAX systems, the battery that is associated with the TOY 
+clock can be disconnected and replaced if (when) it fails---TOY clock 
+failures are quite commonly caused by a failed nickel-cadmium (NiCd) or 
+lithium battery, or by a failed Dallas chip.
+
+<a name="time6"><h1><font color=maroon>4.3 Keeping the OpenVMS system time synchronized?</font></h1></a>
+<a name="index_x_204"></a>
+
+<p>
+To help keep more accurate system time or to keep your system clocks 
+synchronized, TCP/IP Services NTP, DECnet-Plus DECdtss, DCE DTSS, and 
+other techniques are commonly used. If you do not have IP access to a 
+time-base, then you could use dial-up access to NIST or other 
+authoritative site.
+<a name="index_x_205"></a>
+<a name="index_x_206"></a>
+
+<p>
+There exists code around that processes the digital (ie: binary) format 
+time that is available via a modem call into the NIST clock (the 
+Automated Computer Telephone Service (ACTS)), and code that
+<a name="index_x_207"></a>
+<a name="index_x_208"></a>
+<a name="index_x_209"></a>
+grabs the time off a GPS receiver digital link, or a receiver 
+(effectively a radio and a codec) that processes the time signals from 
+radio station WWV, WWVH, WWVB, or similar. (Processing these time 
+protocols often involves little more than reading from an EIA232 
+(RS232) serial line from the receiver, something that is possible from 
+most any language as well as directly from DCL.)
+
+<p>
+One example of acquring a time-base involves the IRIG time format
+<a name="index_x_210"></a>
+<a name="index_x_211"></a>
+(IRIG-A, -B, -G), a binary signal containing the current time in hours, 
+minutes, seconds and days since the start of the current year. IRIG can 
+also contain the time of day as the number of seconds since midnight. 
+HP Custom Systems and third-party vendors offer various IRIG-based 
+reader/generator modules for OpenVMS systems.
+
+<p>
+Differing time servers (DECnet-Plus DTSS, DCE DTSS, NTP, etc) do not
+<a name="index_x_212"></a>
+<a name="index_x_213"></a>
+<a name="index_x_214"></a>
+<a name="index_x_215"></a>
+coexist particularly well, particularly if you try to use all these 
+together on the same node. Please pick and use just one. (If needed, 
+you can sometimes configure one package to acquire its timebase from 
+another protocol, but one and only one time server package should have 
+direct control over the management of and drifting of the local OpenVMS 
+system time. In the specific case of DECnet-Plus DTSS, older product 
+versions and versions V7.3 and later provide a provider module, a 
+module which permits DTSS to acquire its time from NTP. For details on 
+this, please see the comments in the module DTSS$NTP_PROVIDER.C.)
+<a name="index_x_216"></a>
+
+<p>
+Useful URLs:
+
+<ul>
+  <li>http://www.boulder.nist.gov/timefreq/service/nts.htm
+  <li>http://www.boulder.nist.gov/timefreq/service/acts.htm
+  <li>http://www.boulder.nist.gov/timefreq/
+  <li>http://www.time.gov/
+</ul>
+
+<a name="time3"><h2>4.3.1 Why does my OpenVMS system time drift?</h2></a>
+<a name="index_x_217"></a>
+
+<p>
+Memory errors, hardware problems, or most anything operating at or 
+above IPL 22 or IPL 24 (clock IPL is system family dependent; code 
+executing at or above the clock IPL will block the processing of clock 
+interrupts), can cause the loss of system time. Clock drift can also be 
+caused by normal (thermal) clock variations and even by the expected 
+level of clock drift.
+<a name="index_x_218"></a>
+<a name="index_x_219"></a>
+
+<p>
+When clock interrupts are blocked as a result of the activity of 
+high-IPL code---such as extensive driver interrupt activity or a 
+hardware error or a correctable (soft) memory error---the clock will 
+&quot;loose&quot; time, and the time value reported to the user with 
+appear to have slowed down. Correctable memory errors can be a common 
+cause of system time loss, in other words. Heavy PCI bus traffic can 
+also cause lost time.
+
+<p>
+One bug in this area involved the behaviour of certain graphics 
+controllers including the ELSA GLoria Synergy PBXGK-BB; the PowerStorm 
+3D10T effectively stalling the PCI bus. See <a href="vmsfaq_007.html#mgmt24">Section 5.15</a> for details on 
+the ELSA GLoria Synergy controller, and make certain you have the 
+current GRAPHICS ECO kit installed.
+
+<p>
+Clock drift can also be (deliberately) caused by the activity of the 
+DTSS or NTP packages.
+
+<p>
+Also see <a href="vmsfaq_018.html#alpha17">Section 14.8</a>, <a href="vmsfaq_019.html#vax8">Section 14.15</a>, and <a href="vmsfaq_004.html#time8">Section 4.3.2</a>.
+
+<a name="time8"><h2>4.3.2 How can I drift the OpenVMS system time?</h2></a>
+<a name="index_x_220"></a>
+
+<p>
+With DECdts and TCP/IP Services NTP, the system time value is "drifted" 
+(rather than changed), to avoid the obvious problems that would arise 
+with "negative time changes". The same basic clock drifting technique 
+is used by most (all?) time servers operating on OpenVMS, typically 
+using the support for this provided directly within OpenVMS.
+
+<p>
+An example of the technique used (on OpenVMS VAX) to drift the system 
+time is the SETCLOCK tool on the OpenVMS Freeware.
+<a name="index_x_221"></a>
+<a name="index_x_222"></a>
+<a name="index_x_223"></a>
+
+<p>
+For information on the use of the EXE$GL_TIMEADJUST and 
+EXE$GL_TICKLENGTH cells on OpenVMS Alpha, see <em>OpenVMS AXP Internal 
+and Data Structures</em>, located on page 348.
+<a name="index_x_224"></a>
+<a name="index_x_225"></a>
+<a name="index_x_226"></a>
+
+<p>
+For those areas which switch between daylight savings time (DST) and 
+standard time, the time value is <em>not</em> drifted. The time is 
+adjusted by the entire interval. This procedure is inherent in the 
+definition of the switch between DST and standard time.
+
+<a name="time7"><h2>4.3.3 How can I configure TCP/IP Services NTP as a time provider?</h2></a>
+<a name="index_x_227"></a>
+
+<p>
+An NTP time provider provides its idea of the current time to NTP 
+clients via the NTP protocol. Most systems are NTP clients, but...
+
+<p>
+NTP has a heirarchy of layers, called strata. The further away from the 
+actual NTP time source (Internet time servers are at stratum 1), the 
+lower the strata (and the larger the number assigned the statum).
+
+<p>
+NTP explicity configured at stratum one provides time to NTP operating 
+at lower strata, and the provided time is acquired based on the local 
+system time or via some locally-accessible external time source.
+
+<p>
+NTP at other (lower) strata both receive time from higher strata and 
+can provide time to lower strata, and automatically adjust the local 
+stratum. The highest stratum is one, and the lowest available stratum 
+is fifteen.
+
+<p>
+The TCP/IP Services NTP package can operate at any stratum, and can be 
+configured as a peer, as a client, or as a broadcast server. NTP can 
+also provide time to a DECnet-Plus DTSS network, see <a href="vmsfaq_004.html#time6">Section 4.3</a>.
+
+<p>
+With TCP/IP Services V5.0 and later, the only supported reference clock 
+is the LCL (local system clock). If your system has an excellent clock 
+or if the system time is being controlled by some other time service or 
+peripheral (such as DTSS services, GPS services, a cesium clock, a GPIB 
+controller or other similar time-related peripheral), you can configure 
+NTP to use the system clock as its reference source. This will mimic 
+the master-clock functionality, and will configre NTP as a stratum 1 
+time server. To do this, enter the following commands in TCPIP$NTP.CONF:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+server 127.127.1.0 prefer 
+fudge 127.127.1.0 stratum 0 
+</pre>
+</font>
+</table>
+
+<p>
+For local-master functionality, the commands are very similiar. Use:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+server 127.127.1.0 
+fudge 127.127.1.0 stratum 8 
+</pre>
+</font>
+</table>
+
+<p>
+The difference between these two is the stratum, and the omission of 
+the prefer keyword. Specifying a higher stratum allows the node to act 
+as a backup NTP server, or potentially as the sole time server on an 
+isolated network. The server will become active only when all other 
+normal synchronization sources are unavailable. The use of "prefer" 
+causes NTP to always use the specified clock as the time 
+synchronization source.
+
+<p>
+With the TCP/IP Services versions prior to V5.0, the NTP management is 
+rather more primitive. To configure the local OpenVMS system from an 
+NTP client to an NTP server (on TCP/IP Services versions prior to 
+V5.0), add the following line to the sys$specific:[ucx$ntp]ucx$ntp.conf 
+file:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+master-clock 1 
+</pre>
+</font>
+</table>
+
+<p>
+Also, for TCP/IP Services prior to V5.0, see the NTP template file:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+SYS$SPECIFIC:[UCX$NTP]UCX$NTP.TEMPLATE 
+</pre>
+</font>
+</table>
+
+<p>
+Note that NTP does <em>not</em> provide for a Daylight Savings Time 
+(DST)
+<a name="index_x_228"></a>
+<a name="index_x_229"></a>
+switch-over, that switch must arise from the timezone rules on the 
+local system and/or from the SYS$EXAMPLES:DAYLIGHT_SAVINGS procedure.
+<a name="index_x_230"></a>
+<a name="index_x_231"></a>
+(Further, there is a known bug in SYS$EXAMPLES:DAYLIGHT_SAVINGS.COM in 
+V7.3, please obtain the available ECO kit.)
+
+<p>
+For current TCP/IP Services and related OpenVMS documentation, please 
+see:
+
+<ul>
+  <li>http://www.openvms.compaq.com/doc/
+  <li>http://www.openvms.compaq.com/commercial/
+</ul>
+
+<a name="time4"><h1><font color=maroon>4.4 Managing Timezones, Timekeeping, UTC, and Daylight Savings?</font></h1></a>
+<a name="index_x_232"></a>
+
+<p>
+You will want to use the command procedure:
+
+<ul>
+  <li>SYS$MANAGER:UTC$TIME_SETUP.COM
+</ul>
+
+<a name="index_x_233"></a>
+
+<p>
+to configure the OpenVMS Timezone Differential Factor (TDF) on OpenVMS 
+V6.0 and later. Select the BOTH option. This configures the OpenVMS TDF 
+settings, though it may or may not configure the TDF and the timezone 
+rules needed or used by other software packages. Please do NOT directly 
+invoke the following command procedures:
+
+<ul>
+  <li>SYS$MANAGER:UTC$CONFIGURE_TDF.COM ! do not directly use
+  <li>SYS$MANAGER:UTC$TIMEZONE_SETUP.COM ! do not directly use
+</ul>
+
+<a name="index_x_234"></a>
+<a name="index_x_235"></a>
+
+<p>
+TCP/IP Services V5.0 and later use the OpenVMS TDF, UTC, and timezone 
+support. Earlier versions use a TDF mechanism and timezone database 
+that is internal to the TCP/IP Services package. Also on the earlier 
+versions, the TDF must be manually configured within TCP/IP Services, 
+in addition to the OpenVMS configuration of the TDF.
+
+<p>
+DECnet-Plus in V7.3 and later uses the OpenVMS TDF, UTC, and timezone 
+support, and displays its timezone prompts using UTC$TIME_SETUP.COM. 
+Earlier versions use a TDF TDF mechanism, timezone database, and 
+automatic switch-over that is internal to the DECnet-Plus package. Also 
+on earlier versions, the TDF must be configured within the DECnet-Plus 
+DECdtss package, in addition to the OpenVMS configuration of the TDF.
+
+<p>
+Application code using HP C (formerly Compaq C, formerly DEC C) will 
+use the OpenVMS UTC and TDF mechanisms when the C code is compiled on 
+OpenVMS V7.0 and later (and when the macro _VMS_V6_SOURCE is NOT 
+defined). HP C does NOT use the OpenVMS UTC and TDF mechanisms when the 
+C code is
+<a name="index_x_236"></a>
+<a name="index_x_237"></a>
+<a name="index_x_238"></a>
+<a name="index_x_239"></a>
+compiled on OpenVMS releases prior to V7.0, or when the preprocessor 
+declaration _VMS_V6_SOURCE is declared.
+<a name="index_x_240"></a>
+
+<p>
+DCE DTSS TDF details TDB.
+
+<p>
+In OpenVMS Alpha V6.1, V6.2, and V6.2-1Hx, the TDF value is written to 
+SYS$BASE_IMAGE.EXE.
+<a name="index_x_241"></a>
+With OpenVMS Alpha V7.0 and later and with OpenVMS VAX V6.0 and later, 
+SYS$SYSTEM:SYS$TIMEZONE.DAT
+<a name="index_x_242"></a>
+contains the TDF. This means that OpenVMS Alpha systems will need to 
+have the TDF value reset manually---usually within 
+SYSTARTUP_VMS.COM---on reboots prior to V7.0.
+
+<p>
+During OpenVMS Bootstrap, the SYSINIT module reads SYS$TIMEZONE.DAT to 
+acquire the TDF for use in the system global cell EXE$GQ_TDF. This is
+<a name="index_x_243"></a>
+<a name="index_x_244"></a>
+done to ensure that the system boots with a valid TDF (a value which 
+may be zero). The UTC system services get the TDF from this cell. These 
+services, as well as the HP C RTL, must have a valid TDF. (Prior to 
+OpenVMS V7.3, if either DECnet-Plus or DECnet/VAX Extensions is 
+configured and run, the image DTSS$SET_TIMEZONE.EXE is invoked and can 
+override the
+<a name="index_x_245"></a>
+TDF and timezone rule settings from SYSINIT or from 
+UTC$TIME_SETUP.COM---
+<a name="index_x_246"></a>
+this image runs even if DTSS is disabled. If the settings do not match 
+(due to inconsistencies in timezone specification in UTC$TIME_SETUP.COM 
+and NET$CONFIGURE.COM), DTSS will reset the values to match its 
+definitions.)
+
+<p>
+Prior to OpenVMS V7.3, daylight savings time switchover is handled 
+automatically only when DCE DTSS or DECnet-Plus DTSS is in use. In 
+V7.3, OpenVMS can be configured to automatically switch over to 
+daylight savings time, and also generates an event that interested 
+applications can use to detect the switch-over between standard time 
+and daylight time.
+
+<p>
+The manual switchover between daylight savings time and standard time 
+is correctly accomplished via the SYS$EXAMPLES:DAYLIGHT_SAVINGS.COM 
+command procedure procedure.
+
+<p>
+Note: NTP (alone) does <em>NOT</em> provide automatic switch-over.
+
+<p>
+Note: The DST switch-over does <em>NOT</em> drift the time value; the 
+switch-over applies the entire difference as a unit.
+
+<p>
+If you switch the TDF or daylight savings time setting, you will also 
+want to restart or reconfigure any time-sensitive applications (those 
+not using the time differential factor (TDF) change event available in 
+V7.3 and later). Examples of these applications include the need to 
+restart the NFS client and (yes) NTP. (NTP will want to try to "drift" 
+the time (see <a href="vmsfaq_004.html#time6">Section 4.3</a>), and will find the daylight savings time 
+switch-over to be far too large to "drift". Hence the NTP restart.) You 
+can also use the (undocumented) TCP/IP Services (prior to V5.0) 
+commands:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+SET TIME/DIFF=[positive or negative TDF integer] 
+GENERATE TIME 
+</pre>
+</font>
+</table>
+
+<p>
+to reset the value of the logical name UCX$TDF.
+<a name="index_x_247"></a>
+<a name="index_x_248"></a>
+
+<p>
+Prior to V7.3, the command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ SETTZ :== $SYS$SYSTEM:DTSS$SET_TIMEZONE 
+$ SETTZ MODIFY 
+</pre>
+</font>
+</table>
+
+<p>
+can be used to modify the settings of the SYS$TIMEZONE_DAYLIGHT_SAVING, 
+SYS$TIMEZONE_DIFFERENTIAL, and SYS$TIMEZONE_NAME system logical names 
+based on the SYS$TIMEZONE_RULE.
+<a name="index_x_249"></a>
+<a name="index_x_250"></a>
+<a name="index_x_251"></a>
+<a name="index_x_252"></a>
+<a name="index_x_253"></a>
+<a name="index_x_254"></a>
+
+<p>
+The following are other TDF-related logical names used/available on 
+OpenVMS systems, with typical Daylight Savings and Standard Settings 
+for the US Eastern Time (ET) timezone.
+<a name="index_x_255"></a>
+<a name="index_x_256"></a>
+<a name="index_x_257"></a>
+<a name="index_x_258"></a>
+<a name="index_x_259"></a>
+<a name="index_x_260"></a>
+<a name="index_x_261"></a>
+<a name="index_x_262"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$daylight_time: 
+$ DEFINE/SYSTEM/EXECUTIVE MAIL$TIMEZONE EDT 
+$ DEFINE/SYSTEM/EXECUTIVE NOTES$TIMEZONE "-0400 EDT" 
+$ DEFINE/SYSTEM/EXECUTIVE LISP$DAYLIGHT_SAVING_TIME_P true  ! Not 'EDT' 
+$ DEFINE/SYSTEM/EXECUTIVE LISP$TIME_ZONE 05   ! Constant 
+$ 
+$standard_time: 
+$ DEFINE/SYSTEM/EXECUTIVE MAIL$TIMEZONE EST 
+$ DEFINE/SYSTEM/EXECUTIVE NOTES$TIMEZONE "-0500 EST" 
+$ DEFINE/SYSTEM/EXECUTIVE LISP$DAYLIGHT_SAVING_TIME_P false ! Not 'EST' 
+$ DEFINE/SYSTEM/EXECUTIVE LISP$TIME_ZONE 05   ! Constant 
+$ 
+$ DEFINE/SYSTEM/EXECUTIVE UCX$NFS_TIME_DIFFERENTIAL - 
+    'f$integer(f$element(0," ",f$logical("notes$timezone"))/-100)' 
+</pre>
+</font>
+</table>
+
+<a name="index_x_263"></a>
+<a name="index_x_264"></a>
+
+<p>
+For information on ZIC and related tools used to manage the OpenVMS 
+Timezone database, please see the DEC C Run-time Library Utilities 
+Reference Manual---though the title would imply otherwise, this 
+particular manual is part of the OpenVMS documentation set, and not 
+part of the HP C (formerly Compaq C, formerly DEC C) documentation set.
+
+<a name="time5"><h2>4.4.1 How to troubleshoot TDF problems on OpenVMS?</h2></a>
+<a name="index_x_265"></a>
+
+<p>
+This is an OpenVMS Alpha system prior to V7.0 and the startup is not 
+invoking the procedure:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+SYS$MANAGER:UTC$TIME_SETUP.COM 
+</pre>
+</font>
+</table>
+
+<a name="index_x_266"></a>
+
+<p>
+This is an OpenVMS system prior to V6.0, where there is no OpenVMS TDF 
+nor UTC available.
+
+<p>
+The version of the application does not use the OpenVMS TDF. This 
+includes TCP/IP Services prior to V5.0, applications using HP C built 
+on or targeting OpenVMS prior to V7.0, and systems using the 
+DECnet-Plus DTSS mechanisms prior to the release associated with 
+OpenVMS V7.3. (DCE TDF TBD.)
+
+<p>
+If you should find either of the following two timezone-related 
+database files located in SYS$SPECIFIC:[SYSEXE]:
+
+<ul>
+  <li>SYS$SPECIFIC:[SYSEXE]SYS$TIMEZONE.DAT
+  <li>SYS$SPECIFIC:[SYSEXE]SYS$TIMEZONE_SRC.DAT
+</ul>
+
+<a name="index_x_267"></a>
+<a name="index_x_268"></a>
+
+<p>
+These two files are in an erroneous location and must be recreated in 
+the correct directory:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+SYS$COMMON:[SYSEXE] 
+</pre>
+</font>
+</table>
+
+<p>
+If the DCL command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ DIRECTORY SYS$SYSTEM:SYS$TIMEZONE*.DAT 
+</pre>
+</font>
+</table>
+
+<p>
+shows these files in SYS$SPECIFIC:[SYSEXE], then delete them and use 
+SYS$MANAGER:UTC$TIME_SETUP.COM to recreate them.
+
+<p>
+On OpenVMS versions prior to V7.3, if the file:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ SYS$STARTUP:DTSS$UTC_STARTUP.COM 
+</pre>
+</font>
+</table>
+
+<a name="index_x_269"></a>
+
+<p>
+is present on your system, then you may need to invoke:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ @SYS$UPDATE:DTSS$INSTALL_TIMEZONE_RULE.COM 
+</pre>
+</font>
+</table>
+
+<a name="index_x_270"></a>
+
+<p>
+to recreate the timezone files correctly. Invoke this command 
+immediately after [re]executing SYS$MANAGER:UTC$TIME_SETUP.COM.)
+
+<p>
+If SYS$UPDATE:DTSS$INSTALL_TIMEZONE_RULE.COM is not present on your 
+system, then you may need to execute the following commands:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ DELETE SYS$STARTUP:DTSS$UTC_STARTUP.COM 
+$ DEASSIGN/SYSTEM/EXEC SYS$TIMEZONE_RULE. 
+</pre>
+</font>
+</table>
+
+<p>
+If your system time is being reported as being off by one hour (or 
+whatever the local DST change), please see sections <a href="vmsfaq_003.html#time12">Section 4.1</a>, 
+<a href="vmsfaq_004.html#time4">Section 4.4</a> and <a href="vmsfaq_013.html#commonc">Section 10.22.1</a>.
+<a name="index_x_271"></a>
+<a name="index_x_272"></a>
+<a name="index_x_273"></a>
+<a name="index_x_274"></a>
+<a name="index_x_275"></a>
+<a name="index_x_276"></a>
+
+<a name="time13"><h2>4.4.2 Customizing your TDF (Timezone) Setting?</h2></a>
+<a name="index_x_277"></a>
+
+<p>
+Individual, local, and regional differences on the use (or the lack of 
+use) of Daylight Savings Time (DST) are quite common.
+
+<p>
+If you need to add (or remove) daylight savings time for your area or 
+otherwise alter the rules for your local area, you will probably end up 
+creating a variation to an existing timezone rule.
+
+<p>
+The necessary zone line to add for WhereEverLand will probably look 
+something like this:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+# Zone  NAME            GMTOFF  RULES/SAVE      FORMAT  [UNTIL] 
+Zone    WhereEver       2:00    -               WhereEver 
+</pre>
+</font>
+</table>
+
+<p>
+The OpenVMS source file for the timezone rules here:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+SYS$COMMON:[SYS$ZONEINFO.SYSTEM.SOURCES] 
+</pre>
+</font>
+</table>
+
+<p>
+You'll then want to ZIC this to create your own timezone definiton.
+<a name="index_x_278"></a>
+<a name="index_x_279"></a>
+
+<p>
+ZIC is documented in the OpenVMS Documentation Set, in the HP C 
+Run-Time Library Reference Manual. (Despite the name of the manual, it 
+is part of the OpenVMS documentation set and not the C manuals.)
+
+<p>
+Once you have created the new rule, use SYS$MANAGER:UTC$TIME_SETUP.COM
+<a name="index_x_280"></a>
+to select the new timezone---with V7.3 and later, this tool will notice 
+the new timezone and will offer it, on earlier releases, you may/will 
+have to hack the tool somewhat. (Don't even think of trying to define 
+the TZ
+<a name="index_x_281"></a>
+<a name="index_x_282"></a>
+logical name (found on older configurations), or the SYS$TIMEZONE_NAME 
+logical name,
+<a name="index_x_283"></a>
+<a name="index_x_284"></a>
+or any other time- or timezone-related logical names directly yourself.)
+
+<p>
+For various timezone rules, see the tar.gz files (these are gzipped tar 
+archives) available at:
+<a name="index_x_285"></a>
+
+<ul>
+  <li>ftp://elsie.nci.nih.gov/pub/
+</ul>
+
+<a name="bottom_004"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_003.html#bottom_003">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vmsfaq_005.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+</body>
+</html>

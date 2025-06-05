@@ -1,0 +1,417 @@
+        .TITLE  ZDEC Zero Device Error Count
+        .IDENT  /1.2/
+    ;++
+    ;
+    ; Title:
+    ;   ZDEC.MAR - Zero-out device error count.
+    ;
+    ; Version:
+    ;   1-003
+    ;
+    ; Facility:
+    ;   System Management Tools.
+    ;
+    ; Abstract:
+    ;   This program zeros-out the device error count stored in the
+    ;   UCB for a particular device. This is useful when you wish 
+    ;   reset this value without booting the machine.
+    ;
+    ;   THIS PROGRAM IS UNSUPPORTED AND PROVIDED AS IS,
+    ;   USE AT OWN RISK.
+    ;
+    ;   Building sequence:
+    ;
+    ;           $ macro/list zdec
+    ;           $ link/map/full/sysexe zdec
+    ;           
+    ;   Calling sequence:
+    ;
+    ;           $ ZDEC := $mydev:[mydir]ZDEC
+    ;           $ ZDEC [/OVERRIDE]  device
+    ;
+    ; Environment:
+    ;   CMKRNL privilege required, I/O data base is locked, program
+    ;   executed at elevated IPL.
+    ;
+    ; Author:
+    ;   Mark Oakley     DuPont Experimental Station     12-Nov-1984
+    ;   This program is based upon the VARY program written by
+    ;   Gary Grebus of Battelle Columbus Labs.
+    ;
+    ; Modifications:
+    ;
+    ;  17-Nov-1984      Mark Oakley     Added /OVERRIDE to handle allocated devices.
+    ;
+    ;  25-Nov-1985      Mark Oakley     Modified to correctly secure physical terminal
+    ;                           name that is associated with a virutal terminal.
+    ;
+    ;  23-May-1986      Mark Oakley     Modified to zero-out CPU and memory errors.
+    ;
+    ;  14-Jul-1988      Ted Nieland     Modified to work under VMS 5.0.
+    ;
+    ;  15-Jul-2001  Paul Gallo  Compaq Computer Corporation, CSC, Colorado
+    ;
+    ;                           Modified to work under OpenVMS Alpha 7.x.
+    ;
+    ;  19-Jul-2001  Paul Gallo  Compaq Computer Corporation, CSC, Colorado
+    ;
+    ;                           Modified to return errors to the user.
+    ;
+    ;  20-Jul-2001      Paul Gallo      Compaq Computer Corporation, CSC, Colorado
+    ;                   
+    ;                           Modified for multipath devices, as we need to
+    ;                           clear the errors on each device in the path.
+    ;
+    ;--
+    
+    
+        .SBTTL  Symbols, Macros, Data
+    
+        .LIBRARY        /SYS$LIBRARY:LIB.MLB/
+    
+        $TPADEF         ; Symbols for LIB$TPARSE.
+        $SSDEF          ; Symbols for return status.
+        $UCBDEF         ; Symbols for device ucb.
+        $STSDEF         ; Symbols for returned status.
+        $DVIDEF         ; Symbols for $GETDVI service.
+        $DCDEF          ; Symbols for device type.
+        $MPDEVDEF       ; Symbols for multipath information.
+    
+    ;
+    ; Macro to handle return codes.
+    ;
+        .MACRO  ON_ERR  THERE,?HERE
+        BLBS    R0,HERE
+        BRW     THERE
+    HERE:       .ENDM   ON_ERR
+    
+        .PSECT  ZDEC_DATA,RD,WRT,NOEXE,LONG,SHR,PIC
+    
+    CMD_BUF:                    ; Buffer to hold command line.
+        .BLKB   80
+    CMD_BUF_SIZ = . - CMD_BUF
+    
+    CMD_BUF_DESC:                       ; Descriptor to command line.
+        .LONG    CMD_BUF_SIZ
+        .ADDRESS CMD_BUF
+    
+    PROMPT:
+        .ASCID  /Device: /
+    
+    PARSE_BLK:                  ; Parse block for LIB$TPARSE.
+        .LONG   TPA$K_COUNT0
+        .LONG   TPA$M_ABBREV    ; Permit unambiguous abbreviations.
+        .BLKB   TPA$K_LENGTH0-8
+    
+    OVERRIDE:                   ; Zero out allocated devices, if set.
+        .LONG   0
+    
+    LOG_DEV_DESC:                       ; Descriptor for device on command line.
+        .BLKQ   1
+    
+    CPU_STG:                    ; Used to compare against command line parm.
+        .ASCII  /CPU/
+    
+    MEM_STG:                    ; Used to compare against command line parm.
+        .ASCII  /MEMORY/
+    
+    
+    DEV_BUF:                    ; Buffer to hold device name.               
+        .BLKB   40
+    DEV_BUF_SIZ = . - DEV_BUF
+    
+    DEV_BUF_DESC:                       ; Descriptor pointing to device name.
+        .LONG    DEV_BUF_SIZ
+        .ADDRESS DEV_BUF
+    
+    PID:                                ; Owner of device (if any).
+        .BLKL   1
+    
+    DEV_ITEM_LIST:                      ; Device list for $GETDVI.
+        .WORD    DEV_BUF_SIZ    ; Make sure we a have a physical device name.
+        .WORD    DVI$_DEVNAM
+        .ADDRESS DEV_BUF
+        .ADDRESS DEV_BUF_DESC
+        .WORD    4              ; See if someone has this device allocated.
+        .WORD    DVI$_PID
+        .ADDRESS PID
+        .LONG    0
+        .WORD    4
+        .WORD    DVI$_DEVCLASS  ; Check for a terminal.
+        .ADDRESS DEV_CLASS
+        .LONG    0
+        .LONG    0              ; End if item list.
+    
+    TT_ITEM_LIST:                       ; Item list if we have a terminal.
+        .WORD    DEV_BUF_SIZ    ; Make sure we a have a physical device name.
+        .WORD    DVI$_TT_PHYDEVNAM
+        .ADDRESS DEV_BUF
+        .ADDRESS DEV_BUF_DESC
+        .LONG    0
+    
+    DEV_CLASS:
+        .LONG   1
+    
+    K_ARG:                              ; Argument list for kernel-mode routine.
+        .LONG    1              ; Just one argument.
+        .ADDRESS DEV_BUF_DESC   ; Pass descriptor for device name.
+    
+    
+        .SBTTL  State Table
+        .PSECT  ZDEC_STATES,RD,NOWRT,EXE,LONG,SHR,PIC
+    
+        $INIT_STATE     STATE_TABLE,KEY_TABLE
+    
+        $STATE  START
+        $TRAN   '/',QUAL
+        $TRAN   TPA$_SYMBOL,DEV,,,LOG_DEV_DESC
+        $TRAN   TPA$_EOS,TPA$_EXIT
+    
+        $STATE  DEV
+        $TRAN   TPA$_EOS,TPA$_EXIT
+        $TRAN   '/',QUAL
+        $TRAN   ':',COLON
+    
+        $STATE  COLON
+        $TRAN   '/',QUAL
+        $TRAN   TPA$_EOS,TPA$_EXIT
+    
+        $STATE  QUAL
+        $TRAN   'OVERRIDE',,,1,OVERRIDE
+        $TRAN   'NOOVERRIDE',,CLR_OV
+    
+        $STATE
+        $TRAN   TPA$_SYMBOL,DEV,,,LOG_DEV_DESC
+        $TRAN   TPA$_EOS,TPA$_EXIT
+    
+        $END_STATE
+    
+    
+    
+    
+        .SBTTL  Main program
+        .PSECT  ZDEC_CODE,RD,NOWRT,EXE,LONG,SHR,PIC
+        .ENTRY  ZDEC,^M<R2,R3,R4,R5,R6,R7,R8,R9>
+    
+    ;
+    ; Get the command line.
+    ;
+        PUSHAL  CMD_BUF_DESC            ; Return length.
+        PUSHAL  PROMPT                  ; Prompt for device name.
+        PUSHAL  CMD_BUF_DESC            ; Place to hold line.
+        CALLS   #3,G^LIB$GET_FOREIGN
+        ON_ERR  ERR_EXIT
+    
+        PUSHAL  CMD_BUF_DESC            ; Upper case the input.
+        PUSHAL  CMD_BUF_DESC
+        CALLS   #2,G^STR$UPCASE
+        ON_ERR  ERR_EXIT
+    
+        MOVL    CMD_BUF_DESC,-          ; Set length of string to parse.
+                PARSE_BLK+TPA$L_STRINGCNT
+        MOVL    CMD_BUF_DESC+4,-        ; Set address of string to parse.
+                PARSE_BLK+TPA$L_STRINGPTR
+        PUSHAL  KEY_TABLE               ; Parse the command line for
+        PUSHAL  STATE_TABLE             ; qualifier and device.
+        PUSHAL  PARSE_BLK
+    ;## vax     CALLS   #3,G^LIB$TPARSE
+        CALLS   #3,G^LIB$TABLE_PARSE    ; Alpha version of LIB$TPARSE
+        ON_ERR  ERR_EXIT
+    ;
+    ; First, check if we are zeroing-out the cpu or memory.
+    ;
+        MOVQ    LOG_DEV_DESC,R6
+        CMPC3   R6,(R7),CPU_STG         ; Is it the cpu?
+        BNEQ    20$
+        BRW     DO_CPU
+    
+    20$:
+        CMPC3   R6,(R7),MEM_STG         ; Is it the memory?
+        BNEQ    40$
+        BRW     DO_MEM
+    40$:
+    
+    
+    ;
+    ; Get the physical device name, and see if this device has an owner.
+    ;
+        $GETDVI_S -
+                DEVNAM=LOG_DEV_DESC,-   ; Command line has device name.
+                ITMLST=DEV_ITEM_LIST
+        ON_ERR  ERR_EXIT
+    
+        CMPL    #DC$_TERM,DEV_CLASS     ; Did we get a terminal?
+        BNEQ    50$
+        $GETDVI_S -                     ; Yes, make sure we get the
+                DEVNAM=LOG_DEV_DESC,-   ; physical device name.
+                ITMLST=TT_ITEM_LIST
+        ON_ERR  ERR_EXIT
+    
+    50$:
+        TSTL    PID
+        BEQL    60$
+        TSTL    OVERRIDE                ; Device is allocated, see if we
+        BGTR    60$                     ; should proceed.
+        MOVL    #SS$_DEVALLOC,R0        ; Device is allocated, exit with
+        BRW     ERR_EXIT                ; error.
+    60$:
+    
+    DO_DEV:
+        $CMKRNL_S -                     ; Enter k-mode to zero device error
+                ROUTIN=ZERO_DEV,-               ; count.
+                ARGLST=K_ARG
+        ON_ERR  ERR_EXIT
+        BRW     EXIT
+    
+    DO_CPU:
+        $CMKRNL_S -                     ; Enter k-mode to zero cpu error count.
+                ROUTIN=ZERO_CPU
+        ON_ERR  ERR_EXIT
+        BRW     EXIT
+    
+    DO_MEM:
+                $CMKRNL_S -                     ; Enter k-mode to zero memory error
+                ROUTIN=ZERO_MEM         ; count.
+        ON_ERR  ERR_EXIT
+        BRW     EXIT
+    
+    ERR_EXIT:
+        $EXIT_S R0                      ; Return the error, if any
+    
+    EXIT:
+        RET                             ; Return normally
+    
+    
+    
+        .SBTTL  ZERO_DEV Routine
+    ;++
+    ;
+    ; Functional Description:
+    ;   This routine zeros out the error count in the UCB for
+    ;   a specified device.
+    ;
+    ; Calling Sequence:
+    ;   $CMKRNL_S ROUTIN=ZERO_DEV,ARGLST=K_ARG
+    ;
+    ;           where K_ARG is an argument list. This list contains
+    ;           the number of arguments passes (always 1), followed
+    ;           by the address of a descriptor pointing to the name
+    ;           of a device.
+    ;
+    ; Formal Parameters:
+    ;   Descriptor for name of a device.
+    ;
+    ; Implicit Inputs:
+    ;   I/O database.
+    ;
+    ; Implicit Outputs:
+    ;   Device error count is set to zero.
+    ;
+    ; Completion Status:
+    ;   Returned in R0.
+    ;
+    ; Side Effects:
+    ;   I/O database is locked (routine runs in kernel mode at elevated
+    ;   IPL).
+    ;
+    ;--
+    
+    
+        .ENTRY  ZERO_DEV,^M<R2,R4>
+    
+        MOVL    G^CTL$GL_PCB,R4 ;; Our PCB address is input to SCH
+                                        ;; routines.
+        JSB     G^SCH$IOLOCKW           ;; Lock the I/O database.
+    
+        MOVL    4(AP),R1                ;;; Address of device name descriptor.
+        JSB     G^IOC$SEARCHDEV         ;;; Get UCB address for device into R1.
+        ON_ERR  ZERO_DEV_EXIT
+    
+        TSTL    UCB$L_PID(R1)           ;;; Make sure device did not become
+        BEQL    80$                     ;;; allocated.
+        TSTL    OVERRIDE                ;;; Device is allocated, see if we
+        BGTR    80$                     ;;; should proceed.
+        MOVL    #SS$_DEVALLOC,R0
+        BRW     ZERO_DEV_EXIT
+    
+    80$:
+        MOVL    #SS$_NORMAL,R0          ; Set a success status
+        BBS     #DEV$V_MPDEV_MEMBER,UCB$L_DEVCHAR(R1),90$ ; Multipath device ?
+    ;## vax     CLRW    UCB$W_ERRCNT(R1)        ;;; Zero out the error count.
+        CLRL    UCB$L_ERRCNT(R1)        ;;; Zero out the error count. Alpha
+        BRW     ZERO_DEV_EXIT           ; 
+    90$:                                        ; We have a multipath device
+        MOVL    UCB$PS_SUD(R1),R4       ; R4 is our SUD
+        BEQL    ZERO_DEV_EXIT           ; Should never occur, but check anyway
+        MOVL    SUD$PS_MPDEV_PRIMARY_UCB(R4),R1 ; Start with the primary UCB
+        BEQL    ZERO_DEV_EXIT           ; Should never occur, but check anyway
+        CLRL    UCB$L_ERRCNT(R1)        ; Zero the error count, primary path.
+    100$:       MOVL    UCB$PS_SUD(R1),R4       ; Get the next SUD
+        BEQL    ZERO_DEV_EXIT           ; Exit if zero
+        MOVL    SUD$PS_MPDEV_NEXT_UCB(R4),R1 ; Get the next UCB
+        BEQL    ZERO_DEV_EXIT           ; Exit if zero, done
+        CLRL    UCB$L_ERRCNT(R1)        ; Clear the error count, secondaries.
+        BRB     100$                    ; Go check for next device
+    
+    ZERO_DEV_EXIT:
+        PUSHL   R0                      ;;; Remember status.
+        JSB     G^SCH$IOUNLOCK          ;;; Unlock I/O database (drop IPL).
+        POPL    R0
+    
+        RET
+    
+    
+        .ENTRY  CLR_OV,^M<>             ;;; Move to the code PSECT ##
+        CLRL    OVERRIDE
+        MOVL    #SS$_NORMAL,R0
+        RET
+    
+     
+    
+    
+        .SBTTL  ZERO_CPU, ZERO_MEM Routines
+    ;++
+    ;
+    ;  Functional Description:
+    ;   Routines to zero-out error-count location for cpu and memory.
+    ;
+    ;  Calling Sequence:
+    ;   $CMKRNL_S ROUTIN=ZERO_CPU
+    ;   $CMKRNL_S ROUTIN=ZERO_MEM
+    ;
+    ;  Input Parameters:
+    ;   None.
+    ;   
+    ;  Output Parameters:
+    ;   None.
+    ;
+    ;  Implicit Inputs:
+    ;   Global sysmbols, EXE$GL_MCHKERRS for cpu errors, and
+    ;   EXE$GL_MEMERRS for memory errors.
+    ;
+    ;  Implicit Outputs:
+    ;   None.
+    ;
+    ;  Procedures called:
+    ;   None.
+    ;
+    ;  Completion Status:
+    ;   Returned in R0, always successful.
+    ;
+    ;  Side Effects:
+    ;   None.
+    ;
+    ;--
+    
+        .ENTRY  ZERO_CPU,^M<>
+        CLRL    EXE$GL_MCHKERRS         ; Zero out cpu errors.
+        MOVL    #SS$_NORMAL,R0
+        RET
+    
+        .ENTRY  ZERO_MEM,^M<>
+        CLRL    EXE$GL_MEMERRS          ; Zero out memory errors.
+        MOVL    #SS$_NORMAL,R0
+        RET
+    
+        .END    ZDEC
+

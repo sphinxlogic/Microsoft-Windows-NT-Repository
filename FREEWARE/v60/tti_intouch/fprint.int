@@ -1,0 +1,211 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  Program:     FPRINT.INT
+        !  Author  : Robert Ringrose
+        !  Date    : Aug 1, 1989
+        !  Purpose :
+        !       Allow the user to indicate, either interactively or
+        !       on a command line, what file to print.  Then use
+        !       print_option to allow them to print to any desired
+        !       desired printer
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+1000    file_ok = false
+        filename$ = ""
+        frame off
+        ask margin right_margin
+        gosub handle_parameters
+        if  file_ok and not(_back)  then
+          clear         !  The file they put in as a parameter is OK and
+          stop          !    they didn't back out of print_file, so we're
+        end if          !    done.
+
+        gosub paint_screen
+        do
+          gosub get_file
+          if  _exit  then exit do
+          if  _back or filename$ = ""  then repeat do
+          gosub check_file
+          if  not(file_ok)  then repeat do
+          gosub print_file
+          if  _exit  then exit do
+          gosub paint_screen
+        loop
+        clear
+
+1099    end
+
+
+10000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  H A N D L E   P A R A M E T E R S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Check if they indicated a file.  If they did, check that it exists.
+        !    If it exists, set file_ok and filename$ and allow them to
+        !    print the file.  If they back out of print_file, they will
+        !    be allowed (by the main logic) to select an alternate file.
+        !  Expects:
+        !       file_ok = false
+        !  Result:
+        !       If a valid parameter is given,
+        !         file_ok = true
+        !         filename$ = the parameter given, with an extension
+        !               (if valid) of ".LTR"
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine handle_parameters
+
+10020   ask system:parameter filename$
+        if  filename$ = ""  then exit routine
+
+        gosub default_extension
+        gosub check_file
+        if  file_ok  then &
+          gosub print_file
+
+10099   end routine
+
+
+
+20000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  G E T   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Ask the user for a filename and put it in filename$
+        !  Expects:
+        !       screen is painted properly
+        !  Result:
+        !       filename$ = the filename requested, with default
+        !         extensions.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine get_file
+
+20020   line input prompt "File name?  ", &
+                   default filename$, &
+                   at 21,1: filename$
+
+        filename$ = ucase$(trim$(filename$))
+        if  _back or _exit or filename$ = ""  then exit routine
+        gosub default_extension
+
+20099   end routine
+
+
+
+25000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  D E F A U L T   E X T E N S I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Add a default extension of ".LTR" if possible
+        !    Look for a "]" (directory spec)
+        !    Look for a ";" after it (version number) - if there is one,
+        !       don't add any extensions.
+        !    Look for a "." after the "]".
+        !    If there is no period, add a ".LTR" right before the ";"
+        !
+        !  Expects:  filename$ is the filename
+        !  Result:   filename$ is changed to the new filename with extensions
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine default_extension
+
+25020   dir_end = pos(filename$,']')
+
+        version_start = pos(filename$, ';', dir_end)
+        if  version_start <> 0  then  exit routine
+                !  If there is a version, don't do any defaults
+
+        if  pos(filename$, '.', dir_end) = 0  then &
+          filename$ = filename$ + ".LTR"
+
+25099   end routine
+
+
+
+
+30000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  C H E C K   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Check that the file exists and has no wildcards.
+        !  expects:
+        !       filename$ has the name
+        !  result:
+        !       file_ok = true iff the file exists and has no wildcards.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine check_file
+
+30020   file_ok = false
+        if  pos(filename$,'*') > 0  or  pos(filename$,'%') > 0  then
+          message error : "Wildcards not allowed:  " + filename$
+          exit routine
+        end if
+
+        if  findfile$(filename$) = ""  then
+          message error : "File not found:  " + filename$
+          exit routine
+        end if
+
+        file_ok = true
+
+30099   end routine
+
+
+
+40000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  P R I N T   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Allow the user to print the file with prnt_option
+        !  Expects:
+        !     filename$ = the file to print
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine print_file
+
+40020   u_str$ = filename$
+        u_scr_width% = right_margin
+
+        gosub prnt_ask_option
+
+40099   end routine
+
+
+
+50000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  P A I N T   S C R E E N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Put the standard top and bottom borders on the screen
+        !  Don't erase the line with messages
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  routine paint_screen
+
+50020   clear area 2,1,22,80    !  Not a simple clear because you want
+                                !    any error messages to stay on the screen
+        z0$ = space$(right_margin)
+        cset z0$ = "File Printer"
+        print bold, reverse, at 1,1:z0$;
+
+        z0$ = space$(right_margin)
+        rset z0$ = "\ = Back  HELP = Help"
+        z0$[1:11] = "EXIT = Exit"
+        print bold, reverse, at 24,1:z0$;
+
+50099   end routine
+
+
+
+90000   !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !  P R N T   O P T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !  Allow the user to print to the system printer, printer port,
+        !    or screen.
+        !  Expects:
+	!	u_str$       = file name of the .LST file to print
+	!	u_scr_width% = screen width
+        !       u_dispatch$  = routine to dispatch to after clear screen
+        !                      (u_dispatch$ is cleared on reference)
+        !  Entry point is "prnt_ask_option"
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+90020	%include 'tti_run:print_option.inc'

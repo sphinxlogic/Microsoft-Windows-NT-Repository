@@ -1,0 +1,786 @@
+<!-- VMSFAQ_021.HTML continuation of SRH:[FAQ]VMSFAQ.HTML -->
+<html>
+<head>
+<title>The OpenVMS Frequently Asked Questions(FAQ)</title>
+<style>
+A:hover {color: green}
+A:active {color: red; background-color: white}
+</style>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">The OpenVMS Frequently Asked Questions(FAQ)</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_020.html#bottom_020">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+
+<hr>
+
+<a name="misc7"><h1><font color=maroon>15.4 How to determine the network hardware address?</font></h1></a>
+<a name="index_x_1411"></a>
+
+<p>
+Most Alpha and most VAX systems have a console command that displays 
+the network hardware address. Many systems will also have a sticker 
+identifying the address, either on the enclosure or on the network 
+controller itself.
+
+<p>
+The system console power-up messages on a number of VAX and Alpha 
+systems will display the hardware address, particularly on those 
+systems with an integrated Ethernet network adapter present.
+
+<p>
+If you cannot locate a sticker on the system, if the system powerup 
+message is unavailable or does not display the address, and if the 
+system is at the console prompt, start with the console command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+HELP 
+</pre>
+</font>
+</table>
+
+<p>
+A console command similar to one of the following is typically used to 
+display the hardware address:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+SHOW DEVICE 
+SHOW ETHERNET 
+SHOW CONFIG 
+</pre>
+</font>
+</table>
+
+<p>
+On the oldest VAX Q-bus systems, the following console command can be 
+used to read the address directly off the (DELQA, DESQA, or the 
+not-supported-in-V5.5-and-later DEQNA) Ethernet controller:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+E/P/W/N:5 20001920 
+</pre>
+</font>
+</table>
+
+<p>
+Look at the low byte of the six words displayed by the above command. 
+(The oldest VAX Q-bus systems---such as the KA630 processor module used 
+on the MicroVAX II and VAXstation II series---lack a console HELP 
+command, and these systems typically have the primary network 
+controller installed such that the hardware address value is located at 
+the system physical address 20001920.)
+
+<p>
+If the system is a VAX system, and another VAX system on the network is 
+configured to answer Maintenance and Operations Protocol (MOP) 
+bootstrap requests (via DECnet Phase IV, DECnet-Plus, or LANCP), the 
+MOM$SYSTEM:READ_ADDR.EXE tool can be requested:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+B/R5:100 ddcu 
+Bootfile: READ_ADDR 
+</pre>
+</font>
+</table>
+
+<p>
+Where ddcu is the name of the Ethernet controller in the above command. 
+The primarly local DELQA, DESQA, and DEQNA Q-bus controllers are 
+usually named XQA0. An attempt to MOP download the READ_ADDR program 
+will ensue, and (if the download is successful) READ_ADDR will display 
+the hardware address.
+
+<p>
+If the system is running, you can use DECnet or TCP/IP to display the 
+hardware address with one of the following commands.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$! DECnet Phase IV 
+$ RUN SYS$SYSTEM:NCP 
+SHOW KNOWN LINE CHARACTERISTICS 
+</pre>
+</font>
+</table>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$! DECnet-Plus 
+$ RUN SYS$SYSTEM:NCL 
+SHOW CSMA-CD STATION * ALL STATUS 
+</pre>
+</font>
+</table>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$! TCP/IP versions prior to V5.0 
+$ UCX 
+SHOW INTERFACE/FULL 
+</pre>
+</font>
+</table>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$! TCP/IP versions V5.0 and later 
+$ TCPIP 
+SHOW INTERFACE/FULL 
+</pre>
+</font>
+</table>
+
+<p>
+A program can be created to display the hardware address, reading the 
+necessary information from the network device drivers. A complete 
+example C program for reading the Ethernet or IEEE 802.3 network 
+controller hardware address (via sys$qio calls to the OpenVMS network 
+device driver(s)) is available at the following URL:
+
+<ul>
+  <li>http://www.hp.com/go/openvms/wizard/
+</ul>
+
+<p>
+To use the DECnet Phase IV configurator tool to watch for MOP SYSID 
+activity on the local area network:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ RUN SYS$SYSTEM:NCP 
+SET MODULE CONFIGURATOR KNOWN CIRCUIT SURVEILLANCE ENABLED 
+</pre>
+</font>
+</table>
+
+<p>
+Let the DECnet Phase IV configurator run for at least 20 minutes, and 
+preferably longer. Then issue the following commands:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ RUN SYS$SYSTEM:NCP 
+SHOW MODULE CONFIGURATOR KNOWN CIRCUIT STATUS TO filename.txt 
+SET MODULE CONFIGURATOR KNOWN CIRCUIT SURVEILLANCE DISABLED 
+</pre>
+</font>
+</table>
+
+<p>
+The resulting file (named filename.txt) can now be searched for the 
+information of interest. Most DECnet systems will generate MOP SYSID 
+messages identifying items such as the controller hardware address and 
+the controller type, and these messages are generated and multicast 
+roughly every ten minutes.
+
+<p>
+Information on the DECnet MOP SYSID messages and other parts of the 
+maintenance protocols is included in the DECnet network architecture 
+specifications referenced in section DOC9.
+
+<a name="misc17"><h2>15.4.1 How do I reset the LAN (DECnet-Plus NCL) error counters?</h2></a>
+<a name="index_x_1412"></a>
+
+<p>
+On recent OpenVMS releases:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ RUN SYS$SYSTEM:LANCP 
+SET DEVICE/DEVICE_SPECIFIC=FUNCTION="CCOU" devname 
+</pre>
+</font>
+</table>
+
+<a name="mgmt14"><h2>15.4.2 How do I install DECnet Phase IV on VMS 7.1?</h2></a>
+<a name="index_x_1413"></a>
+
+<p>
+On OpenVMS V7.1, all DECnet binaries were relocated into separate 
+installation kits---you can selectively install the appropriate 
+network: DECnet-Plus (formerly known as DECnet OSI), DECnet Phase IV, 
+and HP TCP/IP Services (often known as UCX).
+
+<p>
+On OpenVMS versions prior to V7.1, DECnet Phase IV was integrated, and 
+there was no installation question. You had to install the DECnet-Plus 
+(DECnet/OSI) package on the system, after the OpenVMS upgrade or 
+installation completed.
+
+<p>
+During an OpenVMS V7.1 installation or upgrade, the installation 
+procedure will query you to learn if DECnet-Plus should be installed. 
+If you are upgrading to V7.1 from an earlier release or are installing 
+V7.1 from a distribution kit, simply answer "NO" to the question asking 
+you if you want DECnet-Plus. Then---after the OpenVMS upgrade or 
+installation completes -- use the PCSI PRODUCT INSTALL command to 
+install the DECnet Phase IV binaries from the kit provided on the 
+OpenVMS software distribution kit.
+
+<p>
+If you already have DECnet-Plus installed and wish to revert, you must 
+reconfigure OpenVMS. You cannot reconfigure the "live" system, hence 
+you must reboot the system using the V7.1 distribution CD-ROM. Then 
+select the DCL ($$$ prompt) option. Then issue the commands:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$$$ DEFINE/SYSTEM PCSI$SYSDEVICE DKA0: 
+$$$ DEFINE/SYSTEM PCSI$SPECIFIC DKA0:[SYS0.] 
+$$$ PRODUCT RECONFIGURE VMS /REMOTE/SOURCE=DKA0:[VMS$COMMON] 
+</pre>
+</font>
+</table>
+
+<p>
+The above commands assume that the target system device and system root 
+are &quot;DKA0:[SYS0.]&quot;. Replace this with the actual target 
+device and root, as appropriate. The RECONFIGURE command will then 
+issue a series of prompts. You will want to reconfigure DECnet-Plus off 
+the system, obviously. You will then want to use the PCSI command 
+PRODUCT INSTALL to install the DECnet Phase IV kit from the OpenVMS 
+distribution media.
+
+<p>
+Information on DECnet support, and on the kit names, is included in the 
+OpenVMS V7.1 installation and upgrade documentation.
+
+<p>
+Subsequent OpenVMS upgrade and installation procedures can and do offer 
+both DECnet Phase IV and DECnet-Plus installations.
+
+<a name="misc15"><h1><font color=maroon>15.5 How can I send (radio) pages from my OpenVMS system?</font></h1></a>
+<a name="index_x_1414"></a>
+
+<p>
+There are third-party products available to send messages to radio 
+paging devices (pagers), communicating via various protocols such as 
+TAP (Telocator Alphanumeric Protocol); paging packages.
+<a name="index_x_1415"></a>
+<a name="index_x_1416"></a>
+<a name="index_x_1417"></a>
+
+<p>
+RamPage (Ergonomic Solutions)
+<a name="index_x_1418"></a>
+<a name="index_x_1419"></a>
+is one of the available packages that can generate and transmit 
+messages to radio pagers. Target Alert (Target Systems; formerly the 
+DECalert product) is another.
+<a name="index_x_1420"></a>
+<a name="index_x_1421"></a>
+Networking Dynamics Corp has a product called Pager Plus. The
+<a name="index_x_1422"></a>
+<a name="index_x_1423"></a>
+System Watchdog package can also send pages. The Process Software
+<a name="index_x_1424"></a>
+<a name="index_x_1425"></a>
+package PMDF can route specific email addresses to a paging service, as 
+well.
+
+<p>
+Many commercial paging services provide email contact addresses for 
+their paging customers---you can simply send or forward email directly 
+to the email address assigned to the pager.
+
+<p>
+Some people implement the sending of pages to radio pagers by sending 
+commands to a modem to take the "phone" off the "hook", and then the 
+paging sequence, followed by a delay, and then the same number that a 
+human would dial to send a numeric page. (This is not entirely 
+reliable, as the modem lacks "call progress detection", and the program 
+could simply send the dial sequence when not really connected to the 
+paging company's telephone-based dial-up receiver.)
+
+<p>
+See <a href="vmsfaq_015.html#soft1">Section 13.1</a> for information on the available catalog of products.
+
+<a name="vmsclusters"><h1><font color=maroon>15.6 OpenVMS, Clusters, Volume Shadowing?</font></h1></a>
+
+<p>
+The following sections contain information on OpenVMS and Clusters, 
+Volume Shadowing, and Cluster-related system parameters.
+
+<a name="vmsscs"><h2>15.6.1 OpenVMS Cluster Communications Protocol Details?</h2></a>
+<a name="index_x_1426"></a>
+
+<p>
+The following sections contain information on the OpenVMS System 
+Communications Services (SCS) Protocol.
+<a name="index_x_1427"></a>
+
+<a name="misc19"><h3>15.6.1.1 OpenVMS Cluster (SCS) over DECnet?  Over IP?</h3></a>
+<a name="index_x_1428"></a>
+<a name="index_x_1429"></a>
+
+<p>
+The OpenVMS Cluster environment operates over various network 
+protocols, but the core of clustering uses the System Communications 
+Services (SCS) protocols, and SCS-specific network datagrams. Direct 
+(full) connectivity is assumed.
+
+<p>
+An OpenVMS Cluster <em>does not</em> operate over DECnet, nor over IP.
+
+<p>
+No SCS protocol routers are available.
+
+<p>
+Many folks have suggested operating SCS over DECnet or IP over the 
+years, but SCS is too far down in the layers, and any such project 
+would entail a major or complete rewrite of SCS and of the DECnet or IP 
+drivers. Further, the current DECnet and IP implementations have large 
+tracts of code that operate at the application level, while SCS must 
+operate in the rather more primitive contexts of the system and 
+particularly the bootstrap---to get SCS to operate over a DECnet or IP 
+connection would require relocating major portions of the DECnet or IP 
+stack into the kernel. (And it is not clear that the result would even 
+meet the bandwidth and latency expectations.)
+
+<p>
+The usual approach for multi-site OpenVMS Cluster configurations 
+involves FDDI, Memory Channel (MC2), or a point-to-point remote bridge, 
+brouter, or switch. The connection must be transparent, and it must 
+operate at 10 megabits per second or better (Ethernet speed), with 
+latency characteristics similar to that of Ethernet or better. Various 
+sites use FDDI, MC2, ATM, or point-to-point T3 link.
+
+<a name="mgmt47"><h3>15.6.1.2 Configuring Cluster SCS for path load balancing?</h3></a>
+<a name="index_x_1430"></a>
+
+<p>
+This section discusses OpenVMS Cluster communications, cluster 
+terminology, related utilities, and command and control interfaces.
+
+<a name="mgmt47scsterm"><h4>15.6.1.2.1 Cluster Terminology?</h4></a>
+<a name="index_x_1431"></a>
+<a name="index_x_1432"></a>
+<a name="index_x_1433"></a>
+
+<p>
+SCS: Systems Communication Services. The protocol used to communicate 
+between VMSCluster systems and between OpenVMS systems and SCS-based 
+storage controllers. (SCSI-based storage controllers do not use SCS.)
+
+<p>
+PORT: A communications device, such as DSSI, CI, Ethernet or FDDI. Each 
+CI or DSSI bus is a different local port, named PAA0, PAB0, PAC0 etc. 
+All Ethernet and FDDI busses make up a single PEA0 port.
+
+<p>
+VIRTUAL CIRCUIT: A reliable communications path established between a 
+pair of ports. Each port in a VMScluster establishes a virtual circuit 
+with every other port in that cluster.
+
+<p>
+All systems and storage controllers establish "Virtual Circuits" to 
+enable communications between all available pairs of ports.
+
+<p>
+SYSAP: A "system application" that communicates using SCS. Each SYSAP 
+communicates with a particular remote SYSAP. Example SYSAPs include:
+
+<p>
+VMS$DISK_CL_DRIVER connects to MSCP$DISK
+<br>
+The disk class driver is on every VMSCluster system. MSCP$DISK is on 
+all disk controllers and all VMSCluster systems that have SYSGEN 
+parameter MSCP_LOAD set to 1
+<a name="index_x_1434"></a>
+<a name="index_x_1435"></a>
+
+<p>
+VMS$TAPE_CL_DRIVER connects to MSCP$TAPE
+<br>
+The tape class driver is on every VMSCluster system. MSCP$TAPE is on 
+all tape controllers and all VMSCluster systems that have SYSGEN 
+parameter TMSCP_LOAD set to 1
+<a name="index_x_1436"></a>
+<a name="index_x_1437"></a>
+
+<p>
+VMS$VAXCLUSTER connects to VMS$VAXCLUSTER
+<br>
+This SYSAP contains the connection manager, which manages cluster 
+connectivity, runs the cluster state transition algorithm, and 
+implements the cluster quorum algorithm. This SYSAP also handles lock 
+traffic, and various other cluster communications functions.
+
+<p>
+SCS$DIR_LOOKUP connects to SCS$DIRECTORY
+<br>
+This SYSAP is used to find SYSAPs on remote systems
+
+<p>
+MSCP and TMSCP
+<br>
+The Mass Storage Control Protocol and the Tape MSCP servers are SYSAPs 
+that provide access to disk and tape storage, typically operating over 
+SCS protocols. MSCP and TMSCP SYSAPs exist within OpenVMS (for OpenVMS 
+hosts serving disks and tapes), within CI- and DSSI-based storage 
+controllers, and within host-based MSCP- or TMSCP storage controllers. 
+MSCP and TMSCP can be used to serve MSCP and TMSCP storage devices, and 
+can also be used to serve SCSI and other non-MSCP/non-TMSCP storage 
+devices.
+
+<p>
+SCS CONNECTION: A SYSAP on one node establishes an SCS connection to 
+its counterpart on another node. This connection will be on ONE AND 
+ONLY ONE of the available virtual circuits.
+
+<a name="mgmt47scsutil"><h4>15.6.1.2.2 Cluster Communications Control?</h4></a>
+<a name="index_x_1438"></a>
+
+<p>
+When there are multiple virtual circuits between two OpenVMS systems it 
+is possible for the VMS$VAXCLUSTER to VMS$VAXCLUSTER connection to use 
+any one of these circuits. All lock traffic between the two systems 
+will then travel on the selected virtual circuit.
+
+<p>
+Each port has a "LOAD CLASS" associated with it. This load class helps 
+to determine which virtual circuit a connection will use. If one port 
+has a higher load class than all others then this port will be used. If 
+two or more ports have equally high load classes then the connection 
+will use the first of these that it finds. Normally all CI and DSSI 
+ports have a load class of 14(hex), while the Ethernet and FDDI ports 
+will have a load class of A(hex).
+
+<p>
+For instance, if you have multiple DSSI busses and an FDDI, the 
+VMS$VAXCLUSTER connection will chose the DSSI bus as this path has the 
+system disk, and thus will always be the first DSSI bus discovered when 
+the OpenVMS system boots.
+
+<p>
+To force all lock traffic off the DSSI and on to the FDDI, for 
+instance, an adjustment to the load class value is required, or the 
+DSSI SCS port must be disabled.
+
+<p>
+Note that with PE ports, you can typically immediately re-enable the 
+path, permitting failover to occur should congestion or a problem 
+arise---a running average of the path latency is checked when the 
+virtual circuit is formed, and at periodic intervals (circa every three 
+seconds), and when a problem with a virtual circuit arises.
+
+<p>
+In the case of PEDRIVER, the driver handles load balancing among the 
+available Ethernet and FDDI connections based on the lowest latency 
+path available to it. Traffic will be routed through that path until an 
+event occurs that requires a fail-over.
+<a name="index_x_1439"></a>
+<a name="index_x_1440"></a>
+<a name="index_x_1441"></a>
+
+<a name="mgmt47scstool"><h4>15.6.1.2.3 Cluster Communications Control Tools and Utilities?</h4></a>
+<a name="index_x_1442"></a>
+
+<p>
+In most OpenVMS versions, you can use the tools:
+
+<ul>
+  <li>SYS$EXAMPLES:LAVC$STOP_BUS
+  <li>SYS$EXAMPLES:LAVC$START_BUS
+</ul>
+
+<p>
+These tools permit you to disable or enable all SCS traffic on the on 
+the specified paths.
+
+<p>
+You can also use a preferred path mechanism that tells the local MSCP 
+disk class driver (DUDRIVER) which path to a disk should be used. 
+Generally, this is used with dual-pathed disks, forcing I/O traffic 
+through one of the controllers instead of the other. This can be used 
+to implement a crude form of I/O load balancing at the disk I/O level.
+
+<p>
+Prior to V7.2, the preferred path feature uses the tool:
+
+<ul>
+  <li>SYS$EXAMPLES:PREFER.MAR
+</ul>
+
+<p>
+In OpenVMS V7.2 and later, you can use the following DCL command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ SET PREFERRED_PATH 
+</pre>
+</font>
+</table>
+
+<a name="index_x_1443"></a>
+
+<p>
+The preferred path mechanism does not disable nor affect SCS operations 
+on the non-preferred path.
+
+<p>
+With OpenVMS V7.3 and later, please see the SCACP utility for control 
+over cluster communications, SCS virtual circuit control, port 
+selection, and related.
+<a name="index_x_1444"></a>
+
+<a name="clusterparams"><h2>15.6.2 Cluster System Parameter Settings?</h2></a>
+
+<p>
+The following sections contain details of configuring cluster-related 
+system parameters.
+
+<a name="mgmt10"><h3>15.6.2.1 What is the correct value for EXPECTED_VOTES in a VMScluster?</h3></a>
+<a name="index_x_1445"></a>
+
+<p>
+The VMScluster connection manager uses the concept of votes and quorum 
+to prevent disk and memory data corruptions---when sufficient votes are 
+present for quorum, then access to resources is permitted. When 
+sufficient votes are not present, user activity will be blocked. The 
+act of blocking user activity is called a "quorum hang", and is better 
+thought of as a "user data integrity interlock". This mechanism is 
+designed to prevent a partitioned VMScluster, and the resultant massive 
+disk data corruptions. <em>The quorum mechanism is expressly intended 
+to prevent your data from becoming severely corrupted.</em>
+
+<p>
+On each OpenVMS node in a VMScluster, one sets two values in SYSGEN:
+<a name="index_x_1446"></a>
+<a name="index_x_1447"></a>
+<a name="index_x_1448"></a>
+<a name="index_x_1449"></a>
+VOTES, and EXPECTED_VOTES. The former is how many votes the node 
+contributes to the VMScluster. The latter is the total number of votes 
+expected when the full VMScluster is bootstrapped.
+
+<p>
+Some sites erroneously attempt to set EXPECTED_VOTES too low, believing 
+that this will allow when only a subset of voting nodes are present in 
+a VMScluster. It does not. Further, an erroneous setting in 
+EXPECTED_VOTES is automatically corrected once VMScluster connections 
+to other nodes are established; user data is at risk of severe 
+corruptions during the earliest and most vulnerable portion of the 
+system bootstrap, before the connections have been established.
+
+<p>
+One can operate a VMScluster with one, two, or many voting nodes. With 
+any but the two-node configuration, keeping a subset of the nodes 
+active when some nodes fail can be easily configured. With the two-node 
+configuration, one must use a primary-secondary configuration (where 
+the primary has all the votes), a peer configuration (where when either 
+node is down, the other hangs), or (preferable) a shared quorum disk.
+
+<p>
+Use of a quorum disk does slow down VMScluster transitions somewhat -- 
+the addition of a third voting node that contributes the vote(s) that 
+would be assigned to the quorum disk makes for faster transitions---but 
+the use of a quorum disk does mean that either node in a two-node 
+VMScluster configuration can operate when the other node is down.
+
+<p>
+If you choose to use a quoum disk, a QUORUM.DAT file will be 
+automatically
+<a name="index_x_1450"></a>
+created when OpenVMS first boots and when a quorum disk is specified -- 
+well, the QUORUM.DAT file will be created when OpenVMS is booted 
+without also needing the votes from the quorum disk.
+
+<p>
+In a two-node VMScluster with a shared storage interconnect, typically 
+each node has one vote, and the quorum disk also has one vote. 
+EXPECTED_VOTES is set to three.
+
+<p>
+Using a quorum disk on a non-shared interconnect is unnecessary---the 
+use of a quorum disk does not provide any value, and the votes assigned 
+to the quorum disk should be assigned to the OpenVMS host serving 
+access to the disk.
+
+<p>
+For information on quorum hangs, see the OpenVMS documentation. For 
+information on changing the EXPECTED_VOTES value on a running system, 
+see the SET CLUSTER/EXPECTED_VOTES command, and see the documentation 
+for the AMDS and Availability Manager tools. Also of potential interest 
+is the OpenVMS system console documentation for the processor-specific 
+console commands used to trigger the IPC (Interrrupt Priority Level 
+%x0C; IPL C) handler. AMDS, Availability Manager, and the IPC handler 
+can each be used to clear a quorum hang. Use of AMDS and Availability 
+Manager is generally recommended over IPC, particularly because IPC can 
+cause CLUEXIT bugchecks if the system should remain halted beyond the 
+cluster sanity timer limits.
+
+<p>
+The quorum scheme is a set of &quot;blade guards&quot; deliberately 
+implemented by OpenVMS Engineering to provide data integrity---remove 
+these blade guards at your peril. OpenVMS Engineering did <em>not</em> 
+implement the quorum mechanism to make a system manager's life more 
+difficult--- <em>the quorum mechanism was specifically implemented to 
+keep your data from getting scrambled.</em>
+
+<a name="mgmt61"><h3>15.6.2.2 Explain disk (or tape) allocation class settings?</h3></a>
+<a name="index_x_1451"></a>
+
+<p>
+The allocation class mechanism provides the system manager with a way 
+to configure and resolve served and direct paths to storage devices 
+within a cluster. Any served device that provides multiple paths should 
+be configured using a non-zero allocation class, either at the MSCP (or 
+TMSCP) storage controllers, at the port (for port allocation classes), 
+or at the OpenVMS MSCP (or TMSCP) server. All controllers or servers 
+providing a path to the same device should have the same allocation 
+class (at the port, controller, or server level).
+
+<p>
+Each disk (or tape) unit number used within a non-zero disk (or tape) 
+allocation class must be unique, regardless of the particular device 
+prefix. For the purposes of multi-path device path determination, any 
+disk (or tape) device with the same unit number and the same disk (or 
+tape) allocation class configuration is assumed to be the same device.
+
+<p>
+If you are reconfiguring disk device allocation classes, you will want 
+to avoid the use of allocation class one ($1$) until/unless you have 
+Fibre Channel storage configured. (Fibre Channel storage specifically 
+requires the use of allocation class $1$. eg: $1$DGA0:.)
+
+<a name="mgmt42"><h4>15.6.2.2.1 How to configure allocation classes and Multi-Path SCSI?</h4></a>
+<a name="index_x_1452"></a>
+
+<p>
+The HSZ allocation class is applied to devices, starting with OpenVMS 
+V7.2. It is considered a port allocation class (PAC), and all device 
+names with a PAC have their controller letter forced to "A". (You might 
+infer from the the text in the "Guidelines for OpenVMS Cluster 
+Configurations" that this is something you have to do, though OpenVMS 
+will thoughtfully handle this renaming for you.)
+
+<p>
+You can force the device names back to DKB by setting the HSZ 
+allocation class to zero, and setting the PKB PAC to -1. This will use 
+the host allocation class, and will leave the controller letter alone 
+(that is, the DK controller letter will be the same as the SCSI port 
+(PK) controller). Note that this won't work if the HSZ is configured in 
+multibus failover mode. In this case, OpenVMS requires that you use an 
+allocation class for the HSZ.
+
+<p>
+When your configuration gets even moderately complex, you must pay 
+careful attention to how you assign the three kinds of allocation 
+class: node, port and HSZ/HSJ, as otherwise you could wind up with 
+device naming conflicts that can be painful to resolve.
+
+<p>
+The display-able path information is for SCSI multi-path, and permits 
+the multi-path software to distinguish between different paths to the 
+same device. If you have two paths to $1$DKA100, for example by having 
+two KZPBA controllers and two SCSI buses to the HSZ, you would have two 
+UCBs in a multi-path set. The path information is used by the 
+multi-path software to distinguish between these two UCBs.
+
+<p>
+The displayable path information describes the path; in this case, the 
+SCSI port. If port is PKB, that's the path name you get. The device 
+name is no longer completely tied to the port name; the device name now 
+depends on the various allocation class settings of the controller, 
+SCSI port or node.
+
+<p>
+The reason the device name's controller letter is forced to "A" when 
+you use PACs is because a shared SCSI bus may be configured via 
+different ports on the various nodes connected to the bus. The port may 
+be PKB on one node, and PKC on the other. Rather obviously, you will 
+want to have the shared devices use the same device names on all nodes. 
+To establish this, you will assign the same PAC on each node, and 
+OpenVMS will force the controller letter to be the same on each node. 
+Simply choosing "A" was easier and more deterministic than negotiating 
+the controller letter between the nodes, and also parallels the 
+solution used for this situation when DSSI or SDI/STI storage was used.
+
+<p>
+To enable port allocation classes, see the SYSBOOT command SET/BOOT, 
+and see the DEVICE_NAMING system parameter.
+<a name="index_x_1453"></a>
+<a name="index_x_1454"></a>
+<a name="index_x_1455"></a>
+
+<p>
+This information is also described in the Cluster Systems and 
+Guidelines for OpenVMS Cluster Configurations manuals.
+
+<a name="bottom_021"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_020.html#bottom_020">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vmsfaq_022.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+</body>
+</html>

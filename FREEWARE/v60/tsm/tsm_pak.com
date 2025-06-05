@@ -1,0 +1,12 @@
+$! Software Product Authorization Key Replica
+$! Issued by HOFFMAN
+$! Issued on  7-OCT-2003 10:18
+$!-----------------------------------
+$ LICENSE REGISTER TSM -
+/ISSUER=FREEWARE -
+/AUTHORIZATION=OPENVMS_FREEWARE6 -
+/PRODUCER=DEC -
+/UNITS=0 -
+/ACTIVITY=CONSTANT=100 -
+/CHECKSUM=2-OCPN-HFKA-KFNO-NAMN
+$ LICENSE LOAD TSM

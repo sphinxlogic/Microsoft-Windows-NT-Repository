@@ -1,0 +1,2317 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program     HELP_MAINT
+        ! Purpose     Help file maintenance
+        ! Date        6 Feb 1989
+        ! Written by  Robert Steven van Keuren
+        ! For         Touch Technologies, Inc.
+        ! Modified    18 Apr 1991
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Modification History
+        ! Date  Who  What
+        ! 4 Jan 90   RSvK  Change CALL to PASS for ADD and EDIT.  Note:  
+        !                  this slows down the program considerably.
+        ! 9 Jan 90   RSvK  Added PRINT routine.
+        ! 1 Apr 90   RSvK  Added ORPHAN routine to find references to
+        !                  non-existent topics.
+        ! 30 Oct 90  RSvK  Changed USER: to STORAGE:.
+        !
+        ! 20 Mar 91  RSvK  Beginning CREATE routine.
+        !                  Changed location of help include file and
+        !                  help file to DEVDISK:[INTOUCH_HELP].
+        !
+        ! 18 Apr 91  RSvK  Changed to use .STR and .DEF files in TTI_RUN:.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N C L U D E   F I L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Include files used:
+        !   INTOUCHHELP$:HELP.INC        Help module
+        !       Changed to TTI_RUN:HELP.INC in production.
+        !   TTI_RUN:PRINT_OPTION         Print option
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+610   help_include_line:  %include 'tti_run:help'
+
+620   print_option_line:  %include 'tti_run:print_option'
+
+
+
+2000    !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A I N   L O G I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize, open files, etc.
+        ! Repeat
+        !   Show procedures
+        !   Ask for procedure
+        !   Dispatch to procedure
+        !
+        ! Used:
+        !   procedure%         Procedure number
+        !   banner$            Banner at top of screen
+        !   exit%              True if user wants to exit
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+  main_logic:
+
+        gosub initialize
+        if  exit%  then  stop
+        do
+          gosub get_procedure
+          if  _exit or _back  then  exit do
+          on procedure% gosub add,      change,   convert,  &
+                              create,   delete,   edit,     &
+                              help,     next,     orphan,   &
+                              print,    related,  rename,   &
+                              show
+
+          lset banner$[12:20] = ''
+          ! print at 1, 1, reverse: banner$;
+          ! print at 24, 1, reverse: bottom$;
+        loop
+        set scroll 1, 24
+        stop
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T I A L I Z E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize
+        !   Turn off frame and clear screen
+        !   Print banner
+        !   Set scrolling region
+        !   Initialize variables
+        !   Open structures
+        !
+        ! Expected:
+        !
+        ! Used:
+        !   first_open%        True first time we open a user help structure
+        !   helpdir$           Directory where help program is
+        !
+        ! Result:
+        !   banner$            Banner at top of screen
+        !   bottom$            Banner at bottom of screen
+        !   user_structure$    Help structure variable, set to null string
+        !                      so the compiler won't complain.
+        !   maint_str          Help maint program help structure handle
+        !   maint_str$         Help maint program help structure ID variable
+        !   help               Help structure variable
+        !   screen_width%      Screen width, 80 or 132
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine initialize
+
+        frame off
+        clear
+        declare structure help
+
+        set scroll 2, 24
+        gosub init_variables
+
+        ask margin screen_width%
+        banner$ = rpad$('Help_Maint', screen_width%)
+        print at 1, 1, reverse: banner$;
+
+        bottom$ = rpad$('Exit', screen_width%)
+        lset bottom$[72:79] = '\ = Back'
+        print at 24, 1, reverse: bottom$;
+
+        gosub open_help_maint_help
+        gosub open_initial_structure
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T   V A R I A B L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !
+        ! Result:
+        !   helpdir$           Device and directory where help module is
+        !   help_maint_help$   Help data structure for HELP_MAINT
+        !   help_maint_str$    Structure ID variable for HELP_MAINT 
+        !   help_structure$    Set to itself to prevent warning message 
+        !                      from INTOUCH compiler
+        !   quotes$            Single and double quotes
+        !   prompt_row%        Row to print prompts on
+        !   out_ch%            Output channel
+        !   crlf$              CR + LF pair
+        !   error%             Error flag
+        !   help               Help structure, opened
+        !   procedures$        List of procedures
+        !   related_topic$     Array of related topics and nicknames
+        !   tmpfil$            Temporary file for use with editor
+        !   tti_run_help$      Help structure template in TTI_RUN:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine init_variables
+
+        dim related_topic$(20, 2)
+
+        crlf$ = chr$(13) + chr$(10)
+
+        !### Change next line for production/development ###
+        ! helpdir$         = 'intouchhelp$:'
+        helpdir$         = 'tti_run:'
+        help_maint_help$ = helpdir$ + 'help_maint_help'
+        help_maint_str$  = ''
+        help_structure$  = help_structure$
+        tti_run_help$    = helpdir$ + 'help'
+        out_ch%          = 2
+        procedures$      = &
+               'Add, Create, Delete, Edit, Inquire, Next' &
+             + ', Print, Rename, Show'
+        procedure_list$  = &
+              'add,change,convert,create,delete,edit,inquire,next,orphan' &
+            + ',print,related,rename,show'
+        prompt_row%      = 21
+        quotes$          = '"' + "'"
+        tmpfil$          = 'sys$scratch:help.tmp'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O P E N   H E L P   M A I N T   H E L P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Open the help structure for the HELP_MAINT program itself.
+        ! If any error occurs, report it and halt.
+        !
+        ! Expected:
+        !   help_maint_help$   Help structure for HELP_MAINT
+        !
+        ! Used:
+        !
+        ! Result:
+        !   help_maint_str$    Structure ID for help for this program
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine open_help_maint_help
+
+        when exception in
+          open structure maint_str: name tti_run_help$, &
+                datafile help_maint_help$ + '.dat'
+        use
+          message extext$ + ' for ' + ucase$(help_maint_help$)
+          halt
+        end when
+        ask structure maint_str: id help_maint_str$
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O P E N   I N I T I A L   S T R U C T U R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Open the initial help structure.
+        ! Try to get a default structure from the command line or logical.
+        ! If no default, ask the user.
+        ! Open the structure.
+        ! If the help structure doesn't exist, ask whether to create it.
+        ! If yes, create it.
+        ! Reset some flags.
+        !
+        ! Expected:
+        !
+        ! Used:
+        !   ask_str%           True if we need to ask for structure
+        !   exit%              True if user wants to exit
+        !   error%             True if some error occurred
+        ! 
+        ! Result:
+        !   user_structure$    User help structure file spec
+        !   first_open%        True when opening first help structure
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine open_initial_structure
+
+        gosub get_default_structure
+        do
+          if  ask_str% = true  then
+            first_open% = true
+            gosub ask_structure
+            if  exit%  then  exit routine
+          end if  
+          gosub open_user_structure
+          if  _error then
+            print at prompt_row%, 1, erase:;
+            line input at prompt_row%, 1, valid 'YES/NO', &
+                 prompt 'Create this help structure (Y/N)? ': yn$
+            ask_str% = true
+            if  ucase$(yn$)[1:1] <> 'Y'  then  repeat do
+            str$ = user_structure$
+            gosub create_structure
+            if  _error then  repeat do
+          end if
+        end do
+
+        ask_str% = false
+        first_open% = false
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   D E F A U L T   S T R U C T U R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check the command line first,
+        ! then the logical TTI_HELP_STRUCTURE.
+        ! If no name found, set flag that we need to ask for one.
+        !
+        ! Expected:
+        !
+        ! Used:
+        !
+        ! Result:
+        !   user_structure$    Name of default structure
+        !   ask_str%           True if we need to ask for structure
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_default_structure
+
+        ask system: parameter user_structure$
+        if  user_structure$ = ''  then
+          ask system, logical 'tti_help_structure': value user_structure$
+        end if
+
+        if  user_structure$ = ''  then  ask_str% = true
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   P R O C E D U R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for a procedure.
+        ! Verify procedure name.
+        ! Get procedure number.
+        !
+        ! Expected:
+        !   screen_width%      Screen width
+        !   prompt_row%        Row for prompts
+        !   procedures$        List of procedures to display
+        !   procedure_list$    List of procedures (internal)
+        !
+        ! Used:
+        !   help_topic$        Help topic
+        !
+        ! Result:
+        !   cmdline$           Entire command line typed in
+        !   cmddat$            Command line data
+        !   procedure$         Name of procedure selected
+        !   procedure%         Number of procedure selected
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_procedure
+
+        print at prompt_row% - 2, 1, erase: 'Procedures: '
+        print erase: procedures$;
+        do
+          clear area prompt_row%, 1, prompt_row%, screen_width%
+          input at prompt_row%, 1, prompt 'Procedure: ': cmdline$
+          if  _exit or _back  then  exit routine
+          procedure$ = element$(cmdline$, 1, ' ')
+          cmddat$ = trim$(cmdline$[len(procedure$) + 2 : len(cmdline$)])
+          help_topic$ = cmddat$
+          if  _help  or  (lcase$(procedure$) = 'help')  then
+            help_topic$ = 'PROCEDURE'
+            gosub maint_help
+            repeat do
+          end if
+          if  trim$(_reply) = ''  then  repeat do
+          clear area prompt_row%, 1, prompt_row%, screen_width%
+          procedure% = item(procedure_list$, procedure$)
+          if  procedure% < 1  then 
+            message 'Unknown procedure: ' + procedure$
+            repeat do
+          end if
+        end do
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A I N T   H E L P
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display help for the HELP_MAINT program itself.
+        ! Strip off any leading HELP keyword.
+        ! Set up to use the program's help structure.
+        ! Reset afterwards to user's structure, unless this is help
+        !   for the very first structure question.
+        !
+        ! Expected:
+        !   banner$            Top line banner
+        !   help_topic$        Help topic name
+        !                      If user's reply was HELP xxx, we use that.
+        !   first_open%        True if asking structure for first time
+        !   user_str$          Structure ID of user structure
+        !   help_maint_str$    Structure ID of program's help structure
+        !   _reply             User's actual reply to last input
+        !
+        ! Result:
+        !   banner$            Top line banner, procedure blanked
+        !   help_topic$        Reset to null string
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine maint_help
+
+        z$ = ucase$(_reply)
+        if  element$(z$, 1, ' ') = 'HELP'  then  help_topic$ = z$[6: len(z$)]
+
+        set structure help: id help_maint_str$
+        gosub help
+
+        if  first_open% = false  then
+          when exception in
+            set structure help: id user_str$
+          use
+            message str$(extype) + ' ' + extext$ + ' for user help structure'
+            halt
+          end when
+        end if
+        help_topic$ = ''
+
+        lset banner$[12:20] = ''
+        print at 1, 1, reverse: banner$;
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A D D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Clear screen
+        ! Ask for topic and text.
+        !   Allow the user to edit the new text.
+        ! Add the new record.
+        !
+        ! Expected:
+        !   screen_width%      Screen width
+        !   tmpfil$            Temp file for editor
+        !   out_ch%            Output channel
+        !
+        ! Used:
+        !   topic$             Topic to add
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine add
+
+        print at 1, 12, reverse: 'Add     ';
+        clear area 2, 1, prompt_row%, screen_width%
+
+        do
+          gosub add_get_topic
+          if  exit_wanted%  then  exit routine
+
+          open #out_ch%: name tmpfil$, access output
+          close #out_ch%
+
+          gosub edit_file  
+          clear
+          print at 1, 1, reverse: banner$;
+          print at 1, 12, reverse: 'Add';
+
+          add structure help
+            let help(topic) = topic$
+            let help(subtopic) = subtopic$
+            gosub read_tmp_file
+          end add
+        loop
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A D D   G E T   T O P I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for topic.
+        ! Bring any record for this topic into memory.
+        ! If we find one, report an error and ask again.
+        ! Also extract the subtopic.
+        !
+        ! Expected:
+        !
+        ! Used:
+        !   prompt$            Prompt text
+        ! 
+        ! Result:
+        !   exit_wanted%       True if user wants to exit from ADD
+        !   topic$             Name of topic
+        !   subtopic$          Subtopic name--last word of topic.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine add_get_topic
+
+        exit_wanted% = false
+        help_topic$ = 'ADD TOPIC'
+        prompt$ = 'Topic to add'
+        do
+          gosub ask_topic
+          if  _exit or _back  or  topic$ = ''  then
+            exit_wanted% = true
+            exit routine
+          end if
+          set structure help, field topic: key topic$
+          if  _extracted > 0  then
+            message 'Topic already exists: ' + topic$
+            repeat do
+          end if
+        end do
+        subtopic$ = element$(topic$, elements(topic$, ' '), ' ')
+        help_topic$ = ''
+
+        end routine
+
+
+
+        ! C H A N G E
+        !
+        ! Change related topics, global change of text, etc.
+        !
+        ! Expected:
+        !
+        ! Result:
+        !
+        routine change
+
+        clear area 2, 1, 10, 80
+
+        do
+          prompt$ = 'Topic record: '
+          gosub ask_topic
+          if  _exit or _back  then  exit routine
+          topic_record$ = topic$
+          print at 4, 1: 'Record: '; topic_record$
+
+          set structure help, field topic: key topic_record$
+          if  _extracted = 0  then
+            message "Can't find topic " + topic_record$
+            df_topic$ = topic_record$
+            repeat do
+          end if
+          relpos% = pos(help(text), 'Related topics:')
+          if  relpos% = 0  then
+            message 'No related topics in this record'
+            repeat do
+          end if
+        end do
+
+        uptext$ = ucase$(help(text))
+        do
+          prompt$ = 'Topic reference to change: '
+          gosub ask_topic
+          if  _exit or _back  then  exit routine
+          old_topic$ = topic$
+          print at 5, 1: 'Reference to change: '; old_topic$
+          refpos% = pos(uptext$, old_topic$, relpos% + 15)
+          if  refpos% = 0  then
+            message "Can't find reference: " + old_topic$
+            repeat do
+          end if
+          print at 8, 1: 'Found reference at '; refpos%
+        end do
+
+        prompt$ = 'Change topic reference to: '
+        gosub ask_topic
+        if  _exit or _back  then  exit routine
+        new_topic$ = topic$
+        print at 6, 1: 'Change to: '; new_topic$
+
+        message 'Change not yet finished'
+        delay 2
+
+        end routine
+
+
+
+        ! C O N V E R T
+        !
+        ! This is a temporary routine used to convert data from
+        ! one format to another.  Not a standard routine.
+        !
+        ! Expected:
+        !
+        ! Result:
+        !
+        routine convert
+
+        line input at 22, 1, prompt 'Partial key to convert: ': ky$
+        if  _exit or _back or _reply = ''  then  exit routine
+        ky$ = ucase$(ky$)
+
+        extract structure help, field topic: partial key ky$
+        end extract
+        orphan_extracted% = false
+
+        for each help
+          text$ = help(text)
+          ptr% = 1
+          do
+            z% = pos(text$, 'num-', ptr%)
+            if  z% = 0  then  exit do
+            text$[z%+3:z%+3] = '-'
+            ptr% = z% + 4
+          loop
+          help(text) = text$
+        next help
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C R E A T E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Create a help structure.
+        ! Ask for the name.
+        ! Create the structure file, data file, and definition file.
+        ! Open the new structure.
+        !
+        ! Expected:
+        !   screen_width%      Screen width
+        !   prompt_row%        Prompt row
+        !
+        ! Used:
+        !   str$               New help structure file spec
+        !
+        ! Result:
+        !   exit%              True if user wants to exit
+        !   user_structure$    File spec for new structure
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine create
+
+        clear area prompt_row% - 1, 1, prompt_row%, screen_width%
+        gosub get_structure_name
+        if  exit%  then  exit routine
+
+        gosub create_structure
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   S T R U C T U R E   N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Expected:
+        !   prompt_row%        Row for prompts
+        !   screen_width%      Screen width
+        !
+        ! Result:
+        !   _back              True if user asks to back up
+        !   _exit              True if user wants to exit
+        !   str$               Name of help structure to create
+        !   exit%              True if user wants to exit
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_structure_name
+
+        exit% = false
+        do
+          clear area prompt_row%, 1, prompt_row%, screen_width%
+          line input at prompt_row%, 1, prompt 'Structure to create: ': str$
+          if  _help  then
+            help_topic$ = 'create structure'
+            gosub help
+            repeat do
+          end if
+        end do
+
+        str$ = ucase$(trim$(str$))
+        if  _exit or _back or  str$ = ''  then  exit% = true
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C R E A T E   A S K   R E C O R D   L E N G T H
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! This routine is not currently implemented.  It is planned for
+        ! an enhancement to adjust field sizes.
+        !
+        ! Expected:
+        !   1568   Default record size
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine create_ask_record_length
+
+        do
+          input at prompt_row%, 1, prompt 'Record size: ', default '1568', &
+                valid 'integer': rec_size%
+          if  rec_size% < 65  then
+            message 'Record size must be at least 65'
+            repeat do
+          end if
+        end do
+        if  _exit or _back  then
+          exit% = true
+          exit routine
+        end if
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C R E A T E   S T R U C T U R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Create a help structure and open it.
+        !
+        ! Expected:
+        !   str$               Help structure to create
+        !
+        ! Used:
+        !
+        ! Result:
+        !   user_structure$    Name of new help structure
+        !   We create the structure and open it.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine create_structure
+
+        gosub create_data_file
+
+        user_structure$ = str$
+        gosub open_user_structure
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C R E A T E   S T R U C T U R E   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !   str$               Structure file spec
+        !
+        ! Used:
+        !   text$              Line of text
+        !   out_ch%            Output channel
+        !   in_ch%             Input channel
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine create_structure_file
+
+        print at 1, 12, reverse: 'Create structure file ';      !+ Debug line
+        gosub create_open
+
+        line input #in_ch%: text$
+        print #out_ch%: text$
+
+        line input #in_ch%: text$
+        lset text$[4:67] = str$ + '.DAT'
+        print #out_ch%: text$
+
+        line input #in_ch%: text$
+        lset text$[4:67] = str$ + '.DEF'
+        print #out_ch%: text$
+
+        close #in_ch%
+        close #out_ch%
+
+        message 'Structure file created'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C R E A T E   O P E N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Open files for CREATE procedure.
+        ! Set up the channels.
+        ! Open the HELP_MAINT help structure file.
+        ! Open the structure file for the new help structure.
+        !
+        ! Expected:
+        !   str$               New structure to create
+        !   help_maint_help$   File spec of HELP MAINT help structure
+        !
+        ! Used:
+        !   str_file$          Structure file spec
+        !
+        ! Result:
+        !   out_ch%            Output channel
+        !   in_ch%             Input channel
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine create_open
+
+        message 'Opening structure files'
+
+        in_ch%  = 1
+        out_ch% = 2
+        str_file$ = help_maint_help$ + '.str'
+
+        when exception in
+          open #in_ch%: name str_file$, access input
+        use
+          message extext$ + ' for ' + str_file$
+          delay 1
+          halt
+        end when
+
+        when exception in
+          open #out_ch%: name str$ + '.str', access output
+        use
+          message extext$ + ' for ' + str$ + '.str'
+          delay 1
+          halt
+        end when
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C R E A T E   D A T A   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Create the data file.
+        !
+        ! Expected:
+        !   str$               Structure file spec
+        !
+        ! Result:
+        !
+        ! 
+        ! Used:
+        !   text$              Line of text
+        !   error%             True when we get to end of FDL file
+        ! 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine create_data_file
+
+        ! gosub read_fdl_file
+
+        !z$ = str$ + '.dat' ++DJS++ 10-DEC-1992 already has .dat on  it from open
+        z$ = str$
+        message 'Data file: ' + ucase$(z$)
+        delay 2
+        pass 'create/fdl=tti_run:help.fdl ' + z$
+        ! pass 'create/fdl=' + helpdir$ + 'help_maint_help ' + z$
+        delay 2
+        message 'Data file created'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E A D   F D L   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !
+        ! Used:
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine read_fdl_file
+
+        print at 2, 1:;
+        print 'Reading FDL file'
+
+        open #in_ch%: name 'tti_run:help.fdl'
+        error% = false
+        print% = false
+        do
+          when exception in
+            line input #in_ch%: text$
+          use
+            error% = true
+          end when
+          if  error%  then  exit do
+          select case trim$(text$[1:3])
+            case 'KEY', 'RECORD'
+              print% = true
+              if  print%  then  print ascii(text$[1:1]); '  '; text$
+            case is <> '' :  print% = false
+            case else
+              print% = false
+          end select
+        loop
+        close #in_ch%
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C R E A T E   D E F I N I T I O N   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !   str$               Help structure to create
+        !   helpdir$           Help system directory
+        !
+        ! Used:
+        !
+        ! Result:
+        !   We create the definition file for the new help data structure.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine create_definition_file
+
+        pass 'copy ' + helpdir$ + 'help_maint_help.def ' + str$ + '.def'
+        message 'Definition file copied'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D E L E T E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Delete a topic.
+        !
+        ! Expected:
+        !   help               Help structure tag
+        !   screen_width%      Screen width
+        !
+        ! Used:
+        !   topic$             Topic to delete
+        !   yn$                YES or NO reply to "Sure delete"
+        ! 
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine delete
+
+        print at 1, 12, reverse: 'Delete ';
+        clear area prompt_row%, 1, prompt_row%, screen_width%
+        do
+          gosub delete_get_topic
+          if  _exit or _back  then  exit routine
+          gosub ask_sure_delete
+          if  _exit  or  _back  then  repeat do
+          if  ucase$(yn$[1:1]) <> 'Y'  then
+            message 'Topic saved'
+            repeat do
+          end if
+          delete structure help
+          message 'Topic ' + topic$ + ' deleted'
+          topic$ = ''
+        loop
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D E L E T E   G E T   T O P I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for topic, bring into memory, and display some lines.
+        ! We allow the user to enter a null topic here in case
+        ! there is a need to delete a null key entered accidentally.
+        !
+        ! Expected:
+        !   screen_width%      Screen width
+        ! 
+        ! Used:
+        !   prompt$            Prompt text
+        !
+        ! Result:
+        !   help_topic$        Reset to null string
+        !   topic$             Topic to delete, uppercase
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine delete_get_topic
+
+        prompt$ = 'Topic to delete'
+        help_topic$ = 'DELETE TOPIC'
+        do
+          gosub ask_topic
+          if  _exit or _back  then  exit routine
+          set structure help, field topic: key topic$
+          if  _extracted = 0  then
+            message "Can't find topic " + topic$
+            repeat do
+          end if
+        end do
+        help_topic$ = ''
+
+        clear area 2, 1, 21, screen_width%
+        print at 2,1: 'Topic to delete: '; topic$
+        for z% = 1 to 5
+          print edit$(piece$(help(text), z%), 4)
+        next z%
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   S U R E   D E L E T E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask whether sure they want to delete.
+        !
+        ! Expected:
+        !
+        ! Result:
+        !   yn$                YES or NO
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_sure_delete
+
+        do
+          input at prompt_row%, 1, prompt 'Sure delete topic ' + topic$ + ' (Y/N)? ', &
+                default 'NO', valid 'YES/NO': yn$
+          if  _help  then
+            help_topic$ = 'delete sure'
+            gosub help
+            repeat do
+          end if
+        end do
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L I N K
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! NO LONGER USED.
+        !
+        ! Handle links
+        ! Ask whether to add, delete, or show.
+        !
+        ! Expected:
+        !
+        ! Used:
+        !   link_procedure$    Link procedure
+        !   link_pro$          Link procedure, first letter
+        !
+        ! Result:
+        !
+        !### This routine is no longer used.  It was used to handle
+        !### cross-references when they were kept in a separate file.
+        !### It is being preserved for future enhancements.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine link
+
+        do
+          clear area prompt_row%, 1, prompt_row%, screen_width%
+          print at prompt_row%, 1: 'Link procedures: Add, Delete, Show';
+          line input at prompt_row%, 1, prompt 'Link procedure: ': link_procedure$
+          if  _exit or _back  then  exit do
+          if  trim$(link_procedure$) = ''  then  repeat do
+          link_pro$ = lcase$(link_procedure$[1:1])
+          select case link_pro$
+            case 'a':  gosub link_add
+            case 'd':  gosub link_delete
+            case 'm':  gosub link_modify
+            case 's':  gosub link_show
+            case else
+              message 'Unknown procedure: ' + link_procedure$
+          end select
+        loop
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L I N K   A D D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! NO LONGER USED.
+        !
+        ! Add links
+        !
+        ! Expected:
+        !
+        ! Result:
+        !
+        ! Used:
+        !   nickname$          Nickname
+        !   child$             Child topic
+        !   parent$            Parent topic
+        ! 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine link_add
+
+        do
+          gosub link_add_ask
+          if  _exit or _back or _reply = ''  then  exit routine
+
+          add structure ref
+            ref(topic)     = ucase$(parent$)
+            ref(reference) = ucase$(child$)
+            ref(nickname)  = ucase$(nickname$)
+          end add
+        loop
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L I N K   A D D   A S K
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! NO LONGER USED.
+        !
+        ! Expected:
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine link_add_ask
+
+        clear area prompt_row%, 1, 23, screen_width%
+        link_add_ask_first:
+          gosub ask_first_topic
+          if  _exit or _back or _reply = ''  then  exit routine
+
+        link_add_ask_second:
+          gosub ask_second_topic
+          if  _exit  or  _reply = ''  then  exit routine
+          if  _back  then  goto link_add_ask_first
+
+        do
+          clear area 23, 1,23,screen_width%
+          line input at 23, 1, prompt 'Nickname: ', default child$: nickname$
+          if  _exit  then  exit routine
+          if  _back  then  goto link_add_ask_second
+          if  _reply = ''  then  repeat do
+        end do
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L I N K   D E L E T E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! NO LONGER USED.
+        !
+        ! Delete a link
+        !
+        ! Expected:
+        !   screen_width%      Screen width
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine link_delete
+
+        print at 1, 12, reverse: 'Link Delete';
+        do                          
+          gosub link_delete_get_topics
+          if  _exit or _back or _reply = ''  then  exit routine
+          if  _extracted = 0  then
+            message 'No link found'
+            repeat do
+          else
+            if  _extracted > 1  then  message 'Multiple links found'
+            set structure ref: pointer 1
+            ask structure ref: current z$
+          end if
+          clear area 23, 1,23,screen_width%
+          line input at 23, 1, prompt 'Sure delete (Y/N): ', &
+               default 'NO', valid 'YES/NO': z$
+          if  _back  then  repeat do
+          if  _exit  then  exit routine
+          if  ucase$(z$[1:1]) = 'Y'  then        
+            delete structure ref
+            message 'Link deleted'
+          end if
+          clear area 16, 1,23, screen_width%
+        loop
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L I N K   D E L E T E   G E T   T O P I C S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for parent and child topics for linking.
+        ! (This routine is not currently used.)
+        ! Display the topics.
+        ! Extract the records that match.
+        !
+        ! Expected:
+        !
+        ! Result:
+        !   parent$            Parent topic
+        !   _exit, _back       True if user wants to exit.
+        !   child$             Child topic
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine link_delete_get_topics
+
+        do
+          gosub ask_first_topic
+          if  _exit or _back or _reply = ''  then  exit routine
+          help_topic$ = 'SECOND TOPIC'
+          prompt$ = 'Second topic'
+          gosub ask_topic
+          if  _back  then  repeat do
+          if  _exit  or  _reply = ''  then  exit routine
+          child$ = topic$
+        end do
+        help_topic$ = ''
+
+        clear area 16, 1, 18, screen_width%
+        print at 16, 1: 'First topic : '; parent$
+        print at 17, 1: 'Second topic: '; child$
+
+        extract structure ref, field topic: key parent$
+          include ref(reference) = ucase$(child$)
+        end extract
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L I N K   M O D I F Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! NOT USED.
+        !
+        ! Modify link between two topics
+        !
+        ! Expected:
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine link_modify
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   F I R S T   T O P I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for first topic to link
+        !
+        ! Expected:
+        !   screen_width%      Screen width
+        !   prompt_row%        Row for prompts
+        !
+        ! Result:
+        !   parent$                First topic to link
+        !   _exit, _back, _reply   Set as wanted.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_first_topic
+
+        help_topic$ = 'FIRST TOPIC'
+        prompt$ = 'First topic'
+        do
+          gosub ask_topic
+          if  _exit or _back  or  topic$ = ''  then  exit routine
+          parent$ = topic$
+        
+          set structure help, field topic: key parent$
+          if  _extracted = 0  then
+            message "Can't find topic " + parent$
+            repeat do
+          end if
+        end do
+        help_topic$ = ''
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   S E C O N D   T O P I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for second topic
+        ! Get the record.
+        ! If any error, ask again.
+        !
+        ! Expected:
+        !   screen_width%      Screen width
+        !
+        ! Result:
+        !   child$             Child topic
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_second_topic
+
+        prompt$ = 'Second topic'
+        do
+          gosub ask_topic
+          if  _exit  or _back  or  _reply = ''  then  exit routine
+          child$ = topic$
+        
+          set structure help, field topic: key child$
+          if  _extracted = 0  then
+            message "Can't find topic " + child$
+            repeat do
+          end if
+        end do
+        help_topic$ = ''
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L I N K   S H O W
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! NOT USED.
+        !
+        ! List links (cross-references)
+        !
+        ! Expected:
+        !   prompt_row%        Row for prompts
+        !   screen_width%      Screen width
+        !
+        ! Result:
+        !   maxrow%            Max row for display
+        !
+        ! Used:
+        !   row%               Top row
+        ! 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine link_show
+
+        row%    = 3
+        maxrow% = 20
+        clear area 2, 1,prompt_row%,screen_width%
+        print at 3, 1:;
+        extract structure ref
+          print ref(topic); tab(26);ref(reference); &
+                tab(52);ref(nickname)
+          row% = row% + 1
+          if  row% > maxrow%  then
+            delay
+            row% = 3
+            clear area 3, 1, prompt_row%, screen_width%
+            print at 3, 1:;
+          end if
+        end extract
+        print
+        print
+        
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! E D I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Edit one or more topics.
+        ! Call the TPU editor to do the editing.
+        !
+        ! Expected:
+        !   cmddat$            Any topic to edit from the command line
+        !   tmpfil$            Temp file for editor
+        !
+        ! Used:
+        !   df_edit_topic$     Default topic to edit
+        !
+        ! Result:
+        !   screen_width%      Screen width
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine edit
+
+        print at 1, 12, reverse: 'Edit  ';
+        if  cmddat$ <> ''  then  df_edit_topic$ = cmddat$
+        do
+          gosub edit_get_topic
+          if  _exit or _back or _reply = ''  then  exit do
+  
+          gosub print_topic_tmp_file
+          gosub edit_file  
+          ! delay .3
+          gosub read_tmp_file
+          clear
+          print at 1, 1, reverse: rpad$('Help_Maint Edit', screen_width%);
+        loop
+        print at 1, 12, reverse: '    ';
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! E D I T   G E T   T O P I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask user for topic to edit.
+        !
+        ! Expected:
+        !   df_edit_topic$     Default topic to edit
+        !   screen_width%      Screen width
+        !
+        ! Used:
+        !   prompt$            Prompt text
+        !   help_topic$        Help topic
+        !   subtopic$          Subtopic--last word of topic string
+        !
+        ! Result:
+        !   subtopic$          Subtopic
+        !   _back              True if he wants to back up
+        !   _exit              True if they want to exit
+        !   topic$             Topic to edit
+        !   help(subtopic)     Loaded with subtopic if previously blank.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine edit_get_topic
+
+        help_topic$ = 'EDIT TOPIC'
+        prompt$ = 'Topic to edit'
+        df_topic$ = df_edit_topic$
+        do
+          if  cmddat$ = ''  then
+            gosub ask_topic
+            if  _exit or _back  then  exit routine
+          else
+            topic$ = ucase$(cmddat$)
+            cmddat$ = ''
+          end if
+          set structure help, field topic: key topic$
+          if  _extracted = 0  then
+            message "Can't find topic " + topic$
+            df_topic$ = topic$
+            repeat do
+          end if
+        end do
+        subtopic$ = element$(topic$, elements(topic$, ' '), ' ')
+        if  help(subtopic) = ''  then  let help(subtopic) = subtopic$
+        help_topic$ = ''
+        df_edit_topic$ = topic$
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   T O P I C   T M P   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Print the text of a topic to a temporary file.
+        ! The file has the name 'SYS$SCRATCH:HELP.TMP'. (See INITIALIZE.)
+        !
+        ! Expected:
+        !   tmpfil$            Temp file for editor
+        !   out_ch%            Output channel
+        !
+        ! Result:
+        !   out_ch%            Output channel, closed
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine print_topic_tmp_file
+
+        open #out_ch%: name tmpfil$, access output
+        text$ = help(text)
+        gosub process_help_text
+        z1% = pieces(text$)
+        for z% = 1 to z1%
+          print #out_ch%: piece$(text$, z%)
+        next z%
+
+        close #out_ch%
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   H E L P   T E X T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine process_help_text
+
+        crlf$ = chr$(13) + chr$(10)
+        ptr% = 1
+        do
+          z% = pos(text$, chr$(10), ptr%)
+          if  z% = 0  then  exit do
+
+          if  text$[z% - 1: z% - 1] <> chr$(13)  then
+            text$[z%:z%] = crlf$
+            z% = z% + 1
+          end if
+          ptr% = z% + 1
+        loop
+
+        if  piece$(text$, 1) = ''  then  text$(1:2) = ''
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! E D I T   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Edit a file.
+        !
+        ! Expected:
+        !   tmpfil$            Name of temp file to edit
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine edit_file
+
+        pass 'edit ' + tmpfil$
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E A D   T M P   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Read the topic temp file back into the field.
+        !
+        ! Expected:
+        !   tmpfil$            Temp file for editor
+        !   crlf$              CR-LF pair
+        !   out_ch%            Output channel, opened for input
+        !
+        ! Used:
+        !   text$              Line of text
+        !
+        ! Result:
+        !   help(text)         Loaded with topic text
+        !   error%             True if some error occurred
+        !   all_text$          All text for topic
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine read_tmp_file
+
+        error%    = false
+        all_text$ = ''
+        open #out_ch%: name tmpfil$, access input
+        do
+          when exception in
+            line input #out_ch%: text$
+          use
+            error%= true
+          end when
+          if  error%= true  then exit do
+          all_text$ = all_text$ + crlf$ + text$
+        loop
+
+        close #out_ch%
+        all_text$[1:2] = ''
+        let help(text) = all_text$
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! N E X T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Open the (next) help structure.
+        !
+        ! Ask for the help structure to use.
+        ! Close any previous help structure.
+        ! Open the new one.
+        ! Paint name in banner.
+        !
+        ! Expected:
+        !
+        ! Result:
+        !   error%             True if user wants to exit
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine next
+
+        do
+          gosub ask_structure
+          if  exit%  then  exit routine
+
+          gosub open_user_structure
+          if  error%  then  repeat do
+        end do
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   S T R U C T U R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for the name of the structure to use.
+        ! First time we ask, default to any default help structure.
+        !
+        ! Expected:
+        !   user_structure$    Default help structure spec
+        !   first_open%        True if this is the first time 
+        !                      we open a structure
+        !   screen_width%      Screen width
+        !
+        ! Used:
+        !   help_noprompt%     Noprompt flag
+        !   help_topic$        Help topic
+        !
+        ! Result:
+        !   exit%              True if user wants to exit
+        !   help_noprompt%     Reset to false
+        !   exit%              True if user wants to exit or back up
+        !   user_structure$    File spec of structure, uppercase
+        !   error%             True if some error
+        ! 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_structure
+
+        error% = false
+        do
+          clear area prompt_row%, 1, prompt_row%, screen_width%
+          if  first_open%  then  z$ = user_structure$ else z$ = ''
+          line input at prompt_row%, 1, prompt 'Help structure: ', &
+               default z$: user_structure$
+          if  _exit or _back  then
+            error% = true
+            exit%  = true
+            exit do
+          end if
+          if  _help  then
+            help_topic$ = 'OPEN STRUCTURE'
+            help_noprompt% = true
+            gosub maint_help
+            help_noprompt% = false
+            repeat do
+          end if
+          if  _reply = ''  then
+            message 'Please enter the name of a help structure'
+            repeat do
+          end if
+        end do
+        user_structure$ = ucase$(user_structure$)
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O P E N   U S E R   S T R U C T U R E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !   screen_width%      Screen width
+        !   banner$            Banner for top line
+        !   user_structure$    File spec for user structure to open
+        !   user_str           Tag for user structure
+        !
+        ! Result:
+        !   banner$            New structure name inserted
+        !   user_str$          User structure ID
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine open_user_structure
+
+        close structure user_str
+
+        user_structure$ = ucase$(user_structure$)
+        if right$(user_structure$, 4) <> '.DAT' then &
+          user_structure$ = user_structure$ + '.DAT'
+        when exception in
+          open structure user_str: name tti_run_help$, &
+               datafile user_structure$, access outin
+        use
+          message error: extext$ + ' for ' + user_structure$
+        end when
+        if  _error then  exit routine
+
+        ask structure user_str: id user_str$
+        set structure help: id user_str$
+
+        rset banner$[20: screen_width% - 1] = 'Structure: ' + user_structure$
+        print at 1, 1, reverse: banner$;
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Rename a topic.
+        !   Ask for old topic; find it.
+        !   Ask for new topic.  If already there, report error
+        !   and ask again.
+        !   Do the actual rename.
+        !
+        ! Expected:
+        !   old_topic$         Most recent old topic used
+        !
+        ! Used:
+        !   prompt$            Prompt text
+        !   help_topic$        Help topic
+        !   new_topic$         New name for topic
+        !
+        ! Result:
+        !   help_topic$        Reset to null string
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine rename
+
+        do
+          gosub get_old_topic
+          if  _exit or _back  or _reply = ''  then  exit routine
+
+          gosub get_new_topic
+          if  _back  then  repeat do
+          if  _exit or topic$ = ''  then  exit do
+
+          gosub rename_change_topic
+          help_topic$ = ''
+        loop
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   O L D   T O P I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for current name of topic.
+        !
+        ! Expected:
+        !   old_topic$         Previous old name
+        ! 
+        ! Used:
+        !   prompt$            Prompt text
+        !   help_topic$        Help topic for input
+        !
+        ! Result:
+        !   help_topic$        Reset to null string
+        !   old_topic$         Old topic name, uppercased
+        !   text$              Text of topic
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_old_topic
+
+        help_topic$ = 'rename old'
+        prompt$ = 'Current topic name'
+        df_topic$ = ''
+        do
+          df_topic$ = old_topic$
+          gosub ask_topic
+          if  _exit or _back  or  topic$ = ''  then  exit routine
+          old_topic$ = topic$
+
+          set structure help, field topic: key ucase$(old_topic$)
+          if  _extracted = 0  then
+            old_topic$ = change$(old_topic$, '/', '\')
+            set structure help, field topic: key ucase$(old_topic$)
+            if  _extracted = 0  then
+              message "Can't find topic " + old_topic$
+              repeat do
+            else
+              message 'Changed / to \'
+              delay 1
+            end if
+          end if
+        end do
+        help_topic$ = ''
+
+        text$ = help(text) 
+        clear area prompt_row% - 1%, 1%, prompt_row% - 1%, screen_width%
+        print at prompt_row% - 1%, 1%: 'Old name: '; old_topic$;
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   N E W   T O P I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Get the name to change to.
+        ! Get the record.  If not found, ask again.
+        !
+        ! Expected:
+        !   prompt_row%        Row for prompt
+        !
+        ! Result:
+        !   new_topic$         Name of new topic
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine get_new_topic
+
+        help_topic$ = 'rename new'
+        prompt$ = 'New topic name'
+        prompt_row% = prompt_row% + 1
+        do
+          df_topic$ = new_topic$
+          gosub ask_topic
+          new_topic$ = topic$
+          if  _back or _exit or _reply = ''  then  exit do
+
+          set structure help, field topic: key new_topic$
+          if  _extracted > 0  then
+            message "Topic already exists: " + new_topic$
+            repeat do
+          end if
+        end do
+        prompt_row% = prompt_row% - 1
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E N A M E   C H A N G E   T O P I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Add topic with new name;
+        ! delete old topic.
+        !
+        ! Expected:
+        !   help               Help structure tag
+        !   old_topic$         Old topic name
+        !   new_topic$         New topic name
+        !   text$              Text of topic
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine rename_change_topic
+
+        z% = elements(new_topic$, ' ')
+        subtopic$ = element$(new_topic$, z%, ' ')
+        message 'Adding new topic'
+        delay .4
+        add structure help
+          let help(topic)    = new_topic$
+          let help(subtopic) = subtopic$
+          let help(text)     = text$
+        end add
+
+        message 'Deleting old topic'
+        delay .2
+        set structure help, field topic: key ucase$(old_topic$)
+        delete structure help
+        message 'Topic renamed'
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   T O P I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for a topic.
+        ! Trim spaces and uppercase.
+        ! If they ask for a list of topics, display them.
+        !
+        ! Expected:
+        !   screen_width%      Screen width
+        !   prompt$            Prompt to use
+        !   df_topic$          Default topic
+        !   help_topic$        Help topic to use
+        !
+        ! Result:
+        !   _back              True if user wants to back up
+        !   _exit              True if user wants to exit
+        !   topic$             Name of topic
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_topic
+
+        do
+          clear area prompt_row%, 1, prompt_row% + 1, screen_width%
+          line input at prompt_row%, 1, prompt prompt$ + '? ', &
+             default df_topic$: topic$
+          if  _terminator = 'INS'  then
+            line input area prompt_row% + 1, 1, prompt_row% + 2, 80, &
+                 default df_topic$: topic$
+          end if
+          if  _exit or _back  then  exit routine
+
+          topic$ = ucase$(trim$(topic$))
+          if  _help  then
+            if  help_topic$ <> ''  then
+              help_noprompt% = true
+              gosub help
+              help_noprompt% = false
+            else
+              message 'Please enter a topic'
+            end if
+            repeat do
+          end if
+          if  _terminator = 'FIND'  or  topic$ = 'SHOW'  then
+            gosub show
+            repeat do
+          end if
+        end do
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Print list of topics.
+        ! This is both a separate procedure, and is called by ASK_TOPIC
+        ! to display a list when prompting the user.
+        ! Also, fix up any blank subtopics--put in the last word
+        ! of the topic string.
+        !
+        ! Expected:
+        !   prompt_row%        Prompt row
+        !   screen_width%      Screen width
+        !   cmddat$            Topic to show
+        !
+        ! Used:
+        !   row%               Current row on screen
+        !   maxrow%            Max row on screen for display
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show
+
+        gosub show_init
+        if  _exit  then  exit routine
+
+        if  first_topic$ = ''  then
+          extract structure help
+            gosub show_display_topic
+            if  _exit  then  exit extract
+          end extract
+        else
+          extract structure help, field topic: partial key first_topic$
+            gosub show_display_topic
+            if  _exit  then  exit extract
+          end extract
+          if  _extracted = 0  then  message 'No topics found matching ' + first_topic$
+        end if
+        orphan_extracted% = false
+
+        set scroll 1, 24
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   I N I T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !   cmddat$            Command line data
+        !   prompt_row%        Row for prompts
+        !   screen_width%      Screen width
+        !
+        ! Result:
+        !   first_topic$       first topic to show
+        !   row%               Current row, set to 2
+        !   maxrow%            Max rows to display
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_init
+
+        !set scroll 2, 21
+        set scroll 2, 19
+                !++jk++ changed size of scroll area (3-22-94)
+        print at 1, 12, reverse: 'Show   ';
+        !maxrow% = 20
+        maxrow% = 18
+                !++jk++ changed max rows (3-22-94)
+        clear area 2, 1, prompt_row%, screen_width%
+
+        if  cmddat$ <> ''  then
+          first_topic$ = cmddat$
+        else
+          gosub ask_show_topics
+          if  _exit  then  exit routine
+        end if
+
+        print at 2, 1:;
+        row% = 2
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   S H O W   T O P I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !
+        ! Result:
+        !   first_topic$       First topic to show
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine ask_show_topics
+
+        line input at prompt_row%, 1, prompt 'Topic to show: ': first_topic$
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S H O W   D I S P L A Y   T O P I C
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine show_display_topic
+
+        print tab(3); lcase$(help(topic))
+        if  help(subtopic) = ''  then
+          subtopic$ = element$(help(topic), elements(help(topic), ' '), ' ')
+          let help(subtopic) = subtopic$
+        end if
+        row% = row% + 1
+        if  row% > maxrow%  then
+          delay
+          if  _exit  then  exit routine
+          row% = 2
+        end if
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Print the help file to a list file.
+        ! Call PRINT_OPTION print it on hardcopy.
+        !
+        ! Expected:
+        !
+        ! Used:
+        !   u_str$             Listing file
+        !   u_scr_width%       Screen width
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine print
+
+        message 'Producing help file...'
+        gosub print_produce
+
+        u_scr_width% = 80
+        u_str$ = outfile$
+        gosub prnt_ask_option
+        clear
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   P R O D U C E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Produce the output listing help file from the data file.
+        !
+        ! Expected:
+        !   out_ch%            Output channel
+        !
+        ! Used:
+        !   wrapped$           Wrapped text
+        !   outfile$           Output file spec
+        !
+        ! Result:
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine print_produce
+
+        outfile$ = 'sys$scratch:help.lis'
+        open #out_ch%: name outfile$, access output
+        lines = 1
+
+        extract structure help
+          wrapped$ = wrap$(help(text), 5, 79)
+          wl = pieces(wrapped$)
+          if  lines + wl > 61  then 
+            print #out_ch%: chr$(12)
+            lines = 1
+          end if
+          print #out_ch%: help(topic)
+          for i=1 to wl
+            print #out_ch%: piece$(wrapped$, i)
+          next i
+          print #out_ch%:
+          print #out_ch%:
+          lines = lines + 1 + wl + 2
+        end extract
+        close #out_ch%
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O R P H A N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Display a list of all related topics that refer to a topic
+        ! that doesn't exist.
+        !
+        ! Extract all or selected topic records.
+        ! For each record
+        !   For each related topic
+        !     Check found and not found list.
+        !     If not on either list, Look up the topic record.
+        !     If found, add to found list.
+        !     If not found, add to not found list.
+        ! Display topics not found.
+        !
+        ! Expected:
+        !   orphan_extracted%  True if we have already extracted for ORPHAN
+        !
+        ! Result:
+        !   orphan_extracted%  Set to true
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine orphan
+
+        clear
+        print at 1, 1, reverse: rpad$('Orphan references -- Not found:', 80);
+        print at 2, 1:;
+
+        if  not orphan_extracted%  then
+          message 'Extracting records'
+          extract structure help
+          end extract
+          message 'Records found: ' + str$(_extracted) &
+                + '...Searching topics'
+          orphan_extracted% = true
+        end if
+
+        keys_found$ = ''
+        keys_not_found$ = ''
+        where_not_found$ = ''
+        for each help
+          z% = pos(help(text), 'Related topics:')
+          if  z% = 0  then  iterate for
+
+          text$ = help(text)[z% + 18: len(help(text))]
+          gosub orphan_process_related
+          if  _exit  then  exit for
+        next help
+
+        clear
+        print at 1, 1: 'References not found: '
+        for z% = 2 to elements(keys_not_found$)
+          print tab(3); element$(keys_not_found$, z%);
+          print tab(40); element$(where_not_found$, z%);
+        next z%
+        delay
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! O R P H A N   P R O C E S S   R E L A T E D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        !
+        ! Expected:
+        !   text$             Help text related topics, CRLF separated
+        !
+        ! Used:
+        !   where$            Topic where we found orphan reference
+        ! 
+        ! Result:
+        !   keys_found$       List of keys found
+        !   keys_not_found$   List of keys not found
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine orphan_process_related
+
+        quotes$ = '"' + "'"
+
+        topics% = pieces(text$)
+        where$ = help(topic)
+
+        for topic% = 1 to topics%
+          topic$ = trim$(piece$(text$, topic%))
+          if  topic$ = ''  then  iterate for
+
+          topic$ = element$(topic$, 1, ' ')
+          if  pos(quotes$, topic$[1:1]) > 0  then
+            topic$ = topic$[2: len(topic$) - 1]
+          end if
+          topic$ = ucase$(topic$)
+
+          z% = match(keys_found$, topic$)
+          if  z% = 0  then  z% = match(keys_not_found$, topic$)
+          if  z% = 0  then
+            set structure help, field topic: key ucase$(topic$)
+            if  _extracted = 0  then
+              print tab(1); topic$;  tab(40); where$;
+              keys_not_found$ = keys_not_found$ + ',' + topic$
+              where_not_found$ = where_not_found$ + ',' + where$
+            else
+              keys_found$ = keys_found$ + ',' + topic$
+            end if
+          end if
+
+          when exception in
+            input prompt '', timeout .1: z$
+          use
+          end when
+          if  _exit  then  exit for
+
+        next topic%
+
+        end routine
+
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E L A T E D
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Show all topics that have a given topic as related.
+        !
+        ! Expected:
+        !
+        ! Used:
+        !   topic$             Topic to search for
+        ! 
+        ! Result:
+        ! 
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        routine related
+
+        line input at prompt_row%, 1, prompt 'Topic: ': topic$
+        if  _exit or _back or  (_reply = '')  then  exit routine
+        topic$ = ucase$(topic$)
+
+        gosub related_extract
+
+        clear area 2, 1, 24, screen_width%
+        print at 2,1: 'Topic '; topic$; ' is a related topic in: '
+        z% = elements(rels$)
+        row% = 3
+        for z1% = 1 to z% step 2
+          print tab(3); lcase$(element$(rels$, z1%));
+          print tab(41); lcase$(element$(rels$, z1% + 1));
+          row% = row% + 1
+          if  row% > 20  then
+            delay
+            clear area 3, 1, 20, screen_width%
+            row% = 3
+            print at 3, 1:;
+          end if
+        next z1%
+
+        end routine
+
+
+
+        ! R E L A T E D   E X T R A C T
+        !
+        ! Extract records to produce list of related topics.
+        !
+        ! Expected:
+        !   topic$             Topic to search for
+        !
+        ! Result:
+        !   rels$              List of topics that have TOPIC$ 
+        !                      as a related topic
+        !
+        routine related_extract
+
+        rels$ = ''
+        extract structure help
+          z% = pos(help(text), 'Related topics:')
+          if  z% > 0  then
+            z$ = help(text)[z% + 14: len(help(text))]
+            z% = pos(z$, crlf$)
+            if  z% > 0  then  z$ = z$[z%+2:len(z$)]
+            z% = pieces(z$)
+            for z1% = 1 to z%
+              z1$ = element$(ltrim$(piece$(z$, z1%)), 1, ' ')
+              if  pos(quotes$, z1$[1:1]) > 0  then  z1$ = z1$[2:len(z1$)-2]
+              if  ucase$(z1$) = topic$  then
+                rels$ = rels$ + ',' + help(topic)
+              end if
+            next z1%
+          end if
+        end extract
+
+        rels$ = rels$[2:len(rels$)]
+
+        end routine
+
+
+

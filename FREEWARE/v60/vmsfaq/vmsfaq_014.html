@@ -1,0 +1,714 @@
+<!-- VMSFAQ_014.HTML continuation of SRH:[FAQ]VMSFAQ.HTML -->
+<html>
+<head>
+<title>The OpenVMS Frequently Asked Questions(FAQ)</title>
+<style>
+A:hover {color: green}
+A:active {color: red; background-color: white}
+</style>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">The OpenVMS Frequently Asked Questions(FAQ)</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_013.html#bottom_013">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+
+<hr>
+
+<a name="decw11"><h1><font color=maroon>11.9 Why doesn't XtAppAddInput() work on OpenVMS?</font></h1></a>
+<a name="index_x_885"></a>
+
+<p>
+Yes, XtAppAddInput() does work on OpenVMS. The MIT definition of the X 
+Windows call XtAppAddInput() includes platform-specific arguments.
+<a name="index_x_886"></a>
+
+<p>
+On platforms where C is the typically the primary programming language 
+for the platform, the file descriptor mask is one of the arguments to 
+the XtAppAddInput() call.
+
+<p>
+On OpenVMS, the platform-specific arguments to this call include an 
+event flag and an IOSB, as these are the traditional OpenVMS constructs 
+used to synchronize the completion of asynchronous operations. While it 
+would be easier to port non-OpenVMS C code that calls XtAppAddInput() 
+over to OpenVMS if the arguments included the C file descriptor, this 
+would make the call unusable from other OpenVMS languages, and would 
+make it extremely difficult to use OpenVMS features such as ASTs and 
+sys$qio calls.
+<a name="index_x_887"></a>
+<a name="index_x_888"></a>
+<a name="index_x_889"></a>
+
+<p>
+One restriction on the event flag: the event flag chosen must be from 
+event flag cluster zero. When using the traditional lib$get_ef and 
+lib$free_ef
+<a name="index_x_890"></a>
+<a name="index_x_891"></a>
+calls to allocate and deallocate event flags, you must first explicitly 
+call lib$free_ef to free up some event flags in event flag cluster 
+zero. Please see the event flag documentation for specific details on 
+these calls and for specific event flags that can be freed in event 
+flag cluster zero.
+
+<p>
+Here is some example code that covers calling this routine on OpenVMS:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+    m-&gt;InputID = XtAppAddInput( 
+        m-&gt;AppCtx, 
+        m-&gt;InputEF, 
+        m-&gt;InputIosb, 
+        the_callback, 1 ); 
+    if ( !((int) m-&gt;InputID )) 
+        { 
+        XtAppErrorMsg( 
+            m-&gt;AppCtx, 
+            "invalidDevice", 
+            "XtAppAddInput", 
+            "XtToolkitError", 
+            "Can't Access Device", 
+            (String *) NULL, 
+            (Cardinal *) NULL ); 
+        ... 
+</pre>
+</font>
+</table>
+
+<a name="decw12"><h1><font color=maroon>11.10 Why do the keyboard arrow keys move the DECwindows cursor?</font></h1></a>
+<a name="index_x_892"></a>
+
+<p>
+Congratulations, you have just stumbled into &quot;dead rodent&quot; 
+mode. This DECwindows environment---where the keyboard arrow keys move 
+the mouse cursor and where the [SELECT], [PREV], and [NEXT] keys 
+emulate the three mouse buttons---allows rudimentary system operations 
+when the mouse is among the casualties.
+
+<p>
+To enter or exit &quot;dead rodent&quot; mode, enter the following: 
+<kbd>[CTRL/SHIFT/F3]</kbd>
+
+<a name="decw13"><h1><font color=maroon>11.11 Why does half my DECwindows display blank?</font></h1></a>
+<a name="index_x_893"></a>
+
+<p>
+This is likely a result of receiving an OPCOM or other console message 
+on a system that shares the system console with the DECwindows graphics 
+workstation display.
+
+<p>
+You can toggle off the console display window using 
+<kbd>[CTRL/F2]</kbd> and you can enable a serial console per 
+<a href="vmsfaq_017.html#alpha7">Section 14.3.6</a> or <a href="vmsfaq_017.html#vax10">Section 14.3.3.3</a>.
+
+<p>
+Also see the console message window application available with recent 
+DECwindows versions---DECwindows versions V1.2-3 and later will enable 
+this window by default. For details on this console message window, see 
+the DECW$CONSOLE_SELECTION option in 
+SYS$STARTUP:DECW$PRIVATE_APPS_SETUP.TEMPLATE.
+
+<p>
+On older releases, you can disable output using the following:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ SET TERMINAL/PERMANENT/NOBROADCAST OPA0: 
+$ DEFINE/USER SYS$COMMAND OPA0: 
+$ REPLY/DISABLE 
+</pre>
+</font>
+</table>
+
+<p>
+Also see <a href="vmsfaq_017.html#vax9">Section 14.3.3.2</a>, <a href="vmsfaq_019.html#supp3">Section 14.19</a>, and Also see <a href="vmsfaq_010.html#dcl4">Section 8.3</a>,
+
+<a name="decw14"><h1><font color=maroon>11.12 %DECW-W-NODEVICE, No graphics device found on this system?</font></h1></a>
+<a name="index_x_894"></a>
+
+<p>
+To resolve the following error:
+<a name="index_x_895"></a>
+<a name="index_x_896"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+%DECW-W-NODEVICE, No graphics device found on this system 
+-DECW-I-NODECW, DECwindows graphics drivers will not be loaded 
+</pre>
+</font>
+</table>
+
+<ul>
+  <li>Ensure that the system parameter WINDOW_SYSTEM is set to 1. If it 
+  is not set to a value of 1, issue the commands:
+<a name="index_x_897"></a>
+<a name="index_x_898"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ run sys$system:sysgen 
+USE CURRENT 
+SET WINDOW_SYSTEM 1 
+WRITE ACTIVE 
+WRITE CURRENT 
+EXIT 
+</pre>
+</font>
+</table>
+
+    <br>Then reboot the system.
+  <li>On OpenVMS Alpha, ensure the SYSMAN IO PREFIX LIST is set 
+  correctly, and specifically ensure the DECW$ prefix is included in the 
+  existing list. If it is not, you will need to add it:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ run sys$system:sysman 
+IO SHOW PREFIX 
+IO SET PREFIX=(DECW$,*)   * = list returned by the show command 
+IO AUTO/LOG 
+EXIT 
+</pre>
+</font>
+</table>
+
+  <li>Ensure that the image SYS$SHARE:DECW$ICBM.EXE is installed in 
+  memory. If it is not installed, then install it:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ INSTALL LIST/FULL SYS$SHARE:DECW$ICBM 
+$ INSTALL REPLACE SYS$SHARE:DECW$ICBM 
+$ EDIT SYS$MANAGER:SYCONFIG.COM 
+</pre>
+</font>
+</table>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$! The following line was added to install 
+$! support for the Mach64 Graphics Card 
+$! 
+$ INSTALL REPLACE SYS$SHARE:DECW$ICBM 
+$ ^Z 
+</pre>
+</font>
+</table>
+
+    <br>Then reboot the system. <br>The ICBM mechanism is not used on and 
+    not needed by more recent DECwindows versions.
+  <li>If the system still complains &quot;%DECW-W-NODEVICE, No graphics 
+  device found on this system&quot;, then:
+
+  <ul>
+    <li>Boot the system as normal
+    <li>Login as SYSTEM.
+    <li>Create the file SYS$COMMON:[SYSMGR]DECW$USER_AUTOCONFIG.DAT. 
+    Protection must permit world read access.
+    <li>Add the following string on the very first line:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+CLEAR_PFLAG = ISA_4BYTE 
+</pre>
+</font>
+</table>
+
+    <li>Save the file
+    <li>Set the file protections
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ SET PROTECTION=W:RE SYS$MANAGER:DECW$USER_AUTOCONFIG.DAT 
+</pre>
+</font>
+</table>
+
+    <li>Reboot the system
+  </ul>
+</ul>
+
+<p>
+Also see <a href="vmsfaq_013.html#decw6">Section 11.6</a>.
+
+<a name="decw15"><h1><font color=maroon>11.13 How can I reset the warning bell volume?</font></h1></a>
+<a name="index_x_899"></a>
+
+<p>
+With DECwindows CDE drivers and ECOs starting with ECOs for the 
+DECwindows keyboard driver SYS$IKBDRIVER.EXE in OpenVMS Alpha V7.1-2 
+and V7.2-1 and with the SYS$IKBDRIVER.EXE included in OpenVMS V7.2-1H1 
+and later, the DECwindows CDE controls will now correctly manage the 
+setting of the warning bell volume.
+
+<p>
+Unfortunately, the equivalent controls in the older DECwindows Motif 
+interface are not compatible and can no longer manage the warning bell 
+volume.
+
+<p>
+If you need to manage the volume with DECwindows Motif, consider using 
+the following approach:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ @decw$utils:decw$define_utils 
+$ xset b 1 100 100 
+</pre>
+</font>
+</table>
+
+<p>
+The numerics are the volume, pitch, and duration, respectively.
+
+<p>
+Why? When OpenVMS first started supporting the PC-style keyboards, the 
+X Windows Server and the keyboard driver interface did not support the 
+pitch and duration, and neither did DECwindows Motif. The DECwindows 
+keyboard driver was accordingly changed to use the volume from the 
+keyclick setting (keyclick is not available in a PC-style keyboard) and 
+the bell volume setting to control the pitch and duration.
+
+<p>
+DECwindows CDE does provide sliders for setting pitch and duration, so 
+the keyboard driver and X Windows Server were modified to provide all 
+of the information, and now the DECwindows CDE sliders work. This 
+change is unfortunately incompatible with the old scheme used on the 
+pre-CDE desktops, and the volume controls are now incompatible with the 
+current keyboard drivers. Hence the use of xset.
+
+<a name="decw16"><h1><font color=maroon>11.14 How can I alter the DECwindows CDE backdrop?</font></h1></a>
+<a name="index_x_900"></a>
+
+<p>
+To select a separate backdrop to be displayed on each screen using 
+DECwindows CDE:
+
+<ul>
+  <li>Click on the Application Manager. This is the drawer icon on the 
+  CDE toolbar.
+  <li>Click on Desktop Tools
+  <li>Click on Set Default Screen and select the required screen
+  <li>Click on the Style Manager. This is the one containing the mouse 
+  and ttt on the CDE toolbar
+  <li>Now change the background.
+</ul>
+
+<a name="decw17"><h1><font color=maroon>11.15 How can I enable the DECwindows TCP/IP Transport</font></h1></a>
+<a name="index_x_901"></a>
+
+<p>
+To configure the TCP/IP transport for DECwindows, first ensure that a 
+TCP/IP package is installed and configured. Then set the DCL symbol 
+DECW$SERVER_TRANSPORTS in SYS$MANAGER:DECW$PRIVATE_SERVER_SETUP.COM to 
+the appropriate local value, based on the comments in that file. If you 
+do not have a copy of SYS$STARTUP:DECW$PRIVATE_SERVER_SETUP.COM, the 
+use the following COPY command to create this file based on the 
+provided template file:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ COPY SYS$MANAGER:DECW$PRIVATE_SERVER_SETUP.TEMPLATE - 
+$_ SYS$COMMON:[SYSMGR]DECW$PRIVATE_SERVER_SETUP.COM 
+</pre>
+</font>
+</table>
+
+<p>
+<hr size=5>
+<font color=maroon>
+<a name="faq_miscellaneous"><h1>Chapter 12<br>Miscellaneous Information</h1></a>
+</font>
+
+<a name="misc2"><h1><font color=maroon>12.1 Where can I find information on escape and control sequences?</font></h1></a>
+<a name="index_x_902"></a>
+
+<p>
+Information on escape and control sequences can be found in the 
+<em>OpenVMS I/O User's Reference Manual</em>, in the chapter on the 
+terminal driver. The chapter also includes details on the general 
+format and content of these sequences.
+
+<p>
+Specific details on the escape and control sequences supported by a 
+particular serial device are typically found in the documentation 
+provided with the specific device. Information on the sequences 
+supported by DECwindows DECterm terminal emulator are included in the 
+DECwindows documentation.
+
+<p>
+Examples of common escape and control sequences---those typically used 
+by the OpenVMS screen management package---can be found in the OpenVMS 
+system file SYS$SYSTEM:SMGTERMS.TXT.
+
+<p>
+The following refers to the function keys on the LK-series keyboards 
+found on the VT-series terminals such as the VT220 and VT510, and the 
+LK-series keyboards found on the OpenVMS workstations, and the 
+keyboards found on compatible terminals. (Though note that the keyboard 
+itself does <em>not</em> generate the sequence, the terminal or 
+terminal emulator generates the sequence in response to user input.) In 
+the following, {CSI} is decimal code 155 and can be replaced by the 
+sequence "{ESC}[" (without the quotes) particularly for seven-bit 
+operations, SS3 is decimal code 143 and can be replaced by "{ESC}O" 
+particularly for seven-bit operations. Older VT1xx series terminals and 
+any other terminals operating with seven-bit characters should not be 
+sent eight-bit operators such as {CSI} and {SS3}.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+PF1={SS3}P PF2={SS3}Q PF3={SS3}R PF4={SS3}S 
+KP0={SS3}p KP1={SS3}q KP2={SS3}r KP3={SS3}s KP4={SS3}t KP5={SS3}u 
+KP6={SS3}v KP7={SS3}w KP8={SS3}x KP9={SS3}y KPCOMMA={SS3}l KPMINUS={SS3}m 
+KPPERIOD={SS3}n ENTER={SS3}M DNARROW={CSI}B UPARROW={CSI}A LFARROW={CSI}D 
+RTARROW={CSI}C FIND={CSI}1~ INSERT={CSI}2~ REMOVE={CSI}3~ SELECT={CSI}4~ 
+PREV={CSI}5~ NEXT={CSI}6~ F6={CSI}17~ F7={CSI}18~ F8={CSI}19~ F9={CSI}20~ 
+F10={CSI}21~ F11={CSI}23~ F12={CSI}24~ F13={CSI}25~ F14={CSI}26~ 
+HELP={CSI}28~ DO={CSI}29~ F17={CSI}31~ F18={CSI}32~ F19={CSI}33~ F20={CSI}34~ 
+</pre>
+</font>
+</table>
+
+<p>
+An example of working with escape sequences (in DCL) follows:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ esc5m = "*[5m" 
+$ esc5m[0,8] = 27 
+$ esc0m = "*[0m" 
+$ esc0m[0,8] = 27 
+$ write sys$output esc5m + "blinking text" + esc0m 
+</pre>
+</font>
+</table>
+
+<p>
+Documentation on an ANSI terminal relatively similar to the VT525 
+series is available at:
+
+<ul>
+  <li>ftp://ftp.boundless.com/pub/text/adds/docs/260_prog/
+  <li>ftp://ftp.boundless.com/pub/text/adds/docs/260_user/
+</ul>
+
+<p>
+Also see the various documentation and manuals available at:
+
+<ul>
+  <li>http://www.vt100.net/
+</ul>
+
+<p>
+Information on the ReGIS graphics character set is available at:
+
+<ul>
+  <li>http://www.cs.utk.edu/~shuford/terminal/dec_regis_news.txt
+</ul>
+
+<p>
+Also:
+
+<ul>
+  <li>http://www.boundless.com/Text_Terminals/VT/
+</ul>
+
+<p>
+Also see <a href="vmsfaq_013.html#decw9">Section 11.7</a>, <a href="vmsfaq_010.html#dcl12">Section 8.11</a>.
+
+<a name="misc12"><h1><font color=maroon>12.2 Does DECprint (DCPS) work with the LRA0 parallel port?</font></h1></a>
+<a name="index_x_903"></a>
+
+<p>
+The parallel printing port LRA0: found on many OpenVMS Alpha systems is 
+capable of some bidirectional communications, with enough for basic 
+operations with most parallel printers.
+<a name="index_x_904"></a>
+<a name="index_x_905"></a>
+<a name="index_x_906"></a>
+<a name="index_x_907"></a>
+<a name="index_x_908"></a>
+
+<p>
+DECprint (DCPS) requires more than just the simple handshaking provided 
+by the LRA0: port, therefore DCPS does not work with the LRA0: port.
+
+<a name="misc13"><h1><font color=maroon>12.3 How do I check for free space on a (BACKUP) tape?</font></h1></a>
+<a name="index_x_909"></a>
+<a name="index_x_910"></a>
+<a name="index_x_911"></a>
+<a name="index_x_912"></a>
+
+<p>
+You cannot know for certain, though you can certainly estimate the 
+remaining capacity.
+
+<p>
+Tape media is different than disk media, as disks have a known and 
+pre-determined fixed capacity. Modern disks also appear logically 
+perfect, based on bad block revectoring support and the extra blocks 
+hidden within the disk structure for these bad block replacements.
+
+<p>
+The capacity of tape media is not nearly as pre-determined, and the 
+capacity can vary across different tape media (slightly different media 
+lengths or different foil markers or other variations, for instance) 
+and even on the same media over time (as bad spots in the media arise). 
+Tapes can vary the amount of recording media required, depending on the 
+remaining length of the tape, the numbers of correctable and 
+uncorrectable media errors that might occur, the numbers and sizes of 
+the inter-record gaps and related tape structure overhead, the 
+particular media error recovery chosen, the tape density, the 
+efficiently of any data compression in use, and the storage overhead 
+required by BACKUP, tar, and other similar commands.
+
+<p>
+BACKUP using with the default settings results in approximately 15% 
+overhead, in terms of saveset size. (eg: Assuming a 500 KB input, the 
+total size would be 575 KB.)
+
+<p>
+Assuming no compression:
+<br>
+   4 GB media / 575 KB saveset = 7294 savesets
+
+<p>
+Assuming 1:2 compression:
+<br>
+8 GB media / 575 KB saveset = 14588 savesets
+
+<p>
+Note: There are no inter-record gaps on DAT tapes. (When determining 
+media capacity, you have to consider these with nine-track magtape 
+media. Not with DAT (DDS). However, the block structure underneath the 
+variable length record recording is based on a block size of circa 124 
+KB. Further, writing doubles filemarks and such can cause a loss of up 
+to the underlying block size. Thus even though there are no 
+inter-record gaps on DAT, larger savesets are still usually best.
+
+<p>
+The compression algorithms used on various devices are generally not 
+documented---further, there is no way to calculate the effective data 
+compression ratio, the tape mark overhead, and similar given just the 
+data to be stored on tape---short of actually trying it, of course.
+
+<p>
+A typical compression ratio found with "everyday" data is somewhere 
+around 1:1.8 to 1:2.
+<a name="index_x_913"></a>
+<a name="index_x_914"></a>
+
+<p>
+Note: OpenVMS often uses the term COMPACTION for compression control, 
+as in the qualifier /MEDIA_FORMAT=COMPACTION.
+
+<a name="misc14"><h1><font color=maroon>12.4 So what happened to sys$cmsuper?</font></h1></a>
+<a name="index_x_915"></a>
+
+<p>
+There is no SYS$CMSUPR service.
+<a name="index_x_916"></a>
+<a name="index_x_917"></a>
+
+<p>
+The typical wisdom for getting into supervisor access mode (from user 
+mode) is to execute a routine in executive mode (via a call to 
+SYS$CMEXEC and the appropriate privilege) and then issue a SYS$DCLAST 
+with the ASTADR parameter pointing to your routine entry point and the 
+ACMODE parameter specified as PSL$C_SUPER.
+
+<p>
+Alternatively, you can reset mode in the call stack return path and 
+unwind from executive or kernel out into supervisor mode.
+
+<a name="misc20"><h1><font color=maroon>12.5 Correctly using license PAKs and LMF?</font></h1></a>
+<a name="index_x_918"></a>
+
+<p>
+If you have multiple LMF$LICENSE.LDB databases in your OpenVMS Cluster, 
+then each and every PAK must be installed in each and every license 
+database present in an OpenVMS Cluster. Even if you use /EXCLUDE or 
+/INCLUDE, you need to have a consistent set of PAKs registered across 
+all licensing databases present in the OpenVMS Cluster.
+
+<p>
+If your software license permits it, you can use the following two 
+commands to transfer license PAKs:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ LICENSE COPY... 
+$ LICENSE ISSUE/PROCEDURE/OUTPUT=file product,... 
+</pre>
+</font>
+</table>
+
+<p>
+To display the particular license(s) required (such as when you receive 
+a NOLICENSE error), use the following DCL sequence:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ SET PROCESS/PRIVILEGE=ALL 
+$ REPLY/ENABLE 
+$ DEFINE/SYSTEM/EXECUTIVE LMF$DISPLAY_OPCOM_MESSAGE 
+</pre>
+</font>
+</table>
+
+<a name="index_x_919"></a>
+<a name="index_x_920"></a>
+<a name="index_x_921"></a>
+<a name="index_x_922"></a>
+<a name="index_x_923"></a>
+<a name="index_x_924"></a>
+<a name="index_x_925"></a>
+
+<p>
+This logical name will cause all license failures to generate OPCOM 
+messages, and this will hopefully show which license(s) you need--- 
+there may well also be additional license failures displayed, as 
+various products can check for and can be enabled by multiple license 
+PAKs. You will want to deassign this logical name when done.
+
+<p>
+Some of the more common license PAKs:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+  DECnet Phase IV:   DVNETRTG, DVNETEND, DVNETEXT, or NET-APP-SUP* 
+  DECnet-Plus:       DVNETRTG, DVNETEND, DVNETEXT, or NET-APP-SUP* 
+  TCP/IP Services:   UCX, or NET-APP-SUP* 
+  OpenVMS Alpha:     OPENVMS-ALPHA and OPENVMS-ALPHA-USER 
+  OpenVMS VAX:       VAX-VMS 
+  OpenVMS Galaxy:    OPENVMS-GALAXY 
+  Cluster (Alpha):   VMSCLUSTER, NET-APP-SUP* 
+  Cluster (VAX):     VAXCLUSTER, NET-APP-SUP* 
+</pre>
+</font>
+</table>
+
+<p>
+Various NET-APP-SUP (NAS) license packages are available, each with 
+differing collections of products authorized. See the various NAS 
+Software Product Description (SPD) documents for specific details.
+
+<ul>
+  <li>http://www.compaq.com/info/spd/
+<br>
+OpenVMS typically uses SPD 25.01.xx and/or SPD 41.87.xx.
+</ul>
+
+<p>
+To determine which license PAK is failing (via a license check failure 
+OPCOM message), use the command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ DEFINE/SYSTEM/EXECUTIVE LMF$DISPLAY_OPCOM_MESSAGE TRUE 
+</pre>
+</font>
+</table>
+
+<p>
+Realize that defining this logical name will cause license checks that 
+are otherwise hidden (unimplemented, latent, or part of a check for any 
+of a series of licenses) to become visible. In other words, expect to 
+see some spurious license check calls when you define this.
+
+<p>
+For information on PAKGEN and on generating license PAKs, please see 
+<a href="vmsfaq_012.html#prog10">Section 10.10</a>.
+
+<a name="bottom_014"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_013.html#bottom_013">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vmsfaq_015.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+</body>
+</html>

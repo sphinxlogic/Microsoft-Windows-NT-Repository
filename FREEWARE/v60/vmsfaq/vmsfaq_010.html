@@ -1,0 +1,839 @@
+<!-- VMSFAQ_010.HTML continuation of SRH:[FAQ]VMSFAQ.HTML -->
+<html>
+<head>
+<title>The OpenVMS Frequently Asked Questions(FAQ)</title>
+<style>
+A:hover {color: green}
+A:active {color: red; background-color: white}
+</style>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">The OpenVMS Frequently Asked Questions(FAQ)</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_009.html#bottom_009">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+
+<hr>
+
+<p>
+<hr size=5>
+<font color=maroon>
+<a name="faq_dcl"><h1>Chapter 8<br>DCL Details</h1></a>
+</font>
+
+<a name="dcl1"><h1><font color=maroon>8.1 How do I run a program with arguments?</font></h1></a>
+<a name="index_x_531"></a>
+
+<p>
+The RUN command does not accept arguments. To pass arguments to a 
+program, you must use what is called a "foreign command". For example:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ unzip :== $disk:[dir]unzip.exe 
+$ unzip -? 
+</pre>
+</font>
+</table>
+
+<p>
+The leading $ in the equivilence name for the symbol definition is what 
+makes the DCL symbol a foreign command. If the device and directory are 
+omitted, SYS$SYSTEM: is assumed.
+
+<p>
+Under OpenVMS V6.2 and later, DCL supports automatic foreign command 
+definition via the logical name DCL$PATH:. An example of a definition 
+of this logical name is:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ DEFINE DCL$PATH SYS$DISK:[],ddcu:[mytooldir],SYS$SYSTEM: 
+</pre>
+</font>
+</table>
+
+<a name="index_x_532"></a>
+<a name="index_x_533"></a>
+<a name="index_x_534"></a>
+<a name="index_x_535"></a>
+
+<p>
+DCL will first look for a command in the DCL command table, and if no 
+match is found and if DCL$PATH is defined, it will then look for 
+command procedures and executable images with filenames matching the 
+command specified, in the directories specified via DCL$PATH. The first 
+match found is invoked, and under OpenVMS, the DCL$PATH support will 
+cause a command procedure to be activated in preference to an 
+executable image.
+
+<p>
+For more information on foreign commands or on automatic foreign 
+command support, see the <em>OpenVMS User's Manual</em>.
+
+<p>
+See also <a href="vmsfaq_011.html#prog2">Section 10.3</a>.
+
+<p>
+If you want to create a detached process that takes arguments from a 
+command line, it must be run under the control of a command line 
+interpreter (CLI) (typically DCL). This is done by placing the command 
+line in a file, specifying SYS$SYSTEM:LOGINOUT.EXE as the image to run 
+and the command file as the input. For example:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ OPEN/WRITE CMD TEMP_INPUT.COM 
+$ WRITE CMD "$ MYCOMMAND arguments" 
+$ CLOSE CMD 
+$ RUN/DETACHED SYS$SYSTEM:LOGINOUT /INPUT=TEMP_INPUT.COM 
+</pre>
+</font>
+</table>
+
+<p>
+Various OpenVMS library calls (such as lib$spawn(), cli$dcl_parse(), 
+and the C library system() call) require access to a command line 
+interpreter such as DCL to perform requested actions, and will not 
+operate if a CLI is not available.
+
+<p>
+When a CLI is not available, these calls typically return the error 
+status SS$_NOCLI.
+<a name="index_x_536"></a>
+<a name="index_x_537"></a>
+And as mentioned above, invoke the image LOGINOUT to cause a CLI (such 
+as DCL) to be mapped into and made available in the context of the 
+target process.
+
+<p>
+For examples of how TCP/IP Services sets up its foreign commands (which 
+includes tools such as uuencode and uudecode), please see the DCL 
+command procedure SYS$STARTUP:TCPIP$DEFINE_COMMANDS.COM.
+
+<p>
+Also see <a href="vmsfaq_010.html#dcl11">Section 8.10</a>.
+
+<a name="dcl3"><h1><font color=maroon>8.2 How can I clear the screen in DCL?</font></h1></a>
+<a name="index_x_538"></a>
+
+<p>
+The simplest way is the TYPE/PAGE NLA0: command.
+
+<p>
+You can set up a symbol to clear the screen in your LOGIN.COM:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ CLS :== TYPE/PAGE NLA0: 
+</pre>
+</font>
+</table>
+
+<a name="dcl4"><h1><font color=maroon>8.3 Using REPLY/LOG from DCL?  Disabling Console OPCOMs?</font></h1></a>
+<a name="index_x_539"></a>
+
+<p>
+Your terminal must be enabled as an operator terminal before the 
+REPLY/LOG command can be used, but a DCL procedure (batch command file, 
+system startup, etc) does not have an associated terminal. To make this 
+work, use the following sequence to enable the OPA0: console as the 
+operator terminal, then the REPLY/LOG command will be accepted:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ DEFINE/USER SYS$COMMAND _OPA0: 
+$ REPLY/LOG 
+$ DEFINE/USER SYS$COMMAND _OPA0: 
+$ REPLY/ENABLE 
+</pre>
+</font>
+</table>
+
+<p>
+To disable the system console terminal (OPA0:) as an operator terminal, 
+use the following command:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ DEFINE/USER SYS$COMMAND _OPA0: 
+$ REPLY/DISABLE 
+</pre>
+</font>
+</table>
+
+<p>
+Also see SYLOGICALS.COM (and SYLOGICALS.TEMPLATE) for information
+<a name="index_x_540"></a>
+<a name="index_x_541"></a>
+on configuring the behaviour of OPCOM, including the (default) use of 
+the system console (OPA0:) as an operator terminial and the specific 
+contents and behaviour of the system operator log file OPERATOR.LOG.
+
+<a name="dcl5"><h1><font color=maroon>8.4 How do I generate a random number in DCL?</font></h1></a>
+<a name="index_x_542"></a>
+
+<p>
+Here is a random number generator, just do a GOSUB RAND and the global 
+symbol RANDOM will contain a randomly generated number. You can feed 
+the generator a ceiling value (__CEIL) or a new seed (__SEED).
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$! RAND - returns a positive random number ("RANDOM") between 0 and 
+$!        __CEIL - 1. 
+$! sharris-at-sdsdmvax.fb3.noaa.gov 
+$ RAND: 
+$ 
+$ IF F$TYPE(__SEED) .EQS. "" 
+$ THEN 
+$     ! seed the random number generator, ... 
+$     __NOW = F$CVTIME() 
+$     __HOUR = 'F$EXTRACT(11,2,__NOW)' 
+$     __MINUTE = 'F$EXTRACT(14,2,__NOW)' 
+$     __SECOND = 'F$EXTRACT(17,2,__NOW)' 
+$     __TICK = 'F$EXTRACT(20,2,__NOW)' 
+$ 
+$     __SEED == __TICK + (100 * __SECOND) + (6000 * __MINUTE) + - 
+         (360000 * __HOUR) 
+$     ! the generator tends to do better with a large, odd seed, ... 
+$     __SEED == (__SEED .OR. 1) 
+$     ! clean up, ... 
+$     DELETEX/SYMBOL __NOW 
+$     DELETEX/SYMBOL __HOUR 
+$     DELETEX/SYMBOL __MINUTE 
+$     DELETEX/SYMBOL __SECOND 
+$     DELETEX/SYMBOL __TICK 
+$ ENDIF 
+$ 
+$ IF F$TYPE(__CEIL) .EQS. "" THEN __CEIL = %X3FFFFFFF 
+$ 
+$ __SEED == __SEED * 69069 + 1 
+$ 
+$ RANDOM == (__SEED.AND.%X3FFFFFFF)/(%X40000000/__CEIL) 
+$ 
+$ RETURN 
+</pre>
+</font>
+</table>
+
+<a name="dcl6"><h1><font color=maroon>8.5 What does the MCR command do?</font></h1></a>
+<a name="index_x_543"></a>
+
+<p>
+The MCR is an artifact of RSX compatibility mode, the operating system 
+from which OpenVMS is descended. MCR is the Monitor Console Routine, 
+and the command is intended to activate RSX compatibility mode 
+utilities. When used on OpenVMS, the command is most commonly used to 
+run the specified image and---because the tool detects the image is not 
+a compatibility-mode image---it acts as a form of RUN command with the 
+default file specification of SYS$SYSTEM:.EXE. MCR passes any 
+(optional) command line arguments in a fashion similar to a foreign 
+command. In other words:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ MCR FOO BAR 
+</pre>
+</font>
+</table>
+
+<p>
+is equivalent to:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+ $ FOO :== $FOO 
+ $ FOO BAR 
+</pre>
+</font>
+</table>
+
+<p>
+MCR is not documented. Use of a foreign command or the DCL$PATH 
+mechanism is preferred. For details on this, see <a href="vmsfaq_010.html#dcl1">Section 8.1</a>.
+
+<a name="dcl7"><h1><font color=maroon>8.6 How do I change the OpenVMS system prompt?</font></h1></a>
+<a name="index_x_544"></a>
+
+<p>
+You can use the SET PROMPT command for this purpose. SET PROMPT sets 
+the DCL prompt to the specified string.
+
+<p>
+When you want to display variable information, you will need to 
+establish a tie-in that provides the information to the SET PROMPT 
+command as required.
+
+<p>
+If you wish to display the default directory for instance, you will 
+have to establish a tie between the SET DEFAULT command and the SET 
+PROMPT commands, as there is no direct way to get the default directory 
+as the DCL prompt. You can easily acquire or create a set of DCL 
+command procedures that perform the SET DEFAULT and SET PROMPT for you. 
+These DCL command procedures often use a command such as:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ set prompt='f$environment("default")' 
+</pre>
+</font>
+</table>
+
+<p>
+More advanced users could implement a system service or other 
+intercept, and use these tools to intercept the directory change and 
+reset the prompt accordingly. (This approach likely involves some 
+kernel-mode programming, and requires write access to various 
+undocumented OpenVMS data structures.)
+
+<p>
+There are related tools available from various sources, including the 
+following web sites:
+
+<ul>
+  <li>ftp://ftp.hhs.dk/pub/vms/setpmt/
+  <li>ftp://ftp.tmesis.com/sys_service_hook.src
+  <li>James F. Duff has also made available a Macro32 tool known as 
+  TIME_PROMPT, a tool that sets the prompt to the current system time.
+  <li>Many folks have contributed DCL procedures to perform this task. 
+  Visit the newsgroup archives for information and examples.
+</ul>
+
+<a name="dcl8"><h1><font color=maroon>8.7 Can I do DECnet task-to-task communication with DCL?</font></h1></a>
+<a name="index_x_545"></a>
+
+<p>
+Yes, you can do this with DCL.
+
+<p>
+The OpenVMS DECnet documentation shows various simple examples using 
+the task object and the TYPE command to trigger the execution of a DCL 
+command procedure on a remote node. An example DCL command procedure 
+that is rather more advanced than using the TYPE command as a trigger 
+is included in the Ask The Wizard area:
+
+<ul>
+  <li>http://www.hp.com/go/openvms/wizard/
+</ul>
+
+<p>
+For additional information on the OpenVMS Ask The Wizard (ATW) area and 
+for a pointer to the available ATW Wizard.zip archive, please see 
+<a href="vmsfaq_003.html#doc14">Section 3.9</a>.
+<a name="index_x_546"></a>
+<a name="index_x_547"></a>
+
+<p>
+DCL does not include support asynchronous I/O, thus a predetermined 
+protocol or a predetermined "turn-around" command sequence must be 
+implemented in order to avoid protocol deadlocks---cases where both 
+tasks are trying to write or both tasks are trying to read. The task 
+that is writing messages to the network must write (or write and read) 
+a predetermined sequence of messages, or it must write a message that 
+tells the reader that it can now start writing messages. (This is the 
+essence of a basic half-duplex network protocol scheme.)
+
+<a name="dcl9"><h1><font color=maroon>8.8 How can I get the width setting of a terminal?</font></h1></a>
+<a name="index_x_548"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ width = f$getdvi(terminal,"DEVBUFSIZ") 
+</pre>
+</font>
+</table>
+
+<a name="dcl10"><h1><font color=maroon>8.9 How can I substitute symbols in a PIPE?</font></h1></a>
+<a name="index_x_549"></a>
+
+<p>
+Use DCL ampersand substitution, and not apostrophe substitution.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ pipe show system | search sys$input opcom | (read sys$input pid ; 
+    pid=f$element(0," ",pid) ; define/system opcom_pid &amp;pid) 
+$ show log opcom_pid 
+    "OPCOM_PID" = "0000020B" (LNM$SYSTEM_TABLE) 
+</pre>
+</font>
+</table>
+
+<a name="dcl11"><h1><font color=maroon>8.10 Use of RUN/DETACH, LOGINOUT, and logical names?</font></h1></a>
+<a name="index_x_550"></a>
+
+<p>
+With a command to create a detached process such as:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ RUN/DETACHED SYS$SYSTEM:LOGINOUT /INPUT=TEMP_INPUT.COM 
+</pre>
+</font>
+</table>
+
+<p>
+If you are trying to use a logical name as the /INPUT, /OUTPUT or 
+/ERROR on a RUN/DETACH command, then you must translate the logical 
+name specifications to physical references before passing them, or the 
+definitions must reside in a logical name table that is visible to the 
+newly-created process.
+
+<p>
+Also note that LOGINOUT only creates the SYS$LOGIN, SYS$LOGIN_DEVICE, 
+and SYS$SCRATCH
+<a name="index_x_551"></a>
+<a name="index_x_552"></a>
+<a name="index_x_553"></a>
+<a name="index_x_554"></a>
+<a name="index_x_555"></a>
+<a name="index_x_556"></a>
+  logical names if it is processing a login that is based on the contents 
+  of a SYSUAF record---without access to the associated SYSUAF record, 
+  this information is not available to LOGINOUT. (If you want to see 
+  these particular logical names created, then please specify the 
+  /AUTHORIZE qualifier on the RUN/DETACHED command.)
+
+<p>
+If you do not specify LOGINOUT as the image, then there is no easy way 
+to get these logical names. Also, any logical names that are used in 
+the target image file specification must also be in a logical name 
+table accessible (by default) by the newly-created detached process. 
+Shared tables include the group (if the process is in the same UIC 
+group) and the system table. (If the target process is to be in another 
+UIC group, a suitablly privileged user or application can create the 
+necessary logical name(s) directly in the other group logical name 
+table.)
+
+<p>
+When in doubt, create a short DCL command file as input, and use a SHOW 
+LOGICAL and similar commands to examine the context. (And use physical 
+device and directory references on the RUN/DETACH of the LOGINOUT 
+image, when specifying this command file as /INPUT.) Also remember to 
+check both security auditing and system accounting when troubleshooting 
+problems with the RUN/DETACH.
+
+<p>
+Also see <a href="vmsfaq_010.html#dcl1">Section 8.1</a>.
+
+<a name="dcl12"><h1><font color=maroon>8.11 How to use escape and control characters in DCL?</font></h1></a>
+<a name="index_x_557"></a>
+
+<p>
+To write a message and then the bell character, use:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ bell[0,7] = 7 
+$ write sys$output "Hello''bell'" 
+</pre>
+</font>
+</table>
+
+<p>
+To write blinking text, use:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ esc[0,7] = 27 
+$ text = "Blinking Text" 
+$ write sys$output "''esc'[5m''text'''esc'[m" 
+</pre>
+</font>
+</table>
+
+<p>
+Also see sections <a href="vmsfaq_013.html#decw9">Section 11.7</a>, <a href="vmsfaq_014.html#misc2">Section 12.1</a>.
+
+<p>
+<hr size=5>
+<font color=maroon>
+<a name="faq_files"><h1>Chapter 9<br>Files</h1></a>
+</font>
+
+<a name="file1"><h1><font color=maroon>9.1 How can I undelete a file?</font></h1></a>
+<a name="index_x_558"></a>
+
+<p>
+OpenVMS doesn't have an &quot;undelete&quot; function. However, if you 
+are quick to write-protect the disk or if you can guarantee that no new 
+files get created or existing files extended, your data is still on the 
+disk and it may be possible to retrieve it. The FLORIAN tool available 
+from various websites can potentially recover the file, see question 
+<a href="vmsfaq_015.html#soft1">Section 13.1</a> for pointers. Other alternatives here include the DFU 
+tool, available on the OpenVMS Freeware CD-ROM distribution.
+<a name="index_x_559"></a>
+<a name="index_x_560"></a>
+<a name="index_x_561"></a>
+<a name="index_x_562"></a>
+
+<p>
+If you are setting up a user environment for yourself or for others, it 
+is quite easy to use DCL to intercept the DELETE command, using a 
+symbol:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ DEL*ETE :== @SYS$LOGIN:MYDELETE.COM 
+</pre>
+</font>
+</table>
+
+<p>
+The DELETE symbol will cause the procedure to be invoked whenever the 
+user enters the DELETE command, and it can copy the file(s) to a 
+&quot;trashcan&quot; subdirectory before issuing a &quot;real&quot; 
+DELETE on the files. Other procedures can retrieve the file(s) from the 
+&quot;trashcan&quot; subdirectory, and can (and should) clean out the 
+&quot;trashcan&quot; as appropriate. (Realize that this DELETE symbol 
+can interfere with DELETE/GLOBAL and other similar DCL commands.)
+
+<a name="file2"><h1><font color=maroon>9.2 Why does SHOW QUOTA give a different answer than DIR/SIZE?</font></h1></a>
+<a name="index_x_563"></a>
+
+<p>
+DIRECTORY/SIZE doesn't take into account the size of file headers which 
+are charged to your quota. Also, unless you use DIRECTORY/SIZE:ALL, you 
+will see only the &quot;used&quot; size of the file, not the allocated 
+size which is what gets charged against your quota. Also, you may have 
+files in other directories.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ DIRECTORY/SIZE=ALL/GRAND [username...] 
+Grand total of D1 directories, F1 files, B1/B2 blocks. 
+$ DIRECTORY/SIZZ=ALL/GRAND [-]username.DIR 
+Grand total of 1 directory, 1 file, B3/B4 blocks. 
+$ SHOW QUOTA 
+User [username] has B5 blocks used, B6 available 
+of B7 authorized and permitted overdraft of B8 blocks on disk 
+</pre>
+</font>
+</table>
+
+<p>
+If the user has no files in other directories and all file-headers are 
+only 1 block, then the following should apply:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+  B5=B2+B4+F1+1 
+</pre>
+</font>
+</table>
+
+<p>
+If the diskquota has drifted out of synchronization, then the 
+system-manager can force a quota rebuild---due to various factors, the 
+quota file can potentially drift from the actual use over time, and a 
+periodic rebuild can be performed at appropriate intervals.
+
+<p>
+Also be aware that the DIRECTORY/SIZE command can report larger values 
+than might otherwise be expected when used to evaluate files and/or 
+directories that are alias links---such as the system roots on OpenVMS 
+system disks---as the command reports a total that is cumulative over 
+all of the files and directories examined, without regard for which 
+ones might be alias entries and which are not. (In other words, a 
+DIRECTORY/SIZE of an entire OpenVMS system disk will report a disk 
+useage value larger than the (usually more accurate) value reported by 
+the SHOW DEVICE command. This as a result of the alias entries linking 
+each SYS$SYSDEVICE:[SYSCOMMON]SYS*.DIR directory file and the 
+SYS$SYSDEVICE:[000000]VMS$COMMON.DIR file together.)
+
+<a name="file3"><h1><font color=maroon>9.3 How do I make sure that my data is safely written to disk?</font></h1></a>
+<a name="index_x_564"></a>
+
+<p>
+If your application must absolutely guarantee that data is available, 
+no matter what, there's really no substitute for RMS Journaling and 
+host- or controller-based shadowing. However, you can achieve a good 
+degree of data integrity by issuing a SYS$FLUSH RMS call at appropriate
+<a name="index_x_565"></a>
+<a name="index_x_566"></a>
+<a name="index_x_567"></a>
+<a name="index_x_568"></a>
+<a name="index_x_569"></a>
+<a name="index_x_570"></a>
+<a name="index_x_571"></a>
+times (if you're using RMS, that is.) If you're using a high-level 
+language's I/O system, check that language's documentation to see if 
+you can access the RMS control blocks for the open file. In C you can 
+use fflush followed by fsync.
+
+<p>
+For details on disk bad block handling on MSCP and on SCSI disk 
+devices, please see Ask The Wizard (ATW) topic (6926).
+<a name="index_x_572"></a>
+<a name="index_x_573"></a>
+<a name="index_x_574"></a>
+<a name="index_x_575"></a>
+
+<ul>
+  <li>http://www.hp.com/go/openvms/wizard/
+</ul>
+
+<p>
+For additional information on the OpenVMS Ask The Wizard (ATW) area and 
+for a pointer to the available ATW Wizard.zip archive, please see 
+<a href="vmsfaq_003.html#doc14">Section 3.9</a>.
+<a name="index_x_576"></a>
+<a name="index_x_577"></a>
+
+<a name="file4"><h1><font color=maroon>9.4 What are the limits on file specifications and directories?</font></h1></a>
+<a name="index_x_578"></a>
+
+<p>
+A file specification has an aggregate maximum size of 255 characters at 
+present. The node and device specification may be up to 255 characters 
+each - file name and file types may be up to 39 characters each. File 
+versions are from 1 through 32767, though 0 (latest version), -0 
+(oldest version) and -n (n'th previous version) can be used in most 
+contexts. A file specification may not have more than 8 directories and 
+subdirectories - while it is possible to create subdirectories of 
+greater depth, accessing them is problematic in most cases and this 
+should be avoided.
+
+<p>
+Application developers should use OpenVMS-supplied routines for parsing 
+file specifications - this ensures that changes in what is allowable 
+will not tend to break your application. Consider that various parts of 
+the file specification may contain quoted strings with embedded spaces 
+and other punctuation! Some routines of interest are SYS$FILESCAN, 
+SYS$PARSE and LIB$TRIM_FILESPEC. For further information, see the 
+OpenVMS Guide to File Applications.
+<a name="index_x_579"></a>
+<a name="index_x_580"></a>
+<a name="index_x_581"></a>
+<a name="index_x_582"></a>
+<a name="index_x_583"></a>
+
+<p>
+Performance of larger directory files improves (greatly) with OpenVMS 
+V7.2 and later---operations on directory files of 128 blocks and larger 
+were rather slower on earlier OpenVMS releases due to the smaller size 
+of the directory cache and due to the directory I/O processing logic.
+
+<p>
+For fastest directory deletions, consider a reverse deletion---delete 
+from the last file in the directory to the first. This reversal speeds 
+the deletion operation by avoiding unnecessary directory I/O operations 
+as the files are deleted. Tools such as the Freeware DFU can be used 
+for this purpose,
+<a name="index_x_584"></a>
+<a name="index_x_585"></a>
+as can various available reverse-DELETE DCL command procedures.
+
+<a name="file5"><h1><font color=maroon>9.5 What is the largest disk volume size OpenVMS can access?</font></h1></a>
+<a name="index_x_586"></a>
+
+<p>
+One Terabyte (TB; 2**31 blocks of 2**9 bytes; 0x07FFFFFFF blocks). 255 
+volumes in a volume set. The largest contiguous allocation possible for 
+any particular file is 0x03FFFFFFF blocks.
+
+<p>
+Prior to the release of V6.0, the OpenVMS file system was limited to 
+disk volumes of 8.38 GB (2**24 blocks, 16777216 blocks) or less.
+
+<p>
+On some systems, there are restrictions in the console program that 
+limit the size of the OpenVMS system disk. Note that data disks are not 
+affected by console program limits. For example, all members of the 
+VAXstation 3100
+<a name="index_x_587"></a>
+<a name="index_x_588"></a>
+<a name="index_x_589"></a>
+<a name="index_x_590"></a>
+series are limited to a system disk to 1.073 GB or less due to the 
+console, though larger data disks are possible. This limit due to the 
+SCSI drivers used by and built into the console ROM to read the OpenVMS 
+bootstrap files, and these same drivers are also used by OpenVMS to 
+write the system crashump.
+
+<p>
+There are numerous discussions of this VAXstation 3100 in the 
+comp.os.vms newsgroup archives. Please use Google newsgroup search to 
+search the archives for further details, for discussions of the 
+workarounds, and for details of the potential for a simple failed 
+bootstrap and particularly for discussions of the potential for severe 
+system disk corruptions on crashes.
+
+<p>
+Some SCSI disks with capacities larger than 8.58 gigabytes (GB) will 
+require the use of an OpenVMS ECO kit (eg: ALPSCSI04_062 or later; see 
+<a href="vmsfaq_019.html#misc21">Section 14.26</a> for details) for new SCSI device drivers. Failure to use 
+this ECO can cause "rounding errors" on the SCSI disk device 
+capacity---OpenVMS will not use nor display the full capacity of the 
+drive---and "%sysinit-e-error mounting system device status equals 
+000008C4" (8C4 -&gt; "%SYSTEM-?-FILESTRUCT, unsupported file structure 
+level") errors during bootstrap. (One workaround for the bootstrap when 
+the bitmap is located far into the disk is the use of 
+INIT/INDEX=BEGIN.) The problem here involves the particular extensions 
+and fields used for larger capacity disks within the SCSI 
+specifications and within the various intepretations of same.
+<a name="index_x_591"></a>
+<a name="index_x_592"></a>
+<a name="index_x_593"></a>
+<a name="index_x_594"></a>
+<a name="index_x_595"></a>
+<a name="index_x_596"></a>
+<a name="index_x_597"></a>
+<a name="index_x_598"></a>
+
+<p>
+For ATA (IDE) disk drives:
+
+<ul>
+  <li>Versions of SYS$DQDRIVER *BEFORE* X-15 topped out at 8.455 GB. 
+  <br>Fixed drivers (equal or greater than "X-15") were shipped in:
+
+  <ul>
+    <li>OpenVMS Alpha V7.2-1, and later
+    <li>V7.2 UPDATE V1.0 ECO, and later
+    <li>V7.1-2 UPDATE V1.0 ECO, and later
+    <li>V7.1-2 UPDATE V3.0 ECO, and later
+  </ul>
+  <li>The newer SYS$DQDRIVER driver operates to disks up to 33 GB without 
+  (known) problems, and effectively works with rather larger disks (up to 
+  circa 137 GB) but is known to report an incorrect number of "cylinders" 
+  with disks above 33 GB.
+</ul>
+
+<p>
+See <a href="vmsfaq_018.html#alpha23">Section 14.4.4.2</a> for additional ATA SYS$DQDRIVER information.
+
+<p>
+Be aware that a known restriction in certain older versions of the 
+Alpha SRM Console prevents booting most ATA (IDE) drives larger than 
+8.455 GB, depending on exactly where the various files are located on 
+the volume. Updated SRM consoles for systems with SRM and ATA (IDE) 
+drive support are (will be) available. (OpenVMS Engineering has 
+successfully bootstrapped 20GB ATA (IDE) disks using the appropriate 
+SRM console version.)
+
+<p>
+NOTE: All ATA-related disk sizes listed in this section are stated in 
+units of "disk (base ten) gigabytes" (1 GB = 10^9 bytes) and NOT in 
+units of "software (base two) gigabytes" (1 GB = 2^30 (1073741824.) 
+bytes. See <a href="vmsfaq_019.html#misc21">Section 14.26</a>.
+
+<p>
+Be aware that larger disks that are using an extension of SCSI-2---
+<a name="index_x_599"></a>
+<a name="index_x_600"></a>
+<a name="index_x_601"></a>
+disks that are using a mode page field that the SCSI-2 specifications 
+normally reserved for tape devices---to permit a larger disk volume 
+size will require a SCSI driver update for OpenVMS, and this change is 
+part of V7.1-2 and later, and also part of ALPSCSI07_062 and later. 
+(These larger disks disks will typically report a DRVERR, or will see 
+the volume size "rounded down".) SCSI disks larger than 16777216 blocks 
+cira 8.455 GB (base ten); 8GB (base two) require this ECO, or require 
+the use of OpenVMS Alpha V7.1-2 or later.
+
+<p>
+Applications written in C can be limited to file sizes of two gigabytes 
+and less, as a result of the use of longword values within C file 
+operations, and specifically off_t. This restriction is lifted in 
+OpenVMS V7.3-1 and later, and with the application of the C ECO kits 
+available for specific earlier releases. The use of a longword for 
+off_t restricts applications using native C I/O to file sizes of two 
+gigabytes or less, or these applications must use native RMS or XQP 
+calls for specific operations.
+
+<p>
+Also see <a href="vmsfaq_019.html#vax5">Section 14.14</a>, <a href="vmsfaq_019.html#misc21">Section 14.26</a>.
+
+<a name="bottom_010"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_009.html#bottom_009">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vmsfaq_011.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+</body>
+</html>

@@ -1,0 +1,1868 @@
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+
+                   Many commercial paging services provide email contact
+                   addresses for their paging customers-you can simply
+                   send or forward email directly to the email address
+                   assigned to the pager.
+
+                   Some people implement the sending of pages to radio
+                   pagers by sending commands to a modem to take the
+                   "phone" off the "hook", and then the paging sequence,
+                   followed by a delay, and then the same number that a
+                   human would dial to send a numeric page. (This is not
+                   entirely reliable, as the modem lacks "call progress
+                   detection", and the program could simply send the
+                   dial sequence when not really connected to the paging
+                   company's telephone-based dial-up receiver.)
+
+                   See Section 13.1 for information on the available
+                   catalog of products.
+
+          __________________________________________________________
+          15.6  OpenVMS, Clusters, Volume Shadowing?
+
+                   The following sections contain information on OpenVMS
+                   and Clusters, Volume Shadowing, and Cluster-related
+                   system parameters.
+
+          _____________________________
+          15.6.1  OpenVMS Cluster Communications Protocol Details?
+
+                   The following sections contain information on the
+                   OpenVMS System Communications Services (SCS) Protocol.
+
+          _____________________________
+          15.6.1.1  OpenVMS Cluster (SCS) over DECnet? Over IP?
+
+                   The OpenVMS Cluster environment operates over various
+                   network protocols, but the core of clustering uses
+                   the System Communications Services (SCS) protocols,
+                   and SCS-specific network datagrams. Direct (full)
+                   connectivity is assumed.
+
+                   An OpenVMS Cluster does not operate over DECnet, nor
+                   over IP.
+
+                   No SCS protocol routers are available.
+
+                                                                     15-11
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+
+                   Many folks have suggested operating SCS over DECnet
+                   or IP over the years, but SCS is too far down in
+                   the layers, and any such project would entail a
+                   major or complete rewrite of SCS and of the DECnet
+                   or IP drivers. Further, the current DECnet and IP
+                   implementations have large tracts of code that operate
+                   at the application level, while SCS must operate in
+                   the rather more primitive contexts of the system and
+                   particularly the bootstrap-to get SCS to operate over a
+                   DECnet or IP connection would require relocating major
+                   portions of the DECnet or IP stack into the kernel.
+                   (And it is not clear that the result would even meet
+                   the bandwidth and latency expectations.)
+
+                   The usual approach for multi-site OpenVMS Cluster
+                   configurations involves FDDI, Memory Channel (MC2), or
+                   a point-to-point remote bridge, brouter, or switch. The
+                   connection must be transparent, and it must operate at
+                   10 megabits per second or better (Ethernet speed), with
+                   latency characteristics similar to that of Ethernet or
+                   better. Various sites use FDDI, MC2, ATM, or point-to-
+                   point T3 link.
+
+          _____________________________
+          15.6.1.2  Configuring Cluster SCS for path load balancing?
+
+                   This section discusses OpenVMS Cluster communications,
+                   cluster terminology, related utilities, and command and
+                   control interfaces.
+
+          _____________________________
+          15.6.1.2.1  Cluster Terminology?
+
+                   SCS: Systems Communication Services. The protocol used
+                   to communicate between VMSCluster systems and between
+                   OpenVMS systems and SCS-based storage controllers.
+                   (SCSI-based storage controllers do not use SCS.)
+
+                   PORT: A communications device, such as DSSI, CI,
+                   Ethernet or FDDI. Each CI or DSSI bus is a different
+                   local port, named PAA0, PAB0, PAC0 etc. All Ethernet
+                   and FDDI busses make up a single PEA0 port.
+
+
+                   15-12
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+
+                   VIRTUAL CIRCUIT: A reliable communications path
+                   established between a pair of ports. Each port in a
+                   VMScluster establishes a virtual circuit with every
+                   other port in that cluster.
+
+                   All systems and storage controllers establish "Virtual
+                   Circuits" to enable communications between all
+                   available pairs of ports.
+
+                   SYSAP: A "system application" that communicates using
+                   SCS. Each SYSAP communicates with a particular remote
+                   SYSAP. Example SYSAPs include:
+
+                   VMS$DISK_CL_DRIVER connects to MSCP$DISK
+                   The disk class driver is on every VMSCluster system.
+                   MSCP$DISK is on all disk controllers and all VMSCluster
+                   systems that have SYSGEN parameter MSCP_LOAD set to 1
+
+                   VMS$TAPE_CL_DRIVER connects to MSCP$TAPE
+                   The tape class driver is on every VMSCluster system.
+                   MSCP$TAPE is on all tape controllers and all VMSCluster
+                   systems that have SYSGEN parameter TMSCP_LOAD set to 1
+
+                   VMS$VAXCLUSTER connects to VMS$VAXCLUSTER
+                   This SYSAP contains the connection manager, which
+                   manages cluster connectivity, runs the cluster state
+                   transition algorithm, and implements the cluster quorum
+                   algorithm. This SYSAP also handles lock traffic, and
+                   various other cluster communications functions.
+
+                   SCS$DIR_LOOKUP connects to SCS$DIRECTORY
+                   This SYSAP is used to find SYSAPs on remote systems
+
+                   MSCP and TMSCP
+                   The Mass Storage Control Protocol and the Tape MSCP
+                   servers are SYSAPs that provide access to disk and
+                   tape storage, typically operating over SCS protocols.
+                   MSCP and TMSCP SYSAPs exist within OpenVMS (for OpenVMS
+                   hosts serving disks and tapes), within CI- and DSSI-
+                   based storage controllers, and within host-based MSCP-
+                   or TMSCP storage controllers. MSCP and TMSCP can be
+                   used to serve MSCP and TMSCP storage devices, and can
+                   also be used to serve SCSI and other non-MSCP/non-TMSCP
+                   storage devices.
+
+                                                                     15-13
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+
+                   SCS CONNECTION: A SYSAP on one node establishes an SCS
+                   connection to its counterpart on another node. This
+                   connection will be on ONE AND ONLY ONE of the available
+                   virtual circuits.
+
+          _____________________________
+          15.6.1.2.2  Cluster Communications Control?
+
+                   When there are multiple virtual circuits between two
+                   OpenVMS systems it is possible for the VMS$VAXCLUSTER
+                   to VMS$VAXCLUSTER connection to use any one of these
+                   circuits. All lock traffic between the two systems will
+                   then travel on the selected virtual circuit.
+
+                   Each port has a "LOAD CLASS" associated with it. This
+                   load class helps to determine which virtual circuit
+                   a connection will use. If one port has a higher load
+                   class than all others then this port will be used. If
+                   two or more ports have equally high load classes then
+                   the connection will use the first of these that it
+                   finds. Normally all CI and DSSI ports have a load class
+                   of 14(hex), while the Ethernet and FDDI ports will have
+                   a load class of A(hex).
+
+                   For instance, if you have multiple DSSI busses and
+                   an FDDI, the VMS$VAXCLUSTER connection will chose the
+                   DSSI bus as this path has the system disk, and thus
+                   will always be the first DSSI bus discovered when the
+                   OpenVMS system boots.
+
+                   To force all lock traffic off the DSSI and on to
+                   the FDDI, for instance, an adjustment to the load
+                   class value is required, or the DSSI SCS port must
+                   be disabled.
+
+                   Note that with PE ports, you can typically immediately
+                   re-enable the path, permitting failover to occur should
+                   congestion or a problem arise-a running average of the
+                   path latency is checked when the virtual circuit is
+                   formed, and at periodic intervals (circa every three
+                   seconds), and when a problem with a virtual circuit
+                   arises.
+
+
+                   15-14
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+
+                   In the case of PEDRIVER, the driver handles load
+                   balancing among the available Ethernet and FDDI
+                   connections based on the lowest latency path available
+                   to it. Traffic will be routed through that path until
+                   an event occurs that requires a fail-over.
+
+          _____________________________
+          15.6.1.2.3  Cluster Communications Control Tools and Utilities?
+
+                   In most OpenVMS versions, you can use the tools:
+
+                   o  SYS$EXAMPLES:LAVC$STOP_BUS
+
+                   o  SYS$EXAMPLES:LAVC$START_BUS
+
+                   These tools permit you to disable or enable all SCS
+                   traffic on the on the specified paths.
+
+                   You can also use a preferred path mechanism that tells
+                   the local MSCP disk class driver (DUDRIVER) which path
+                   to a disk should be used. Generally, this is used with
+                   dual-pathed disks, forcing I/O traffic through one of
+                   the controllers instead of the other. This can be used
+                   to implement a crude form of I/O load balancing at the
+                   disk I/O level.
+
+                   Prior to V7.2, the preferred path feature uses the
+                   tool:
+
+                   o  SYS$EXAMPLES:PREFER.MAR
+
+                   In OpenVMS V7.2 and later, you can use the following
+                   DCL command:
+
+                   $ SET PREFERRED_PATH
+
+                   The preferred path mechanism does not disable nor
+                   affect SCS operations on the non-preferred path.
+
+                   With OpenVMS V7.3 and later, please see the SCACP
+                   utility for control over cluster communications, SCS
+                   virtual circuit control, port selection, and related.
+
+
+                                                                     15-15
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+          _____________________________
+          15.6.2  Cluster System Parameter Settings?
+
+                   The following sections contain details of configuring
+                   cluster-related system parameters.
+
+          _____________________________
+          15.6.2.1  What is the correct value for EXPECTED_VOTES in a
+                    VMScluster?
+
+                   The VMScluster connection manager uses the concept
+                   of votes and quorum to prevent disk and memory data
+                   corruptions-when sufficient votes are present for
+                   quorum, then access to resources is permitted. When
+                   sufficient votes are not present, user activity will be
+                   blocked. The act of blocking user activity is called
+                   a "quorum hang", and is better thought of as a "user
+                   data integrity interlock". This mechanism is designed
+                   to prevent a partitioned VMScluster, and the resultant
+                   massive disk data corruptions. The quorum mechanism is
+                   expressly intended to prevent your data from becoming
+                   severely corrupted.
+
+                   On each OpenVMS node in a VMScluster, one sets two
+                   values in SYSGEN: VOTES, and EXPECTED_VOTES. The
+                   former is how many votes the node contributes to the
+                   VMScluster. The latter is the total number of votes
+                   expected when the full VMScluster is bootstrapped.
+
+                   Some sites erroneously attempt to set EXPECTED_VOTES
+                   too low, believing that this will allow when only a
+                   subset of voting nodes are present in a VMScluster. It
+                   does not. Further, an erroneous setting in EXPECTED_
+                   VOTES is automatically corrected once VMScluster
+                   connections to other nodes are established; user data
+                   is at risk of severe corruptions during the earliest
+                   and most vulnerable portion of the system bootstrap,
+                   before the connections have been established.
+
+                   One can operate a VMScluster with one, two, or many
+                   voting nodes. With any but the two-node configuration,
+                   keeping a subset of the nodes active when some nodes
+                   fail can be easily configured. With the two-node
+                   configuration, one must use a primary-secondary
+                   configuration (where the primary has all the votes), a
+
+                   15-16
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+
+                   peer configuration (where when either node is down, the
+                   other hangs), or (preferable) a shared quorum disk.
+
+                   Use of a quorum disk does slow down VMScluster
+                   transitions somewhat - the addition of a third
+                   voting node that contributes the vote(s) that would
+                   be assigned to the quorum disk makes for faster
+                   transitions-but the use of a quorum disk does mean
+                   that either node in a two-node VMScluster configuration
+                   can operate when the other node is down.
+
+                   If you choose to use a quoum disk, a QUORUM.DAT file
+                   will be automatically created when OpenVMS first
+                   boots and when a quorum disk is specified - well, the
+                   QUORUM.DAT file will be created when OpenVMS is booted
+                   without also needing the votes from the quorum disk.
+
+                   In a two-node VMScluster with a shared storage
+                   interconnect, typically each node has one vote, and
+                   the quorum disk also has one vote. EXPECTED_VOTES is
+                   set to three.
+
+                   Using a quorum disk on a non-shared interconnect is
+                   unnecessary-the use of a quorum disk does not provide
+                   any value, and the votes assigned to the quorum disk
+                   should be assigned to the OpenVMS host serving access
+                   to the disk.
+
+                   For information on quorum hangs, see the OpenVMS
+                   documentation. For information on changing the
+                   EXPECTED_VOTES value on a running system, see the
+                   SET CLUSTER/EXPECTED_VOTES command, and see the
+                   documentation for the AMDS and Availability Manager
+                   tools. Also of potential interest is the OpenVMS
+                   system console documentation for the processor-specific
+                   console commands used to trigger the IPC (Interrrupt
+                   Priority Level %x0C; IPL C) handler. AMDS, Availability
+                   Manager, and the IPC handler can each be used to clear
+                   a quorum hang. Use of AMDS and Availability Manager is
+                   generally recommended over IPC, particularly because
+                   IPC can cause CLUEXIT bugchecks if the system should
+                   remain halted beyond the cluster sanity timer limits.
+
+
+                                                                     15-17
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+
+                   The quorum scheme is a set of "blade guards"
+                   deliberately implemented by OpenVMS Engineering to
+                   provide data integrity-remove these blade guards at
+                   your peril. OpenVMS Engineering did not implement
+                   the quorum mechanism to make a system manager's life
+                   more difficult- the quorum mechanism was specifically
+                   implemented to keep your data from getting scrambled.
+
+          _____________________________
+          15.6.2.2  Explain disk (or tape) allocation class settings?
+
+                   The allocation class mechanism provides the system
+                   manager with a way to configure and resolve served and
+                   direct paths to storage devices within a cluster. Any
+                   served device that provides multiple paths should be
+                   configured using a non-zero allocation class, either
+                   at the MSCP (or TMSCP) storage controllers, at the
+                   port (for port allocation classes), or at the OpenVMS
+                   MSCP (or TMSCP) server. All controllers or servers
+                   providing a path to the same device should have the
+                   same allocation class (at the port, controller, or
+                   server level).
+
+                   Each disk (or tape) unit number used within a non-
+                   zero disk (or tape) allocation class must be unique,
+                   regardless of the particular device prefix. For the
+                   purposes of multi-path device path determination, any
+                   disk (or tape) device with the same unit number and the
+                   same disk (or tape) allocation class configuration is
+                   assumed to be the same device.
+
+                   If you are reconfiguring disk device allocation
+                   classes, you will want to avoid the use of allocation
+                   class one ($1$) until/unless you have Fibre Channel
+                   storage configured. (Fibre Channel storage specifically
+                   requires the use of allocation class $1$. eg:
+                   $1$DGA0:.)
+
+
+
+
+
+
+
+                   15-18
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+          _____________________________
+          15.6.2.2.1  How to configure allocation classes and Multi-Path
+                      SCSI?
+
+                   The HSZ allocation class is applied to devices,
+                   starting with OpenVMS V7.2. It is considered a port
+                   allocation class (PAC), and all device names with a PAC
+                   have their controller letter forced to "A". (You might
+                   infer from the the text in the "Guidelines for OpenVMS
+                   Cluster Configurations" that this is something you have
+                   to do, though OpenVMS will thoughtfully handle this
+                   renaming for you.)
+
+                   You can force the device names back to DKB by setting
+                   the HSZ allocation class to zero, and setting the PKB
+                   PAC to -1. This will use the host allocation class, and
+                   will leave the controller letter alone (that is, the
+                   DK controller letter will be the same as the SCSI port
+                   (PK) controller). Note that this won't work if the HSZ
+                   is configured in multibus failover mode. In this case,
+                   OpenVMS requires that you use an allocation class for
+                   the HSZ.
+
+                   When your configuration gets even moderately complex,
+                   you must pay careful attention to how you assign
+                   the three kinds of allocation class: node, port and
+                   HSZ/HSJ, as otherwise you could wind up with device
+                   naming conflicts that can be painful to resolve.
+
+                   The display-able path information is for SCSI
+                   multi-path, and permits the multi-path software to
+                   distinguish between different paths to the same device.
+                   If you have two paths to $1$DKA100, for example by
+                   having two KZPBA controllers and two SCSI buses to the
+                   HSZ, you would have two UCBs in a multi-path set. The
+                   path information is used by the multi-path software to
+                   distinguish between these two UCBs.
+
+                   The displayable path information describes the path;
+                   in this case, the SCSI port. If port is PKB, that's
+                   the path name you get. The device name is no longer
+                   completely tied to the port name; the device name now
+                   depends on the various allocation class settings of the
+                   controller, SCSI port or node.
+
+                                                                     15-19
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+
+                   The reason the device name's controller letter is
+                   forced to "A" when you use PACs is because a shared
+                   SCSI bus may be configured via different ports on the
+                   various nodes connected to the bus. The port may be PKB
+                   on one node, and PKC on the other. Rather obviously,
+                   you will want to have the shared devices use the same
+                   device names on all nodes. To establish this, you
+                   will assign the same PAC on each node, and OpenVMS
+                   will force the controller letter to be the same on
+                   each node. Simply choosing "A" was easier and more
+                   deterministic than negotiating the controller letter
+                   between the nodes, and also parallels the solution used
+                   for this situation when DSSI or SDI/STI storage was
+                   used.
+
+                   To enable port allocation classes, see the SYSBOOT
+                   command SET/BOOT, and see the DEVICE_NAMING system
+                   parameter.
+
+                   This information is also described in the Cluster
+                   Systems and Guidelines for OpenVMS Cluster
+                   Configurations manuals.
+
+          _____________________________
+          15.6.3  Tell me about SET HOST/DUP and SET HOST/HSC
+
+                   The OpenVMS DCL commands SET HOST/DUP and SET HOST/HSC
+                   are used to connect to storage controllers via the
+                   Diagnostics and Utility Protocol (DUP). These commands
+                   require that the FYDRIVER device driver be connected.
+                   This device driver connection is typically performed by
+                   adding the following command(s) into the system startup
+                   command procedure:
+
+                   On OpenVMS Alpha:
+
+                   $ RUN SYS$SYSTEM:SYSMAN
+                   SYSMAN> IO CONNECT FYA0/NOADAPTER/DRIVER=SYS$FYDRIVER
+
+                   On OpenVMS VAX:
+
+                   $ RUN SYS$SYSTEM:SYSGEN
+                   SYSGEN> CONNECT FYA0/NOADAPTER
+
+                   Alternatives to the DCL SET HOST/DUP command include
+                   the console SET HOST command available on various mid-
+                   to recent-vintage VAX consoles:
+
+                   15-20
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+
+                   Access to Parameters on an Embedded DSSI controller:
+
+                   SET HOST/DUP/DSSI[/BUS:{0:1}] dssi_node_number PARAMS
+
+                   Access to Directory of tools on an Embedded DSSI
+                   controller:
+
+                   SET HOST/DUP/DSSI[/BUS:{0:1}] dssi_node_number DIRECT
+
+                   Access to Parameters on a KFQSA DSSI controller:
+
+                   SHOW UQSSP ! to get port_controller_number PARAMS
+                   SET HOST/DUP/UQSSP port_controller_number PARAMS
+
+                   These console commands are available on most MicroVAX
+                   and VAXstation 3xxx series systems, and most (all?) VAX
+                   4xxx series systems. For further information, see the
+                   system documentation and-on most VAX systems-see the
+                   console HELP text.
+
+                   EK-410AB-MG, _DSSI VAXcluster Installation and
+                   Troubleshooting_, is a good resource for setting
+                   up a DSSI VMScluster on OpenVMS VAX nodes. (This
+                   manual predates coverage of OpenVMS Alpha systems,
+                   but gives good coverage to all hardware and software
+                   aspects of setting up a DSSI-based VMScluster-and most
+                   of the concepts covered are directly applicable to
+                   OpenVMS Alpha systems. This manual specifically covers
+                   the hardware, which is something not covered by the
+                   standard OpenVMS VMScluster documentation.)
+
+                   Also see Section 15.3.3, and for the SCS name of the
+                   OpenVMS host see Section 5.6.
+
+          _____________________________
+          15.6.4  How do I rename a DSSI disk (or tape?)
+
+                   If you want to renumber or rename DSSI disks or DSSI
+                   tapes, it's easy-if you know the secret incantation...
+
+                   From OpenVMS:
+
+
+
+                                                                     15-21
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+
+                   $ RUN SYS$SYSTEM:SYSGEN
+                   SYSGEN> CONNECT FYA0/NOADAPTER
+                   SYSGEN> ^Z
+                   $ SET HOST/DUP/SERV=MSCP$DUP/TASK=PARAMS <DSSI-NODE-NAME>
+                   ...
+                   PARAMS> STAT CONF
+                   <The software version is normally near the top of the display.>
+                   PARAMS> EXIT
+                   ...
+
+                   From the console on most 3000- and 4000-class VAX
+                   system consoles... (Obviously, the system must be
+                   halted for these commands...)
+
+                   Integrated DSSI:
+
+                   SET HOST/DUP/DSSI[/BUS:[0:1]] dssi_node_number PARAMS
+
+                   KFQSA:
+
+                   SET HOST/DUP/UQSSP port_controller_number PARAMS
+
+                   For information on how to get out into the PARAMS
+                   subsystem, also see the HELP at the console prompt
+                   for the SET HOST syntax, or see the HELP on SET HOST
+                   /DUP (once you've connected FYDRIVER under OpenVMS).
+
+                   Once you are out into the PARAMS subsystem, you can
+                   use the FORCEUNI option to force the use of the UNITNUM
+                   value and then set a unique UNITNUM inside each DSSI
+                   ISE-this causes each DSSI ISE to use the specfied unit
+                   number and not use the DSSI node as the unit number.
+                   Other parameters of interest are NODENAME and ALLCLASS,
+                   the node name and the (disk or tape) cluster allocation
+                   class.
+
+                   Ensure that all disk unit numbers used within an
+                   OpenVMS Cluster disk allocation class are unique, and
+                   all tape unit numbers used within an OpenVMS Cluster
+                   tape allocation class are also unique. For details on
+                   the SCS name of the OpenVMS host, see Section 5.6. For
+                   details of SET HOST/DUP, see Section 15.6.3.
+
+
+                   15-22
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+          _____________________________
+          15.6.5  Where can I get Fibre Channel Storage (SAN) information?
+
+                   o  http://www.openvms.compaq.com/openvms/fibre/index.html
+
+          _____________________________
+          15.6.6  How can I split up an OpenVMS Cluster?
+
+                   Review the VMScluster documentation, and the System
+                   Management documentation. The following are the key
+                   points, but are likely not the only things you will
+                   need to change.
+
+                   OpenVMS Cluster support is directly integrated into the
+                   operating system, and there is no way to remove it. You
+                   can, however, remote site-specific tailoring that was
+                   added for a particular cluster configuration.
+
+                   First: Create restorable image BACKUPs of each of the
+                   current system disks. If something gets messed up, you
+                   want a way to recover, right?
+
+                   Create standalone BACKUP kits for the OpenVMS VAX
+                   systems, and create or acquire bootable BACKUP kits
+                   for the OpenVMS Alpha systems.
+
+                   Use CLUSTER_CONFIG or CLUSTER_CONFIG_LAN to remove the
+                   various system roots and to shut off boot services and
+                   VMScluster settings.
+
+                   Create as many architecture-specific copies of the
+                   system disks as required. Realize that the new systems
+                   will all likely be booting through root SYS0-if you
+                   have any system-specific files in any other roots, save
+                   them.
+
+                   Relocate the copies of the VMScluster common files onto
+                   each of the new system disks.
+
+                   Reset the console parameters and boot flags on each
+                   system for use on a standalone node.
+
+                   Reset the VAXCLUSTER and NISCS_LOAD_PEA0 parameters to
+                   0 in SYSGEN and in MODPARAMS.DAT.
+
+                   Clobber the VMScluster group ID and password using
+                   SYSMAN.
+
+                   Reboot the systems seperately, and run AUTOGEN on each.
+
+                                                                     15-23
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+
+                   Shut off MOP services via NCP or LANCP on the boot
+                   server nodes.
+
+                   Permanent seperation also requires the duplication
+                   of shared files. For a list of the files commonly
+                   shared, please see the most current version of
+                   SYS$STARTUP:SYLOGICALS.TEMPLATE, and specifically a
+                   version from OpenVMS V7.2 or later. The following files
+                   are typically shared within a cluster:
+
+                     Filename:              default directory (in common root) and file type:
+                       SYSUAF                      SYS$SYSTEM:.DAT
+                       SYSUAFALT                   SYS$SYSTEM:.DAT
+                       SYSALF                      SYS$SYSTEM:.DAT
+                       RIGHTSLIST                  SYS$SYSTEM:.DAT
+                       NETPROXY                    SYS$SYSTEM:.DAT
+                       NET$PROXY                   SYS$SYSTEM:.DAT
+                       NETOBJECT                   SYS$SYSTEM:.DAT
+                       NETNODE_REMOTE              SYS$SYSTEM:.DAT
+                       QMAN$MASTER                 SYS$SYSTEM: (this is a set of related files)
+                       LMF$LICENSE                 SYS$SYSTEM:.LDB
+                       VMSMAIL_PROFILE             SYS$SYSTEM:.DATA
+                       VMS$OBJECTS                 SYS$SYSTEM:.DAT
+                       VMS$AUDIT_SERVER            SYS$MANAGER:.DAT
+                       VMS$PASSWORD_HISTORY        SYS$SYSTEM:.DATA
+                       NETNODE_UPDATE              SYS$MANAGER:.COM
+                       VMS$PASSWORD_POLICY         SYS$LIBRARY:.EXE
+                       LAN$NODE_DATABASE           SYS$SYSTEM:LAN$NODE_DATABASE.DAT
+
+                   Also see the topics on "cluster divorce" in the Ask The
+                   Wizard area.
+
+                   o  http://www.hp.com/go/openvms/wizard/
+
+                   For additional information on the OpenVMS Ask The
+                   Wizard (ATW) area and for a pointer to the available
+                   ATW Wizard.zip archive, please see Section 3.9.
+
+                   Information on changing node names is included in
+                   Section 5.6.
+
+
+
+
+                   15-24
+
+ 
+
+
+
+
+
+                   Information on Networks and Clusters
+
+
+
+          _____________________________
+          15.6.7  Details on Volume Shadowing?
+
+                   This section contains information on host-based volume
+                   shadowing; on the disk mirroring capabilities available
+                   within OpenVMS.
+
+          _____________________________
+          15.6.7.1  Does volume shadowing require a non-zero allocation
+                    classes?
+
+                   Yes, use of host-based Volume Shadowing requires
+                   that the disk(s) involved be configured in a non-zero
+                   allocation class.
+
+                   Edit SYS$SYSTEM:MODPARAMS.DAT to include a declaration
+                   of an non-zero allocation class, such as setting the
+                   host allocation class to the value 7:
+
+                   ALLOCLASS = 7
+
+                   Then AUTOGEN the system, and reboot.
+
+                   You should now be able to form the shadow set via a
+                   command such as the following:
+
+                   $ MOUNT dsa1007: /SHADOW=($7$dkb300:,$7$dkb500:) volumelabel
+
+                   When operating in an OpenVMS Cluster, this sequence
+                   will typically change the disk names from the SCSNODE
+                   prefix (scsnode$dkann) to the allocation-class prefix
+                   ($7$dkannn). This may provide you with the opportunity
+                   to move to a device-independent scheme using logical
+                   name constructs such as the DISK$volumelabel logical
+                   names in your startup and application environments; an
+                   opportunity to weed out physical device references.
+
+                   Allocation class one is used by Fibre Channel devices;
+                   it can be best to use another non-zero allocation class
+                   even if Fibre Channel is not currently configured and
+                   not currently planned.
+
+
+
+
+                                                                     15-25
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+          ________________________________________________________________
+          Index
+
+
+          1858                              ASAP
+            17-Nov-1858,4-2                   See DSPP
+          2000                              Ask The Wizard,3-12,  5-24,
+          __Year,5-37___________________       5-26, 5-27, 5-35, 8-6, 9-3,
+
+          A                                    10-2, 10-4, 10-7, 10-9,
+          ______________________________       10-15, 10-20, 10-24, 15-1,
+          Access Control List Entry,           15-2, 15-3, 15-24
+             5-12                           ATA,7-1,  9-5, 14-20, 14-23,
+          ACCVIO,5-37                          14-43, 14-44, 14-45, 14-46,
+          ACE,5-12                             14-51
+          ACPI,14-18                        ATAPI,14-51
+          ACS,5-56                          Athalon,2-10
+          ACTS,4-8                          ATW,3-12,  5-24, 5-26, 5-27,
+          Advanced Server,5-4                  5-35, 8-6, 9-3, 10-2, 10-4,
+          Agnew, Jim,14-31                     10-7, 10-9, 10-15, 10-20,
+          Allocation Class                     10-24, 15-1, 15-2, 15-3,
+            Fibre Channel,15-25                15-24
+            Non-Zero,15-25                  AUTOGEN,5-13
+            Volume Shadowing,15-25          Automatic Foreign Command,8-1
+          ALLOCLASS system parameter,       AVI,7-3
+             15-25                          awk,13-14
+          Alpha,2-11                        ______________________________
+          AlphaPC 164LX,14-20               B
+          AlphaPC 164SX,14-20               ______________________________
+          AMASK,14-28                       Backdoor,5-9
+          Ambassador,1-10                   Backdrops,11-9
+          AMD,2-10                          BACKUP/IGNORE=INTERLOCK,5-52
+          AMD64,2-10                        Bad Block Handling,9-3
+          ANSI C,10-17                      BADLIB,13-20
+          AP,10-6                           BADTYPSTR,13-20
+          Apache,13-8                       bash,13-16
+          ar,13-14                          Batch,13-19
+          Archie,13-7                       BB_WATCH,4-6
+          Archival Media                    BC16E,14-47,  14-48, 14-49
+            DVDarchive/restore,9-9          BCC08,14-49
+          ARCH_DEFS.REQ,10-14               BCKTRNSFAIL,15-5
+          Argument Pointer,10-6             Berryman, Mark,1-4,  13-3
+          ARRE,14-43,  14-44, 14-46         Bi-Endian,10-16
+          ARWE,14-43,  14-44, 14-46         Big-Endian,10-16
+
+                                                                   Index-1
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          BIND,15-6                         Carrier Sense Multiple Access,
+          bison,13-14                          with Collision Detect,
+          Bliss                                14-51
+            Architecture Flags,10-14        CD
+            BLISS32E,10-14                    embossed media,9-11
+            BLISS32I,10-14                    Recording,9-7,  14-46
+            BLISS32V,10-14                  CD-Audio,7-1
+            BLISS64E,10-14                  CD Player,7-1
+            BLISS64I,10-14                  CD-R,9-7,  13-9, 14-45, 14-46
+            Compiler,10-13                  CD-R/RW,9-7,  9-9
+            Rebuilding System Libraries,    CDRECORD,9-7,  14-46
+               10-14                        CDRECORD-ProDVD,9-7
+          Block                             CDRTOOLS,9-7
+            Disk,2-21                       CD-RW,9-7,  13-9, 14-46
+          BN24H,14-48                       CDWRITE,9-7
+          BN24J,14-48                       CGI,13-19
+          BNC,14-38                         CHARON-VAX,13-26
+          BNU Bookreader,3-1                cli$get_value,10-4
+          Bookreader                        Clock
+            BNU,3-1                           TODR,4-5,  4-7
+            MGBOOK,3-1                        TOY,4-5,  4-7
+          Browser,13-4                      Clockmeister, Ulysses T.
+          Byers, Robert Alan,13-8             See Time
+          bzip2,13-25                       Cluster
+          ______________________________      Disk,2-21
+          C                                 Cluster Load Balancing,15-15
+          ______________________________    Cluster Terminology,15-12
+          C,10-17,  10-24                   CMA$RTL.EXE,10-24
+            Compaq C Compiler,10-17,        CMS,13-20
+               10-24                        00CMS,13-20
+            DEC C Compiler,10-17,  10-24    01CMS,13-20
+            Device Drivers,10-21            $cmsupr,12-4
+            HP C Compiler,10-17,  10-24     Columbia University,13-3
+            VAX C Compiler,10-17            COMMON,10-6
+          CA,5-3,  14-16                    Compaq,5-36
+          Caesar                            Compaq Secure Web Browser,
+            Julius,4-3                         13-17
+          CalTech,13-8                      Composer
+
+          Campus Software License Grant       Mozilla,13-17
+
+            See CSLG                        Computer Associates,5-3,
+
+                                               14-16
+                                            console,14-11
+
+                   Index-2
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          Console                           DECthreads,10-24
+            VAXstation 3100,9-4             DECUS,1-9
+          Console Backdoor,5-9                See User Group
+          Contrl,13-11                        Hobbyist Licenses,2-7
+          COPY,10-9                         DECUServe,1-3
+          CPAN,13-24                        DECUS Software Library,13-3
+          cpio,13-14                        DECW$CDPLAYER,7-1
+          $creprc,10-9                      DELETE
+
+          CSA                                 Undelete,9-1
+            See DSPP                        Descriptor,10-10
+          CSLG,2-8                          Deutsch,1-3
+
+          CSMA/CD,14-51                     Developer Programs
+          CSWB,13-17                          See DSPP
+          ______________________________    Device Driver,10-8
+          D                                 Device Drivers
+          ______________________________      C,10-21
+          Dachtera, David J.,13-8             Floating Point,10-21
+          DATMISCH,10-17                    DEVICE_NAMING system parameter
+          Daylight Savings Time,4-2,           ,15-20
+             4-13, 4-17, 10-21              DFU,9-1,  9-4, 13-12
+          DAYLIGHT_SAVINGS.COM,4-13         DIAGNOSE,5-36
+          DB9,14-47,  14-49                 DIGITAL Network Products Group
+          DCL                                  ,14-36
+            PIPE,13-22                      Digital Synergy,13-8
+          DCPS,12-3                         Digital Versatile Disk,9-10
+          DCX,13-26                         Discounts
+          DDB,10-9                            See DSPP
+          Debugger                          Disk
+            Signalling SS$_DEBUG,10-16        Block,2-21
+          DEC-423,14-46                       Cluster,2-21
+          DECalert,15-10                      Sector,2-21
+          DECC$CRTL.EXE,10-24               Disk Mirroring,9-2
+          DECconnect,14-46
+          DECdns,15-6                         See Volume Shadowing
+          DECdocument,vi                    Disks
+          DECevent,5-36                       ATA,7-1,  9-5, 14-20, 14-23,
+          DECmigrate,7-3,  13-24, 13-26          14-43, 14-44, 14-45,
+          DECnet,14-51                           14-46
+            Asynchronous,14-50                Bad Block Handling,9-3
+            DECNET_REGISTER,15-5              CD-R,14-45
+            MOP,15-6                          CD-R/RW,9-7,  9-9
+          DECprint,12-3                       CD-Recordable,9-7
+          DEC Test Manager,13-20              DVD+R/RW,9-7,  9-9
+                                              dvd200i,14-46
+                                              DVD-R/RW,9-7,  9-9
+
+                                                                   Index-3
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          Disks (cont'd)                    DTSS$INSTALL_TIMEZONE_RULE.COM
+            DVD-Recordable,9-7                 ,4-17
+            FAT Format,7-2                  DTSS$NTP_PROVIDER.C,4-9
+            Floppy,7-2                      DTSS$SET_TIMEZONE.EXE,4-14
+            IDE,7-1,  9-5, 14-20, 14-23,    DTSS$UTC_STARTUP.COM,4-17
+               14-43, 14-44, 14-45,         DVD,14-46
+               14-46                          Recording,9-7
+            Jumpers,14-40                   DVD+R,9-7,  9-9, 13-9
+            MSCP,9-3                        DVD+R/RW,9-7
+            PC Format,7-2                   DVD+RW,9-7,  13-9
+            PlexWriter,14-46,  14-52        dvd200i,14-46
+            SCSI,9-3,  9-12, 14-2,          DVDarchive/restore,9-9
+               14-20, 14-23, 14-25,         DVD-R,9-7,  13-9
+               14-32, 14-40, 14-43,         DVD-R/RW,9-7,  9-9
+               14-44, 14-45, 14-46          DVDRTOOLS,9-7
+            SCSI-2,9-6                      DVD-RW,9-7,  13-9
+            Volume Set,9-7                  DVDwrite,9-8
+            Zip,14-45,  14-46               Dynamic System Recognition,
+          Disk Shadowing,9-2                   14-17
+          DJE Systems,13-8                  ______________________________
+          DKDRIVER,14-51                    E
+          DNPG,14-36                        ______________________________
+          DNS,15-6                          EBCDIC,7-4
+          DOCUMENT,10-15                    ECO
+                                              kits,5-28
+            See DECdocument                   Search Engine,5-27
+          DQDRIVER,7-1,  9-5, 14-23,        EFI,14-24
+             14-46, 14-51                   EIA-232,14-47
+          Driver                            ELSA GLoria Synergy,5-25
+            Device,10-8                     elvis,13-15
+          DRVERR,14-43,  14-46              embossed media,9-11
+          DSPP,2-8,  2-13, 2-17             Encompass
+          DSR,14-17                           See User Group
+          DST,4-2,  4-13, 4-17, 10-21         Hobbyist Licenses,2-7
+          DTM,13-20                         Encompasserve,1-3
+          00DTM,13-20                       Encompass Software Library,
+          01DTM,13-20                          13-3
+          DTSS,4-9                          Endian-ness,10-16
+            DTSS$CLERK,4-19                 Engineering Software,7-2
+            Too Few Servers Detected,       Ensoniq,7-3
+               4-20                         Enterex
+          DTSS$CLERK,4-19                     Hobbyist Licenses,2-7
+
+                                            EPIC,14-24
+
+                   Index-4
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          $erapat,5-55                      FAQ Sections (Old) (cont'd)
+          Ergonomic Solutions,15-10           DECw11,11-10
+          Error analysis,5-36                 DECw12,11-11
+          ETAPE,7-4                           DECw13,11-11
+          Ethernet,14-51                      DECw14,11-12
+          Event Flags,11-10                   DECw15,11-14
+          EWS,11-3                            DECw16,11-15
+          EXE$GL_TICKLENGTH,4-11              DECw17,11-15
+          EXE$GL_TIMEADJUST,4-11              DECw2,11-3
+          EXE$GL_TODR,4-4                     DECw3,11-3
+          EXE$GQ_SAVED_HWCLOCK,4-6            DECw4,11-4
+          EXE$GQ_SYSTIME,4-4,  4-6            DECw5,11-4
+          EXE$GQ_TDF,4-14                     DECw6,11-5
+          EXE$GQ_TODCBASE,4-4                 DECw9,11-8
+          EXE$SETTIME,4-4                     DECwindows,11-1
+          Executable Image,10-8               Doc1,3-1
+          EXPECTED_VOTES system               Doc10,3-6
+             parameter,15-16                  Doc11,3-7
+          Explicitly Parallel                 Doc12,3-13
+             Instruction Computing            Doc13,3-10
+            See EPIC                          Doc14,3-12
+          Extensible Firmware Interface       Doc2,3-1
+            See EFI                           Doc4,3-6
+          ______________________________      Doc5,3-6
+          F                                   Doc6,3-5
+          ______________________________      File1,9-1
+          Facility Prefix,10-2                File2,9-1
+          FAQ Sections (Old)                  File3,9-2
+            DCL$PATH Logical Name,8-1         File4,9-3
+            DCL1,8-1                          File5,9-4
+            DCL10,8-7                         File6,9-6
+            DCL11,8-7                         File7,9-7,  9-9
+            DCL12,8-8                         File8,9-12
+            DCL3,8-2                          File9,9-12
+            DCL4,8-2                          Intro1,1-2
+            DCL5,8-3                          Intro2,1-3
+            DCL6,8-4                          Intro3,1-3
+            DCL7,8-5                          Intro4,1-4
+            DCL8,8-6                          Intro5,1-5
+            DCL9,8-6                          Intro6,1-8
+            DECw$IGNORE_WORKSTATION           Intro7,1-3
+               Logical Name,11-7              Intro8,1-9
+            DECw1,11-1                        Mgmt1,5-1
+            DECw10,11-8                       Mgmt10,15-16
+                                              Mgmt11,5-13
+
+                                                                   Index-5
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          FAQ Sections (Old) (cont'd)       FAQ Sections (Old) (cont'd)
+
+            Mgmt12,5-54                       Mgmt54,15-25
+            Mgmt13,15-20                      Mgmt56,5-44
+            Mgmt14,15-9                       Mgmt57,5-45
+            Mgmt15,5-14                       Mgmt58,15-6
+            Mgmt16,5-15                       Mgmt59,5-45
+            Mgmt17,5-20                       Mgmt6,15-2
+            Mgmt18,5-22                       Mgmt60,5-47
+            Mgmt19,5-22                       Mgmt61,15-18
+            Mgmt2,5-2                         Mgmt62,5-47
+            Mgmt20,5-52                       Mgmt63,5-56
+            Mgmt21,5-23                       Mgmt64,5-51
+            Mgmt23,5-24                       Mgmt9,5-11
+            Mgmt24,5-25                       Misc12,12-3
+            Mgmt25,5-27                       Misc13,12-3
+            Mgmt26,15-21                      Misc14,12-4
+            Mgmt27,5-29                       Misc15,15-10
+            Mgmt28,15-3                       Misc17,15-9
+            Mgmt3,5-4                         Misc19,15-11
+            Mgmt30,5-30                       Misc2,12-1
+            Mgmt31,5-31                       Misc20,12-5
+            Mgmt32,5-33                       Misc6,15-5
+            Mgmt33,5-33                       Misc7,15-6
+            Mgmt34,5-36                       Misc9,15-4
+            Mgmt35,5-49                       Prog1,10-2
+            Mgmt36,15-4                       Prog10,10-7
+            Mgmt37,5-36                       Prog11,10-8
+            Mgmt38,5-37                       Prog12,10-9
+            Mgmt39,5-37                       Prog13,10-9
+            Mgmt4,5-6                         Prog14,2-19
+            Mgmt40,5-38                       Prog15,2-21
+            Mgmt41,5-38                       Prog16,10-11
+            Mgmt42,15-19                      Prog17,10-13
+            Mgmt43,5-40                       Prog18,10-13
+            Mgmt44,15-23                      Prog19,10-15
+            Mgmt45,15-23                      Prog2,10-4
+            Mgmt46,5-41                       Prog20,10-15
+            Mgmt47,15-12,  15-14, 15-15       Prog21,10-16
+            Mgmt48,5-41                       Prog22,10-16
+            Mgmt49,5-41                       Prog23,10-17
+            Mgmt5,5-6,  5-10                  Prog3,10-4
+            Mgmt50,5-42                       Prog4,10-5
+            Mgmt51,5-42                       Prog5,10-5
+            Mgmt52,5-44                       Prog7,10-5
+            Mgmt53,5-44                       Prog8,10-6
+
+                   Index-6
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          FAQ Sections (Old) (cont'd)       FAQ Sections (Old) (cont'd)
+
+            Prog9,10-6                        VMS5,2-4
+            Soft1,13-1                        VMS7,2-4
+            Soft10,13-22                      VMS8,2-6
+            Soft12,13-23                      VMS9,2-7,  2-9
+            Soft13,13-24                    Farmer, Ken,1-3
+            Soft14,13-25                    FAT Disks,7-2
+            Soft2,13-14                     FFT,13-11
+            Soft3,13-17                     $filescan,9-3
+            Soft4,13-18                     FILE tool,13-13
+            Soft5,10-17                     FISH,13-3
+            Soft6,13-19                     flex,13-14
+            Soft7,13-19                     Floating Point,10-6
+            Soft9,13-20,  13-21               Device Drivers,10-21
+            Time1,4-2                       Floppy,7-2
+            Time10,4-19                     FLORIAN,9-1
+            Time11,4-4                      $flush,9-2
+            Time12,4-1                      Foreign Command,8-1
+            Time13,4-18                     Fortran,10-7
+            Time2,4-7                       Freeware,9-4,  10-4, 10-15
+            Time3,4-10                        SETCLOCK,4-11
+            Time4,4-13                      ftso,13-26
+            Time5,4-16                      ftsv,13-26
+            Time6,4-8                       ______________________________
+            Time7,4-11                      G
+            Time8,4-10                      ______________________________
+            Time9,4-7                       GB,2-21
+            Util1,7-1                       $getdvi,10-2
+            Util2,7-2                       $getjpi,10-2
+            Util3,7-3                       $getsyi,10-2
+            Util4,7-3                       Gigabyte,2-21
+            Util5,7-4                       Global Maintech,14-16
+            Util6,7-4                       gmake,13-12
+            VMS1,2-1                        GMT,4-1
+            VMS10,2-9                       GNM,10-15
+            VMS11,2-9                       GNU,13-16
+            VMS12,2-13                      GnuPG,13-5
+            VMS13,2-14                      GNU Privacy Guard,13-5
+            VMS14,2-15                      GNV,13-16
+            VMS15,2-15                      Google,1-3
+            VMS16,2-17                      GPG,13-5
+            VMS17,2-17                      Grace,13-9
+            VMS2,2-2                        grep,13-14
+
+            VMS3,2-3
+            VMS4,2-3
+
+                                                                   Index-7
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          GTK,13-11                         Image
+          gzip,13-25                          Executable,10-8
+          ______________________________      Loadable,10-8
+          H                                   Protected,10-8
+          ______________________________      Shareable,10-8
+          H8571-A,14-49                       System,10-8
+          H8571-B,14-49                       UWSS,10-8
+          H8571-C,14-49                     IMAGELIB.OLB,10-17
+          H8571-D,14-49                     ImageMagick,13-6
+          H8571-E,14-49                     IMPLVER,14-28
+          H8571-J,14-49                     InfoServer,9-9
+          H8572-0,14-49                       Scribe,9-8
+          H8575-A,14-49                     INFO-VAX,1-3,  1-4, 1-7
+          H8575-B,14-49                     INITIALIZE,5-37
+          H8575-D,14-49                     INSTALL,10-8
+          H8577-AA,14-49                    Integrity,2-10,  2-12
+          Hardware                          Intel,2-10,  2-12
+            Serial Number,10-7              Interex
+          Helliesen, Gunnar,14-32             See User Group
+          Hemker, Mark,13-9                 IO$_DIAGNOSE,7-1
+          Heroix,14-16                      Iomega,14-45,  14-46
+          Heuser-Hofmann, Eberhard,         IRC Client
+             Dr.,9-8                          Mozilla,13-17
+          Hobbyist,2-8                      IRIG,4-9
+          Hour                              ISO-9960,9-8
+            Off By One,4-2,  4-17, 10-21    ISVN
+          HP-UX,10-16                         See DSPP
+          HSG80,5-56                        Itanium,2-10,  2-12, 14-18,
+          ht://Dig,13-12
+          HTML,10-15                           14-24
+
+          HTTP_SERVER,13-3                  Itanium Processor Family
+          ______________________________      See Itanium
+          I                                 ______________________________
+          ______________________________    J
+          I64,2-10,  14-18, 14-24           ______________________________
+          IA-32,2-11                        J2EE,13-18
+          IA-64 Architecture,2-10,          Java,13-18
+             14-18, 14-24                   JBC$COMMAND,5-29
+          IARGCOUNT,10-7                    JCL,7-4
+          IDE,7-1,  9-5, 14-20, 14-23,      JDK,13-18
+             14-43, 14-44, 14-45, 14-46,    JetDirect,15-2
+             14-51                          Jones, David,13-3
+          Identifier                        Jouk,13-3
+
+            Subsystem,10-8
+
+                   Index-8
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          Julian Day,4-2                    Licensing Programs
+          Jumpers,14-40                       Campus Software License
+          ______________________________         Grant,2-8
+          K                                   Developers,2-8,  2-17
+          ______________________________      DSPP,2-8,  2-17
+          Kb,2-22                             Educational,2-8
+          KB,2-21,  2-22                      Hobbyist,2-8
+          Kermit,13-3                       Liebert,13-10
+          ki,14-16                          linda,13-9
+          Kilobit,2-22                      Linker
+          Kilobyte,2-21,  2-22                COMMON,10-6
+          KI Products,14-16                   PSECT_ATTR,10-6
+          KVM switch,14-37,  14-38            SYMBOL_VECTOR,10-5
+          ______________________________      SYS$BASE_IMAGE,10-5
+          L                                   SYS.STB,10-5
+          ______________________________      /SYSEXE,10-5
+          LAVC$START_BUS,15-15              LINKER,10-17
+          LAVC$STOP_BUS,15-15               LISP$DAYLIGHT_SAVING_TIME_P
+          LCD flat-panel display,14-38,        Logical Name,4-16
+             14-40                          LISP$TIME_ZONE Logical Name,
+          Levitte,13-8                         4-16
+          lex,13-14                         Little-Endian,10-16
+          lib$find_image_symbol,10-8        LK201,14-37
+          lib$free_ef,11-10                 LK401,14-37
+          lib$get_ef,11-10                  LK461,14-38
+          lib$get_foreign,10-4              LK463,14-38,  14-49
+          lib$set_logical,10-5              LK46W,14-38
+          lib$sfree1_dd,10-10               LK471,14-38
+          lib$sget1_dd,10-10                LMF,2-8,  5-11, 10-7, 11-7,
+          LIB$SIGNAL,10-16                     12-5
+          lib$spawn,10-9                    LMF$DISPLAY_OPCOM_MESSAGE
+          lib$table_parse,10-15                Logical Name,12-5
+          lib$tparse,10-15                  Loadable Image,10-8
+          lib$trim_filespec,9-3             LOAD_PWD_POLICY system
+          LIB.L32,10-14                        parameter,5-48
+          LIB.L64,10-14                     LocalFile,15-6
+          LIB.R64,10-14                     Logical Name
+          LIB.REQ,10-14                       DCL$PATH,8-1
+          License,5-11,  10-7, 11-7,          DECW$IGNORE_WORKSTATION,
+             12-5                                11-7
+          License Unit Requirements           LISP$DAYLIGHT_SAVING_TIME_P,
+             Table,2-7, 5-46                     4-16
+          Licensing,10-7                      LISP$TIME_ZONE,4-16
+
+                                                                   Index-9
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          Logical Name (cont'd)             MAXBUF
+            LMF$DISPLAY_OPCOM_MESSAGE,        system parameter,9-12
+               12-5                         MAXPROCESSCNT system parameter
+            MAIL$TIMEZONE,4-16                 ,5-10
+            NOTES$TIMEZONE,4-16             Mb,2-22
+            SYS$DISK,10-5                   MB,2-21,  2-22
+            SYS$LOGIN,8-7                   MD5,5-3
+            SYS$LOGIN_DEVICE,8-7            Megabit,2-22
+            SYS$SCRATCH,8-7                 Megabyte,2-21
+            SYS$TIMEZONE_DAYLIGHT_SAVING    Megabytes,2-22
+               ,4-15                        Menufinder,13-9
+            SYS$TIMEZONE_DIFFERENTIAL,      MESSAGE Compiler,10-15
+               4-15                         MGBOOK Bookreader,3-1
+            SYS$TIMEZONE_NAME,4-15,         MGPCX,7-2
+               4-18                         microfortnight,2-23
+            TZ,4-18                         MIME,13-9
+            UCX$NFS_TIME_DIFFERENTIAL,      Minicopy,5-56
+               4-16                         Minimerge,5-56
+            UCX$TDF,4-15                    Mirroring,9-2
+
+          LOGINOUT,5-9                        See Volume Shadowing
+          lpd,15-1                          Mlucas,13-11
+          lpr,15-1                          MMJ,14-46,  14-47, 14-48,
+          LRA0:,12-3                           14-49
+          LURT,2-7,  5-46                   mmk,13-12
+          LVD,14-46                         Modified Modular Jack,14-46
+          164LX,14-20                       MODPARAMS.DAT,15-23,  15-25
+          Lynx,13-4                         Montagar,13-1
+          ______________________________    MOP,15-6
+          M                                 Mosaic,13-4
+          ______________________________    Mozilla,13-4
+          MadGoat,5-36,  7-2, 13-2,           Composer,13-17
+             13-13                            IRC Client,13-17
+          MAIL$TIMEZONE Logical Name,         Netnews Client,13-17
+             4-16                           MPEG,7-3
+          MAIL10,6-3                        mpi,13-9
+          MAIL7,6-1                         MSCP_LOAD system parameter,
+          MAIL9,6-1                            15-13
+          Mail Count,6-1                    MTAACP,5-37
+          Majordomo,13-9                    MTEXCH,7-4
+          make,13-12,  13-14                Multia,14-19
+          man,13-14                         Multinet,15-3
+          Mature Product Support,5-18       MySQL,13-12
+
+                   Index-10
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          ______________________________    ______________________________
+          N                                 P
+          ______________________________    ______________________________
+          NCSA,13-4                         Pager Plus,15-10
+          NCSC Class C2,5-10                Paging,15-10
+          NET$DISABLE_DTSS,4-20             PAK,2-8,  5-11, 10-7, 11-7,
+          NET1,15-1                            12-5
+          NET2,15-1                         PAKGEN,10-7,  12-5
+          NetBSD,14-26                      PALcode,14-4,  14-11
+          Netnews Client                    PA-RISC,2-11
+            Mozilla,13-17                   $parse,9-3
+          Netscape Navigator,3-13,          Partner Programs
+             13-17                            See DSPP
+          Networking Dynamics,5-36,         Patch,7-4
+             13-11, 15-10                   Patches
+          New Mail Count,6-1                  See ECO kits
+          NIC,15-2
+          NISCS_LOAD_PEA0 system              See ECO Search Engine
+             parameter,15-23                PATHWORKS,5-4
+          NIST,4-8                          PB,2-21
+          NOCLI,8-2                         PBXGB-AA PowerStorm 3D30,5-26
+          NODECW,11-12                      PBXGB-CA PowerStorm 4D20,5-26
+          NODEVICE,11-12                    PBXGD-AE PowerStorm 350,5-26
+          NOLICENSE,5-9                     PBXGK-BB PowerStorm 3D10T,
+          NONEWMAIL,6-1                        5-25
+          NOTES$TIMEZONE Logical Name,      PC7XS-CA,14-38
+             4-16                           PCDISK,7-2
+          NOTSET,4-19                       PC Disks,7-2
+          17-Nov-1858,4-2                   PCSI,5-40
+          NTP,4-9                           PCX,7-2
+          ______________________________    Peek,13-11
+          O                                 Pentium,2-10,  2-11
+          ______________________________    Perl,13-11,  13-23
+          ODBC,9-12                         Petabyte,2-21
+          ODS-2,9-8                         PGP,13-4
+          ODS-5,9-8                         PHYSICALPAGES system parameter
+          Ohio State University,13-3           ,5-13
+          OPA0:,5-9,  5-10, 14-11           PHYSICAL_MEMORY system
+          OpenVMS.Org,1-3                      parameter,5-13
+          OPENVMS-HOBBYIST,2-8              PINE,13-9
+          Opteron,2-10                      Pioneer,14-52
+          OSU,13-3                          PIPE,13-22
+          Outbuildings                      Plextor,14-46,  14-52
+
+            See Time
+
+                                                                  Index-11
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          pm,11-9                           ______________________________
+          PMDF,15-10                        R
+          Postscript,10-15                  ______________________________
+          POV-Ray,13-9                      Radeon 7500,5-27
+          PowerStorm 300,5-26               RamPage,15-10
+          PowerStorm 350,5-26               RAS,15-4
+          PowerStorm 3D10T,5-25             Raxco,13-11
+          PowerStorm 3D30,5-26              rcs,13-14
+          PowerStorm 4D20,5-26              Rlogin,5-55
+          PPP,15-4                          RMS,9-12
+          Pretty Good Privacy,13-4          RMS Journaling,9-2
+          Printing                          Roadmap,1-1,  2-11
+            DCPS,12-3                       robomon,14-16
+            lpr,15-1                        Rocksoft,5-3
+
+            Parallel Port,12-3              Royal Greenwich Observatory
+
+            telnet,15-1                       See Time
+          Prior Version Support,5-18        RRD42,9-11
+          Process Software,13-2,  15-3,     RS-232,14-47
+             15-10                          RZDISK,14-44
+          Product Authorization Key,        ______________________________
+             5-11, 10-7, 11-7, 12-5         S
+          Product Registration,10-2         ______________________________
+          PRODUCT SHOW PRODUCT,5-40         SAIC,1-4,  13-1, 13-3
+          ProDVD,9-7                        Saiga Systems,5-36
+          ProGIS,7-2,  13-16                Samba,5-4
+          Protected Image,10-8              SAMBA,13-10
+          PSECT_ATTR,10-6                   SAO,4-2
+          $putmsg,10-4                      SCACP,15-15
+          pvm,13-9                          Scaliger
+          PVS,5-18                            Julius Caesar,4-3
+          PWIP,15-5                         Scaliger, Joseph,4-3
+          Python,13-11                      Scribe
+          ______________________________      InfoServer,9-8
+          Q                                 SCS,15-11,  15-12
+          ______________________________    SCSI,9-12,  14-2, 14-20,
+          $qio,10-9,  11-10                    14-23, 14-25, 14-32, 14-40,
+          QMAN$JOURNAL,5-29                    14-43, 14-44, 14-45, 14-46,
+          QuickSpecs,3-4                       14-51
+          QUORUM,15-17                      SCSI-2,9-6
+
+                                            SCSI_INFO,14-44
+                                            SCSNODE system parameter,
+                                               5-11, 5-13, 15-25
+
+                   Index-12
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          SCSSYSTEMID system parameter,     SS$_DEBUG,10-16
+             5-13                           SS$_NOCLI,8-2
+          SDL,10-15                         SSH,13-3
+          SDML,vi,  10-15                     FISH,13-3
+          Search Engine,13-12               SSL
+            ECO,5-27                          SSLeay,13-3
+            Patch,5-27                      SSLeay,13-3
+          Sector                            Stark, Tim,13-26
+            Disk,2-21                       STARLET.L32,10-14
+          Secure Shell,13-3                 STARLET.L64,10-14
+          Security,5-10                     STARLET.R64,10-14
+          Security MUP,5-3                  STARLET.REQ,10-14
+          Self-extracting zip,13-25         Storage
+          Serial Number,10-7                  ATA,7-1,  9-5, 14-20, 14-23,
+          SETCLOCK,4-11                          14-43, 14-44, 14-45,
+          SET PREFERRED_PATH command,            14-46
+             15-15                            CD-R,14-45
+          $SETTIM,4-19                        CD-R/RW,9-7,  9-9
+          SET TIME,4-19                       CD-Recordable,9-7
+          SETTIME system parameter,4-4,       Disk Settings,14-40
+             4-5                              DVD+R/RW,9-7,  9-9
+          SFX,13-25                           DVD-R/RW,9-7,  9-9
+          Shadowing,9-2                       DVD-Recordable,9-7
+          Shareable Image,10-8                FAT Format,7-2
+          SHOW MEMORY/CACHE command,          Floppy,7-2
+             9-13                             Free Space,12-3
+          SIMH,13-26                          IDE,7-1,  9-5, 14-20, 14-23,
+          SMB,13-10                              14-43, 14-44, 14-45,
+          smg$create_menu,10-3                   14-46
+          Smithsonian Astrophysical           PC Format,7-2
+             Observatory,4-2                  Remaining on Tape,12-3
+          $sndjbc,10-9                        SCSI,9-12,  14-2, 14-20,
+          SOAP,13-8                              14-23, 14-25, 14-32,
+          SOC,3-4                                14-40, 14-43, 14-44,
+          Sophos,5-4                             14-45, 14-46
+          Spy,13-11                           SCSI-2,9-6
+          Spyglass,13-4                       Volume Set,9-7
+          SRI,1-3,  13-26                   Subsystem Identifier,10-8
+          SRM,14-11                         Supervisor,13-11
+            Acronym,14-4                    Supnik, Bob,13-26
+            System Reference Manual,        Support
+               14-4                           Prior Version Support,5-18
+
+
+                                                                  Index-13
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          Swizzling,14-29                   SYS$TIMEZONE_DIFFERENTIAL
+          164SX,14-20                          Logical Name,4-15
+          SYLOGICALS.COM,4-20,  8-3,        SYS$TIMEZONE_NAME Logical
+             11-7                              Name,4-15, 4-18
+          SYLOGICALS.TEMPLATE,4-20,         SYS$TIMEZONE_SRC.DAT,4-17
+             5-35, 5-55, 6-1, 8-3, 15-24    SYS$WSDRIVER,11-3
+          Symbol Substitution               SYS.STB,10-5
+            PIPE,13-22                      SYSBOOT,5-10,  15-20
+          SYMBOL_VECTOR,10-5                SYSGEN,5-10
+          synch-on-green,14-38              SYSLOG,13-9
+          SYS$BASE_IMAGE,10-5               System Disk
+          SYS$BASE_IMAGE.EXE,4-14             VAXstation 3100,9-4
+          sys$cmsupr,12-4                   System Image,10-8
+          sys$creprc,10-9                   System parameters
+          SYS$DISK Logical Name,10-5          ALLOCLASS,15-25
+          SYS$DKDRIVER,14-51                  DEVICE_NAMING,15-20
+          SYS$DQDRIVER,7-1,  9-5, 14-23,      EXPECTED_VOTES,15-16
+             14-46, 14-51                     LOAD_PWD_POLICY,5-48
+          SYS$EXAMPLES:DAYLIGHT_              MAXBUF,9-12
+             SAVINGS.COM,4-13                 MAXPROCESSCNT,5-10
+          sys$filescan,9-3                    MSCP_LOAD,15-13
+          sys$flush,9-2                       NISCS_LOAD_PEA0,15-23
+          sys$getdvi,10-2                     PHYSICALPAGES,5-13
+          sys$getjpi,10-2                     PHYSICAL_MEMORY,5-13
+          sys$getsyi,10-2                     SCSNODE,5-11,  5-13, 15-25
+          SYS$LIB_C.TLB,10-21                 SCSSYSTEMID,5-13
+          SYS$LOGIN Logical Name,8-7          SETTIME,4-4,  4-5
+          SYS$LOGIN_DEVICE Logical Name       TIMEPROMPTWAIT,4-4,  4-5
+             ,8-7                             TMSCP_LOAD,15-13
+          sys$parse,9-3                       UAFALTERNATE,5-9
+          SYS$PIPE,13-22                      VAXCLUSTER,15-23
+          sys$putmsg,10-4                     VOTES,15-16
+          sys$qio,10-9,  11-10                WINDOW_SYSTEM,5-8,  11-7,
+          SYS$SCRATCH Logical Name,8-7           11-12
+          sys$setddir,10-5                    WRITESYSPARAMS,5-8
+          SYS$SETTIM,4-19                   Systems and Options Catalog,
+          sys$sndjbc,10-9                      3-4
+          SYS$STARTUP:DTSS$STARTUP.COM,     System Service,10-8
+             4-19                           SYSUAF
+          SYS$TIMEZONE.DAT,4-14,  4-17        Bypass,5-9
+          SYS$TIMEZONE_DAYLIGHT_SAVING        Corrupt,5-9
+             Logical Name,4-15              SYSUAFALT.DAT,5-9
+
+
+                   Index-14
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          ______________________________    Time (cont'd)
+          T                                   NIST,4-8
+          ______________________________      NOTSET,4-19
+          TAP,15-10                           NTP,4-9
+          TAPECOPY,7-4                        Off By One Hour,4-2,  4-17,
+          Tapes                                  10-21
+            Compaction,12-4                   Prime Meridian,4-2
+            Compression,12-4                  SETCLOCK,4-11
+            Conversion,7-4                    SET TIME Command,4-19
+            EBCDIC,7-4                        TDF,4-14
+            Free Space,12-3                   TIMENOTSET,4-19
+          tar,13-14                           Time service enabled,4-19
+          Target Systems,15-10                Timezone Rules,4-18
+          TB,2-21                             TODR,4-5,  4-7
+          tcgmsg,13-9                         TOY,4-5,  4-7
+          TCL,13-12                           UT0,4-1
+          TCOPY,7-4                           UT1,4-1
+          TCQ,14-2                            UT2,4-1
+          TDF,4-14                            UTC,4-1,  4-2, 4-14, 4-17,
+          TECsys,14-16                           10-21
+          telnet,15-1                         ZIC,4-18
+          Telnet,5-55                       TIMENOTSET,4-19
+          Telocator Alphanumeric            TIMEPROMPTWAUT system
+             Protocol,15-10                    parameter,4-4, 4-5
+          Terabyte,2-21                     TMSCP_LOAD system parameter,
+          Terminal Server Manager,13-12        15-13
+          Test-Drive,2-13                   TODR,4-5,  4-7
+          Test Manager,13-20                Too Few Servers Detected,4-20
+          Text,10-15                        Touch,13-12
+          TIE,13-24                         Touch Technologies,vi
+          Time                              TOY Clock,4-5,  4-7
+            ACTS,4-8                        TPAMAC.REQ,10-15
+            Clock Drift,4-10,  4-11         Trailing Edge,13-26
+            Dial-up,4-8                     Tripp-Lite,13-9
+            DST,4-2,  4-17, 10-21           TS10,13-26
+            DTSS,4-9                        TSM,13-12
+            Error modifying time,4-19       TT2$M_DISCONNECT,5-56
+            GMT,4-1                         TTY_DEFCHAR2,5-56
+            Greenwich,4-1                   TZ Logical Name,4-18
+            IPL,4-10
+            IRIG,4-9
+            Julian,4-2
+            Julian Calendar,4-3
+            Julian Date,4-2
+            Julian Day,4-2
+
+                                                                  Index-15
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          ______________________________    VCC_FLAGS,9-13
+          U                                 VCS,14-17
+          ______________________________    Veracity,5-3
+          U.S. Design,9-9                   Very Long Instruction Word
+          UAFALTERNATE,5-9                    See VLIW
+          UAFALTERNATE system parameter     VEST,13-24
+             ,5-9                           vi,13-15
+          UCB,10-9                          vile,13-15
+          UCX$NFS_TIME_DIFFERENTIAL         vim,13-15
+             Logical Name,4-16              VIOC,9-13
+          UCX$TDF Logical Name,4-15         VIOC Compatable Mode,9-13
+          undelete,9-1                      Virtual Terminal,5-55
+          UPS,13-9,  13-10                  VLIW,14-24
+          UPShot,13-10                      VMove,7-2
+          User Group                        VMS73_XFC,9-13
+            DECUS,1-9                       VMSINSTAL,5-40
+            Encompass,1-9                   VMSLICENSE,5-11
+            Interex,1-9                     _VMS_V6_SOURCE,4-14
+          UT0,4-1                           Vols in Full XFC mode,9-13
+          UT1,4-1                           Volume Set,9-7
+          UT2,4-1                           Volume Shadowing,15-25
+          UTC,4-1,  4-14                      Allocation Class,15-25
+          UTC$CONFIGURE_TDF.COM,4-13          Full Copy,5-57
+          UTC$TIMEZONE_SETUP.COM,4-13         Full Merge,5-58
+          UTC$TIME_SETUP.COM,4-13,            Minicopy,5-56
+             4-14, 4-16, 4-18                 Minimerge,5-56
+          uudecode,13-2,  13-14             VOTES system parameter,15-16
+          uuencode,13-2,  13-14             VR260,14-37
+          UWSS,10-8                         VR290,14-37
+          ______________________________    VRC16,14-38
+          V                                 VRC21,14-38
+          ______________________________    VSXXX,14-37
+          Vajhøj, Arne,13-2                 VXT,11-3
+          VAKSAT,7-2                        ______________________________
+          VAXcluster Console System,        W
+             14-17                          ______________________________
+          VAXCLUSTER system parameter,      Web Archives,14-40
+             15-23                          Web Browser
+          VAXCRTL.EXE,10-24                   Compaq Secure Web Browser,
+          VAX Emulator,13-26                     13-17
+          VAXstation 3100                     CSWB,13-4,  13-17
+            Console,9-4                       Lynx,13-4
+            System Disk Capacity,9-4          Mosaic,13-4
+
+                                              Mozilla,13-4,  13-17
+                                              Netscape,13-4
+
+                   Index-16
+
+ 
+
+
+
+
+
+                   Index
+
+
+
+
+          Web Browser (cont'd)              XLNperformance,5-36
+            Netscape Navigator,3-13,        XLNsystems,5-36
+               13-17                        XML,10-16,  13-11
+          Web server                        XOFF,14-50
+            Apache,13-8                     XON,14-50
+            OSU,13-8                        xpm,11-9
+            Purveyor,13-8                   XtAppAddInput,11-10
+            WASD,13-8                       xv,11-9
+          Webserver,13-3                    X Windows,11-1
+          Western Kentucky University,      X Windows Terminal,11-3
+             13-2                           ______________________________
+          WINDOW_SYSTEM                     Y
+            system parameter,11-7,          ______________________________
+               11-12                        Y2K,5-37
+          WINDOW_SYSTEM system parameter    yacc,13-14
+                                            Yamhill,2-10
+             ,5-8                           Year 2000,5-37
+          WIZARD.ZIP,3-13                   ______________________________
+          WKU,13-2                          Z
+          Write History Logging,5-56        ______________________________
+          WRITESYSPARAMS system             ZAP,7-4
+             parameter,5-8                  ZIC,4-18
+          WSDRIVER,11-3                     Zimmerman, Phil,13-4
+          WWW,13-4                          zip,13-25
+          ______________________________    Zip,14-45,  14-46
+          X                                   Self-extracting,13-25
+          ______________________________    ZMODEM,13-3
+          XDR,10-16
+          XFC,9-13
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                  Index-17

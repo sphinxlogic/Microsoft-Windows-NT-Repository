@@ -1,0 +1,506 @@
+[OpenVMS] Example-MACRO Program To Determine When To CONVERT Index File
+STARS Unique Id: 0094ABED-1AF46440-1C03C5
+
+Copyright (c) Digital Equipment Corporation 1989, 1994. All rights reserved
+OP/SYS:     VAX VMS Version 4.n
+            OpenVMS VAX Versions 5.0, 5.0-1, 5.0-2, 5.1, 5.1-B, 5.1-1,
+                                 5.2, 5.2-1, 5.3, 5.3-1, 5.3-2,
+                                 5.4, 5.4-1, 5.4-2, 5.4-3, 5.5, 5.5-1,
+                                 5.5-2, 6.0
+            OpenVMS AXP Version  1.5
+
+COMPONENTS:  Record Management Services (RMS)
+             MACRO
+
+SOURCE:      Digital Equipment Corporation
+
+
+DISCUSSION:
+
+RMS Indexed files which have record additions and/or deletions may
+need to be CONVERTed on a regular basis, but VMS does not provide
+any utility which can provide information on when this should be
+done.
+
+When records are added, buckets can become full which leads to
+"bucket splits".  Since data records must be stored in primary key
+order, a bucket split occurs when an attempt is made to insert
+a record into a bucket which does not have enough room.  Half the
+existing records are moved to a new bucket and half are left in the
+existing bucket.  An RRV (Record Reference Vector) is left behind
+in the original bucket to act as a forwarding address for any
+records that are moved to the new bucket (location).  The data
+records which were moved to the new bucket now require an extra
+I/O operation to access them.
+
+When records are deleted, the space these records formerly occupied
+is left vacant unless other records are added with keys similar to
+the keys of the deleted records.
+
+Unless CONVERTs are done on a regular basis, file accesses become
+less efficient and files take up more disk blocks than necessary.
+The following program provides information that can be used in
+helping to decide when a CONVERT should be done.  It provides a
+display similar to the following:
+
+   This statistic was taken on 18-JUN-1991 11:46.
+   Filename      |#of Rec.|del.Rec.|#of RRVs|#of bkts|bkt jump|Compression
+   FILE.DAT;4         1130|     345|     390|     413|     406|Rec Key Ind
+
+The following section describes the fields displayed:
+
+"#of Rec."   - The number of data records currently in the file.
+
+"del.Rec."   - If duplicates are allowed on the primary key, this
+               indicates the number of records that have been deleted
+               since the last CONVERT (or CREATE).  If duplicates are
+               NOT allowed (the usual case), then this number only
+               reflects deleted records that were physically the last
+               record in a data bucket (probably a small percentage of
+               the actual number of records deleted).  A high number
+               here (relative to the total number of records in the
+               file) indicates that a CONVERT should probably be done.
+
+"# of RRVs"  - The number of records that have been moved from their
+               original location in the file due to bucket splits.
+               A high number here (relative to the total number of
+               records in the file) indicates that a number of bucket
+               splits have occurred since the last CONVERT or CREATE
+               and that a new CONVERT should probably be done.
+
+"# of bkts"  - The total number of data buckets in the file.
+
+"bkt jump"   - The number of times two data buckets are found which
+               are not logically adjacent to each other.  A high
+               number here (relative to the total number of data
+               buckets in the file) indicates that the file has been
+               logically extended multiple times.  A logical
+               extension must be done during a bucket split, but
+               a high number of bucket jumps may also be seen under
+               the following conditions:
+
+                 * When a file has only one area
+                 * When duplicate primary key values are allowed and
+                   there are a high number of records per key value
+                 * When a file is populated by a program and has
+                   never been CONVERTed
+
+               A high number here with a low number of RRVs in a
+               file that has only one area indicates that the file
+               should probably be redefined (with an FDL) to have
+               multiple areas before a CONVERT is done.
+
+"Compression"- Indicates the types of compression enabled on the file.
+               The three types are "Rec" (Data Record), "Key" (Data
+               Key) and "Ind" (Index).
+
+There is no definitive answer as to when a file should be CONVERTed.
+It is application and site dependent.  This program is intended to
+provide information to a system or application manager so an
+intelligent decision can be made.
+
+See the "Guide To VMS File Applications", (AA-LA78A-TE), April 1988,
+for more information on this topic.
+
+
+CAUTION:
+
+This sample program has been tested using VAX MACRO on VMS V5.5-2.
+However, we cannot guarantee its effectiveness because of the
+possibility of error in transmitting or implementing it.  It is
+meant to be used as a template for writing your own program, and
+it may require modification for use on your system.
+
+
+EXAMPLE PROGRAM:
+
+        .TITLE  RRV
+;
+; Program scans data buckets of index-sequential RMS files
+; (prolog 3 only). The files are opened shared and read in
+; block mode via RMS. Wildcards can be specified!
+;
+; Program generation:
+;
+;       $ MACRO RRV
+;       $ LINK  RRV
+;       $ RRV == "$dev:[dir]RRV"
+;
+; Program activation:
+;
+;       $ RRV dev:[dir]filespec ! dir and filespec can be wildcards
+;
+; NOTE:
+;
+; The LOOP_COUNT contains the allocation quantity
+; of the file. If we read more buckets than blocks in the file,
+; we can be sure that this file is corrupted or has no valid
+; "last bucket".
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+        .LIBRARY        /SYS$LIBRARY:LIB/
+        $BKTDEF
+        $IRCDEF
+        $KEYDEF
+        $FSCNDEF
+        $PLGDEF
+        $SSDEF
+;
+; RMS interface data structures
+;
+FAB:    $FAB    FAC = <BIO,GET>, -              ;Allow block I/O read
+                FOP = NAM,-                     ;Use nam block
+                FNA = FILENAME_BUF, -           ;Address of filename string
+                SHR = <UPI,PUT,GET,DEL,UPD>,-
+                NAM = NAM,-                     ;Nameblock
+                XAB = DAT
+
+RAB:    $RAB    FAB = FAB, -                    ;Associated FAB
+                ROP = <BIO>, -                  ;block I/O Processing
+                UBF = BUCKET_BUFFER             ;Input buffer
+
+NAM:    $NAM    RSA = RES_STR,-
+                RSS = NAM$C_MAXRSS,-
+                ESA = EXP_STR,-
+                ESS = NAM$C_MAXRSS
+
+DAT:    $XABDAT
+;
+; local variables
+;
+PAGE_SIZE=60                    ; lines per page
+LOOP_COUNT:     .BLKL   1       ; running count for bucket reads
+LINE_COUNTER:   .BLKL   1       ; running line count
+PROLOG:         .BLKL   1       ; prolog version
+DATA_BUCKET_SIZE: .BLKL 1       ; data bucket size
+DATA_BUCKET:    .BLKL   1       ; data bucket count
+EMPTY_BUCKET:   .BLKL   1       ; empty bucket count
+RECORD_COUNT:   .BLKL   1       ; data record count
+RRV_COUNT:      .BLKL   1       ; RRV count
+JUMP_COUNT:     .BLKL   1       ; bucket jump count
+DELETED_DATA:   .BLKL   1       ; deleted data record count
+DELETED_RRV:    .BLKL   1       ; deleted RRV count
+VBN:            .BLKL   1       ; current VBN
+MAX_REC_SIZE:   .BLKL   1       ; max. record size in file
+FIXED_REC:      .BLKB   1       ; fixed length indicator, 1=true
+REC_COMPR:      .BLKB   1       ; data compression indicator, 1=true
+KEY_COMPR:      .BLKB   1       ; key compression indicator, 1=true
+IND_COMPR:      .BLKB   1       ; index compression indicator, 1=true
+;
+FILENAME_PROMPT:.ASCID  "Filename : "
+FILENAME:       .WORD   255,0           ; input filename descriptor
+                .ADDRESS FILENAME_BUF   ;
+FILENAME_BUF:   .BLKB   255
+FILENAME_SIZ:   .WORD   0               ; received length of filename
+;
+RES_STR_D:      .BLKW   2               ; resultant filespec descriptor
+RES_STR_A:      .ADDRESS RES_STR
+RES_STR:        .BLKB   NAM$C_MAXRSS
+EXP_STR:        .BLKB   NAM$C_MAXRSS
+;
+FAO_CTRSTR1_D:  .LONG   FAO_CTRSTR1_L
+                .ADDRESS FAO_CTRSTR1_A
+FAO_CTRSTR1_A:  .ASCII  "!25AS !AS"
+FAO_CTRSTR1_L = .-FAO_CTRSTR1_A
+;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; HEADER_1 is the header line layout
+; FAO_CTRSTR2_D is the data line layout
+;
+HEADER_1:       .ASCID  "Filename            |#of Rec.|del.Rec.|#of RRVs|#of
+bkts|bkt jump|Compression"
+;
+; NOTE:  The above line may be truncated when down-line loaded to your
+;        system.  The complete value to be enclosed in quotes is:
+;"Filename            |#of Rec.|del.Rec.|#of RRVs|#of bkts|bkt jump|Compression"
+;
+FAO_CTRSTR2_D:  .ASCID  "!20AS !8UL|!8UL|!8UL|!8UL|!8UL|!AS!AS!AS"
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;
+FAO_CTRSTR3_D:  .ASCID  "This statistic was taken on !17%D.!/"
+FAO_CTRSTR4_D:  .ASCID  "!^"
+;
+NOINI_D:        .ASCID  "Index is not initialized. Data file is empty."
+LOOP_D:         .ASCID  "File contains a bucket pointer loop."
+DATA_D:         .ASCID  "Rec "
+KEY_D:          .ASCID  "Key "
+INDEX_D:        .ASCID  "Ind "
+BLANK_D:        .ASCID  "    "
+;
+FAO_OUTBUF_L =  512
+FAO_OUTBUF_D:   .WORD   FAO_OUTBUF_L,0
+                .ADDRESS FAO_OUTBUF_A
+FAO_OUTBUF_A:   .BLKB   FAO_OUTBUF_L
+;
+;
+FILESCAN_ITEMLIST:
+FILE_L:         .WORD   0, FSCN$_NAME
+FILE:           .BLKL   1
+                .LONG   0
+
+BUCKET_BUFFER:  .BLKB   512*64
+
+        .PSECT RRV_CODE,NOWRT,EXE
+        .ENTRY  BEGIN,^M<>
+        PUSHAL  FILENAME_SIZ                    ; get filespec
+        PUSHAQ  FILENAME_PROMPT                 ; either from command
+        PUSHAQ  FILENAME                        ; line or prompt for it
+        CALLS   #3, G^LIB$GET_FOREIGN
+        MOVB    FILENAME_SIZ,FAB+FAB$B_FNS      ; store filename size
+        $PARSE  FAB=FAB                         ; prepare (wildcard) search
+        BLBS    R0, 1$                          ; ok...
+        BRW     F_ERR                           ; error...
+1$:     MOVL    #FAO_OUTBUF_L, FAO_OUTBUF_D     ; init size
+        PUSHL   #0                              ; P4
+        PUSHAL  FAO_OUTBUF_D                    ; P3
+        PUSHAL  FAO_OUTBUF_D                    ; P2
+        PUSHAL  FAO_CTRSTR3_D                   ; P1
+        CALLS   #4, G^SYS$FAO                   ;
+        PUSHAL  FAO_OUTBUF_D                    ;
+        CALLS   #1, g^LIB$PUT_OUTPUT            ;
+        PUSHAL  HEADER_1                        ;
+        CALLS   #1,G^LIB$PUT_OUTPUT             ; write header line
+        MOVL    #PAGE_SIZE,LINE_COUNTER
+;
+SRCH:   $SEARCH FAB = FAB                       ; get next filespec
+        BLBC    R0, SRCH_ERR                    ; error...
+        MOVZBL  NAM+NAM$B_RSL, RES_STR_D        ; store length of filespec
+        $FILESCAN_S     SRCSTR  = RES_STR_D,-   ; get beginning of filename
+                        VALUELST = FILESCAN_ITEMLIST
+        BLBS    R0,10$                          ; ok...
+        BRW     EXIT                            ; error...
+10$:    $OPEN   FAB=FAB                         ; open the file
+        BLBC    R0, F_ERR                       ; error...
+        MOVZWL  FILENAME_SIZ, FILENAME          ; store filename size
+        MOVW    #512, RAB+RAB$W_USZ             ; set up size to 512 Byte
+        $CONNECT RAB=RAB                        ; connect to file
+        BLBC    R0, R_ERR                       ; error...
+        BRW     MAIN_LOOP                       ; ok...
+;
+F_ERR:  CMPL    R0, #RMS$_FLK                   ; file locked by other user?
+        BEQL    SRCH                            ; yes...
+SRCH_ERR:
+        CMPL    R0, #RMS$_NMF                   ; end of search?
+        BEQL    EX_BR                           ; yes...
+        PUSHL   FAB+FAB$L_STV                   ; get RMS error codes
+        PUSHL   FAB+FAB$L_STS                   ;
+SIG:    CALLS   #2, G^LIB$SIGNAL                ; signal that error
+EX_BR:  BRW     S_EXIT                          ;
+;
+R_ERR:  PUSHL   RAB+RAB$L_STV                   ; get RMS error code
+        PUSHL   RAB+RAB$L_STS                   ;
+        BRW     SIG                             ;
+;
+DONE:   MOVL    #FAO_OUTBUF_L, FAO_OUTBUF_D     ; init size
+;       MOVZWL  DAT+XAB$W_RVN, R0               ; get revision count
+;       PUSHL   R0                              ; Px revision count
+;       PUSHAB  DAT+XAB$Q_RDT                   ; Px address of revision date
+;       PUSHL   DATA_BUCKET_SIZE                ; Px databucket size
+;       PUSHL   MAX_REC_SIZE                    ; Px max. record size
+;       PUSHL   FAB+FAB$L_ALQ                   ; Px allocation size
+FAO_ARGS=12     ; number of FAO arguments per line
+        PUSHAB  BLANK_D                         ; P12 assume no index
+                                                ;         compression
+        BLBC    IND_COMPR,10$                   ; no index compression
+        MOVAB   INDEX_D,(SP)                    ; P12 index compression "Ind"
+10$:    PUSHAB  BLANK_D                         ; P11 assume no key
+                                                ;         compression
+        BLBC    KEY_COMPR,20$                   ; no key compression
+        MOVAB   KEY_D,(SP)                      ; P11 key compression "Key"
+20$:    PUSHAB  BLANK_D                         ; P10 assume no data
+                                                ;          compression
+        BLBC    REC_COMPR,30$                   ; no data compression
+        MOVAB   DATA_D,(SP)                     ; P10 data compression "Rec"
+30$:
+        PUSHL   JUMP_COUNT                      ; P9 number of bucket jumps
+        PUSHL   DATA_BUCKET                     ; P8 number of data buckets
+        ADDL2   DELETED_RRV,RRV_COUNT           ; add deleted RRVs to rest
+                                                ;                 of RRVs
+        PUSHL   RRV_COUNT                       ; P7 number of RRVs
+        PUSHL   DELETED_DATA                    ; P6 number of deleted
+                                                ;          data records
+        PUSHL   RECORD_COUNT                    ; P5 number of records
+        MOVZBL  NAM+NAM$B_RSL,R0                ; get position and length
+        SUBL3   RES_STR_A,FILE,R1               ; of filename in complete
+        SUBW3   R1,R0,FILE_L                    ; filespec
+        PUSHAB  FILE_L                          ; P4 Filename
+        PUSHAB  FAO_OUTBUF_D                    ; P3
+        PUSHAL  FAO_OUTBUF_D                    ; P2
+        PUSHAB  FAO_CTRSTR2_D                   ; P1
+        CALLS   #FAO_ARGS,G^SYS$FAO             ;
+        PUSHAL  FAO_OUTBUF_D                    ;
+        CALLS   #1,G^LIB$PUT_OUTPUT             ; print statistic line
+        SOBGTR  LINE_COUNTER, DONE1             ; end of page? no...
+        MOVL    #FAO_OUTBUF_L, FAO_OUTBUF_D     ; init size
+        PUSHL   #0                              ; P4
+        PUSHAL  FAO_OUTBUF_D                    ; P3
+        PUSHAL  FAO_OUTBUF_D                    ; P2
+        PUSHAL  FAO_CTRSTR4_D                   ; P1
+        CALLS   #4, G^SYS$FAO
+        PUSHAL  FAO_OUTBUF_D                    ;
+        CALLS   #1,G^LIB$PUT_OUTPUT             ; output header lines
+        PUSHAL  HEADER_1
+        CALLS   #1,G^LIB$PUT_OUTPUT
+        MOVL    #PAGE_SIZE,LINE_COUNTER         ; reset line count
+DONE1:  $CLOSE  FAB=FAB                         ; close file
+1$:     BRW     SRCH
+S_EXIT: MOVL    #SS$_NORMAL,R0                  ; success exit
+EXIT:   $EXIT_S R0
+;
+MAIN_LOOP:
+        CMPB    #FAB$C_IDX, FAB+FAB$B_ORG       ; is it an indexed file?
+        BNEQ    DONE1                           ; no...
+10$:    CLRL    JUMP_COUNT                      ; init bucket jump count
+        CLRL    RRV_COUNT                       ;  "   RRV count
+        CLRL    RECORD_COUNT                    ;  "   record count
+        CLRL    DELETED_DATA                    ;  "   deleted record count
+        CLRL    DELETED_RRV                     ;  "   deleted data count
+        CLRL    DATA_BUCKET                     ;  "   data bucket count
+        CLRL    EMPTY_BUCKET                    ;  "   empty bucket count
+        CLRB    FIXED_REC                       ; assume variable length
+        CLRB    REC_COMPR                       ; init data compression
+                                                ;             indicator
+        CLRB    KEY_COMPR                       ;  "   key compression
+                                                ;             indicator
+        CLRB    IND_COMPR                       ;  "   index compression
+                                                ;             indicator
+        CLRL    PROLOG                          ;  "   prolog version
+                                                ;            indicator
+        CLRL    MAX_REC_SIZE                    ;  "   maximum record size
+        MOVL    FAB+FAB$L_ALQ,LOOP_COUNT        ; use file size as max
+                                                ;           loop count
+        MOVL    #1,VBN                          ; read prolog table
+        MOVL    VBN,RAB+RAB$L_BKT               ;
+        $READ   RAB=RAB                         ;
+        BLBS    R0, FORMAT                      ; ok...
+        BRW     R_ERR                           ; error...
+NOINI:  MOVL    #FAO_OUTBUF_L, FAO_OUTBUF_D     ; init size
+        PUSHAB  NOINI_D                         ; P5 'Index not ini..' text
+        MOVZBL  NAM+NAM$B_RSL,R0                ; compute position and
+        SUBL3   RES_STR_A, FILE,R1              ; length of filename in
+        SUBW3   R1,R0,FILE_L                    ; filespec
+        PUSHAB  FILE_L                          ; P4 filename
+        PUSHAB  FAO_OUTBUF_D                    ; P3
+        PUSHAL  FAO_OUTBUF_D                    ; P2
+        PUSHAB  FAO_CTRSTR1_D                   ; P1
+        CALLS   #5,G^SYS$FAO                    ;
+        PUSHAL  FAO_OUTBUF_D                    ;
+        CALLS   #1,G^LIB$PUT_OUTPUT             ; print statistic line
+        BRW     DONE1                           ; process next file
+;
+FORMAT: MOVZWL  FAB+FAB$W_MRS, MAX_REC_SIZE     ; get maximum record size
+        CMPB    #FAB$C_FIX, FAB+FAB$B_RFM       ; fixed length records?
+        BNEQU   10$                             ; no...
+        INCB    FIXED_REC                       ; set fixed length indicator
+10$:    MOVZBL  KEY$B_FLAGS+BUCKET_BUFFER, R0   ; get primary key's control
+                                                ;                     bits
+        BBC     #KEY$V_INITIDX,R0,20$           ; index initialized? yes...
+        BRW     NOINI                           ; no...
+20$:    BBC     #KEY$V_REC_COMPR,R0,30$         ; data record compression?
+        INCL    REC_COMPR                       ; set data compression
+                                                ;             indicator
+30$:    BBC     #KEY$V_KEY_COMPR,R0,40$         ; key compression?
+        INCL    KEY_COMPR                       ; set key compression
+                                                ;           indicator
+40$:    BBC     #KEY$V_IDX_COMPR,R0,50$         ; index record compression?
+        INCL    IND_COMPR                       ; set data compression
+                                                ;             indicator
+50$:    MOVZBL  KEY$B_DATBKTSZ+BUCKET_BUFFER,-
+                DATA_BUCKET_SIZE                ; databucket size
+        DIVL2   DATA_BUCKET_SIZE,LOOP_COUNT     ; loop to max number of
+                                                ;              buckets
+        INCL    LOOP_COUNT                      ; round up
+        MOVL    KEY$L_LDVBN+BUCKET_BUFFER,VBN   ; first data bucket
+        MOVZWL  PLG$W_VER_NO+BUCKET_BUFFER,PROLOG ; prolog version
+        CMPL    PROLOG,#3                       ; prolog version 3?
+        BEQL    RDLOP                           ; yes...
+        BRW     DONE1                           ; no...
+RDLOP:  SOBGTR  LOOP_COUNT,110$                 ; more buckets to read?
+        MOVL    #FAO_OUTBUF_L, FAO_OUTBUF_D     ; init size
+        PUSHAB  LOOP_D                          ; P5 'Bucket pointer
+                                                ;         loop...' text
+        MOVZBL  NAM+NAM$B_RSL, R0               ; compute position and
+        SUBL3   RES_STR_A,FILE, R1              ; and length of filename
+        SUBW3   R1,R0,FILE_L                    ; in filespec
+        PUSHAB  FILE_L                          ; P4 filename
+        PUSHAB  FAO_OUTBUF_D                    ; P3
+        PUSHAL  FAO_OUTBUF_D                    ; P2
+        PUSHAB  FAO_CTRSTR1_D                   ; P1
+        CALLS   #5, G^SYS$FAO
+        PUSHAL  FAO_OUTBUF_D
+        CALLS   #1,G^LIB$PUT_OUTPUT             ; print error message
+        BRW     DONE1
+;
+110$:   MOVL    VBN,RAB+RAB$L_BKT               ; straight into the RAB
+        ASHL    #9,DATA_BUCKET_SIZE,R0          ; multiply by 512
+        MOVL    R0,RAB+RAB$W_USZ                ;
+        $READ   RAB=RAB                         ; read next bucket
+        BLBS    R0, FORMAT1                     ; ok...
+        BRW     R_ERR                           ; error...
+FORMAT1:
+        ASSUME  BKT$V_LASTBKT EQ 0
+        INCL    DATA_BUCKET                     ; count data bucket
+        BLBC    BKT$B_BKTCB+BUCKET_BUFFER,120$  ; last bucket? no...
+        BRW     140$                            ; yes...
+120$:   MOVL    BKT$L_NXTBKT+BUCKET_BUFFER,R2   ; get VBN of next bucket
+        MOVL    VBN,R0                          ; get VBN of current bucket
+        ADDL3   R0,DATA_BUCKET_SIZE,R1          ; get VBN of physical
+                                                ;          next bucket
+        CMPL    R1,R2                           ; contiguous buckets?
+        BEQL    130$                            ; yes...
+        INCL    JUMP_COUNT                      ; count bucket jump
+130$:   MOVL    R2,VBN                          ; update current VBN
+140$:   MOVZBL  #BKT$C_OVERHDSZ,R0              ; start at first byte in
+                                                ;                 bucket
+        MOVZWL  BKT$W_FREESPACE+BUCKET_BUFFER,R1; first free byte in bucket
+        CMPL    R0,R1                           ; empty bucket?
+        BNEQU   CHECK                           ; no...
+        INCL    EMPTY_BUCKET                    ; yes...count it
+        BRW     RDLOP                           ;
+;
+CHECK:  MOVZBL  BUCKET_BUFFER(R0),R2            ; R2 = record control byte
+        EXTZV   #IRC$V_PTRSZ,#IRC$S_PTRSZ,R2,R3 ; R3 = VBN pointer size
+                                                ;        bit 0,1
+        ADDL2   #2, R3                          ; R3 = VBN pointer size
+                                                ;               (2,3,4)
+        ADDL2   #IRC$W_RRV_ID+2,R0              ; R0 = points to VBN in RRV
+        BBS     #IRC$V_NOPTRSZ,R2,5$            ; has it a pointer size? no...
+        ADDL2   R3, R0                          ; R0 = points to record
+                                                ;                length
+5$:     BBC     #IRC$V_RRV,R2,20$               ; RRV? no...
+        BBC     #IRC$V_DELETED,R2,10$           ; deleted RRV? no...
+        INCL    DELETED_RRV                     ; update deleted RRV count
+        BRB     55$                             ; do next
+10$:    INCL    RRV_COUNT                       ; update RRV count
+        BRB     55$
+;
+20$:    BBC     #IRC$V_DELETED,R2,21$           ; deleted data record?
+        INCL    DELETED_DATA                    ; update deleted data
+                                                ;         record count
+        BRB     22$
+21$:    INCL    RECORD_COUNT                    ; update data record count
+22$:    BBS     #0,REC_COMPR,50$                ; data compression on?
+        BBS     #0,KEY_COMPR,50$                ; key compression on? yes...
+        BBC     #0,FIXED_REC,50$                ; fixed length? no...
+        MOVL    MAX_REC_SIZE, R2                ;
+        BRB     51$
+50$:    MOVZWL  BUCKET_BUFFER(R0),R2            ; R2 = record size
+        ADDL2   #2,R2                           ; R2 = total record length
+51$:    ADDL2   R2, R0                          ; R0 = points to next record
+55$:    CMPL    R0, R1                          ; at free space of bucket?
+        BGEQU   60$                             ; yes...
+        BRW     CHECK                           ; no...
+;       ASSUME  BKT$V_LASTBKT EQ 0
+60$:    BLBC    BKT$B_BKTCB+BUCKET_BUFFER,110$  ; last bucket? no...
+        BRW     DONE                            ; yes...
+110$:   BRW     RDLOP                           ; process next bucket
+        .END    BEGIN
+
+
+PROGRAM NOTES:
+
+To use the above example program, perform the following commands:
+
+     $ MACRO rms_rrv
+     $ LINK rms_rrv
+     $ RRV :== $disk:[dir]rms_rrv
+     $ RRV filename

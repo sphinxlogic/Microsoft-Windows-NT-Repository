@@ -1,0 +1,672 @@
+1       !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! Program: PRINT_DEF
+        ! Package: Utility
+        ! Authors: Allen Roske
+        ! Date   : January, 1987
+        ! Purpose: print out INTOUCH definition files
+        ! Copyright (c) 1987, Touch Technologies, Inc.
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D E C L A R A T I O N S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        declare real    u_rel
+
+        out_file$ = "sys$login:print_def.lis"
+        h1$       = space$(95%)
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A I N   L O G I C   S E C T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize program, ask file specification, print out
+        ! the definition.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  main_logic:
+
+        action$ = "init"
+
+        do
+          select case action$
+          case "init"            :  gosub init_main
+          case "ask_filename"    :  gosub ask_filename
+          case "init_outfile"    :  gosub init_outfile
+          case "process_defs"    :  gosub process_defs
+          case "finish_outfile"  :  gosub finish_outfile
+          case "spool_outfile"   :  gosub spool_outfile
+          case "exit"            :  exit do
+          end select
+        loop
+
+        close all
+        clear
+        stop
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! M A I N   I N I T I A L I Z A T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize program.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  init_main:
+
+        frame off
+
+        u_str$ = "Print Definition Files"
+        gosub screen_frame
+
+        f_ctr% = 0%
+
+        action$ = "ask_filename"
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   F O R   F I L E   S P E C I F I C A T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask for the definition files.
+        ! You may use wildcards in the file name.
+        !
+        ! EXAMPLE:
+        !        [ALLEN.MATRIC]*.DEF
+        !
+        ! RESULT:
+        !        file_names$ = what the user entered
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  ask_filename:
+
+        do
+          u_prompt$   = "Definition files"
+          u_default$  = "EXIT"
+          u_required% = true
+          u_maxlen%   = 50%
+          u_uconly%   = true
+          gosub ask
+
+          if  (_exit)  or  (_back)  then
+            if  f_ctr% = 0%  then
+              action$ = "exit"
+            else
+              action$ = "finish_outfile"
+            end if
+
+            exit do
+          end if
+
+          if  right$(u_reply$, 4%) <> ".DEF"  then
+            u_reply$ = u_reply$ + ".DEF"
+          end if
+
+          file_names$ = u_reply$
+
+          z1$ = findfile$(file_names$)
+          if  z1$ = ""  then
+            message error : "No files matching " + file_names$ + " found"
+            repeat do
+          end if
+
+          if  f_ctr% = 0%  then
+            action$ = "init_outfile"
+          else
+            action$ = "process_defs"
+          end if
+        end do
+
+        print at 23%, 1%:;
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! I N I T I A L I Z E   O U T P U T   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Initialize the output file.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  init_outfile:
+
+        open #12% : name out_file$, access output
+
+        action$ = "process_defs"
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R O C E S S   M A T C H I N G   F I L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Process the matching files.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  process_defs:
+
+        for  f_inx% = 1% to 99999%
+          def_file$ = findfile$(file_names$, f_inx%)
+          if  def_file$ = ""  then  exit for
+
+          gosub do_check_file
+          if  _error  then  iterate for
+
+          f_ctr% = f_ctr% + 1%
+          message "Working on " + def_file$
+          gosub do_print_def
+        next f_inx%
+
+        action$ = "ask_filename"
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   F I L E   N A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check that we have a ".DEF" file.
+        !
+        ! EXPECTED:
+        !        def_file$ = file name
+        !
+        ! RESULT:
+        !        _error = true  if  not a ".DEF" file
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  do_check_file:
+
+        z1$ = rtrim$(def_file$)
+
+        found% = false
+
+        for  z1% = len(z1$) to 1% step -1%
+          if  z1$[z1%:z1%] = ";"  then
+            found% = true
+            exit for
+          end if
+        next z1%
+
+        if  (found%)  then
+          lst% = z1% - 1%
+        else
+          lst% = len(z1$)
+        end if
+
+        fst% = lst% - 3%
+
+        z2$ = z1$[fst%:lst%]
+                ! last four characters of the file name
+
+        if  z2$ <> ".DEF"  then  set error on
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! F I N I S H   U P   O U T P U T   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Finish up the output file.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  finish_outfile:
+
+        close #12%
+
+        action$ = "spool_outfile"
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! S P O O L   O U T P U T   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Spool the output file.
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  spool_outfile:
+
+        u_default$ = 'SCR'
+        u_str$       = out_file$
+        u_scr_width% = 132%
+        gosub prnt_ask_option
+                ! this subroutine is in PRINT_OPTION.INC
+
+        action$ = "exit"
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P R I N T   O U T   D E F I N I T I O N   F I L E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Print out the field definitions for a definition file
+        !
+        ! EXPECTED:
+        !        def_file$ = definition file specification
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  do_print_def:
+
+        do
+          when exception in
+            set error off
+            open structure def : name "TTI_RUN:DEFINE", &
+                 datafile def_file$, access input
+          use
+            message error : extext$ + " opening " + def_file$ + &
+                            " -- file skipped"
+          end when
+          if _error then exit do
+
+          extract structure def
+            sort ascending by def(first)
+          end extract
+
+          page_ctr% = 0%
+          gosub do_heading
+
+          for each def
+            if  line_ctr% >= 60%  then  gosub do_heading
+
+            gosub do_detail_line
+          next def
+
+          close structure def
+        end do
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! L I S T   F I L E   P A G E   H E A D I N G
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Print out the page heading for the .LST file.
+        !
+        ! EXPECTED:
+        !        def_file$ = definition file specification
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  do_heading:
+
+        print #12% : chr$(12%);
+        page_ctr% = page_ctr% + 1%
+
+        print #12% : &
+          tab( 1%); date$(days(date$), 3%); &
+          tab(89%); "Page "; format$(page_ctr%, "##"); &
+                chr$(0%)
+
+        cset h1$ = def_file$
+
+        print #12% : &
+          tab( 1%); h1$; &
+                chr$(0%)
+
+        print #12%: &
+                chr$(0%)
+
+        print #12% : &
+          tab( 1%); "Field Name"; &
+          tab(34%); "Description"; &
+          tab(65%); "First"; &
+          tab(71%); " Last"; &
+          tab(77%); "Lngth"; &
+          tab(83%); "DT"; &
+          tab(86%); "N"; &
+          tab(88%); "SC"; &
+          tab(91%); "R"; &
+          tab(93%); "Z"; &
+          tab(95%); "U"; &
+          tab(97%); 'Occurs'; &
+                chr$(0%)
+
+        print #12% : &
+          tab( 1%); repeat$("-", 32%); &
+          tab(34%); repeat$("-", 30%); &
+          tab(65%); "-----"; &
+          tab(71%); "-----"; &
+          tab(77%); "-----"; &
+          tab(83%); "--"; &
+          tab(86%); "-"; &
+          tab(88%); "--"; &
+          tab(91%); "-"; &
+          tab(93%); "-"; &
+          tab(95%); "-"; &
+          tab(97);  "------"; &
+                chr$(0%)
+
+        line_ctr% = 5%
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! D E T A I L   L I N E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Print a detail line.
+        !
+        ! Expected:
+        !       name_field$ = name of field name field being used
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  do_detail_line:
+
+        if  def(old_name) = "*"  then
+          name_field$ = "name"
+        else
+          name_field$ = "old_name"
+        end if
+                !++amr++ 08/01/90
+
+        fst% = def(first)
+        lng% = def(len)
+        lst% = (fst% + lng%) - 1%
+                ! get last position
+
+        lst$ = repeat$(" ", 5%)
+        rset lst$ = str$(lst%)
+
+        print #12% : &
+          tab( 1%); def(#name_field$); &
+          tab(34%); def(desc); &
+          tab(65%); def(first); &
+          tab(71%); lst$; &
+          tab(77%); def(len); &
+          tab(83%); def(dtype); &
+          tab(86%); def(num); &
+          tab(88%); def(scale); &
+          tab(91%); def(rj); &
+          tab(93%); def(zf); &
+          tab(95%); def(uc);
+        if  def(old_name) = "*"  then
+          print #12% : tab(99%); def(occurrence)
+        else
+          print #12% : tab(99%); '   0'
+        end if
+
+        line_ctr% = line_ctr% + 1%
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! U T I L I T Y   S U B R O U T I N E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+        %include "TTI_RUN:PRINT_OPTION"
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! G E T   U S E R   R E P L Y
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Prompt the user and get their reply.  Perform the indicated
+        ! validations.
+        !
+        ! EXPECTED:
+        !        u_prompt$   = prompt text
+        !        u_default$  = default response
+        !        u_required% = response required flag
+        !        u_maxlen%   = maximum length
+        !        u_uconly%   = convert to upper case flag
+        !
+        ! RETURNED:
+        !        u_reply$ = what the user entered
+        !        u_rel    = numeric version  if  u_numeric% = true
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  ask:
+
+        do
+          clear area 21, 1, 21, 80
+
+          u_reply$ = ""
+          u_rel    = 0.
+
+          prompt$ = u_prompt$ + "? "
+
+          line input &
+            prompt prompt$, &
+            default u_default$, &
+            length u_maxlen%, &
+            at 21%, 1% : &
+            u_reply$
+
+          if  (_exit)  or  (_back)  then  exit do
+
+          if  (_help)  then
+            message error : "No HELP available"
+            repeat do
+          end if
+
+          gosub do_ask_checks
+          if  _error  then  repeat do
+
+          gosub do_ask_reset
+        end do
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   U S E R ' S   R E S P O N S E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Perform the various validations on the user's response
+        !
+        ! EXPECTED:
+        !        u_required% = response required flag
+        !        u_maxlen%   = maximum input length
+        !        u_uconly%   = conver to upper case flag
+        !
+        ! RESULT:
+        !        _error = true  if  any problem
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  do_ask_checks:
+
+        do
+          gosub do_ask_check_required
+          if  _error  then  exit do
+
+          gosub do_ask_check_uconly
+        end do
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   U _ R E Q U I R E D %
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Check that we have a response  if  u_required% = true
+        !
+        ! EXPECTED:
+        !        u_reply$ = what they entered
+        !
+        ! RETURNED:
+        !        error = true  if  no response given
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  do_ask_check_required:
+
+        if  (u_required%)  then
+          z1$ = edit$(u_reply$, 2%)
+                ! discard all spaces and tabs
+
+          if  z1$ = ""  then
+            message error : "Response required"
+          end if
+        end if
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C H E C K   U _ U C O N L Y %
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Convert u_reply$ to upper case  if  u_uconly% = true
+        !
+        ! EXPECTED:
+        !        u_reply$ = what the user entered
+        !
+        ! RESULT:
+        !        u_reply$ = changed to all upper case
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  do_ask_check_uconly:
+
+        if  (u_uconly%)  then
+          u_reply$ = ucase$(u_reply$)
+        end if
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! R E S E T   A S K   R O U T I N E   V A R I A B L E S
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Reset all the variables used by the ask routine
+        !
+        ! EXPECTED:
+        !        u_prompt$   = prompt text
+        !        u_default$  = default response
+        !        u_required% = response required flag
+        !        u_maxlen%   = maximum length
+        !        u_numeric%  = numeric entry only
+        !        u_uconly%   = convert to upper case flag
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  do_ask_reset:
+
+        u_prompt$   = ""
+        u_default$  = ""
+        u_required% = false
+        u_maxlen%   = 0%
+        u_uconly%   = false
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! A S K   A   Y E S / N O   Q U E S T I O N
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Ask a YES/NO question.
+        !
+        ! EXPECTED:
+        !        u_prompt$ = prompt text
+        !
+        ! RESULT:
+        !        u_reply$ = "Y" or "N"
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  askyn:
+
+        prompt_sav$ = u_prompt$
+
+        do
+          u_prompt$   = prompt_sav$ + "(Y/N)"
+          u_default$  = "No"
+          u_required% = true
+          u_maxlen%   = 3%
+          u_uconly%   = true
+
+          gosub ask
+
+          if  (_exit)  or  (_back)  then  exit do
+
+          if  valid(u_reply$, "yes/no")  then
+            u_reply$ = u_reply$[1:1]
+          else
+            message error : "YES or NO"
+            repeat do
+          end if
+        end do
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! P A I N T   S C R E E N   F R A M E
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Paint the screen with the frame.
+        !
+        ! EXPECTED:
+        !        u_str$ = header text
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  screen_frame:
+
+        clear
+
+        z1$ = space$(80)
+        cset z1$ = u_str$
+        print reverse, at 1%, 1% : z1$;
+
+        z1$ = "EXIT = Exit" + &
+              repeat$(" ", 48%) + &
+              "\ = Back  HELP = Help"
+
+        print reverse, at 24%, 1% : z1$;
+
+        return
+
+
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        ! C E N T E R
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+        !
+        ! Returns the screen column to use in order to center u_str$
+        ! on an 80-column screen
+        !
+        ! EXPECTED:
+        !        u_str$ = string to be centered
+        !
+        ! RESULT:
+        !        u_int% = starting column to print u_str$ on
+        !
+        !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+  center:
+
+        u_int% = 40% - (len(u_str$) / 2%)
+
+        return
+
+
+999999  end

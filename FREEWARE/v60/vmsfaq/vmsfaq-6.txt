@@ -1,0 +1,2350 @@
+ 
+
+
+
+
+
+                   OpenVMS Programming Information
+
+
+
+          __________________________________________________________
+          10.21  How to resolve LINK-I-DATMISCH errors?
+
+                   The message LINK-I-DATMISCH is informational, and
+                   indicates that the version of the specified shareable
+                   image found in the system shareable image directory
+                   does not match the version of the shareable image that
+                   was originally loaded into IMAGELIB.OLB, one of the
+                   OpenVMS libraries typically searched by the LINKER.
+
+                   From a privileged username, you can usually completely
+                   repair this via the following DCL command:
+
+                   $ LIB/REPLACE/SHARE SYS$LIBRARY:IMAGELIB.OLB SYS$SHARE:LIBRTL.EXE
+
+                   This command assumes that the shareable image that
+                   was found in the SYS$SHARE: area is valid and upward-
+                   compatiable, and that the image has simply replaced an
+                   older version without also updating IMAGELIB.
+
+          __________________________________________________________
+          10.22  Compaq C and other OpenVMS C Programming Considerations?
+
+                   VAX C V3.2 was released for OpenVMS VAX systems in
+                   1991. DEC C V4.0 replaced VAX C V3.2 in 1993 as the HP
+                   C compiler for OpenVMS VAX systems. HP C is the ANSI
+                   C compiler for OpenVMS Alpha systems. VAX C predates
+                   the ANSI C standards, and has various areas that are
+                   not compliant with ANSI C requirements. HP C is an ANSI
+                   C compiler, and can also compile most VAX C code when
+                   /STANDARD=VAXC is specified. Versions of this compiler
+                   between V3.2 and V6.5 (exclusive) were known as DEC C,
+                   DIGITAL C, and Compaq C.
+
+                   Both compilers can be installed at the same time on the
+                   same OpenVMS VAX system, allowing a migration from VAX
+                   C to DEC C, and allowing the same DEC C code to be used
+                   on OpenVMS VAX and OpenVMS Alpha.
+
+                   The system manager can choose the system default C
+                   compiler when HP C is installed on a system with VAX C,
+                   and a C programmer can explicitly select the required
+                   compiler for a any particular compilation.
+
+                   A current "C" license PAK allows access to both VAX C
+                   and HP C on the same OpenVMS VAX system.
+
+                                                                     10-17
+
+ 
+
+
+
+
+
+                   OpenVMS Programming Information
+
+
+
+
+                   Various HP C versions can be installed on OpenVMS VAX
+                   V5.5-2 and later. OpenVMS VAX releases such as V5.5-2
+                   and V6.0 will require the installation of a HP C RTL
+                   kit, a kit that is included with the HP C compiler.
+                   OpenVMS VAX versions V6.1 and later do not require a
+                   seperate RTL kit, but HP C RTL ECO kits are available
+                   to resolve problems found with the C RTL on various
+                   OpenVMS releases.
+
+                   With HP C, for automatic resolution of the standard C
+                   library routines by the LINKER utility, use the /PREFIX
+                   qualifier, such as /PREFIX=ALL_ENTRIES. If a particular
+                   application program replaces an existing C library
+                   routine, use /PREFIX=(ALL_ENTRIES,EXCEPT=(...)). (VAX
+                   C required explicit specification of an RTL shareable
+                   image or C object library during the link.)
+
+                   When the /PREFIX is requested, the compiler generates
+                   a "decc$" prefix on the specified symbols. This prefix
+                   allows the LINKER to resolve the external symbols
+                   against the symbols present in the DECC$SHR library.
+                   The DECC$SHR library is included in the IMAGELIB.OLB
+                   shareable image library, and IMAGELIB is searched by
+                   default when any program (written in any language) is
+                   LINKed. Because the standard C library routine names
+                   are very likely to match application routines written
+                   in other languages, a prefix "decc$" is added to the C
+                   symbol names to assure their uniqueness; to prevent
+                   symbol naming conflicts. C programs, however, can
+                   sometimes have private libraries for various purposes,
+                   and the external routines share the same names as
+                   the library routines. (This is not recommended, but
+                   there are applications around that use this technique.)
+                   Thus the need to explicity specify whether or not the
+                   "decc$" prefix should be prepended to the external
+                   symbol names by the compiler.
+
+                   The qualifiers, and most (all?) with associated
+                   pragmas, that may be of interest when migrating VAX
+                   C code to HP C include:
+
+                   o  /PREFIX=ALL_ENTRIES
+
+
+                   10-18
+
+ 
+
+
+
+
+
+                   OpenVMS Programming Information
+
+
+
+
+                      As mentioned above. Failure to specificy this
+                      qualifier can cause the compiler to not add the
+                      prefixes for the names of the C library routines
+                      into the references placed in the object module,
+                      which can in turn cause problems resolving the
+                      external symbols in the library when the object
+                      code is linked.
+
+                   o  /ASSUME=WRITABLE_STRING_LITERALS
+
+                      Some VAX C programs erroneously write to the string
+                      literals. By default, HP C does not allow the
+                      constants to change.
+
+                   o  /SHARE_GLOBALS
+
+                      Enables sharing ("shr") of globals and of extern
+                      variables. HP C sets externs as non-shareable
+                      ("noshr"), VAX C as "shr".
+
+                   o  /EXTERN_MODE=COMMON_BLOCK
+
+                      VAX C assumes common block model for external
+                      linkages.
+
+                   o  /[NO]MEMBER_ALIGNMENT
+
+                      Refers to the padding placed between member elements
+                      within a struct. Disabling member alignment packs
+                      the data more tightly into memory, but this
+                      packaging has performance implications, both on
+                      OpenVMS VAX and particularly on OpenVMS Alpha
+                      systems.
+
+                   Permit structure members to be naturally aligned
+                   whenever possible, and avoid using /NOMEMBER_
+                   ALIGNMENT. If you need to disable member alignment,
+                   use the equivilent #pragma to designate the specific
+                   structures. The alignment of structure members normally
+                   only comes into play with specific unaligned data
+                   structures-such as the sys$creprc quota itemlist-
+                   and with data structures that are using data that was
+                   organized by a system using byte or other non-member
+                   alignment.
+
+                                                                     10-19
+
+ 
+
+
+
+
+
+                   OpenVMS Programming Information
+
+
+
+
+                   Versions of HP C such as V6.0 include the capability to
+                   extract the contents of the standard header libraries
+                   into directories such as SYS$SYSROOT:[DECC$LIB...],
+                   and provide various logical names that can be defined
+                   to control library searches. With HP C versions such
+                   as V6.0, the default operations of the compiler match
+                   the expectations of most OpenVMS programmers, without
+                   requiring any definitions of site-specific library-
+                   related logical names. (And logical names left from
+                   older DEC C versions can sometimes cause the compiler
+                   troubles locating header files.)
+
+                   HP C V5.6 and later include a backport library, a
+                   mechanism by which HP C running on older OpenVMS
+                   releases can gain access to newer RTL routines added
+                   to the RTL in later OpenVMS releases-the language RTLs
+                   ship with OpenVMS itself, and not with the compilers.
+
+                   Example C code is available in SYS$EXAMPLES:, in
+                   DECW$EXAMPLES (when the DECwindows examples are
+                   installed), in TCPIP$SERVICES (or on older releases,
+                   UCX$EXAMPLES) when HP TCP/IP Services is installed), on
+                   the Freeware CD-ROMs, and at web sites such as
+
+                   o  http://www.hp.com/go/openvms/wizard/
+
+                   For additional information on the OpenVMS Ask The
+                   Wizard (ATW) area and for a pointer to the available
+                   ATW Wizard.zip archive, please see Section 3.9.
+
+          _____________________________
+          10.22.1  Other common C issues
+
+                   The localtime()  function and various other functions
+                   maintain the number of years since 1900 in the "struct
+                   tm" structure member tm_year. This field will contain a
+                   value of 100 in the year 2000, 101 for 2001, etc., and
+                   the yearly incrementation of this field is expected to
+                   continue.
+
+                   The C epoch typically uses a longword (known as time_
+                   t) to contain the number of seconds since midnight
+                   on 1-Jan-1970. At the current rate of consumption of
+                   seconds, this longword is expected to overflow (when
+                   interpreted as a signed longword) circa 03:14:07 on
+
+                   10-20
+
+ 
+
+
+
+
+
+                   OpenVMS Programming Information
+
+
+
+
+                   19-Jan-2038 (GMT), as this time is circa 0x7FFFFFFF
+                   seconds since the C base date. (The most common
+                   solution is to ensure that time_t is an unsigned.)
+
+                   If C does not correctly handle the display of the
+                   local system time, then check the UTC configuration
+                   on OpenVMS-the most common symptom of this is a skew of
+                   one hour (or whatever the local daylight savings time
+                   change might be). This skew can be caused by incorrect
+                   handling of the "is_dst" setting in the application
+                   program, or by an incorrect OpenVMS UTC configuration
+                   on the local system. (See section Section 4.4.)
+
+                   Floating point is prohibited in OpenVMS Alpha inner-
+                   mode (privileged) code, and in any process or other
+                   execution context that does not have floating point
+                   enabled. C programmers developing and working with
+                   OpenVMS Alpha high-IPL kernel-mode code such as device
+                   drivers will want to become familiar with the floating
+                   point processing available in the environment, and with
+                   the C compiler qualifier /INSTRUCTION_SET=[NO]FLOATING_
+                   POINT. Device drivers and other similar kernel-mode C
+                   code must be compiled with /INSTRUCTION_SET=FLOATING_
+                   POINT and /EXTERN_MODEL=STRICT_REFDEF.
+
+                   Additionally, the SYS$LIBRARY:SYS$LIB_C.TLB/LIBRARY
+                   parameter will be needed to be appended to the module
+                   specification or declared via the C compiler's include
+                   library logical name mechanism when the C compiler is
+                   resolving kernel-mode data structures and definitions.
+                   This library contains OpenVMS kernel-mode and other
+                   system declaractions, and particularly a mixture
+                   of undocumented definitions and declarations, and
+                   particularly definitions and declarations that are
+                   subject to change (and that can accordingly lead to
+                   requirements for the recompilation of application
+                   code).
+
+                   When sharing variables with other languages, here is
+                   some example HP C code...
+
+
+
+
+                                                                     10-21
+
+ 
+
+
+
+
+
+                   OpenVMS Programming Information
+
+
+
+
+                         ...
+                         #pragma extern_model save
+                         #pragma extern_model strict_refdef
+                         extern int   VMS$GL_FLAVOR;
+                         #pragma extern_model restore
+                         ...
+
+                   and here is some associated example Bliss code...
+
+                         ...
+                         EXTERNAL
+                            VMS$GL_FLAVOR,
+                         ....
+
+          _____________________________
+          10.22.2  Other common C++ issues
+
+                   HP C++ (a separate compiler from HP C) provides
+                   both symbol mangling and symbol decoration. Some
+                   of the details of working with longer symbol names
+                   and the resulting symbol name mangling in mixed
+                   language environments are listed in the shareable
+                   image cookbook, and in the C++ documentation. Symbol
+                   name decoration permits the overloading of functions
+                   (by adding characters to the external symbol for
+                   the function to indicate the function return type
+                   and the argument data types involved), and mixed-
+                   language external references can and often do need to
+                   disable this decoration via the extern "C" declaration
+                   mechanism:
+
+                         extern "C"
+                           {
+                           extern int ExternSymbol(void *);
+                           extern int OtherExternSymbol(void *);
+                           }
+
+                   Also see Section 14.7 for information on /ARCHITECTURE
+                   and /OPTIMIZE=TUNE.
+
+                   See Section 10.15 for information on the C system and
+                   the lib$spawn call in CAPTIVE environments.
+
+
+                   10-22
+
+ 
+
+
+
+
+
+                   OpenVMS Programming Information
+
+
+
+
+                   Constructs such as the order of incrementation or
+                   decrementation and the order of argument processing
+                   within an argument list are all implementation-defined.
+                   This means that C coding constructs such as:
+
+                       i = i++;
+                       a[i] = i++;
+                       foo( i, i++, --i);
+
+                   are undefined and can have (adverse) implications when
+                   porting the C code to another C compiler or to another
+                   platform. In general, any combination of ++, -, =, +=,
+                   -=, *=, etc operators that will cause the same value to
+                   be modified multiple times (between what the ANSI/ISO C
+                   standard calls "sequence points") produce undefined and
+                   implementation-specific results.
+
+                   Within C, the following are the "sequence points":
+                   the ";" at the end of a C statment, the ||, &&, ?:,
+                   and comma operators, and a call to a function. Note
+                   specifically that = is NOT a sequence point, and that
+                   the individual arguments contained within a function
+                   argument list can be processed from right to left, from
+                   left to right, or at any random whim.
+
+                   HP C for OpenVMS VAX (formerly DEC C) and VAX C do
+                   differ in the related processing.
+
+                   So you are looking for OpenVMS-specific definitions
+                   (include files)?
+
+                   UCBDEF.H, PCBDEF.H and other OpenVMS-specific
+                   definitions-these are considered part of OpenVMS and
+                   not part of the C compiler kit-are available on all
+                   recent OpenVMS Alpha releases.
+
+                   To reference the version-dependent symbol library
+                   sys$share:sys$lib_c.tlb, use a command similar to the
+                   following for compilation:
+
+                   $ CC sourcea+SYS$LIBRARY:SYS$LIB_C/LIB
+
+                   You can also define DECC$TEXT_LIBRARY to reference the
+                   library.
+
+                   You will want to review the Programming Concepts
+                   manual, and specifically take a quick look at Chapter
+                   21.
+
+                                                                     10-23
+
+ 
+
+
+
+
+
+                   OpenVMS Programming Information
+
+
+
+
+                   And some general background: the STARLET definitions
+                   (and thus the sys$starlet_c.tlb library) contain the
+                   symbols and the definitions that are independent of
+                   the OpenVMS version. The LIB definitions (and thus
+                   sys$lib_c) contain symbols and definitions that can
+                   be dependent on the OpenVMS version. You won't need to
+                   rebuild your code after an OpenVMS upgrade if you have
+                   included definitions from STARLET. The same cannot be
+                   said for some of the definitions in LIB-you might need
+                   to rebuild your code. (The UCB structure can and has
+                   changed from release to release, for instance.)
+
+                   Recent versions of C automatically search sys$starlet_
+                   c.tlb. Explicit specification of sys$lib_c.tlb is
+                   required.
+
+                   Also see the Ask The Wizard website topics (2486),
+                   (3803), and (1661):
+
+                   o  http://www.hp.com/go/openvms/wizard/
+
+                   For additional information on the OpenVMS Ask The
+                   Wizard (ATW) area and for a pointer to the available
+                   ATW Wizard.zip archive, please see Section 3.9.
+
+                   See Section 9.5 for information on the C off_t
+                   limitations, resolved in OpenVMS V7.3-1 and later and
+                   in ECO kits available for specific OpenVMS releases.
+                   The use of a longword for off_t restricts applications
+                   using native C I/O to file sizes of two gigabytes or
+                   less, or these applications must use native RMS or XQP
+                   calls for specific operations.
+
+          __________________________________________________________
+          10.23  Status of Programming Tools on OpenVMS VAX?
+
+                   DECthreads V7.3 and the HP C compiler (also known as
+                   Compaq C and DEC C) V6.4 are presently expected to
+                   be the last updates and the last releases of these
+                   development packages for use on OpenVMS VAX. The run-
+                   time support for both DECthreads (CMA$RTL) and for C
+                   (DECC$CRTL) will continue to be maintained, and will
+                   continue to be available on OpenVMS VAX. The VAX C
+                   V3.2 compiler is the final VAX C compiler release for
+                   OpenVMS VAX, and the VAX C Run-Time Library (VAXCRTL)
+                   will also continue to be available.
+
+                   10-24
+
+ 
+
+
+
+
+
+                   OpenVMS Programming Information
+
+
+
+
+                   New development and new features and product
+                   enhancements continue for the OpenVMS Alpha and the
+                   OpenVMS IA-64 DECthreads and C compilers.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                                                                     10-25
+
+ 
+
+
+
+
+
+
+
+
+
+
+                   _______________________________________________________
+
+          11       DECwindows
+
+
+
+          __________________________________________________________
+          11.1  How do I let someone else display something on my
+                workstation?
+
+                   On a workstation, you will want to use the "Customize"
+                   menu of the session manager utility and select
+                   "Security". When the pop-up box appears, you can
+                   select the host node, username, and tranport that will
+                   allow you to launch an application that targets the
+                   workstation display.
+
+                   If this does not provide you with access to the
+                   display, You need a checklist of sorts:
+
+                   o  Make sure that you've specified the X-windows
+                      "display" correctly on the remote host. For a
+                      DECnet transport, the specification uses two colons,
+                      while the TCP/IP transport typically uses one. The
+                      X Windows server and the X Windows screen follow
+                      the host specification, delimited by a period. For
+                      example:
+
+          ________________________________________________________________
+          Table 11-1  X Windows Display Commands
+
+                   _______________________________________________________
+                   Shell_____Command______________________________________
+
+                   csh
+
+                             # setenv DISPLAY vms.domain:0.0
+
+                   sh and ksh
+
+                             # $ DISPLAY=vms.domain:0.0 ; export DISPLAY
+
+                   DCL
+
+                             $ SET DISPLAY/CREATE/NODE=vms.domain -
+          ___________________/TRANSPORT=TCPIP/SERVER=server/SCREEN=screen_
+
+                   o  If you have verified the command is correct and
+                      things are still not working, ensure the Security
+                      settings on the OpenVMS host side will allow the
+
+                                                                      11-1
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+
+                      incoming connection: Pull down the "Options" menu
+                      in the Session Manager, and select "Security...". If
+                      you do not find your host and username and transport
+                      listed among the authorized users, you will need to
+                      add an entry.
+
+                     o  There are various transports available, including
+                        LOCAL, DECNET, LAT, and TCPIP. You must Select
+                        the transport appropriate to the incoming
+                        connection.
+
+                     o  If the transport is "DECnet", do NOT add the
+                        double colon (::) to the node name.
+
+                     o  If the transport is "TCPIP", "Username" must
+                        be an asterisk (*). Why? Because unlike DECnet,
+                        the TCP/IP protocol does not provide the remote
+                        username information in the incoming connection.
+
+                     o  If the connection is "TCPIP", it is best to use
+                        a full domain name (e.g. Node.Subd.Domain).
+                        However, you may have to use the IP address
+                        itself, if your host does not have a way to
+                        resolve the address via DNS. If you have the
+                        luxury of fixed addresses (eg: you are not using
+                        DHCP), then it can be helpful to add two entries
+                        for each TCP/IP host, one that specifies the host
+                        name and one that specifies the host address.
+
+                     o  There are various TCP/IP packages for OpenVMS,
+                        and you must use syntax appropriate to the
+                        transport installed.
+
+                     o  If a TCP/IP connection is still not working,
+                        ensure that the transport you want has been
+                        activated for use with DECwindows. See
+                        Section 11.15 for details of configuring TCP/IP
+                        as a transport.
+
+                   o  There is a log file created in SYS$MANAGER: which
+                      can tell you which transports are loaded, and
+                      also tell you what connect attempts were rejected,
+                      including showing what the presented credentials
+                      were. This file is SYS$MANAGER:DECW$SERVER_0_
+                      ERROR.LOG, although the 0 could be another number
+                      if you have multiple servers on the workstation. I
+
+                   11-2
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+
+                      have found this file to be very useful for tracking
+                      down what needs to be put in the Session Manager
+                      Security entries.
+
+          __________________________________________________________
+          11.2  How do I create a display on another workstation?
+
+                   To create a display from an OpenVMS host to a remote X
+                   Windows display, use one of the following DCL commands:
+
+                   $ SET DISPLAY /CREATE /TRANSPORT=net_transport /NODE=remote_node
+                   $ SET DISPLAY /CREATE /TRANSPORT=LAT /NODE=remote_node
+                   $ SET DISPLAY /CREATE /TRANSPORT=DECnet /NODE=remote_node
+                   $ SET DISPLAY /CREATE /TRANSPORT=TCPIP /NODE=remote_node
+
+                   Note that LAT is typically used only for the VXT series
+                   X Windows terminals, but it can also be used from
+                   OpenVMS to OpenVMS systems on various OpenVMS releases,
+                   such as on OpenVMS Alpha V6.1 and later. For details on
+                   configuring the TCP/IP transport, see Section 11.15.
+
+                   If you are interested in X Windows terminals and have
+                   an older VAXstation system around, please see the EWS
+                   package on Freeware V5.0.
+
+          __________________________________________________________
+          11.3  How can I get the information from SHOW DISPLAY into a
+                symbol?
+
+                   Use the undocumented SHOW DISPLAY/SYMBOL, and then
+                   reference the symbols DECW$DISPLAY_NODE, DECW$DISPLAY_
+                   SCREEN, DECW$DISPLAY_SERVER and/or DECW$DISPLAY_
+                   TRANSPORT.
+
+                   An example of calling the underlying (and also
+                   undocumented) sys$qio programming interface for the
+                   WSDRIVER (WSAn:) is available at:
+
+                   http://www.hp.com/go/openvms/freeware/
+
+          Look in the Freeware V4.0 directory /srh_examples/DECUS_UNDOC_
+          CLINIC/.
+
+
+                                                                      11-3
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+          __________________________________________________________
+          11.4  How do I get a log of a DECterm session?
+
+                   If you are working from a Decterm, you can use the
+                   AutoPrint feature. Choose the "Printer..." menu item
+                   from the "Options" menu, set the printing destination
+                   to the name of the file you want, and set "Auto Print
+                   Mode". You are now free to continue.
+
+                   It should be noted that all of the characters and
+                   escape sequences are captured, but if you display the
+                   resulting log file on a DECterm, then you will see
+                   exactly what was originally displayed.
+
+          __________________________________________________________
+          11.5  Why does the DELETE key delete forward instead of
+                backward?
+
+                   This involves the Motif virtual key bindings. When
+                   a Motif application starts, it looks at the vendor
+                   string returned in the display connection information
+                   and attempts to match the string to a table of virtual
+                   bindings.
+
+                   You can override the default bindings in your
+                   decw$xdefaults.dat file. Here is the entry you would
+                   make to get the default VMS bindings.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   11-4
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+
+                   *defaultVirtualBindings:\
+                    osfCancel :  <>F11 \n\
+                    osfLeft :  <>Left \n\
+                    osfUp  :  <>Up  \n\
+                    osfRight :  <>Right \n\
+                    osfDown :  <>Down \n\
+                    osfEndLine :Alt  <>Right \n\
+                    osfBeginLine :Alt  <>Left \n\
+                    osfPageUp :  <>Prior \n\
+                    osfPageDown :  <>Next \n\
+                    osfDelete :Shift  <>Delete \n\
+                    osfUndo :Alt  <>Delete \n\
+                    osfBackSpace :  <>Delete \n\
+                    osfAddMode :Shift  <>F8  \n\
+                    osfHelp :  <>Help \n\
+                    osfMenu :  <>F4  \n\
+                    osfMenuBar :  <>F10 \n\
+                    osfSelect :  <>Select \n\
+                    osfActivate :  <>KP_Enter \n\
+                    osfCopy :Shift  <>DRemove \n\
+                    osfCut  :  <>DRemove \n\
+                    osfPaste :  <>Insert
+
+                   To merge:
+
+                   $ xrdb :== $decw$utils:xrdb.exe
+                   $ xrdb -nocpp -merge decw$xdefaults.dat
+
+                   Also note that the DECW$UTILS:DECW$DEFINE_UTILS.COM
+                   procedure can be used to establish the xrdb and other
+                   symbols.
+
+                   Also see the DECxterm directory of Freeware V5.0 for
+                   details on connecting to OpenVMS from various UNIX
+                   platforms.
+
+          __________________________________________________________
+          11.6  Why is DECwindows Motif not starting?
+
+                   First check to see if there is a graphics device,
+                   usually a G* device. (eg: On a DEC 2000 model 300,
+                   use the command SHOW DEVICE GQ) If you do not find a
+                   graphics device:
+
+                   o  OpenVMS has failed to find the appropriate IRQ
+                      information for an EISA graphics card (on the
+
+                                                                      11-5
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+
+                      DEC 2000 series) such as the HP (Compaq) QVision,
+                      and did not autoconfigure it. Run the correct ECU
+                      (for Tru64 UNIX and OpenVMS) and reboot. This is
+                      necessary only on EISA-based systems.
+
+                   o  You have an EISA-based system (such as the DEC
+                      2000 model 300) and do not have a HP (Compaq)
+                      QVision video card. This EISA graphics card should
+                      have Compaq printed on it, and identifies itself
+                      as a CPQ3011 or a CPQ3111. If it is not one of
+                      these two EISA devices, then OpenVMS does not
+                      support it. (There are no other supported EISA
+                      graphics controllers, and EISA graphics are normally
+                      used with DECwindows only on the DEC 2000 series
+                      systems.)
+
+                   o  You have a PCI-based system, and do not have a
+                      supported graphics controller-examples of supported
+                      controllers include the following:
+
+                     o  PowerStorm 3D30
+
+                     o  PowerStorm 4D20
+
+                     o  PowerStorm 300
+
+                     o  PowerStorm 350
+
+                     o  ELSA GLoria Synergy
+
+                     o  3DLabs Oxygen VX1
+
+                      See Section 5.15 for further information on some of
+                      these graphics controllers.
+
+                   o  You have booted the system minimally, or have
+                      otherwise disabled the device autoconfiguration
+                      process.
+
+                   If there is a G* graphics device present:
+
+                   o  There may have been a severe error in the
+                      DECwindows startup. Type the contents of
+                      SYS$MANAGER:DECW$SERVER_0_ERROR.LOG for any
+                      information on errors starting the server.
+
+                   11-6
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+
+                   o  The system parameter WINDOW_SYSTEM is not set to
+                      1. While this was a common way for system managers
+                      to disable the DECwindows server startup, it is
+                      not particularly reliable as DECwindows can now
+                      "correct" this setting.
+
+                      If you really do not want an OpenVMS system with
+                      workstation hardware to bootstrap and configure
+                      itself as a workstation, add the following
+                      definition to SYLOGICALS.COM:
+
+                      $ DEFINE/SYSTEM/EXEC DECW$IGNORE_WORKSTATION TRUE
+
+                   o  You may not have a valid DECwindows Motif license
+                      loaded. To check for the two most common types of
+                      Motif product authorization keys (PAKs), use the
+                      following DCL commands:
+
+                      $ LICENSE LIST DW-MOTIF/FULL
+                      $ LICENSE LIST NET-APP-SUP*/FULL
+
+                      and examine the information displayed. Make sure
+                      that one of these licenses is present, valid and
+                      active.
+
+                      For information on registering software license
+                      product authorization keys (PAKs) when you
+                      cannot log into the system directly, please see
+                      Section 5.5.2.
+
+                   o  Check that the DECW$PRIVATE_SERVER_SETUP.COM is
+                      correct for the graphics controller in use. For
+                      instance:
+
+                      The following is from the 9FX Vision 330 Owners
+                      Guide, EK-V330G-OG pg 2-9. Place the following in
+                      DECW$PRIVATE_SERVER_SETUP.COM, creatibng .COM from
+                      .TEMPLATE if necessary. Locate the DECW$PRIVATE_
+                      SERVER_SETUP.COM file in SYS$SPECIFIC:[SYSMGR] or
+                      in SYS$COMMON:[SYSMGR] as appropriate; the former
+                      file is used for this system within a cluster
+                      configuration, and the latter is used for all
+                      systems that do not also have a local copy of this
+                      file in SYS$SPECIFIC:[SYSMGR].
+
+                      $ DECW$XSIZE_IN_PIXELS == xvalue
+                      $ DECW$YSIZE_IN_PIXELS == yvalue
+                      $ DEFINE/SYSTEM DECW$SERVER_REFRESH_RATE rate_in_Hz
+
+                                                                      11-7
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+
+                      Also see Section 11.12. Details of the PowerStorm
+                      3D30 and 4D20 settings are available in the OpenVMS
+                      Ask The Wizard area.
+
+          __________________________________________________________
+          11.7  How do I set the title on a DECterm window?
+
+                   If you are creating a new DECterm window, check
+
+                   $ HELP CREATE /TERMINAL /WINDOW_ATTRIBUTES
+
+                   If you want to change the title of an existing window,
+                   use the following control sequences, where <esc> is the
+                   ANSI escape code, value decimal 27, and "text label" is
+                   what you want to display:
+
+                   To set the DECterm title, send:
+
+          <esc>
+                   ]21;text label<esc>\
+
+                   To set the icon label, send:
+
+          <esc>
+                   ]2L;text label<esc>\
+
+                   To set both the DECterm title and icon to the full
+                   device name:
+
+                   $  esc[0,7] = 27
+                   $  fulldevnam = F$Edit(F$GetDVI("TT","FULLDEVNAM"),"UPCASE,COLLAPSE")
+                   $  write sys$output esc+ "]21;" + fulldevnam + esc + "\"
+                   $  write sys$output esc+ "]2L;" + fulldevnam + esc + "\"
+
+                   You can also change the title and the icon using the
+                   Options-Window... menu.
+
+                   Also see Section 12.1 and Section 8.11.
+
+          __________________________________________________________
+          11.8  How do I customize DECwindows, including the login screen?
+
+                   To customize various DECwindows Motif characteristics
+                   including the defaults used by the SET DISPLAY command,
+                   the DECwindows login screen background logo used
+                   (the default is the DIGITAL, Compaq, or HP logo),
+                   various keymaps, the FileView defaults, session manager
+                   defaults, the DECwindows login processing, DECwindows
+
+                   11-8
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+
+                   log file processing, and various other DECwindows
+                   attributes, see the example file:
+
+                   $ SYS$STARTUP:DECW$PRIVATE_APPS_SETUP.TEMPLATE
+
+                   This example template file is typically copied over
+                   to the filename SYS$COMMON:[SYS$STARTUP]DECW$PRIVATE_
+                   APPS_SETUP.COM and then modified to meet site-specific
+                   requirements.
+
+                   Additionally, various X tools such as xsetroot, bitmap
+                   and xrdb-some these can be useful in customizing the
+                   appearance of an application or of the DECwindows Motif
+                   display-are provided in the DECW$UTILS: area.
+
+                   When using DECwindows V1.2-4 and later on OpenVMS
+                   Alpha, the default desktop is the Common Desktop
+                   Environment (CDE). You can select your preferred
+                   desktop (CDE or DECwindows Motif) when logging in,
+                   or you can change the default to the DECwindows
+                   Motif desktop using the DCL symbol decw$start_new_
+                   desktop in the DECwindows private application setup
+                   command procedure. See SYS$STARTUP:DECW$PRIVATE_APPS_
+                   SETUP.TEMPLATE for further details, and how to create
+                   DECW$PRIVATE_APPS_SETUP.COM.
+
+                   Note that with DECwindows CDE, the root window is
+                   no longer visible by default. The root window is
+                   hidden behind the "backdrop" window of the current
+                   CDE workspace. To make the root window visible, use the
+                   CDE style manager selection "backdrop none", and use
+                   information such as that in the OpenVMS FAQ to set the
+                   root window.
+
+                   To add a new backdrop to the DECwindows CDE
+                   environment, the backdrop must first be in or be
+                   converted into X11 pixmap format. (This conversion
+                   is often possible using tools such as xv.) Then (if
+                   necessary) create the default backdrop directory
+                   SYS$COMMON:[CDE$DEFAULTS.USER.BACKDROPS]. Place the
+                   X11 pixmap file containing the desired image into the
+                   backdrops directory, ensure that it has a filename
+                   extension of .PM. (The xv default filename extension
+                   for the X11 pixmap file is .XPM, while CDE expects
+                   only to see files with .PM.) Now invoke the CDE style
+                   manager and select a new backdrop. You will find
+
+                                                                      11-9
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+
+                   your image will be placed at the end of the list of
+                   backdrops available.
+
+          __________________________________________________________
+          11.9  Why doesn't XtAppAddInput() work on OpenVMS?
+
+                   Yes, XtAppAddInput()  does work on OpenVMS. The MIT
+                   definition of the X Windows call XtAppAddInput()
+                   includes platform-specific arguments.
+
+                   On platforms where C is the typically the primary
+                   programming language for the platform, the file
+                   descriptor mask is one of the arguments to the
+                   XtAppAddInput()  call.
+
+                   On OpenVMS, the platform-specific arguments to this
+                   call include an event flag and an IOSB, as these are
+                   the traditional OpenVMS constructs used to synchronize
+                   the completion of asynchronous operations. While it
+                   would be easier to port non-OpenVMS C code that calls
+                   XtAppAddInput()  over to OpenVMS if the arguments
+                   included the C file descriptor, this would make the
+                   call unusable from other OpenVMS languages, and would
+                   make it extremely difficult to use OpenVMS features
+                   such as ASTs and sys$qio calls.
+
+                   One restriction on the event flag: the event flag
+                   chosen must be from event flag cluster zero. When using
+                   the traditional lib$get_ef and lib$free_ef calls to
+                   allocate and deallocate event flags, you must first
+                   explicitly call lib$free_ef to free up some event flags
+                   in event flag cluster zero. Please see the event flag
+                   documentation for specific details on these calls and
+                   for specific event flags that can be freed in event
+                   flag cluster zero.
+
+                   Here is some example code that covers calling this
+                   routine on OpenVMS:
+
+
+
+
+
+
+                   11-10
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+
+                       m->InputID = XtAppAddInput(
+                           m->AppCtx,
+                           m->InputEF,
+                           m->InputIosb,
+                           the_callback, 1 );
+                       if ( !((int) m->InputID ))
+                           {
+                           XtAppErrorMsg(
+                               m->AppCtx,
+                               "invalidDevice",
+                               "XtAppAddInput",
+                               "XtToolkitError",
+                               "Can't Access Device",
+                               (String *) NULL,
+                               (Cardinal *) NULL );
+                           ...
+
+          __________________________________________________________
+          11.10  Why do the keyboard arrow keys move the DECwindows
+                 cursor?
+
+                   Congratulations, you have just stumbled into "dead
+                   rodent" mode. This DECwindows environment-where the
+                   keyboard arrow keys move the mouse cursor and where
+                   the [SELECT], [PREV], and [NEXT] keys emulate the three
+                   mouse buttons-allows rudimentary system operations when
+                   the mouse is among the casualties.
+
+                   To enter or exit "dead rodent" mode, enter the
+                   following: <CTRL/SHIFT/F3>
+
+          __________________________________________________________
+          11.11  Why does half my DECwindows display blank?
+
+                   This is likely a result of receiving an OPCOM or other
+                   console message on a system that shares the system
+                   console with the DECwindows graphics workstation
+                   display.
+
+                   You can toggle off the console display window using
+                   <CTRL/F2> and you can enable a serial console per
+                   Section 14.3.6 or Section 14.3.3.3.
+
+
+                                                                     11-11
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+
+                   Also see the console message window application
+                   available with recent DECwindows versions-DECwindows
+                   versions V1.2-3 and later will enable this window
+                   by default. For details on this console message
+                   window, see the DECW$CONSOLE_SELECTION option in
+                   SYS$STARTUP:DECW$PRIVATE_APPS_SETUP.TEMPLATE.
+
+                   On older releases, you can disable output using the
+                   following:
+
+                   $ SET TERMINAL/PERMANENT/NOBROADCAST OPA0:
+                   $ DEFINE/USER SYS$COMMAND OPA0:
+                   $ REPLY/DISABLE
+
+                   Also see Section 14.3.3.2, Section 14.19, and Also see
+                   Section 8.3,
+
+          __________________________________________________________
+          11.12  %DECW-W-NODEVICE, No graphics device found on this
+                 system?
+
+                   To resolve the following error:
+
+                   %DECW-W-NODEVICE, No graphics device found on this system
+                   -DECW-I-NODECW, DECwindows graphics drivers will not be loaded
+
+                   o  Ensure that the system parameter WINDOW_SYSTEM is
+                      set to 1. If it is not set to a value of 1, issue
+                      the commands:
+
+                      $ run sys$system:sysgen
+                      USE CURRENT
+                      SET WINDOW_SYSTEM 1
+                      WRITE ACTIVE
+                      WRITE CURRENT
+                      EXIT
+
+                      Then reboot the system.
+
+                   o  On OpenVMS Alpha, ensure the SYSMAN IO PREFIX LIST
+                      is set correctly, and specifically ensure the DECW$
+                      prefix is included in the existing list. If it is
+                      not, you will need to add it:
+
+                   11-12
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+
+                      $ run sys$system:sysman
+                      IO SHOW PREFIX
+                      IO SET PREFIX=(DECW$,*)   * = list returned by the show command
+                      IO AUTO/LOG
+                      EXIT
+
+                   o  Ensure that the image SYS$SHARE:DECW$ICBM.EXE is
+                      installed in memory. If it is not installed, then
+                      install it:
+
+                      $ INSTALL LIST/FULL SYS$SHARE:DECW$ICBM
+                      $ INSTALL REPLACE SYS$SHARE:DECW$ICBM
+                      $ EDIT SYS$MANAGER:SYCONFIG.COM
+
+                      $! The following line was added to install
+                      $! support for the Mach64 Graphics Card
+                      $!
+                      $ INSTALL REPLACE SYS$SHARE:DECW$ICBM
+                      $ ^Z
+
+                      Then reboot the system.
+
+                      The ICBM mechanism is not used on and not needed by
+                      more recent DECwindows versions.
+
+                   o  If the system still complains "%DECW-W-NODEVICE, No
+                      graphics device found on this system", then:
+
+                     o  Boot the system as normal
+
+                     o  Login as SYSTEM.
+
+                     o  Create the file SYS$COMMON:[SYSMGR]DECW$USER_
+                        AUTOCONFIG.DAT. Protection must permit world read
+                        access.
+
+                     o  Add the following string on the very first line:
+
+                         CLEAR_PFLAG = ISA_4BYTE
+
+                     o  Save the file
+
+                     o  Set the file protections
+
+                         $ SET PROTECTION=W:RE SYS$MANAGER:DECW$USER_AUTOCONFIG.DAT
+
+                     o  Reboot the system
+
+                   Also see Section 11.6.
+
+                                                                     11-13
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+          __________________________________________________________
+          11.13  How can I reset the warning bell volume?
+
+                   With DECwindows CDE drivers and ECOs starting with ECOs
+                   for the DECwindows keyboard driver SYS$IKBDRIVER.EXE
+                   in OpenVMS Alpha V7.1-2 and V7.2-1 and with the
+                   SYS$IKBDRIVER.EXE included in OpenVMS V7.2-1H1 and
+                   later, the DECwindows CDE controls will now correctly
+                   manage the setting of the warning bell volume.
+
+                   Unfortunately, the equivalent controls in the older
+                   DECwindows Motif interface are not compatible and can
+                   no longer manage the warning bell volume.
+
+                   If you need to manage the volume with DECwindows Motif,
+                   consider using the following approach:
+
+                   $ @decw$utils:decw$define_utils
+                   $ xset b 1 100 100
+
+                   The numerics are the volume, pitch, and duration,
+                   respectively.
+
+                   Why? When OpenVMS first started supporting the PC-style
+                   keyboards, the X Windows Server and the keyboard driver
+                   interface did not support the pitch and duration, and
+                   neither did DECwindows Motif. The DECwindows keyboard
+                   driver was accordingly changed to use the volume from
+                   the keyclick setting (keyclick is not available in
+                   a PC-style keyboard) and the bell volume setting to
+                   control the pitch and duration.
+
+                   DECwindows CDE does provide sliders for setting pitch
+                   and duration, so the keyboard driver and X Windows
+                   Server were modified to provide all of the information,
+                   and now the DECwindows CDE sliders work. This change is
+                   unfortunately incompatible with the old scheme used on
+                   the pre-CDE desktops, and the volume controls are now
+                   incompatible with the current keyboard drivers. Hence
+                   the use of xset.
+
+
+
+
+
+                   11-14
+
+ 
+
+
+
+
+
+                   DECwindows
+
+
+
+          __________________________________________________________
+          11.14  How can I alter the DECwindows CDE backdrop?
+
+                   To select a separate backdrop to be displayed on each
+                   screen using DECwindows CDE:
+
+                   o  Click on the Application Manager. This is the drawer
+                      icon on the CDE toolbar.
+
+                   o  Click on Desktop Tools
+
+                   o  Click on Set Default Screen and select the required
+                      screen
+
+                   o  Click on the Style Manager. This is the one
+                      containing the mouse and ttt on the CDE toolbar
+
+                   o  Now change the background.
+
+          __________________________________________________________
+          11.15  How can I enable the DECwindows TCP/IP Transport
+
+                   To configure the TCP/IP transport for DECwindows,
+                   first ensure that a TCP/IP package is installed and
+                   configured. Then set the DCL symbol DECW$SERVER_
+                   TRANSPORTS in SYS$MANAGER:DECW$PRIVATE_SERVER_
+                   SETUP.COM to the appropriate local value, based on
+                   the comments in that file. If you do not have a copy of
+                   SYS$STARTUP:DECW$PRIVATE_SERVER_SETUP.COM, the use the
+                   following COPY command to create this file based on the
+                   provided template file:
+
+                   $ COPY SYS$MANAGER:DECW$PRIVATE_SERVER_SETUP.TEMPLATE -
+                   $_ SYS$COMMON:[SYSMGR]DECW$PRIVATE_SERVER_SETUP.COM
+
+
+
+
+
+
+
+
+
+
+
+                                                                     11-15
+
+ 
+
+
+
+
+
+
+
+
+
+
+                   _______________________________________________________
+
+          12       Miscellaneous Information
+
+
+
+          __________________________________________________________
+          12.1  Where can I find information on escape and control
+                sequences?
+
+                   Information on escape and control sequences can be
+                   found in the OpenVMS I/O User's Reference Manual, in
+                   the chapter on the terminal driver. The chapter also
+                   includes details on the general format and content of
+                   these sequences.
+
+                   Specific details on the escape and control sequences
+                   supported by a particular serial device are typically
+                   found in the documentation provided with the specific
+                   device. Information on the sequences supported by
+                   DECwindows DECterm terminal emulator are included in
+                   the DECwindows documentation.
+
+                   Examples of common escape and control sequences-
+                   those typically used by the OpenVMS screen management
+                   package-can be found in the OpenVMS system file
+                   SYS$SYSTEM:SMGTERMS.TXT.
+
+                   The following refers to the function keys on the LK-
+                   series keyboards found on the VT-series terminals such
+                   as the VT220 and VT510, and the LK-series keyboards
+                   found on the OpenVMS workstations, and the keyboards
+                   found on compatible terminals. (Though note that the
+                   keyboard itself does not generate the sequence, the
+                   terminal or terminal emulator generates the sequence
+                   in response to user input.) In the following, {CSI} is
+                   decimal code 155 and can be replaced by the sequence
+                   "{ESC}[" (without the quotes) particularly for seven-
+                   bit operations, SS3 is decimal code 143 and can be
+                   replaced by "{ESC}O" particularly for seven-bit
+                   operations. Older VT1xx series terminals and any
+                   other terminals operating with seven-bit characters
+                   should not be sent eight-bit operators such as {CSI}
+                   and {SS3}.
+
+                                                                      12-1
+
+ 
+
+
+
+
+
+                   Miscellaneous Information
+
+
+
+
+                   PF1={SS3}P PF2={SS3}Q PF3={SS3}R PF4={SS3}S
+                   KP0={SS3}p KP1={SS3}q KP2={SS3}r KP3={SS3}s KP4={SS3}t KP5={SS3}u
+                   KP6={SS3}v KP7={SS3}w KP8={SS3}x KP9={SS3}y KPCOMMA={SS3}l KPMINUS={SS3}m
+                   KPPERIOD={SS3}n ENTER={SS3}M DNARROW={CSI}B UPARROW={CSI}A LFARROW={CSI}D
+                   RTARROW={CSI}C FIND={CSI}1~ INSERT={CSI}2~ REMOVE={CSI}3~ SELECT={CSI}4~
+                   PREV={CSI}5~ NEXT={CSI}6~ F6={CSI}17~ F7={CSI}18~ F8={CSI}19~ F9={CSI}20~
+                   F10={CSI}21~ F11={CSI}23~ F12={CSI}24~ F13={CSI}25~ F14={CSI}26~
+                   HELP={CSI}28~ DO={CSI}29~ F17={CSI}31~ F18={CSI}32~ F19={CSI}33~ F20={CSI}34~
+
+                   An example of working with escape sequences (in DCL)
+                   follows:
+
+                   $ esc5m = "*[5m"
+                   $ esc5m[0,8] = 27
+                   $ esc0m = "*[0m"
+                   $ esc0m[0,8] = 27
+                   $ write sys$output esc5m + "blinking text" + esc0m
+
+                   Documentation on an ANSI terminal relatively similar to
+                   the VT525 series is available at:
+
+                   o  ftp://ftp.boundless.com/pub/text/adds/docs/260_prog/
+
+                   o  ftp://ftp.boundless.com/pub/text/adds/docs/260_user/
+
+                   Also see the various documentation and manuals
+                   available at:
+
+                   o  http://www.vt100.net/
+
+                   Information on the ReGIS graphics character set is
+                   available at:
+
+                   o  http://www.cs.utk.edu/~shuford/terminal/dec_regis_
+                      news.txt
+
+                   Also:
+
+                   o  http://www.boundless.com/Text_Terminals/VT/
+
+                   Also see Section 11.7, Section 8.11.
+
+
+
+                   12-2
+
+ 
+
+
+
+
+
+                   Miscellaneous Information
+
+
+
+          __________________________________________________________
+          12.2  Does DECprint (DCPS) work with the LRA0 parallel port?
+
+                   The parallel printing port LRA0: found on many
+                   OpenVMS Alpha systems is capable of some bidirectional
+                   communications, with enough for basic operations with
+                   most parallel printers.
+
+                   DECprint (DCPS) requires more than just the simple
+                   handshaking provided by the LRA0: port, therefore DCPS
+                   does not work with the LRA0: port.
+
+          __________________________________________________________
+          12.3  How do I check for free space on a (BACKUP) tape?
+
+                   You cannot know for certain, though you can certainly
+                   estimate the remaining capacity.
+
+                   Tape media is different than disk media, as disks
+                   have a known and pre-determined fixed capacity. Modern
+                   disks also appear logically perfect, based on bad block
+                   revectoring support and the extra blocks hidden within
+                   the disk structure for these bad block replacements.
+
+                   The capacity of tape media is not nearly as pre-
+                   determined, and the capacity can vary across different
+                   tape media (slightly different media lengths or
+                   different foil markers or other variations, for
+                   instance) and even on the same media over time (as bad
+                   spots in the media arise). Tapes can vary the amount of
+                   recording media required, depending on the remaining
+                   length of the tape, the numbers of correctable and
+                   uncorrectable media errors that might occur, the
+                   numbers and sizes of the inter-record gaps and related
+                   tape structure overhead, the particular media error
+                   recovery chosen, the tape density, the efficiently of
+                   any data compression in use, and the storage overhead
+                   required by BACKUP, tar, and other similar commands.
+
+                   BACKUP using with the default settings results in
+                   approximately 15% overhead, in terms of saveset size.
+                   (eg: Assuming a 500 KB input, the total size would be
+                   575 KB.)
+
+                   Assuming no compression:
+                   4 GB media / 575 KB saveset = 7294 savesets
+
+                                                                      12-3
+
+ 
+
+
+
+
+
+                   Miscellaneous Information
+
+
+
+
+                   Assuming 1:2 compression:
+                   8 GB media / 575 KB saveset = 14588 savesets
+
+                   Note: There are no inter-record gaps on DAT tapes.
+                   (When determining media capacity, you have to consider
+                   these with nine-track magtape media. Not with DAT
+                   (DDS). However, the block structure underneath
+                   the variable length record recording is based on a
+                   block size of circa 124 KB. Further, writing doubles
+                   filemarks and such can cause a loss of up to the
+                   underlying block size. Thus even though there are no
+                   inter-record gaps on DAT, larger savesets are still
+                   usually best.
+
+                   The compression algorithms used on various devices are
+                   generally not documented-further, there is no way to
+                   calculate the effective data compression ratio, the
+                   tape mark overhead, and similar given just the data
+                   to be stored on tape-short of actually trying it, of
+                   course.
+
+                   A typical compression ratio found with "everyday" data
+                   is somewhere around 1:1.8 to 1:2.
+
+                   Note: OpenVMS often uses the term COMPACTION for
+                   compression control, as in the qualifier /MEDIA_
+                   FORMAT=COMPACTION.
+
+          __________________________________________________________
+          12.4  So what happened to sys$cmsuper?
+
+                   There is no SYS$CMSUPR service.
+
+                   The typical wisdom for getting into supervisor access
+                   mode (from user mode) is to execute a routine in
+                   executive mode (via a call to SYS$CMEXEC and the
+                   appropriate privilege) and then issue a SYS$DCLAST with
+                   the ASTADR parameter pointing to your routine entry
+                   point and the ACMODE parameter specified as PSL$C_
+                   SUPER.
+
+                   Alternatively, you can reset mode in the call stack
+                   return path and unwind from executive or kernel out
+                   into supervisor mode.
+
+                   12-4
+
+ 
+
+
+
+
+
+                   Miscellaneous Information
+
+
+
+          __________________________________________________________
+          12.5  Correctly using license PAKs and LMF?
+
+                   If you have multiple LMF$LICENSE.LDB databases in
+                   your OpenVMS Cluster, then each and every PAK must
+                   be installed in each and every license database present
+                   in an OpenVMS Cluster. Even if you use /EXCLUDE or
+                   /INCLUDE, you need to have a consistent set of PAKs
+                   registered across all licensing databases present in
+                   the OpenVMS Cluster.
+
+                   If your software license permits it, you can use the
+                   following two commands to transfer license PAKs:
+
+                   $ LICENSE COPY...
+                   $ LICENSE ISSUE/PROCEDURE/OUTPUT=file product,...
+
+                   To display the particular license(s) required (such as
+                   when you receive a NOLICENSE error), use the following
+                   DCL sequence:
+
+                   $ SET PROCESS/PRIVILEGE=ALL
+                   $ REPLY/ENABLE
+                   $ DEFINE/SYSTEM/EXECUTIVE LMF$DISPLAY_OPCOM_MESSAGE
+
+                   This logical name will cause all license failures
+                   to generate OPCOM messages, and this will hopefully
+                   show which license(s) you need- there may well also
+                   be additional license failures displayed, as various
+                   products can check for and can be enabled by multiple
+                   license PAKs. You will want to deassign this logical
+                   name when done.
+
+                   Some of the more common license PAKs:
+
+                     DECnet Phase IV:   DVNETRTG, DVNETEND, DVNETEXT, or NET-APP-SUP*
+                     DECnet-Plus:       DVNETRTG, DVNETEND, DVNETEXT, or NET-APP-SUP*
+                     TCP/IP Services:   UCX, or NET-APP-SUP*
+                     OpenVMS Alpha:     OPENVMS-ALPHA and OPENVMS-ALPHA-USER
+                     OpenVMS VAX:       VAX-VMS
+                     OpenVMS Galaxy:    OPENVMS-GALAXY
+                     Cluster (Alpha):   VMSCLUSTER, NET-APP-SUP*
+                     Cluster (VAX):     VAXCLUSTER, NET-APP-SUP*
+
+
+                                                                      12-5
+
+ 
+
+
+
+
+
+                   Miscellaneous Information
+
+
+
+
+                   Various NET-APP-SUP (NAS) license packages are
+                   available, each with differing collections of products
+                   authorized. See the various NAS Software Product
+                   Description (SPD) documents for specific details.
+
+                   o  http://www.compaq.com/info/spd/
+                      OpenVMS typically uses SPD 25.01.xx and/or SPD
+                      41.87.xx.
+
+                   To determine which license PAK is failing (via a
+                   license check failure OPCOM message), use the command:
+
+                   $ DEFINE/SYSTEM/EXECUTIVE LMF$DISPLAY_OPCOM_MESSAGE TRUE
+
+                   Realize that defining this logical name will
+                   cause license checks that are otherwise hidden
+                   (unimplemented, latent, or part of a check for any
+                   of a series of licenses) to become visible. In other
+                   words, expect to see some spurious license check calls
+                   when you define this.
+
+                   For information on PAKGEN and on generating license
+                   PAKs, please see Section 10.10.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                   12-6
+
+ 
+
+
+
+
+
+
+
+
+
+
+                   _______________________________________________________
+
+          13       Finding and using Software
+
+
+
+          __________________________________________________________
+          13.1  Where can I find freeware/shareware/software for OpenVMS?
+
+                   o  Details on many commercial OpenVMS products are
+                      available in the catalog located at:
+
+                     o  http://www.compaq.com/csa/directory/
+
+                   o  An OpenVMS Freeware CD-ROM is distributed with
+                      OpenVMS, and is also available separately (QA-6KZAA-
+                      H8). The contents of the OpenVMS Freeware CD-ROM
+                      media are also available online at:
+
+                     o  http://www.hp.com/go/openvms/freeware/
+
+                     o  ftp://ftp.montagar.com/
+
+                     o  ftp://mvb.saic.com/freewarev40/
+
+                      and at various other sites. The website also
+                      includes various updates and new packages that
+                      become available after the CD-ROM distributions
+                      are created.
+
+                      Submissions to the OpenVMS Freeware can be made
+                      via:
+
+                     o  http://www.hp.com/go/openvms/freeware/
+
+                      To acquire the OpenVMS Freeware CD-ROM distribution,
+                      you can order an OpenVMS distribution from HP (the
+                      Freeware is included)(see the OpenVMS SPD for part
+                      numbers), or you can specifically order a Freeware
+                      distribution from HP under part number:
+
+                     o  QA-6KZAA-H8
+
+                      The Freeware CD-ROM set contains a large assortment
+                      of freeware, and is a good starting point if looking
+                      for utilities. Many of the packages listed below
+                      are also on the Freeware CD. Some of the most oft-
+                      requested OpenVMS tools on the Freeware CD include
+                      ZIP and UNZIP and GZIP (please see SOFT14), MMK
+
+                                                                      13-1
+
+ 
+
+
+
+
+
+                   Finding and using Software
+
+
+
+
+                      (make), PINE, PERL, TAR, UUENCODE and UUDECODE. Many
+                      other tools are available on the Freeware.
+
+                   o  The UUENCODE and UUDECODE tools and various
+                      other tools are also available as part of TCP/IP
+                      Services package. (Use the DCL command procedure
+                      SYS$STARTUP:TCPIP$DEFINE_COMMANDS.COM available on
+                      V5.0 and later to set up the necessary DCL foreign
+                      command symbols used for these and for various other
+                      tools provided by TCP/IP Services.)
+
+                   o  OpenVMS software (formerly at Western Kentucky
+                      University (WKU) is now available via Madgoat and
+                      via Process Software archives:
+
+                     o  http://www.process.com/openvms/index.html
+
+                     o  http://www.madgoat.com/
+
+                   o  The FILESERV packages are also available via
+                      anonymous FTP from:
+
+                     o  ftp://ftp.process.com/vms-freeware/
+
+                     o  ftp.process.com, under [.WKU.VMS.FILESERV].
+
+                     o  ftp.vms.stacken.kth.se, under
+                        [.MIRRORS.WKU.VMS.FILESERV].
+
+                     o  ftp.ctrl-c.liu.se, under [.WKU.VMS.FILESERV].
+
+                     o  ftp.riken.go.jp
+
+                     o  ftp.vsm.com.au, under kits and kits/decwindows.
+
+                     o  ftp.vsm.com.au, via the WWW instead of FTP.
+
+                      The packages are also available via e-mail from
+                      FILESERV@PROCESS.COM. Send the commands HELP and
+                      DIR ALL in the body of a mail message to this email
+                      address for further information on retrieving the
+                      files.
+
+                   o  Arne Vajhøj operates an OpenVMS website, with
+                      software and other pointers, at:
+
+                     o  http://www.levitte.org/~ava/
+
+                   13-2
+
+ 
+
+
+
+
+
+                   Finding and using Software
+
+
+
+
+                   o  Jouk maintains a summary of various public-domain
+                      and open-source software ports, and specifically
+                      ports of packages for use on OpenVMS, at:
+
+                     o  http://nchrem.tnw.tudelft.nl/openvms/
+
+                   o  The Kermit file transfer package is available at:
+
+                     o  http://www.columbia.edu/kermit/
+
+                     o  ftp://kermit.columbia.edu/
+
+                   o  ZMODEM is available at:
+
+                     o  ftp://ftp.cs.pdx.edu/pub/zmodem
+
+                      See the FILES file in that directory for further
+                      details. Note that this freeware version of ZMODEM
+                      will interoperate only with ZMODEM software that is
+                      licensed from Omen Technology. (This package is also
+                      available on various of the Freeware distributions.)
+
+                   o  A good source of software for OpenVMS systems
+                      and for various other platforms is the Encompass
+                      (formerly known as DECUS) library. Online catalogs
+                      are available as well as some software via
+
+                     o  ftp://ftp.decus.org
+
+                     o  gopher://gopher.decus.org/
+
+                     o  http://www.decus.org/
+
+                   o  DECUS SIG Tape collections are available on Mark
+                      Berryman's system,
+
+                     o  ftp://mvb.saic.com/
+
+                   o  David Jones's DECthreads-based HTTP_SERVER World-
+                      Wide Web server for OpenVMS, often known as the OSU
+                      webserver:
+
+                     o  http://kcgl1.eng.ohio-
+                        state.edu/www/doc/serverinfo.html
+
+                   o  Secure Shell (SSH) Server for OpenVMS:
+
+                     o  http://kcgl1.eng.ohio-state.edu/~JONESD/ssh/DOC/
+
+                      Secure Shell (SSH) FISH Client for OpenVMS:
+
+                     o  http://www.free.lp.se/fish/
+
+                      Information on OpenSSL (SSLeay) for OpenVMS:
+
+                                                                      13-3
+
+ 
+
+
+
+
+
+                   Finding and using Software
+
+
+
+
+                     o  http://www.free.lp.se/openssl/
+
+                     o  http://www.free.lp.se/fish/
+
+                      Information on OpenSSL (SSLeay) and OSU Web server
+                      interoperation:
+
+                     o  http://www.ourservers.net/openvms_ports/
+
+                      OpenSSL is included with OpenVMS V7.3-1 and later.
+
+                   o  DECwindows Motif V1.2-3 includes NCSA Mosaic 2.4
+                      built for TCP/IP Services (UCX). V1.2-4 includes
+                      Spyglass Enhanced Mosaic, which supports many of
+                      the Netscape enhancements. Versions of the Netscape
+                      Navigator and particularly the Mozilla Web Browser
+                      are also available for OpenVMS. The Compaq Secure
+                      Web Browser (CSWB) kit is a packaged version of the
+                      Mozilla.org Mozilla Web Browser. <(CSWB)
+
+                   o  A port of the NCSA Mosaic web browser that supports
+                      TCP/IP Services, Multinet and SOCKETSHR/NETLIB is
+                      available from:
+
+                     o  ftp://wvnvms.wvnet.edu/mosaic/
+
+                      Versions of the Mosaic web browser are also
+                      available on the Freeware.
+
+                   o  Lynx (a character-cell World-Wide-Web web browser)
+                      is available from
+
+                     o  ftp://ftp2.cc.ukans.edu/pub/lynx
+
+                      Versions of Lynx, a character-cell web browser, are
+                      also available on the OpenVMS Freeware.
+
+                   o  The Netscape Navigator and Mozilla web browsers are
+                      available at:
+
+                     o  http://www.openvms.compaq.com/ebusiness/Technology.html
+
+                     o  http://www.mozilla.org/
+
+                   o  PGP (Phil Zimmerman's "Pretty Good Privacy") is
+                      available from various distribution sites, including
+                      those listed in the PGP FAQ. Information on PGP and
+                      on OpenVMS downloads of PGP is available. Relevant
+                      URLs include:
+
+                     o  http://www.ipgpp.org/
+
+                   13-4
+
+ 
+
+
+
+
+
+                   Finding and using Software
+
+
+
+
+                     o  http://web.mit.edu/network/pgp.html
+
+                     o  http://www.pgpi.com/
+
+                     o  http://www.yrl.co.uk/~phil/pds/pds.html
+
+                     o  http://www.nai.com/
+
+                   o  GNU Privacy Guard (GPG, GnuPG) is available.
+
+                      Search the comp.os.vms newsgroup archives for
+                      information regarding GnuPG; the source code,
+                      binaries for various platforms, and documentation
+                      are all available at:
+
+                     o  http://www.gnupg.org/
+
+                      The OpenVMS source code and OpenVMS Alpha images can
+                      be found at:
+
+                     o  http://saf.bio.caltech.edu/pub/SOFTWARE/openvms/
+
+                     o  ftp://ftp.process.com/vms-freeware/mathog/
+
+                      As of this writing, the port only runs on OpenVMS
+                      Alpha, but an investigation of an OpenVMS VAX port
+                      is reportedly under consideration.
+
+                   o  An archive of the CENA DECwindows, X Windows, and
+                      VMS software packages can be found at the following
+                      sites:
+
+                     o  http://decwarch.free.fr/
+
+                     o  ftp://ftp2.cnam.fr/decwindows/
+
+                     o  ftp://ftp.ctrl-c.liu.se/decwindows/
+
+                     o  ftp://ftp.vms.stacken.kth.se/mirrors/decwindows/
+
+                     o  http://www.multimania.com/pmoreau/decw/
+
+                      Other FTP mirror sites for the DECwindows archive
+                      include:
+
+                     o  axp.psl.ku.dk (Multinet)
+
+                     o  ftp2.cnam.fr (MadGoat)
+
+                      ftp.x.org (in /contrib/vms) is effectively not a
+                      mirror, but it does have various OpenVMS packages
+                      from the DECwindows archive.
+
+                      A list of the http mirror sites for the DECwindows
+                      archive is available at:
+
+                                                                      13-5
+
+ 
+
+
+
+
+
+                   Finding and using Software
+
+
+
+
+                     o  http://axp616.gsi.de:8080/wwwar/cena/decwindows/cena.html
+
+                      Various of these packages are also available on the
+                      Freeware.
+
+                   o  ImageMagick is an X11 package for display and
+                      interactive manipulation of images. The package
+                      includes tools for image conversion, annotation,
+                      compositing, animation, and creating montages.
+                      ImageMagick can read and write many of the more
+                      popular image formats (e.g. JPEG, TIFF, PNM, XPM,
+                      Photo CD, etc.).
+
+                     o  http://www.imagemagick.org/
+
+                      Versions of ImageMagick are also included on the
+                      Freeware.
+
+                   o  XV is a image viewing and editing tool and is
+                      available from:
+
+                     o  ftp://ftp.cis.upenn.edu/pub/xv
+
+                     o  http://www.sanface.com/
+
+                     o  ftp://www-pi.physics.uiowa.edu/~dyson/xv/
+
+                   o  Many software packages are available for displaying
+                      various bitmap files (.JPG, .GIF, .BMP, etc) on
+                      OpenVMS. Xloadimage, Xli, Xv, ImageMagick are the
+                      most common tools used under OpenVMS. Various web
+                      browsers such as Mozilla (qv) can also display
+                      various file formats on OpenVMS. You can find some
+                      of these tools at the DECwindows Archive:
+
+                     o  http://www.multimania.com/pmoreau/decw/index.html
+
+                     o  http://www.multimania.com/pmoreau/decw/images.html
+
+                   o  GHOSTSCRIPT (gs) and GHOSTVIEW (gv) are available
+                      from the Freeware V5.0 and Freeware V6.0
+                      distributions:
+
+                     o  http://www.hp.com/go/openvms/freeware/
+
+                      Versions are also available on the Freeware.
+
+                      Also see:
+
+                     o  http://www.cs.wisc.edu/~ghost/gnu/
+
+                   13-6
+
+ 
+
+
+
+
+
+                   Finding and using Software
+
+
+
+
+                   o  XPDF, a viewer for PDF (Adobe Acrobat) files, is
+                      available from:
+
+                     o  http://www.foolabs.com/xpdf/
+
+                      Also available on the Freeware.
+
+                      Beware: the XPDF tool included on OpenVMS Freeware
+                      V4.0 is dated, and has been found to have various
+                      bugs. Use the Freeware V5.0 version of the XPDF kit,
+                      or later.
+
+                      A Java-based PDF viewer is available from Adobe,
+                      and is known to operate on recent OpenVMS Alpha
+                      releases:
+
+                     o  http://www.adobe.com/
+
+                   o  Various OpenVMS-related tools-both freeware and
+                      shareware-such as txt2pdf-are available from at:
+
+                     o  http://www.sanface.com/
+
+                   o  The MPEG library version 1.1 is available for
+                      OpenVMS VAX and Alpha at
+
+                     o  ftp://ftp.x.org/contrib/vms/mpeglib-11-vms.readme
+
+                     o  ftp://ftp.x.org/contrib/vms/mpeglib-11-vms.zip
+
+                      Various MPEG players and related tools are available
+                      on the Freeware.
+
+                   o  An Archie clone is available at INFO.CS.PUB.RO.
+                      Telnet to that machine, and login as VMSARCI. It
+                      contains now listings for over 30 ftp servers with
+                      over 14 gigabytes of OpenVMS software.
+
+                      The most useful commands are LIST, which generates a
+                      list of scanned ftp servers, and FIND string, whichs
+                      looks for a file containing "string" in the name;
+                      the search modes are only "substring" [default] and
+                      "exact", and regex search is not supported (so FIND
+                      EMACS will work, but FIND *EMACS* or FIND *EMACS*.*
+                      will not). The search is case-insensitive.
+
+                      The maintainer of the site (stfp@roipb.cs.ipb.ro)
+                      requests that anyone submit notifications of FTP
+                      servers with OpenvMS software that are not listed on
+                      the site.
+
+                                                                      13-7
+
+ 
+
+
+
+
+
+                   Finding and using Software
+
+
+
+
+                   o  The Levitte (extended :-) Family (and OpenVMS)
+                      website:
+
+                     o  http://www.levitte.org/
+
+                     o  http://www.levitte.org/~ava/
+
+                   o  Robert Alan Byer's OpenVMS Hobbyist Systems,
+                      including OpenVMS public domain software and various
+                      ports:
+
+                     o  http://www.ourservers.net/
+
+                   o  CalTech Software Archives:
+
+                     o  http://seqaxp.bio.caltech.edu/pub/SOFTWARE/AAA_
+                        CONTENTS.TXT
+
+                   o  DJE Systems Website (David J. Dachtera)
+
+                     o  http://www.djesys.com/freeware/vms/
+
+                   o  Web Servers:
+
+                      Apache Web server (HP (Compaq) Secure Web Server
+                      (CSWS)):
+
+                     o  http://www.openvms.compaq.com/ebusiness/Technology.html
+
+                     o  http://www.er6.eng.ohio-
+                        state.edu/~jonesd/apache/1_3_9/
+
+                      The SOAP Toolkit is available at the OpenVMS
+                      website.
+
+                      OSU Web server
+
+                     o  http://www.er6.eng.ohio-
+                        state.edu/www/doc/serverinfo.html
+
+                     o  http://www.kjsl.com/archives/
+
+                     o  email list: VMS-WEB-daemon-Request@KJSL.COM
+
+                      WASD Web server
+
+                     o  http://wasd.vsm.com.au/wasd/
+
+                      Purveyor Web server:
+
+                     o  email list: listserv@cjis.ci.lincoln.ne.us, no
+                        subject, one line message: SUBSCRIBE PURVEYOR
+
+                      FastCGI software is available from:
+
+                     o  http://www.DigitalSynergyInc.com/
+
+                   13-8
+
+ 
+
+
+
+
+
+                   Finding and using Software
+
+
+
+
+                   o  CD-R (CD-Recordable) media tools are available,
+                      please see Section 9.7.
+
+                   o  Grace (WYSIWYG 2D plotting tool)
+
+                     o  http://plasma-gate.weizmann.ac.il/Grace/
+
+                   o  The POV-Ray ("Persistance of Vision" Raytracer) ray-
+                      tracing graphics package is available on the OpenVMS
+                      Freeware.
+
+                   o  Majordomo mailing list handler:
+
+                     o  http://www.openvms.compaq.com/ebusiness/Technology.html
+
+                   o  PINE (OpenVMS tools for sending and receiving MIME
+                      mail):
+
+                     o  ftp://ftp2.kcl.ac.uk/pub/vms/pine-vms/
+
+                     o  http://www.agh.cc.kcl.ac.uk/files/vms/pine-vms/
+
+                      A MIME tool is available in OpenVMS V7.2 and later.
+
+                      Also see the mmencode base64 encode and decode
+                      available at:
+
+                     o  http://nucwww.chem.sunysb.edu/htbin/software_
+                        list.cgi
+
+                   o  Menufinder (menu-driven system management
+                      environment):
+
+                     o  http://www.itre.com/mf/download.html
+
+                   o  SYSLOGCLIENT (a client for processing SYSLOG
+                      requests) has been provided for download by Mark
+                      Hemker at:
+
+                     o  http://home.insightbb.com/~hemker/vms.html
+
+                   o  tcgmsg, pvm, mpi, linda:
+
+                     o  ftp://v36.chemie.uni-konstanz.de/tcgmsg_
+                        vms/tcgmsg_vms.zip
+
+                   o  OpenVMS software that can control a Tripp-Lite
+                      Uninterruptable Power Supply (UPS) is available
+                      from:
+
+                     o  http://seqaxp.bio.caltech.edu/pub/SOFTWARE/TCONTROL.ZIP
+
+                                                                      13-9
+

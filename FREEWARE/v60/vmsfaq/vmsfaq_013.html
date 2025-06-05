@@ -1,0 +1,818 @@
+<!-- VMSFAQ_013.HTML continuation of SRH:[FAQ]VMSFAQ.HTML -->
+<html>
+<head>
+<title>The OpenVMS Frequently Asked Questions(FAQ)</title>
+<style>
+A:hover {color: green}
+A:active {color: red; background-color: white}
+</style>
+</head>
+<body bgcolor=white>
+<font color=maroon>
+<h1 align="center">The OpenVMS Frequently Asked Questions(FAQ)</h1>
+</font>
+
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_012.html#bottom_012">Previous</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+
+<hr>
+
+<a name="commonc"><h2>10.22.1 Other common C issues</h2></a>
+
+<p>
+The localtime() function and various other functions maintain the 
+number of years since 1900 in the "struct tm" structure member tm_year. 
+This field will contain a value of 100 in the year 2000, 101 for 2001, 
+etc., and the yearly incrementation of this field is expected to 
+continue.
+
+<p>
+The C epoch typically uses a longword (known as time_t) to contain the 
+number of seconds since midnight on 1-Jan-1970. At the current rate of 
+consumption of seconds, this longword is expected to overflow (when 
+interpreted as a signed longword) circa 03:14:07 on 19-Jan-2038 (GMT), 
+as this time is circa 0x7FFFFFFF seconds since the C base date. (The 
+most common solution is to ensure that time_t is an unsigned.)
+
+<p>
+If C does not correctly handle the display of the local system time, 
+then check the UTC configuration on OpenVMS---the most common symptom 
+of this is a skew of one hour (or whatever the local daylight savings 
+time change might be). This skew can be caused by incorrect handling of 
+the "is_dst" setting in the application program, or by an incorrect 
+OpenVMS UTC configuration on the local system. (See section 
+<a href="vmsfaq_004.html#time4">Section 4.4</a>.)
+<a name="index_x_836"></a>
+<a name="index_x_837"></a>
+<a name="index_x_838"></a>
+<a name="index_x_839"></a>
+<a name="index_x_840"></a>
+<a name="index_x_841"></a>
+
+<p>
+Floating point is prohibited in OpenVMS Alpha inner-mode (privileged) 
+code, and in any process or other execution context that does not have 
+floating point enabled. C programmers developing and working with 
+OpenVMS Alpha high-IPL kernel-mode code such as device drivers will 
+want to become familiar with the floating point processing available in 
+the environment, and with the C compiler qualifier 
+/INSTRUCTION_SET=[NO]FLOATING_POINT. Device drivers and other similar 
+kernel-mode C code must be compiled with 
+/INSTRUCTION_SET=FLOATING_POINT and /EXTERN_MODEL=STRICT_REFDEF.
+<a name="index_x_842"></a>
+<a name="index_x_843"></a>
+<a name="index_x_844"></a>
+<a name="index_x_845"></a>
+
+<p>
+Additionally, the SYS$LIBRARY:SYS$LIB_C.TLB/LIBRARY parameter will be 
+needed to be appended to the module specification or declared via the C 
+compiler's include library logical name mechanism when the C compiler 
+is resolving kernel-mode data structures and definitions. This library 
+contains OpenVMS kernel-mode and other system declaractions, and 
+particularly a mixture of undocumented definitions and declarations, 
+and particularly definitions and declarations that are subject to 
+change (and that can accordingly lead to requirements for the 
+recompilation of application code).
+<a name="index_x_846"></a>
+
+<p>
+When sharing variables with other languages, here is some example HP C 
+code...
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+      ... 
+      #pragma extern_model save 
+      #pragma extern_model strict_refdef 
+      extern int   VMS$GL_FLAVOR; 
+      #pragma extern_model restore 
+      ... 
+</pre>
+</font>
+</table>
+
+<p>
+and here is some associated example Bliss code...
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+      ... 
+      EXTERNAL 
+         VMS$GL_FLAVOR, 
+      .... 
+</pre>
+</font>
+</table>
+
+<a name="commonc2"><h2>10.22.2 Other common C++ issues</h2></a>
+
+<p>
+HP C++ (a separate compiler from HP C) provides both symbol mangling 
+and symbol decoration. Some of the details of working with longer 
+symbol names and the resulting symbol name mangling in mixed language 
+environments are listed in the shareable image cookbook, and in the C++ 
+documentation. Symbol name decoration permits the overloading of 
+functions (by adding characters to the external symbol for the function 
+to indicate the function return type and the argument data types 
+involved), and mixed-language external references can and often do need 
+to disable this decoration via the extern "C" declaration mechanism:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+      extern "C" 
+        { 
+        extern int ExternSymbol(void *); 
+        extern int OtherExternSymbol(void *); 
+        } 
+</pre>
+</font>
+</table>
+
+<p>
+Also see <a href="vmsfaq_018.html#alpha16">Section 14.7</a> for information on /ARCHITECTURE and 
+/OPTIMIZE=TUNE.
+
+<p>
+See <a href="vmsfaq_012.html#prog17">Section 10.15</a> for information on the C system and the lib$spawn 
+call in CAPTIVE environments.
+
+<p>
+Constructs such as the order of incrementation or decrementation and 
+the order of argument processing within an argument list are all 
+implementation-defined. This means that C coding constructs such as:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+    i = i++; 
+    a[i] = i++; 
+    foo( i, i++, --i); 
+</pre>
+</font>
+</table>
+
+<p>
+are undefined and can have (adverse) implications when porting the C 
+code to another C compiler or to another platform. In general, any 
+combination of ++, --, =, +=, -=, *=, etc operators that will cause the 
+same value to be modified multiple times (between what the ANSI/ISO C 
+standard calls "sequence points") produce undefined and 
+implementation-specific results.
+
+<p>
+Within C, the following are the "sequence points": the ";" at the end 
+of a C statment, the ||, &amp;&amp;, ?:, and comma operators, and a 
+call to a function. Note specifically that = is NOT a sequence point, 
+and that the individual arguments contained within a function argument 
+list can be processed from right to left, from left to right, or at any 
+random whim.
+
+<p>
+HP C for OpenVMS VAX (formerly DEC C) and VAX C do differ in the 
+related processing.
+
+<p>
+So you are looking for OpenVMS-specific definitions (include files)?
+
+<p>
+UCBDEF.H, PCBDEF.H and other OpenVMS-specific definitions---these are 
+considered part of OpenVMS and not part of the C compiler kit---are 
+available on all recent OpenVMS Alpha releases.
+
+<p>
+To reference the version-dependent symbol library 
+sys$share:sys$lib_c.tlb, use a command similar to the following for 
+compilation:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ CC sourcea+SYS$LIBRARY:SYS$LIB_C/LIB 
+</pre>
+</font>
+</table>
+
+<p>
+You can also define DECC$TEXT_LIBRARY to reference the library.
+
+<p>
+You will want to review the Programming Concepts manual, and 
+specifically take a quick look at Chapter 21.
+
+<p>
+And some general background: the STARLET definitions (and thus the 
+sys$starlet_c.tlb library) contain the symbols and the definitions that 
+are independent of the OpenVMS version. The LIB definitions (and thus 
+sys$lib_c) contain symbols and definitions that can be dependent on the 
+OpenVMS version. You won't need to rebuild your code after an OpenVMS 
+upgrade if you have included definitions from STARLET. The same cannot 
+be said for some of the definitions in LIB---you might need to rebuild 
+your code. (The UCB structure can and has changed from release to 
+release, for instance.)
+
+<p>
+Recent versions of C automatically search sys$starlet_c.tlb. Explicit 
+specification of sys$lib_c.tlb is required.
+
+<p>
+Also see the Ask The Wizard website topics (2486), (3803), and (1661):
+
+<ul>
+  <li>http://www.hp.com/go/openvms/wizard/
+</ul>
+
+<p>
+For additional information on the OpenVMS Ask The Wizard (ATW) area and 
+for a pointer to the available ATW Wizard.zip archive, please see 
+<a href="vmsfaq_003.html#doc14">Section 3.9</a>.
+<a name="index_x_847"></a>
+<a name="index_x_848"></a>
+
+<p>
+See <a href="vmsfaq_010.html#file5">Section 9.5</a> for information on the C off_t limitations, resolved 
+in OpenVMS V7.3-1 and later and in ECO kits available for specific 
+OpenVMS releases. The use of a longword for off_t restricts 
+applications using native C I/O to file sizes of two gigabytes or less, 
+or these applications must use native RMS or XQP calls for specific 
+operations.
+
+<a name="prog101"><h1><font color=maroon>10.23 Status of Programming Tools on OpenVMS VAX?</font></h1></a>
+
+<p>
+DECthreads V7.3 and the HP C compiler (also known as Compaq C and DEC C)
+<a name="index_x_849"></a>
+<a name="index_x_850"></a>
+<a name="index_x_851"></a>
+<a name="index_x_852"></a>
+<a name="index_x_853"></a>
+V6.4 are presently expected to be the last updates and the last 
+releases of these development packages for use on OpenVMS VAX. The 
+run-time support for both DECthreads (CMA$RTL) and for C (DECC$CRTL) 
+will continue to be
+<a name="index_x_854"></a>
+<a name="index_x_855"></a>
+maintained, and will continue to be available on OpenVMS VAX. The VAX C 
+V3.2 compiler is the final VAX C compiler release for OpenVMS VAX, and 
+the VAX C Run-Time Library (VAXCRTL) will also continue to be available.
+<a name="index_x_856"></a>
+
+<p>
+New development and new features and product enhancements continue for 
+the OpenVMS Alpha and the OpenVMS IA-64 DECthreads and C compilers.
+
+<p>
+<hr size=5>
+<font color=maroon>
+<a name="faq_decwindows"><h1>Chapter 11<br>DECwindows</h1></a>
+</font>
+
+<a name="decw1"><h1><font color=maroon>11.1 How do I let someone else display something on my workstation?</font></h1></a>
+<a name="index_x_857"></a>
+
+<p>
+On a workstation, you will want to use the &quot;Customize&quot; menu 
+of the session manager utility and select &quot;Security&quot;. When 
+the pop-up box appears, you can select the host node, username, and 
+tranport that will allow you to launch an application that targets the 
+workstation display.
+
+<p>
+If this does not provide you with access to the display, You need a 
+checklist of sorts:
+
+<ul>
+  <li>Make sure that you've specified the X-windows &quot;display&quot; 
+  correctly on the remote host. For a DECnet transport, the specification 
+  uses two colons, while the TCP/IP transport typically uses one. The X 
+  Windows server and the X Windows screen follow the host specification, 
+  delimited by a period. For example:
+<a name="index_x_858"></a>
+<a name="index_x_859"></a>
+<p>
+
+<table border=3>
+  <caption><a name="tbl_xdisplay"><strong>Table 11-1 X Windows Display Commands</strong></a></caption>
+  <tr bgcolor=lightseagreen>
+    <th align=center>Shell </th>
+    <th align=center>Command </th>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      csh
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      # setenv DISPLAY vms.domain:0.0
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      sh and ksh
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      # $ DISPLAY=vms.domain:0.0 ; export DISPLAY
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td colspan=2 align=left>
+      DCL
+    </td>
+  </tr>
+  <tr bgcolor=blanchedalmond>
+    <td>
+      &nbsp;
+    </td>
+    <td>
+      $ SET DISPLAY/CREATE/NODE=vms.domain -
+      <br> /TRANSPORT=TCPIP/SERVER=server/SCREEN=screen
+    </td>
+  </tr>
+</table>
+  <li>If you have verified the command is correct and things are still 
+  not working, ensure the Security settings on the OpenVMS host side will 
+  allow the incoming connection: Pull down the &quot;Options&quot; menu 
+  in the Session Manager, and select &quot;Security...&quot;. If you do 
+  not find your host and username and transport listed among the 
+  authorized users, you will need to add an entry.
+
+  <ul>
+    <li>There are various transports available, including LOCAL, DECNET, 
+    LAT, and TCPIP. You must Select the transport appropriate to the 
+    incoming connection.
+    <li>If the transport is &quot;DECnet&quot;, do <em>NOT</em> add the 
+    double colon (::) to the node name.
+    <li>If the transport is &quot;TCPIP&quot;, "Username" <em>must</em> be 
+    an asterisk (*). Why? Because unlike DECnet, the TCP/IP protocol does 
+    not provide the remote username information in the incoming connection.
+    <li>If the connection is &quot;TCPIP&quot;, it is best to use a full 
+    domain name (e.g. Node.Subd.Domain). However, you may have to use the 
+    IP address itself, if your host does not have a way to resolve the 
+    address via DNS. If you have the luxury of fixed addresses (eg: you are 
+    <em>not</em> using DHCP), then it can be helpful to add two entries for 
+    each TCP/IP host, one that specifies the host name and one that 
+    specifies the host address.
+    <li>There are various TCP/IP packages for OpenVMS, and you must use 
+    syntax appropriate to the transport installed.
+    <li>If a TCP/IP connection is still not working, ensure that the 
+    transport you want has been activated for use with DECwindows. See 
+    <a href="vmsfaq_014.html#decw17">Section 11.15</a> for details of configuring TCP/IP as a transport.
+  </ul>
+  <li>There is a log file created in SYS$MANAGER: which can tell you 
+  which transports are loaded, and also tell you what connect attempts 
+  were rejected, including showing what the presented credentials were. 
+  This file is SYS$MANAGER:DECW$SERVER_0_ERROR.LOG, although the 0 could 
+  be another number if you have multiple servers on the workstation. I 
+  have found this file to be very useful for tracking down what needs to 
+  be put in the Session Manager Security entries.
+</ul>
+
+<a name="decw2"><h1><font color=maroon>11.2 How do I create a display on another workstation?</font></h1></a>
+<a name="index_x_860"></a>
+
+<p>
+To create a display from an OpenVMS host to a remote X Windows display, 
+use one of the following DCL commands:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ SET DISPLAY /CREATE /TRANSPORT=net_transport /NODE=remote_node 
+$ SET DISPLAY /CREATE /TRANSPORT=LAT /NODE=remote_node 
+$ SET DISPLAY /CREATE /TRANSPORT=DECnet /NODE=remote_node 
+$ SET DISPLAY /CREATE /TRANSPORT=TCPIP /NODE=remote_node 
+</pre>
+</font>
+</table>
+
+<a name="index_x_861"></a>
+<a name="index_x_862"></a>
+
+<p>
+Note that LAT is typically used only for the VXT series X Windows 
+terminals, but it can also be used from OpenVMS to OpenVMS systems on 
+various OpenVMS releases, such as on OpenVMS Alpha V6.1 and later. For 
+details on configuring the TCP/IP transport, see <a href="vmsfaq_014.html#decw17">Section 11.15</a>.
+
+<p>
+If you are interested in X Windows terminals and have an older 
+VAXstation system around, please see the EWS package on Freeware V5.0.
+<a name="index_x_863"></a>
+
+<a name="decw3"><h1><font color=maroon>11.3 How can I get the information from SHOW DISPLAY into a symbol?</font></h1></a>
+<a name="index_x_864"></a>
+
+<p>
+Use the undocumented SHOW DISPLAY/SYMBOL, and then reference the 
+symbols DECW$DISPLAY_NODE, DECW$DISPLAY_SCREEN, DECW$DISPLAY_SERVER 
+and/or DECW$DISPLAY_TRANSPORT.
+
+<p>
+An example of calling the underlying (and also undocumented) sys$qio 
+programming interface for the WSDRIVER
+<a name="index_x_865"></a>
+<a name="index_x_866"></a>
+(WSAn:) is available at:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+http://www.hp.com/go/openvms/freeware/ 
+</pre>
+</font>
+</table>
+
+Look in the Freeware V4.0 directory /srh_examples/DECUS_UNDOC_CLINIC/.
+
+<a name="decw4"><h1><font color=maroon>11.4 How do I get a log of a DECterm session?</font></h1></a>
+<a name="index_x_867"></a>
+
+<p>
+If you are working from a Decterm, you can use the AutoPrint feature. 
+Choose the "Printer..." menu item from the "Options" menu, set the 
+printing destination to the name of the file you want, and set "Auto 
+Print Mode". You are now free to continue.
+
+<p>
+It should be noted that all of the characters and escape sequences are 
+captured, but if you display the resulting log file on a DECterm, then 
+you will see exactly what was originally displayed.
+
+<a name="decw5"><h1><font color=maroon>11.5 Why does the DELETE key delete forward instead of backward?</font></h1></a>
+<a name="index_x_868"></a>
+
+<p>
+This involves the Motif virtual key bindings. When a Motif application 
+starts, it looks at the vendor string returned in the display 
+connection information and attempts to match the string to a table of 
+virtual bindings.
+
+<p>
+You can override the default bindings in your decw$xdefaults.dat file. 
+Here is the entry you would make to get the default VMS bindings.
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+*defaultVirtualBindings:\
+ osfCancel :  <kbd>[]</kbd>F11 \n\
+ osfLeft :  <kbd>[]</kbd>Left \n\
+ osfUp  :  <kbd>[]</kbd>Up  \n\
+ osfRight :  <kbd>[]</kbd>Right \n\
+ osfDown :  <kbd>[]</kbd>Down \n\
+ osfEndLine :Alt  <kbd>[]</kbd>Right \n\
+ osfBeginLine :Alt  <kbd>[]</kbd>Left \n\
+ osfPageUp :  <kbd>[]</kbd>Prior \n\
+ osfPageDown :  <kbd>[]</kbd>Next \n\
+ osfDelete :Shift  <kbd>[]</kbd>Delete \n\
+ osfUndo :Alt  <kbd>[]</kbd>Delete \n\
+ osfBackSpace :  <kbd>[]</kbd>Delete \n\
+ osfAddMode :Shift  <kbd>[]</kbd>F8  \n\
+ osfHelp :  <kbd>[]</kbd>Help \n\
+ osfMenu :  <kbd>[]</kbd>F4  \n\
+ osfMenuBar :  <kbd>[]</kbd>F10 \n\
+ osfSelect :  <kbd>[]</kbd>Select \n\
+ osfActivate :  <kbd>[]</kbd>KP_Enter \n\
+ osfCopy :Shift  <kbd>[]</kbd>DRemove \n\
+ osfCut  :  <kbd>[]</kbd>DRemove \n\
+ osfPaste :  <kbd>[]</kbd>Insert 
+</pre>
+</font>
+</table>
+
+<p>
+To merge:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ xrdb :== $decw$utils:xrdb.exe 
+$ xrdb -nocpp -merge decw$xdefaults.dat 
+</pre>
+</font>
+</table>
+
+<p>
+Also note that the DECW$UTILS:DECW$DEFINE_UTILS.COM procedure can be 
+used to establish the xrdb and other symbols.
+
+<p>
+Also see the DECxterm directory of Freeware V5.0 for details on 
+connecting to OpenVMS from various UNIX platforms.
+
+<a name="decw6"><h1><font color=maroon>11.6 Why is DECwindows Motif not starting?</font></h1></a>
+<a name="index_x_869"></a>
+
+<p>
+First check to see if there is a graphics device, usually a G* device. 
+(eg: On a DEC 2000 model 300, use the command SHOW DEVICE GQ) If you do 
+not find a graphics device:
+
+<ul>
+  <li>OpenVMS has failed to find the appropriate IRQ information for an 
+  EISA graphics card (on the DEC 2000 series) such as the HP (Compaq) 
+  QVision, and did not autoconfigure it. Run the correct ECU (for Tru64 
+  UNIX and OpenVMS) and reboot. This is necessary only on EISA-based 
+  systems.
+  <li>You have an EISA-based system (such as the DEC 2000 model 300) and 
+  do not have a HP (Compaq) QVision video card. This EISA graphics card 
+  should have Compaq printed on it, and identifies itself as a CPQ3011 or 
+  a CPQ3111. If it is not one of these two EISA devices, then OpenVMS 
+  does not support it. (There are no other supported EISA graphics 
+  controllers, and EISA graphics are normally used with DECwindows only 
+  on the DEC 2000 series systems.)
+  <li>You have a PCI-based system, and do not have a supported graphics 
+  controller---examples of supported controllers include the following:
+
+  <ul>
+    <li>PowerStorm 3D30
+    <li>PowerStorm 4D20
+    <li>PowerStorm 300
+    <li>PowerStorm 350
+    <li>ELSA GLoria Synergy
+    <li>3DLabs Oxygen VX1
+  </ul>
+    <br>See <a href="vmsfaq_007.html#mgmt24">Section 5.15</a> for further information on some of these graphics 
+    controllers.
+  <li>You have booted the system minimally, or have otherwise disabled 
+  the device autoconfiguration process.
+</ul>
+
+<p>
+If there is a G* graphics device present:
+
+<ul>
+  <li>There may have been a severe error in the DECwindows startup. Type 
+  the contents of SYS$MANAGER:DECW$SERVER_0_ERROR.LOG for any information 
+  on errors starting the server.
+  <li>The system parameter WINDOW_SYSTEM is not set to 1. While this was 
+  a common way for system managers to disable the DECwindows server 
+  startup, it is not particularly reliable as DECwindows can now 
+  &quot;correct&quot; this setting.
+<a name="index_x_870"></a>
+<a name="index_x_871"></a>
+    <br>If you really do not want an OpenVMS system with workstation 
+    hardware to bootstrap and configure itself as a workstation, add the 
+    following definition to SYLOGICALS.COM:
+<a name="index_x_872"></a>
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ DEFINE/SYSTEM/EXEC DECW$IGNORE_WORKSTATION TRUE 
+</pre>
+</font>
+</table>
+
+<a name="index_x_873"></a>
+<a name="index_x_874"></a>
+  <li>You may not have a valid DECwindows Motif license loaded. To check 
+  for the two most common types of Motif product authorization keys 
+  (PAKs), use the following DCL commands:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ LICENSE LIST DW-MOTIF/FULL 
+$ LICENSE LIST NET-APP-SUP*/FULL 
+</pre>
+</font>
+</table>
+
+<a name="index_x_875"></a>
+<a name="index_x_876"></a>
+<a name="index_x_877"></a>
+<a name="index_x_878"></a>
+    <br>and examine the information displayed. Make sure that one of these 
+    licenses is present, valid and active. <br>For information on 
+    registering software license product authorization keys (PAKs) when you 
+    cannot log into the system directly, please see <a href="vmsfaq_005.html#mgmt5b">Section 5.5.2</a>.
+  <li>Check that the DECW$PRIVATE_SERVER_SETUP.COM is correct for the 
+  graphics controller in use. For instance: <br>The following is from the 
+  9FX Vision 330 Owners Guide, EK-V330G-OG pg 2-9. Place the following in 
+  DECW$PRIVATE_SERVER_SETUP.COM, creatibng .COM from .TEMPLATE if 
+  necessary. Locate the DECW$PRIVATE_SERVER_SETUP.COM file in 
+  SYS$SPECIFIC:[SYSMGR] or in SYS$COMMON:[SYSMGR] as appropriate; the 
+  former file is used for this system within a cluster configuration, and 
+  the latter is used for all systems that do not also have a local copy 
+  of this file in SYS$SPECIFIC:[SYSMGR].
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ DECW$XSIZE_IN_PIXELS == xvalue 
+$ DECW$YSIZE_IN_PIXELS == yvalue 
+$ DEFINE/SYSTEM DECW$SERVER_REFRESH_RATE rate_in_Hz 
+</pre>
+</font>
+</table>
+
+    <br>Also see <a href="vmsfaq_014.html#decw14">Section 11.12</a>. Details of the PowerStorm 3D30 and 4D20 
+    settings are available in the OpenVMS Ask The Wizard area.
+</ul>
+
+<a name="decw9"><h1><font color=maroon>11.7 How do I set the title on a DECterm window?</font></h1></a>
+<a name="index_x_879"></a>
+
+<p>
+If you are creating a new DECterm window, check
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ HELP CREATE /TERMINAL /WINDOW_ATTRIBUTES 
+</pre>
+</font>
+</table>
+
+<p>
+If you want to change the title of an existing window, use the 
+following control sequences, where <kbd>[esc]</kbd> is the ANSI escape 
+code, value decimal 27, and &quot;text label&quot; is what you want to 
+display:
+
+<p>
+To set the DECterm title, send:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+<kbd>[esc]</kbd>]21;text label<kbd>[esc]</kbd>\
+</pre>
+</font>
+</table>
+
+<p>
+To set the icon label, send:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+<kbd>[esc]</kbd>]2L;text label<kbd>[esc]</kbd>\
+</pre>
+</font>
+</table>
+
+<p>
+To set both the DECterm title and icon to the full device name:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$  esc[0,7] = 27 
+$  fulldevnam = F$Edit(F$GetDVI("TT","FULLDEVNAM"),"UPCASE,COLLAPSE") 
+$  write sys$output esc+ "]21;" + fulldevnam + esc + "\" 
+$  write sys$output esc+ "]2L;" + fulldevnam + esc + "\" 
+</pre>
+</font>
+</table>
+
+<p>
+You can also change the title and the icon using the Options-Window... 
+menu.
+
+<p>
+Also see <a href="vmsfaq_014.html#misc2">Section 12.1</a> and <a href="vmsfaq_010.html#dcl12">Section 8.11</a>.
+
+<a name="decw10"><h1><font color=maroon>11.8 How do I customize DECwindows, including the login screen?</font></h1></a>
+<a name="index_x_880"></a>
+
+<p>
+To customize various DECwindows Motif characteristics including the 
+defaults used by the SET DISPLAY command, the DECwindows login screen 
+background logo used (the default is the DIGITAL, Compaq, or HP logo), 
+various keymaps, the FileView defaults, session manager defaults, the 
+DECwindows login processing, DECwindows log file processing, and 
+various other DECwindows attributes, see the example file:
+
+<p>
+<table border=0>
+  <tr>
+    <td bgcolor=blanchedalmond>
+      <br>
+      <font color=mediumblue><pre>
+$ SYS$STARTUP:DECW$PRIVATE_APPS_SETUP.TEMPLATE 
+</pre>
+</font>
+</table>
+
+<p>
+This example template file is typically copied over to the filename 
+SYS$COMMON:[SYS$STARTUP]DECW$PRIVATE_APPS_SETUP.COM and then modified 
+to meet site-specific requirements.
+
+<p>
+Additionally, various X tools such as xsetroot, bitmap and xrdb---some 
+these can be useful in customizing the appearance of an application or 
+of the DECwindows Motif display---are provided in the DECW$UTILS: area.
+
+<p>
+When using DECwindows V1.2-4 and later on OpenVMS Alpha, the default 
+desktop is the Common Desktop Environment (CDE). You can select your 
+preferred desktop (CDE or DECwindows Motif) when logging in, or you can 
+change the default to the DECwindows Motif desktop using the DCL symbol 
+decw$start_new_desktop in the DECwindows private application setup 
+command procedure. See SYS$STARTUP:DECW$PRIVATE_APPS_SETUP.TEMPLATE for 
+further details, and how to create DECW$PRIVATE_APPS_SETUP.COM.
+
+<p>
+Note that with DECwindows CDE, the root window is no longer visible by 
+default. The root window is hidden behind the "backdrop" window of the 
+current CDE workspace. To make the root window visible, use the CDE 
+style manager selection "backdrop none", and use information such as 
+that in the OpenVMS FAQ to set the root window.
+
+<p>
+To add a new backdrop to the DECwindows CDE environment, the backdrop 
+must first be in or be converted into X11 pixmap format. (This 
+conversion is often possible using tools such as xv.)
+<a name="index_x_881"></a>
+<a name="index_x_882"></a>
+<a name="index_x_883"></a>
+<a name="index_x_884"></a>
+Then (if necessary) create the default backdrop directory 
+SYS$COMMON:[CDE$DEFAULTS.USER.BACKDROPS]. Place the X11 pixmap file 
+containing the desired image into the backdrops directory, ensure that 
+it has a filename extension of .PM. (The xv default filename extension 
+for the X11 pixmap file is .XPM, while CDE expects only to see files 
+with .PM.) Now invoke the CDE style manager and select a new backdrop. 
+You will find your image will be placed at the end of the list of 
+backdrops available.
+
+<a name="bottom_013"></a>
+<p>
+<hr>
+<table border=2>
+  <tr>
+    <td bgcolor=lightgoldenrodyellow width=150 align=center><a href="vmsfaq_012.html#bottom_012">Previous</a>
+    <td bgcolor=aquamarine width=150 align=center><a href="vmsfaq_014.html">Next</a>
+    <td bgcolor=cyan width=150 align=center><a href="vmsfaq_contents.html">Contents</a>
+    <td bgcolor=lightskyblue width=150 align=center><a href="vmsfaq_index.html">Index</a>
+</table>
+</body>
+</html>
